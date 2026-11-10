@@ -32,7 +32,7 @@ NIBI-GO 是 NIBI 生态的移动客户端：**双形态**（NIBI-WORK 远控投�
 
 4. `relay-client` / `chat-core` 与 UI 框架的隔离从**第一个 commit** 执行——它们只能依赖纯 TS（`@nibi/shared` 抽取件、zod、WebSocket、WebCrypto 接口）。
 5. crypto 走 `Cipher` 接口抽象（密文格式 XChaCha20-Poly1305 三平台一致，实现可换）。
-6. 对 `@nibi/shared` 的复用方式：类型与契约（zod schema、fake-relay）**直接 import**；若上游包不可直接引（workspace 结构差异），先抽取到 `packages/shared-extract/` 并标注来源 commit，**不改写语义**。
+6. 对 `@nibi/shared` 的复用方式（2026-11-11 定案：**选 B 抽取件**）：类型与契约**只经 `packages/shared-extract/`** 引用——抽取时标注来源 commit（nibi-client dev）、不改写语义；升级 = 对比上游 diff → 逐文件决定抽取/跳过（跳过的登记）→ 跑契约测试 → 更新来源标注。禁止本仓代码直接 import nibi-client 的 `packages/shared`。
 
 ### 双形态纪律（D2/D13）
 
@@ -66,7 +66,7 @@ node scripts/check-boundaries.mjs # 架构门禁：层间依赖白名单检查
 
 ## 现状与路线
 
-- **Phase A**（NIBI-WORK 远控客户端）：当前阶段，零内核耦合，可立即开发。
+- **Phase A**（NIBI-WORK 远控客户端）：进行中——骨架已提交（84a95b5），relay-client 草案待评审后开工 A1。
 - **Phase C**（本机内核）：挂起，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（D12 修正）。
 - **Phase B**（WORK 形态手机操控路由，nibi-phone-bridge）：最后。
 - 决策台账 D1–D17 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。

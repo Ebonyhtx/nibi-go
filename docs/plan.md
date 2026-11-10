@@ -145,6 +145,9 @@ libnibi.so 进程内运行 + jniLibs spawn W^X @ targetSdk 36（Node 方案唯�
 
 ---
 
-## 6. 待决事项（等你答案，每项附推荐+理由+影响）
+## 6. 已决事项（2026-11-11 P1–P5 全部拍板，详见 ADR-INDEX 决议追加）
 
-见汇报正文（对话中给出），汇总编号 P1–P5。
+- P1 初始提交 `84a95b5`（身份 Ebonyhtx）✅
+- P2/P3a 选 B：shared 走 `packages/shared-extract/` 抽取件，禁直链 ✅
+- P3b 会话级 K 先行；P3c JSON 文本帧 ✅
+- P4/P5 票据已写好（docs/tickets/T1/T2 + HANDOFF 交接流程），派发时机由你定 ✅
