@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A0 完成待提交（2026-11-11，清单见会话汇报）——A1 等 relay-client 草案评审批准（评审摘要已提交，待确认两点：gate.ts 后置 A2 前 / A1 不带 crypto 零桌面改动）
+> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（shared-extract 首抽 + transport/pairing 实现）；下一步 A1-2 App 配对 UI（真机验证项）。A3 做 E2E（gate.ts 后置 A2 前）。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 

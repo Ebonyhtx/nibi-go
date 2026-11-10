@@ -1,7 +1,8 @@
-# relay-client 接口草案 v0（待评审）
+# relay-client 接口草案 v0（已评审通过，实现中）
 
-> 状态：草案。评审通过后按此实现，本文随之更新为"已实现"。
+> 状态：**A1-1 已实现 transport + pairing**（packages/relay-client，Node 契约测试全绿）；crypto/handshake 按 plan.md 排 A3，gate.ts 后置 A2 前。App 配对 UI（A1 后半）待做。
 > 依据：D8（持久配对）/ D9（E2E 藏握手）/ D10（四态选路）/ D17（内核单向消费）；Relay V2 契约（nibi-client `docs/web-remote-control/relay-v2-pairing.md`）。
+> 实现要点对上游的落地差异见 `packages/relay-client/src/transport.ts` 文件头注释（terminal 无重注册/AUTH_FAILED=device-not-owned/移动退避参数）。
 
 ## 导出面
 
@@ -55,8 +56,8 @@ idle ──start──> authenticating ──auth_ack(matched)──> paired
 3. 协商防重放：同 nonce 二次握手必须失败。
 4. 降级：假 relay 模拟"对端无协商能力" → 状态机落明文 + 上报未加密。
 
-## 5. 待定项（实现前拍板）
+## 5. 原待定项（均已决议，2026-11-11 P1–P5）
 
-- [ ] `@nibi/shared` 引用方式：workspace 直链 vs `packages/shared-extract/` 抽取（AGENTS 规则 6）
-- [ ] device 级 K 的持久轮换策略（C 立项前可先用"会话级 K + 重连重协商"简化版）
-- [ ] RN WebSocket 的 `binaryType`（信封用 JSON 文本帧即可，维持 relay 契约"只接受 JSON 文本"）
+- [x] `@nibi/shared` 引用方式：**选 B**——只走 `packages/shared-extract/` 抽取件（AGENTS 规则 6），首次抽取已完成（来源 ff1c5f4f，登记见该包 README）
+- [x] device 级 K 持久轮换：**会话级 K + 重连重协商**（P3b），device 级轮换等 C 立项
+- [x] RN WebSocket `binaryType`：**JSON 文本帧**（P3c，维持 relay"只接受 JSON 文本"契约）；B 阶段屏幕流如需二进制届时提扩展
