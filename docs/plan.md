@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（5707c08，transport/pairing + 抽取件首抽）；A1-2 完成（App 配对 UI 代码 + 全路由编译验证，真机/模拟器未验证——本机无 Android SDK）。A1 剩余：真机联调 + OIDC client id 注册（EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID）。A3 做 E2E（gate.ts 后置 A2 前）。
+> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（5707c08，transport/pairing + 抽取件首抽）；A1-2 完成（d8a8f02，App 配对 UI 代码 + 全路由编译验证）。A1 剩余：真机联调（本机 SDK 安装中）+ **T3**（OIDC native app 注册，docs/tickets/T3，账号中心配置项）。A3 做 E2E（gate.ts 后置 A2 前）。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
