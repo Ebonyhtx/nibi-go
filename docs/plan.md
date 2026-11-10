@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（5707c08，transport/pairing + 抽取件首抽）；A1-2 完成（d8a8f02，App 配对 UI 代码 + 全路由编译验证）。A1 剩余：真机联调（本机 SDK 安装中）+ **T3**（OIDC native app 注册，docs/tickets/T3，账号中心配置项）。A3 做 E2E（gate.ts 后置 A2 前）。
+> 状态：Phase A 进行中——A0（a97ba6f）/ A1-1（5707c08）/ A1-2（d8a8f02 + 8a81b81 冒烟修复）完成；**模拟器冒烟通过**（Expo Go 路线：首页双形态入口/WORK 登录门禁/T3 未配置报错 UX 全部渲染正确）。A1 剩余：T3 注册后真机登录配对全流程联调。**已知阻塞**：本地 dev-client gradle 构建被 ninja 长路径问题卡住（RN 自带 ninja 不感知 LongPathsEnabled，~280 字符路径），开发期用 Expo Go 路线绕过，dev-client 构建排 A4 发布准备时解决。下一步 A2 chat-core。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
