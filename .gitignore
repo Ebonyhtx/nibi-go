@@ -9,6 +9,9 @@ app/android/.gradle/
 packages/*/dist/
 *.tsbuildinfo
 
+# husky v9 运行时生成的 hook 垫片（.husky/pre-commit 本体进版本库）
+.husky/_/
+
 # 密钥与凭据（AGENTS.md 规则 14）
 *.keystore
 !debug.keystore

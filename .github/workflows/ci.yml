@@ -1,0 +1,32 @@
+name: CI
+
+# 架构门禁 + 纯 TS 层测试（AGENTS 验证纪律 / plan.md §5）。
+# 与本地 husky pre-commit 双保险：防 --no-verify 绕过，并守 PR。
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # 从根 package.json 的 packageManager 字段读取 pnpm 版本
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 架构门禁（check-boundaries）
+        run: node scripts/check-boundaries.mjs
+
+      - name: 全仓测试
+        run: pnpm -r --if-present run test
+
+      - name: 类型检查（纯 TS 层）
+        run: pnpm -r --if-present run typecheck
