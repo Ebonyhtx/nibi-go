@@ -1,0 +1,16 @@
+{
+  "name": "nibi-go",
+  "private": true,
+  "version": "0.0.0",
+  "description": "NIBI 生态移动客户端：NIBI-WORK 远控投影 + NIBI-GO 本机 AGENT",
+  "workspaces": [
+    "packages/*",
+    "app"
+  ],
+  "scripts": {
+    "gates": "node scripts/check-boundaries.mjs",
+    "test": "pnpm -r --if-present run test"
+  },
+  "devDependencies": {},
+  "packageManager": "pnpm@10.33.2"
+}

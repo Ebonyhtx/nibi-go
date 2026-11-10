@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIBI-GO 架构与决策总览 v9</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --ink: #1c2330;
+    --muted: #64748b;
+    --line: #e4e8f0;
+    --purple: #7c3aed;  --purple-bg: #f5f0ff;
+    --teal: #0e7490;    --teal-bg: #ecfbff;
+    --gold: #b45309;    --gold-bg: #fdf6e7;
+    --pink: #be185d;    --pink-bg: #fdf0f6;
+    --green: #15803d;   --green-bg: #f0fdf4;
+    --blue: #2563eb;    --blue-bg: #eff6ff;
+    --orange: #c2410c;  --orange-bg: #fff7ed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #161b27; --ink: #e7ecf5; --muted: #94a3b8; --line: #2a3345;
+      --purple: #a78bfa; --purple-bg: #2b2140;
+      --teal: #67e8f9;   --teal-bg: #0e2c33;
+      --gold: #fbbf24;   --gold-bg: #362a12;
+      --pink: #f472b6;   --pink-bg: #3b1f2e;
+      --green: #4ade80;  --green-bg: #12291b;
+      --blue: #60a5fa;   --blue-bg: #172554;
+      --orange: #fb923c; --orange-bg: #3a2410;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 16px; line-height: 1.65;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 48px 32px 80px; }
+  header.hero { margin-bottom: 40px; }
+  header.hero h1 { font-size: 34px; margin: 0 0 8px; font-weight: 700; letter-spacing: -0.5px; }
+  header.hero p { color: var(--muted); font-size: 17px; margin: 0; }
+  h2 {
+    font-size: 24px; font-weight: 700; margin: 56px 0 20px; padding-top: 8px;
+    display: flex; align-items: center; gap: 12px; letter-spacing: -0.3px;
+  }
+  h2 .no {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 12px; flex: none;
+    background: var(--purple); color: #fff; font-size: 19px;
+  }
+  h3 { font-size: 19px; font-weight: 600; margin: 32px 0 14px; }
+
+  /* 决策卡片 */
+  .dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+  .dcard {
+    background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--green);
+    border-radius: 16px; padding: 20px 24px;
+  }
+  .dcard.plan { border-left-color: var(--blue); }
+  .dcard .q { font-size: 18px; font-weight: 700; display: flex; align-items: baseline; gap: 10px; }
+  .dcard .q .idx { font-size: 14px; color: var(--muted); font-weight: 600; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 1px 9px; }
+  .dcard.plan .q .idx { color: var(--blue); }
+  .dcard .a { font-size: 15px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+  .dcard .a b, .dcard .a strong { color: var(--ink); font-weight: 600; }
+
+  /* 形态面板 */
+  .appframe {
+    background: var(--card); border: 1px solid var(--line); border-radius: 24px;
+    padding: 28px; box-shadow: 0 2px 16px rgba(0,0,0,.04);
+  }
+  .aphead { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+  .appname { font-weight: 700; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .switch { margin-left: auto; display: inline-flex; border: 1.5px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .switch .sw { font-size: 15px; padding: 10px 26px; display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+  .switch .sw.on-g { background: var(--purple-bg); color: var(--purple); font-weight: 700; }
+  .switch .sw.on-w { background: var(--teal-bg); color: var(--teal); font-weight: 700; }
+  .forms { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 900px) { .forms { grid-template-columns: 1fr; } }
+  .form { border-radius: 20px; padding: 24px; }
+  .form.go   { border: 2px solid color-mix(in srgb, var(--purple) 40%, var(--line)); background: var(--purple-bg); }
+  .form.work { border: 2px solid color-mix(in srgb, var(--teal) 40%, var(--line)); background: var(--teal-bg); }
+  .form .fh { font-weight: 700; font-size: 20px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .form.go .fh { color: var(--purple); }
+  .form.work .fh { color: var(--teal); }
+  .form .fh .sub { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .rows { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .row {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px;
+  }
+  .row .rt { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .row .rs { font-size: 14.5px; color: var(--muted); margin-top: 4px; }
+  .row .rs b, .row .rs strong { color: var(--ink); font-weight: 600; }
+  .row.hl  { border-left: 5px solid var(--blue); }
+  .row.ph  { border-left: 5px solid var(--green); }
+  .row.new { border-left: 5px solid var(--orange); }
+  .row.dash { border-style: dashed; }
+  .tag { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 2px 12px; border-radius: 999px; vertical-align: 2px; }
+  .tag.g { background: var(--green-bg); color: var(--green); }
+  .tag.o { background: var(--orange-bg); color: var(--orange); }
+
+  /* 连接层 */
+  .conn {
+    border: 1.5px solid color-mix(in srgb, var(--blue) 35%, var(--line));
+    background: var(--blue-bg); border-radius: 14px; padding: 14px 18px;
+  }
+  .conn .ct { font-size: 15px; font-weight: 700; color: var(--blue); display: flex; align-items: center; gap: 8px; }
+  .tiers4 { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .t4 {
+    font-size: 14px; padding: 6px 16px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--line); color: var(--ink); font-weight: 600;
+  }
+  .t4 .ar { color: var(--muted); font-weight: 400; margin-left: 8px; }
+
+  /* 工具面桥图 */
+  .bridge {
+    background: var(--green-bg); border: 2px solid color-mix(in srgb, var(--green) 35%, var(--line));
+    border-radius: 24px; padding: 26px;
+  }
+  .bridge .bh { font-weight: 700; font-size: 20px; color: var(--green); display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .bridge .bh .sub { font-size: 15px; font-weight: 500; color: var(--muted); }
+  .bridge .lead { font-size: 15.5px; color: var(--ink); margin: 0 0 18px; line-height: 1.75; }
+  .brow { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: stretch; }
+  @media (max-width: 860px) { .brow { grid-template-columns: 1fr; } }
+  .bcol { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .bcol .bt { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .bcol .bt .who { font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; }
+  .bcol .bt .who.go  { background: var(--purple-bg); color: var(--purple); }
+  .bcol .bt .who.wr  { background: var(--teal-bg); color: var(--teal); }
+  .bcol .bs { font-size: 15px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+  .bcol .bs b { color: var(--ink); font-weight: 600; }
+  .bmid { display: flex; flex-direction: column; justify-content: center; gap: 10px; min-width: 200px; }
+  .bmid .pipe { font-size: 15px; font-weight: 700; color: var(--ink); text-align: center; }
+  .bmid .box { font-size: 14px; border: 1.5px dashed var(--line); border-radius: 12px; padding: 8px 14px; text-align: center; color: var(--muted); background: var(--card); }
+  .bmid .box.real { border-style: solid; color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, var(--line)); font-weight: 600; }
+  .metaphor {
+    margin-top: 20px; background: var(--card); border-radius: 16px; padding: 18px 22px;
+    font-size: 16.5px; border-left: 5px solid var(--green);
+  }
+  .metaphor b { font-weight: 700; }
+
+  /* 运行时栈 */
+  .rt-stack { display: flex; flex-direction: column; }
+  .rt-layer {
+    display: grid; grid-template-columns: 260px 1fr 130px; gap: 20px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); padding: 18px 26px;
+  }
+  .rt-layer:first-child { border-radius: 18px 18px 0 0; }
+  .rt-layer:last-child { border-radius: 0 0 18px 18px; }
+  .rt-layer + .rt-layer { border-top: none; }
+  .rt-layer .rl { font-size: 16.5px; font-weight: 700; }
+  .rt-layer .rd { font-size: 14.5px; color: var(--muted); }
+  .rt-layer .rd b { color: var(--ink); font-weight: 600; }
+  .rt-layer .mb { font-size: 14px; color: var(--muted); text-align: right; white-space: nowrap; font-weight: 600; }
+  .rt-layer.core   { background: var(--gold-bg); border-color: color-mix(in srgb, var(--gold) 35%, var(--line)); }
+  .rt-layer.core .rl { color: var(--gold); }
+  .rt-layer.plugin { background: var(--orange-bg); border-color: color-mix(in srgb, var(--orange) 30%, var(--line)); }
+  .rt-layer.plugin .rl { color: var(--orange); }
+  .callout {
+    margin-top: 16px; background: var(--card); border: 1px solid var(--line);
+    border-left: 5px solid var(--gold); border-radius: 14px; padding: 16px 22px; font-size: 15.5px;
+  }
+  .callout b { font-weight: 700; }
+
+  /* 沙箱三层 */
+  .sec3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .sec3 { grid-template-columns: 1fr; } }
+  .sec { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; position: relative; margin-top: 10px; }
+  .sec .sn { position: absolute; top: -14px; left: 20px; font-size: 13px; background: var(--green); color: #fff; border-radius: 999px; padding: 3px 14px; font-weight: 700; }
+  .sec .st { font-size: 17px; font-weight: 700; margin-top: 6px; }
+  .sec .sd { font-size: 14.5px; color: var(--muted); margin-top: 6px; }
+
+  /* 依赖四层 */
+  .sup { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .sup { grid-template-columns: 1fr; } }
+  .sup .sec { border-top: 4px solid var(--blue); }
+  .sup .sec .sn { background: var(--blue); }
+
+  /* 双形态能力对照 */
+  table.cmp { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 18px; overflow: hidden; border: 1px solid var(--line); font-size: 15px; }
+  table.cmp th { background: var(--bg); text-align: left; padding: 14px 20px; font-size: 15px; font-weight: 700; border-bottom: 2px solid var(--line); }
+  table.cmp td { padding: 14px 20px; border-bottom: 1px solid var(--line); color: var(--muted); vertical-align: top; }
+  table.cmp td:first-child { font-weight: 700; color: var(--ink); white-space: nowrap; }
+  table.cmp tr:last-child td { border-bottom: none; }
+  table.cmp .ok { color: var(--green); font-weight: 700; }
+  table.cmp .part { color: var(--orange); font-weight: 600; }
+
+  .note {
+    margin-top: 18px; background: var(--card); border: 1px solid var(--line);
+    border-left: 5px solid var(--blue); border-radius: 14px; padding: 16px 22px; font-size: 15.5px;
+  }
+  .note b { font-weight: 700; }
+  .flowbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px 24px;
+  }
+  .step { font-size: 15px; font-weight: 600; padding: 8px 18px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
+  .step .n { display: inline-block; width: 22px; height: 22px; border-radius: 50%; text-align: center; font-size: 13px; line-height: 22px; margin-right: 8px; background: var(--purple); color: #fff; }
+  .arr { color: var(--muted); font-size: 18px; }
+  footer { margin-top: 60px; color: var(--muted); font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <h1>NIBI-GO · 架构与决策总览</h1>
+  <p>v9 · 2026-11-11 · 17 项决策定案（D17 内核单向消费+票据制） + 1 项未启动预留 · 基于 nibi-client 全源码调研与 dsh-Go/生态对照</p>
+</header>
+
+<!-- ═══════════ 1. 决策台账 ═══════════ -->
+<h2><span class="no">1</span>决策台账（D1–D16）</h2>
+<div class="dgrid">
+  <div class="dcard"><div class="q"><span class="idx">D1</span>引擎</div><div class="a"><b>自研 Rust 内核</b>（ZCode-rs fork 0.1.67，供应链门禁齐全）。Android 交叉编译无硬阻塞（已逐项核实）。对比 dsh-Go 的 Node+PRoot+1GB rootfs，是代际差。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D2</span>双形态</div><div class="a"><b>NIBI-WORK</b>（远控投影，复用 PWA 形式）+ <b>NIBI-GO</b>（本机 AGENT，UI 独立开发）。App 内切换按钮/窗口。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D3</span>会话</div><div class="a">两形态<b>两份独立列表</b>按 owner 分组，不做任何迁移（含冷交接）。会话 owner 在哪边，插件解析就在哪边。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D4</span>WORK UI</div><div class="a"><b>复用现有 PWA 形式</b>原生重画。桌面插件管理 = IPluginManagementService 手机合同（PWA 已验证）。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D5</span>模块 C 内核</div><div class="a"><b>做</b>。libnibi.so 进程内运行 + 会话库与桌面同 schema（迁移账本 0024 三方比对）。<b>一层拓扑，无 Node Host</b>。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D6</span>模块 B <span class="tag o">职责收窄</span></div><div class="a">nibi-phone-bridge MCP 插件 = <b>仅 WORK 形态的远程路由</b>（桌面 Agent 操控手机）。GO 形态手机操控<b>不依赖 B</b>。B 最后做。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D7</span>二维码</div><div class="a"><b>仅路由提示</b>（sid/mid/name），不承载加密决策，桌面 UI 零变化。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D8</span>配对</div><div class="a"><b>设备级持久配对</b>：登录 + 扫一次码；之后免扫直连，仅链接过期/凭据到期/设备删除才重配。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D9</span>E2E 加密</div><div class="a"><b>做，密钥藏登录握手</b>（账号身份协商，auth_init.meta 透传）。WORK↔桌面自动密文；PWA 永远明文；连旧桌面放行+提示未加密。服务端零改动。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D10</span>连接拓扑</div><div class="a"><b>四态自动选路</b>：本地直连 → 打洞直连（iroh）→ 中转 E2E → PWA 兜底。桌面<b>零新增监听端口</b>（全出站）。relay 服务端零改动。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D11</span>跨平台留口</div><div class="a">iOS/鸿蒙不做但选型已兼容：工具面多平台适配器接口 · C 的 FFI 平台无关 C ABI · crypto 接口化。Rust 三平台一级目标（android/apple-ios/linux-ohos）。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D12</span>实施顺序 <span class="tag" style="background:var(--blue-bg);color:var(--blue)">修正</span></div><div class="a"><b>Phase A 先行（立即启动，零内核耦合）</b>；Phase C 挂起待两信号（主线 kernel 对齐收尾 + android 平台包发布）；B 最后。GO 形态手机操控随 A+C。3 个 spike 各约 1 天。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D13</span>GO 插件生态 <span class="tag o">五子项</span></div><div class="a"><b>13.1</b> 独立市场仓（npm+PR 双通道）· <b>13.2</b> Node Plugin Runtime 子进程 · <b>13.3</b> 运行时点名清单 ~75-100MB · <b>13.4</b> 沙箱三层 · <b>13.5</b> 一层拓扑。与桌面插件体系彻底隔离。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D14</span>桌宠 <span class="tag">预案</span></div><div class="a"><b>状态指示器非养成游戏</b>（继承 dsh-Go pets.md 四结论）。消费 AgentPulse 状态投影（A 阶段就定义）。挂 GO 形态。</div></div>
+  <div class="dcard"><div class="q"><span class="idx">D15</span>伴侣 <span class="tag">预案</span></div><div class="a">轻量=内核 headless 短会话；完整=伴侣 preset 插件。状态存会话库同源 SQLite（schema 互认红利）。人设安全边界单源 @nibi/shared。挂 GO 形态。</div></div>
+  <div class="dcard plan"><div class="q"><span class="idx">D16</span>付费插件层 <span class="tag" style="background:var(--blue-bg);color:var(--blue)">未启动·预留</span></div>
+  <div class="dcard"><div class="q"><span class="idx">D17</span>内核同步策略 <span class="tag" style="background:var(--blue-bg);color:var(--blue)">替代分支方案</span></div><div class="a"><b>单向消费 + 票据制</b>：GO 锁冻结的 @nibi-studio/cli-android-arm64 npm 产物（升不升级由你定）→ 缺东西开票据，你按主线节奏决定（GO 不开分支不提 PR）→ 仅紧急时分支过渡（git 依赖锁 commit）。主线永远不等 GO。</div></div><div class="a"><b>不启动收费</b>，4 项无感预留：manifest 占位（拒绝式）/ deviceId 顺路生成（Keystore）/ JWT 复用声明 / market schema 占位。<b>内核侧门禁主线已建成</b>（PaidPluginGate trait + ext 执行期复核，2026-11-10）——GO 侧只需 nibi-platform 实现 license 读取+验签。</div></div>
+</div>
+
+<!-- ═══════════ 2. 双形态架构 ═══════════ -->
+<h2><span class="no">2</span>App 架构：一个 App · 两种形态 · 两个世界</h2>
+<div class="appframe">
+  <div class="aphead">
+    <span class="appname">📱 NIBI-GO App</span>
+    <div class="switch">
+      <span class="sw on-g">⚡ NIBI-GO 形态</span>
+      <span class="sw">🖥 NIBI-WORK 形态</span>
+    </div>
+  </div>
+  <div class="forms">
+
+    <div class="form go">
+      <div class="fh">⚡ NIBI-GO 形态 <span class="sub">本机 AGENT · UI 独立开发（PWA 不是好的手机 UI）</span></div>
+      <div class="rows">
+        <div class="row ph">
+          <div class="rt">🖐 手机操控 <span class="tag g">随 A+C · 不等 B</span></div>
+          <div class="rs">无障碍读屏/点按/输入 · 悬浮条三态 · 确认卡 · 应用名单（支付银行默认不碰）· 打码（Luhn/GB11643）· 后台特权通道——<b>与 dsh-Go 同等能力</b>，进程内桥直连内核，零网络。</div>
+        </div>
+        <div class="row new">
+          <div class="rt">🧱 一层拓扑 <span class="tag o">D13.5</span></div>
+          <div class="rs">App ↔ 内核直连，<b>无 Node Host 中间层</b>（内核合一业务+能力层）。对比桌面两层：Electron → Node Host → Rust 内核。</div>
+        </div>
+        <div class="row">
+          <div class="rt">🤖 会话</div>
+          <div class="rs">手机内核（libnibi.so 进程内）· <b>离线可用 · 数据不出机</b> · 会话库与桌面互认。</div>
+        </div>
+        <div class="row new">
+          <div class="rt">🛡 沙箱三层 <span class="tag o">D13.4</span></div>
+          <div class="rs">SELinux 基线（免费）→ SandboxPolicy 强语义翻译 → 特权 mount namespace（随 B 顺路）。详见第 4 节。</div>
+        </div>
+        <div class="row">
+          <div class="rt">🧩 插件生态（GO 专属）</div>
+          <div class="rs"><b>nibi-go-market 独立市场仓</b>（npm+PR 双通道、GO manifest、风险启发式扫描）· 逻辑半侧 = <b>Node Plugin Runtime 子进程</b>（stdio MCP）+ 声明式 HTTP 工具（无代码）· <b>nibi-go-native-ui v1</b>（工具卡/胶囊/状态条，RN 原生渲染，8KiB 模板预算=形状不是表现力）· <b>用户自开发</b>（agent 写 → 内核 validate/install → 即用，与市场插件同能力）。</div>
+        </div>
+        <div class="row dash">
+          <div class="rt">✨ 产品层（预案）</div>
+          <div class="rs">桌宠（D14）· 伴侣（D15）· 语音——全挂 GO 形态世界。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form work">
+      <div class="fh">🖥 NIBI-WORK 形态 <span class="sub">远控投影 · 复用现有 PWA 形式</span></div>
+      <div class="rows">
+        <div class="row">
+          <div class="rt">🤖 会话</div>
+          <div class="rs"><b>桌面 Host 的投影</b> · 桌面必须在线（runtime owner，睡眠=离线）。</div>
+        </div>
+        <div class="row hl">
+          <div class="rt">🧩 插件生态（桌面投影）</div>
+          <div class="rs"><b>桌面体系原样投影</b>：官方市场（zcode-plugins-official）/付费插件（会员 license）/社区。插件管理 = 手机合同原生重画。与 GO 插件生态互不引用。</div>
+        </div>
+        <div class="row">
+          <div class="rt">🖐 手机操控 <span class="tag" style="background:var(--teal-bg);color:var(--teal)">模块 B 增量</span></div>
+          <div class="rs"><b>dsh-Go 结构性做不到的独占能力</b>：桌面 Agent 经 phone-bridge + Relay 操控你的手机（读屏/点按/确认卡路由回来）。</div>
+        </div>
+        <div class="row">
+          <div class="rt">📡 连接层（四态自动选路）</div>
+          <div class="conn">
+            <div class="ct">🔒 用户无感 · 桌面零监听端口（全出站连接）</div>
+            <div class="tiers4">
+              <span class="t4">① 本地直连</span><span class="t4"><span class="ar">↓</span></span>
+              <span class="t4">② 打洞直连（iroh）</span><span class="t4"><span class="ar">↓</span></span>
+              <span class="t4">③ 中转 E2E</span><span class="t4"><span class="ar">↓</span></span>
+              <span class="t4">④ PWA 明文兜底</span>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="rt">🔑 配对与加密</div>
+          <div class="rs">登录 + 扫一次码（D7/D8）· <b>E2E 密钥藏握手</b>（D9）· 持久凭据免扫重连 · 连旧桌面放行并提示未加密。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════ 3. 工具面桥图 ═══════════ -->
+<h2><span class="no">3</span>手机操控的真实结构：一份工具面 · 两个消费者</h2>
+<div class="bridge">
+  <div class="bh">🖐 手机工具面（App 原生 Kotlin 能力）
+    <span class="sub">无障碍读屏 · 点按/输入 · 悬浮条 · 确认卡 · 打码 · SafetyGate · 后台特权通道——与引擎无关</span>
+  </div>
+  <p class="lead">dsh-Go 的手机操控约 150 个类全部基于标准 Android API，无一依赖它的 Node 引擎或 proot。<b>它能做的，NIBI-GO 都能做</b>——工具面是 App 自己的原生能力，区别只在"谁来调用"。</p>
+  <div class="brow">
+    <div class="bcol">
+      <div class="bt">消费者 ① <span class="who go">GO 形态 · 本机 AGENT</span></div>
+      <div class="bs"><b>随 A+C 落地，不等模块 B。</b>手机内核（libnibi.so）经<b>进程内桥 / abstract socket</b> 调工具面——零网络、App 内部直连。<br><br>dsh-Go 用户迁移过来，<b>第一天体验就对齐</b>（且桥少一层 proot 穿透，更简单）。</div>
+    </div>
+    <div class="bmid">
+      <div class="pipe">两条通道</div>
+      <div class="box real">GO：进程内桥（App 内部 · 零网络）</div>
+      <div class="box">WORK：Relay V2 + phone-bridge 指令面</div>
+    </div>
+    <div class="bcol">
+      <div class="bt">消费者 ② <span class="who wr">WORK 形态 · 桌面 Agent</span></div>
+      <div class="bs"><b>模块 B（最后做）提供的增量</b>：nibi-phone-bridge 把同一工具面经 Relay 暴露给桌面会话——<b>桌面 Agent 操控你的手机</b>，dsh-Go 结构性做不到（它的手机工具只服务本机引擎）。</div>
+    </div>
+  </div>
+  <div class="metaphor">
+    <b>比喻</b>：工具面是"手"。GO 形态 = 自己的大脑直接指挥自己的手（神经直连，与生俱来）；模块 B = 让别人的大脑也能远程指挥这只手（需要装的通信线路）。<b>手不因通信线路而存在。</b>
+  </div>
+</div>
+
+<!-- ═══════════ 4. GO 运行时栈 ═══════════ -->
+<h2><span class="no">4</span>GO 形态运行时栈（点名清单 · ~75-100MB vs dsh-Go 的 1GB）</h2>
+<div class="rt-stack">
+  <div class="rt-layer">
+    <div class="rl">NIBI-GO App（RN/Expo）</div>
+    <div class="rd">GO 原生 UI · WORK 投影 UI · Carrier · <b>手机工具面（Kotlin 原生）</b></div>
+    <div class="mb">App 本体</div>
+  </div>
+  <div class="rt-layer core">
+    <div class="rl">libnibi.so · Rust 内核（进程内）</div>
+    <div class="rd">Agent 循环 + 工具 + 插件 ext + MCP manager（Stdio/Http/Sse 三 transport 原生）+ 会话库（SQLite）——<b>业务+能力合一</b></div>
+    <div class="mb">~15-30MB</div>
+  </div>
+  <div class="rt-layer">
+    <div class="rl">shell 三件套</div>
+    <div class="rd"><b>静态 bash</b>（消 bashism）+ busybox 工具集（grep/find/sed/tar/curl）+ <b>git 二进制</b>（内核 git 端点）</div>
+    <div class="mb">~10-12MB</div>
+  </div>
+  <div class="rt-layer plugin">
+    <div class="rl">Node 24 · Plugin Runtime</div>
+    <div class="rd"><b>仅插件子进程宿主</b>（jniLibs 可执行 Trick，stdio MCP 直对接内核）· 按需 spawn 闲置杀 · Node 24 原生跑 TS。<b>不是 Host、不装配会话、不持久化</b></div>
+    <div class="mb">+25-40MB APK</div>
+  </div>
+  <div class="rt-layer">
+    <div class="rl">python-build-standalone</div>
+    <div class="rd">复用桌面版同一 pin（agent 用户预期）· 二期可选</div>
+    <div class="mb">~30MB</div>
+  </div>
+</div>
+<div class="callout">
+  <b>为什么 dsh-Go 带全家桶（Ubuntu/Python/pnpm）而我们不带</b>：它每样都有债主——Ubuntu ← DSH bash 工具要真 Unix 环境；pnpm ← DSH 插件安装本质是 pnpm 装进 node_modules；Node ← 引擎本体。它把"DSH 的世界"整体搬进手机。<b>NIBI-GO 逐项查无此项</b>：引擎是自己编译的 Rust、插件安装是内核原生 API（不经包管理器）、无 proot。维护的是"五六个钉死二进制"而非"一个发行版"。
+</div>
+
+<!-- ═══════════ 5. 沙箱三层 ═══════════ -->
+<h2><span class="no">5</span>沙箱三层（D13.4 · 内核 SandboxPolicy 的 Android 落地）</h2>
+<div class="sec3">
+  <div class="sec">
+    <span class="sn">第 1 层 · 免费</span>
+    <div class="st">Android app sandbox + SELinux</div>
+    <div class="sd">引擎进程本就困在 app uid / SELinux 域内，bash 子进程天然继承——可写面 = app 目录 + 授权挂载。<b>默认生效</b>，比桌面裸跑强。</div>
+  </div>
+  <div class="sec">
+    <span class="sn">第 2 层 · 强语义</span>
+    <div class="st">SandboxPolicy 翻译 adapter</div>
+    <div class="sd">内核的平台无关 DTO（filesystem 默认可读不可写 / network / required fail-closed）在 Android 翻译为路径检查 + 权限判决链。<b>required 先设 false 并如实告知</b>——不假装有 bwrap（dsh-Go/DSHA 都只能承认没有）。</div>
+  </div>
+  <div class="sec">
+    <span class="sn">第 3 层 · 随 B 顺路</span>
+    <div class="st">特权 mount namespace</div>
+    <div class="sd">模块 B 的特权通道（Shizuku/ADB shell uid）可 bind-mount 只读化——<b>dsh-Go/DSHA 做不到的事，NIBI-GO 靠 B 反而做得到</b>。</div>
+  </div>
+</div>
+
+<!-- ═══════════ 6. 依赖供给 ═══════════ -->
+<h2><span class="no">6</span>插件运行依赖：四层供给（按需拉取，不全预装）</h2>
+<div class="sup">
+  <div class="sec">
+    <span class="sn">第 0 层 · APK 随包（零下载）</span>
+    <div class="st">bash / busybox / git · Node 24 · Python</div>
+    <div class="sd">覆盖：纯 npm 依赖、纯 pip 包、shell 工具。<b>PNG / Markdown / Word / XLSX / PDF 生成在这里就够了</b>（docx/exceljs/openpyxl/pdfkit 都是纯代码库——Word/XLSX 本质是 zip+XML）。</div>
+  </div>
+  <div class="sec">
+    <span class="sn">第 1 层 · 随插件包分发</span>
+    <div class="st">作者打包 node_modules / wheels</div>
+    <div class="sd">插件包 = 自包含目录，装上即跑（dsh-Go 市场同模式）。适合依赖固定的小插件。</div>
+  </div>
+  <div class="sec">
+    <span class="sn">第 2 层 · 运行时按需安装</span>
+    <div class="st">manifest 声明 dependencies</div>
+    <div class="sd">安装时 npm/pip 装进<b>插件自己的目录</b>（npmmirror/pypi 国内镜像，失败明示原因不静默）。<b>deps 不逃出插件目录</b>（沙箱第 1 层可写面约束），卸载整体删除。</div>
+  </div>
+</div>
+<div class="note">
+  <b>第 3 层 · 桌面兜底（WORK 形态职责）</b>：LibreOffice 级保真互转、重转换——桌面插件做（dsh-Go 同款"Host 转 PDF"），或调云服务的 MCP server。<b>双形态分工又一次兑现：GO 做轻的，重的留给桌面。</b><br><br>
+  <b>付费插件（D16 预留，未启动）</b>：将来开放时 = 市场页加付费分段 + nibi-api 下载链路（Ed25519 license 已是跨语言设计，claims.dev 换手机 deviceId，安全红线照抄桌面 P0 修复）。四层供给不变。
+</div>
+
+<!-- ═══════════ 7. 能力对照 ═══════════ -->
+<h2><span class="no">7</span>能力对照：dsh-Go 能做的，NIBI-GO 都能做吗？</h2>
+<table class="cmp">
+  <tr><th>能力面</th><th>dsh-Go 现状</th><th>NIBI-GO</th></tr>
+  <tr><td>本机跑 Agent</td><td><span class="ok">✓</span> PRoot + Ubuntu（1GB）</td><td><span class="ok">✓</span> 更轻（75-100MB）、原生无容器</td></tr>
+  <tr><td>远控</td><td><span class="ok">✓</span> SSH / 中继</td><td><span class="ok">✓</span> 更强：四态选路 + E2E + 双形态</td></tr>
+  <tr><td>手机操控</td><td><span class="ok">✓</span> 完整纵深（约 150 类）</td><td><span class="ok">✓</span> 逐项等价（GO 形态随 A+C）<b>＋独占增量</b>（WORK 形态桌面 Agent 操控手机）</td></tr>
+  <tr><td>插件生态</td><td><span class="ok">✓</span> cordis + npm 市场（11k+ 插件生态位）</td><td><span class="ok">✓</span> GO 市场（MCP 标准，作品可迁出 cordis 单向门）</td></tr>
+  <tr><td>用户自开发插件</td><td><span class="ok">✓</span> agent 写 + 终端装</td><td><span class="ok">✓</span> agent 写 + 对话内装（更顺，校验器进内核）</td></tr>
+  <tr><td>会话跨端</td><td><span class="part">△</span> 靠补丁（404 行删除补丁）</td><td><span class="ok">✓</span> schema 天然互认</td></tr>
+  <tr><td>终端 / 定时任务 / 文件</td><td><span class="ok">✓</span></td><td><span class="ok">✓</span> 内核原生（cron 全家桶 / 终端 API）</td></tr>
+  <tr><td>语音输入 / OCR（离线）</td><td><span class="ok">✓</span> SenseVoice 241MB</td><td><span class="part">二期</span> sherpa-onnx 同方案可移植</td></tr>
+  <tr><td>桌宠 / 伴侣</td><td><span class="ok">✓</span> 完整建成</td><td><span class="part">D14/D15 预案</span></td></tr>
+  <tr><td>分享卡 / E2E 链接 / 回放</td><td><span class="ok">✓</span></td><td><span class="part">预案</span> E2E 基建已定</td></tr>
+  <tr><td>iOS / 鸿蒙</td><td><span class="part">△</span> iOS 仅远程 / 鸿蒙评估中</td><td><span class="ok">✓</span> 上限更高（Rust 三平台一级目标 + RN-OHOS 路径）</td></tr>
+</table>
+<div class="note">
+  <b>结论</b>：dsh-Go 的能力面 NIBI-GO <b>严格全覆盖</b>（手机操控逐项等价且桥少一层 proot 穿透；本机更轻；远控更强；插件生态更开放），并多出 WORK 形态独占增量。缺的只是<b>"已建成 vs 待建成"的时间差</b>——测试存量、真机磨损边界、生态引力，都可由时间和纪律填补。
+</div>
+
+<!-- ═══════════ 8. 实施顺序 ═══════════ -->
+<h2><span class="no">8</span>实施顺序与开工前 Spike</h2>
+<div class="flowbar">
+  <span class="step"><span class="n">1</span>装 NIBI-GO · 登录 NIBI 账号</span><span class="arr">→</span>
+  <span class="step"><span class="n">2</span>扫桌面码（一次 · 配对完成）</span><span class="arr">→</span>
+  <span class="step"><span class="n">3</span>切 WORK：遥控桌面（含桌面插件管理）</span><span class="arr">⇄</span>
+  <span class="step"><span class="n">4</span>切 GO：手机自主 AGENT + GO 插件市场（离线可用）</span>
+</div>
+<div class="sec3" style="margin-top:18px">
+  <div class="sec"><span class="sn">Spike 1 · ~1 天</span><div class="st">iroh 实测</div><div class="sd">Node 绑定质量、Android NDK 编译、WiFi↔蜂窝 QUIC 连接迁移。选型中唯一无同行验证的依赖。</div></div>
+  <div class="sec"><span class="sn">Spike 2 · ~1 天</span><div class="st">RN 后台长连接</div><div class="sd">RN WebSocket 后台限制、流式聊天渲染性能。退出保险：relay-client/chat-core 纯 TS 隔离，UI 撞墙可切 Flutter 协议层零返工。</div></div>
+  <div class="sec"><span class="sn">Spike 3 · ~1 天</span><div class="st">内核进程内 + W^X</div><div class="sd">libnibi.so 进程内运行稳定性（panic=abort+看门狗）+ <b>jniLibs spawn 在 targetSdk 36 的合法性</b>（Node 方案唯一技术风险，Termux 高 targetSdk 解法可抄）。</div></div>
+</div>
+
+<h2><span class="no">9</span>内核同步策略（D17 · 主线永远不等 GO）</h2>
+<div class="bridge">
+  <div class="bh">📦 内核的三级消费模式 <span class="sub">NIBI-GO 与主线彻底解耦：主线迭代（一晚 31 commits / 14,766 行）对 GO 无强制影响</span></div>
+  <div class="brow">
+    <div class="bcol">
+      <div class="bt">第 1 级 · 冻结产物消费（默认态）</div>
+      <div class="bs">GO 锁 <b>@nibi-studio/cli-android-arm64@4.0.x</b>（待发布：CI matrix 加一行 + Platform::published() 补一个 entry）。像锁任何 npm 依赖：主线爱怎么迭代怎么迭代，<b>GO 不升级就不受影响</b>。升级时机完全由你定。</div>
+    </div>
+    <div class="bmid">
+      <div class="pipe">↓ 缺东西时</div>
+      <div class="box">第 2 级 · 票据制</div>
+    </div>
+    <div class="bcol">
+      <div class="bt">第 2 级 · 票据制（GO 不碰主线）</div>
+      <div class="bs">GO 发现内核缺 android 分支/接口 → <b>开 issue 票据</b>，你按主线节奏决定做不做、什么时候做。GO 不开分支、不提 PR、不加 review 负担。做完随主线发版，GO bump 版本号即得。</div>
+    </div>
+  </div>
+  <div class="note">
+    <b>第 3 级 · 分支过渡（仅紧急）</b>：票据来不及、GO 急需时才开分支自改，合并时机由你定；GO 仓先用 git 依赖锁该分支 commit 过渡。<br><br>
+    <b>为什么这个模型成立</b>：Phase A（NIBI-WORK）<b>零内核耦合</b>——会话跑在桌面，手机上没有内核代码，主线 kernel 一晚 31 commits 对 A 无任何影响，A 可立即启动；Phase C 需要的稳定面（app-server 入口 / MCP transport / 会话库 0024 账本 / PaidPluginGate）在 4.0.1 已全部现成，主线的高速迭代是行为对齐而非破坏面（今晚 kernel-api +951 行 / -9 行，纯增量）。<b>C 启动的两个信号由你判断</b>：主线 kernel 对齐批次收尾 + android 平台包发布。<br><br>
+    <b>今晚 dev 已交付的 GO 相关资产</b>：PaidPluginGate trait（kernel-api，平台无关）+ ext 执行期门禁（工具表冻结防缓存失效）+ 手机远控定位免费（73472fa7）——D16 的内核侧基建已就位。
+  </div>
+</div>
+
+<footer>NIBI-GO 架构与决策总览 v8 · 生成于 2026-11-08 · 决策台账 D1–D16 · 支持深浅色跟随系统</footer>
+
+</div>
+</body>
+</html>
