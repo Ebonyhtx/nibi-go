@@ -17,7 +17,8 @@ workspace 直链（A）会让本仓 install 依赖 `nibi-client 工作区` 平�
 | ✓ `src/web-remote-relay/heartbeat.ts` | packages/shared/src/web-remote-relay/adapters/heartbeat.ts（全文，import 路径调整） | 心跳调度器 |
 | ✓ `src/web-remote-relay/retry.ts` | packages/shared/src/web-remote-relay/domain/retry.ts（全文） | 退避策略 + KICKED 60s 窗口 + pair 状态映射 |
 | ✓ `src/web-remote-control/qr.ts` | packages/shared/src/web-remote-control.ts 行 114-204（局部，该段自包含） | V2 二维码契约（D7：QR 只承载路由提示） |
-| ✓ `src/relay-endpoints.ts` | packages/shared/src/zcodeEndpoint.ts 行 32（局部） | DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL |
+| ✓ `src/relay-endpoints.ts` | packages/shared/src/zcodeEndpoint.ts 行 5、32（局部） | DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL + DEFAULT_NIBI_ENDPOINT_ORIGIN |
+| ✓ `src/nibi-auth.ts` | packages/shared/src/nibiAuth.ts（全文） | NIBI 账号中心（Zitadel）公开常量（A1-2 增量抽取） |
 | ✓ `src/testing/fake-relay-v2.ts` | packages/shared/test/fixtures/fake-relay-v2.ts（全文，import 路径调整） | 契约测试夹具，走 `@nibi-go/shared-extract/testing` 子路径（AGENTS 规则 11） |
 
 依赖：`zod` 精确版本 **4.6.5**（与上游 shared 锁定一致，升级随抽取流程联动）。

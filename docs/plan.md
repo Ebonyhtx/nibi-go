@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（shared-extract 首抽 + transport/pairing 实现）；下一步 A1-2 App 配对 UI（真机验证项）。A3 做 E2E（gate.ts 后置 A2 前）。
+> 状态：Phase A 进行中——A0 完成（a97ba6f）；A1-1 完成（5707c08，transport/pairing + 抽取件首抽）；A1-2 完成（App 配对 UI 代码 + 全路由编译验证，真机/模拟器未验证——本机无 Android SDK）。A1 剩余：真机联调 + OIDC client id 注册（EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID）。A3 做 E2E（gate.ts 后置 A2 前）。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -140,6 +140,7 @@ libnibi.so 进程内运行 + jniLibs spawn W^X @ targetSdk 36（Node 方案唯�
 
 - relay-client / chat-core：Node 可测（fake-relay-v2 + golden fixture），每 commit 跑
 - 门禁：check-boundaries.mjs 每 commit 跑
+- **编译验证（2026-11-11 修正）**：expo-router（SDK 58）懒路由——屏代码不在入口 bundle，验证必须按路由 chunk 请求（`/<appDir>/src/app/<route>.bundle?platform=android`），只验入口 bundle 会漏掉全部屏代码
 - 真机验证标注：无障碍、jniLibs spawn、iroh 迁移、PackageInstaller——每提交说明"已验证/未验证"
 - golden 对齐：chat-core 的 reducer 输出与桌面 V4 行为逐条对照（dsh-Go 的 parity 测试范式）
 

@@ -4,6 +4,7 @@ import {
   parseWebRemoteControlRelayV2HttpResponse,
   parseWebRemoteControlRelayV2IncomingMessage,
   parseWebRemoteControlRelayV2OutgoingMessage,
+  resolveNibiAuthOrigin,
 } from "../src/index";
 
 describe("Relay V2 wire 契约（抽取件）", () => {
@@ -97,5 +98,13 @@ describe("Relay V2 wire 契约（抽取件）", () => {
     // 业务失败信封
     const err = parseWebRemoteControlRelayV2HttpResponse("token", { code: 1006, msg: "no permission" });
     expect(err && "code" in err && err.code === 1006).toBe(true);
+  });
+
+  it("NIBI 账号中心 origin 覆盖（联调用）", () => {
+    expect(resolveNibiAuthOrigin()).toBe("https://auth.nibistudio.top");
+    expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "https://auth.local.example/" })).toBe(
+      "https://auth.local.example",
+    );
+    expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "  " })).toBe("https://auth.nibistudio.top");
   });
 });
