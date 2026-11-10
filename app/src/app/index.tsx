@@ -17,7 +17,8 @@ export default function ModeSwitchScreen() {
       </Link>
 
       <Link href="/go" asChild>
-        <Pressable style={[styles.card, styles.cardDisabled]}>
+        {/* expo-router Slot 要求 asChild 子组件用单一 style 对象（数组会抛错，SDK 58） */}
+        <Pressable style={styles.cardGo}>
           <Text style={styles.cardTitle}>NIBI-GO</Text>
           <Text style={styles.cardSub}>本机 AGENT · Phase C 挂起（占位）</Text>
         </Pressable>
@@ -42,7 +43,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f0fe',
     alignItems: 'center',
   },
-  cardDisabled: { backgroundColor: '#f0f0f0' },
+  cardGo: {
+    width: 260,
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+  },
   cardTitle: { fontSize: 18, fontWeight: '600' },
   cardSub: { fontSize: 12, color: '#666', marginTop: 4 },
 });
