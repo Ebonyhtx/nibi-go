@@ -22,3 +22,8 @@ export {
   type AgentSustainedState,
   type PulseSnapshot,
 } from "./pulse";
+export {
+  interactionAnswerForDecision,
+  type InteractionAnswer,
+  type InteractionDecision,
+} from "./interaction-answer";
