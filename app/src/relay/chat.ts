@@ -16,14 +16,20 @@ import {
 } from "@nibi-go/chat-core";
 import {
   ConversationSubscription,
+  SessionsIndexSubscription,
   WorkspaceBridge,
   type BridgeBootstrapResult,
   type BridgeWorkspaceTarget,
   type RelayJson,
 } from "@nibi-go/relay-client";
-import type { ConversationTopicFrame } from "@nibi-go/shared-extract";
+import type {
+  ConversationTopicFrame,
+  SessionSummary,
+  SessionsIndexTopicFrame,
+} from "@nibi-go/shared-extract";
 
 import { notifyAgent } from "./notifications";
+import { applySessionsFrame } from "./sessions-index";
 
 export type ChatPhase =
   | "idle"
@@ -39,6 +45,8 @@ export interface ChatSnapshot {
   sessionId?: string;
   workspacePath?: string;
   workspaces: Array<{ workspacePath: string; label?: string }>;
+  /** workspace 会话列表（sessions-index topic）。 */
+  sessions: SessionSummary[];
   /** 在途审批卡（30s 未操作自动拒绝，A3 不变量 2）。 */
   approvals: PendingApproval[];
   error?: string;
@@ -54,9 +62,16 @@ export class ChatSession {
   private sweepTimer?: ReturnType<typeof setInterval>;
   private bridge?: WorkspaceBridge;
   private subscription?: ConversationSubscription;
+  private sessionsIndex?: SessionsIndexSubscription;
+  private activeWorkspace?: BridgeWorkspaceTarget;
   private active?: { sessionId: string; target: BridgeWorkspaceTarget };
   private listeners = new Set<() => void>();
-  private snapshot: ChatSnapshot = { phase: "idle", workspaces: [], approvals: [] };
+  private snapshot: ChatSnapshot = {
+    phase: "idle",
+    workspaces: [],
+    sessions: [],
+    approvals: [],
+  };
   /** A4 通知：PulseTracker（D14/A4 共同上游）+ 已见提问 id + 上次会话 phase。 */
   private pulse: PulseTracker;
   private seenQuestions = new Set<string>();
@@ -128,9 +143,25 @@ export class ChatSession {
           label: w.label,
         })),
       });
-      const selection = this.pickTarget(bootstrap);
-      if (!selection) throw new Error("桌面未指定当前会话（请在桌面打开一个任务后重连）");
-      await this.openAndSubscribe(selection.workspacePath, selection.sessionId);
+      const workspacePath = this.pickWorkspace(bootstrap);
+      if (!workspacePath) throw new Error("桌面没有可用的工作区");
+      this.update({ phase: "opening-workspace", workspacePath });
+      const info = await this.bridge.openWorkspace({ workspaceKey: workspacePath });
+      const target: BridgeWorkspaceTarget = {
+        workspacePath: info.workspacePath,
+        ...(info.workspaceIdentity ? { workspaceIdentity: info.workspaceIdentity } : {}),
+        ...(info.remoteSessionId ? { remoteSessionId: info.remoteSessionId } : {}),
+      };
+      this.activeWorkspace = target;
+      // workspace 级会话列表（sessions-index topic）：先订阅，再按桌面视图选会话
+      this.sessionsIndex = this.bridge.sessionsIndex(target, {
+        onFrame: (frame) => this.onSessionsFrame(frame),
+      });
+      await this.sessionsIndex.subscribe();
+      this.update({ phase: "subscribing" });
+      const sessionId = this.pickSessionId(bootstrap);
+      if (sessionId) await this.subscribeConversation(target, sessionId);
+      else this.update({ phase: "ready" });
     } catch (error) {
       this.update({
         phase: "error",
@@ -139,19 +170,23 @@ export class ChatSession {
     }
   }
 
-  /** 手动切换会话（A2 后续切片：会话列表 UI 调用）。 */
-  async openAndSubscribe(workspacePath: string, sessionId: string): Promise<void> {
+  /** 切换会话（会话列表 UI 调用）。 */
+  async selectSession(sessionId: string): Promise<void> {
+    const target = this.activeWorkspace;
+    if (!target || !this.bridge) return;
+    await this.subscribeConversation(target, sessionId);
+  }
+
+  private async subscribeConversation(
+    target: BridgeWorkspaceTarget,
+    sessionId: string,
+  ): Promise<void> {
     const bridge = this.bridge;
     if (!bridge) throw new Error("bridge is not bootstrapped");
-    this.update({ phase: "opening-workspace", sessionId, workspacePath });
-    const info = await bridge.openWorkspace({ workspaceKey: workspacePath });
-    const target: BridgeWorkspaceTarget = {
-      workspacePath: info.workspacePath,
-      ...(info.workspaceIdentity ? { workspaceIdentity: info.workspaceIdentity } : {}),
-      ...(info.remoteSessionId ? { remoteSessionId: info.remoteSessionId } : {}),
-    };
+    await this.subscription?.unsubscribe();
+    this.subscription = undefined;
     this.active = { sessionId, target };
-    this.update({ phase: "subscribing" });
+    this.update({ phase: "subscribing", sessionId });
     this.replay.begin();
     // 新连接代次：旧代次审批卡全部作废（A3 不变量 1）
     this.epoch += 1;
@@ -186,26 +221,26 @@ export class ChatSession {
     this.epoch += 1;
     this.board.voidAll();
     void this.subscription?.unsubscribe();
+    void this.sessionsIndex?.unsubscribe();
     this.subscription = undefined;
+    this.sessionsIndex = undefined;
     this.bridge?.dispose();
     this.bridge = undefined;
     this.active = undefined;
+    this.activeWorkspace = undefined;
     this.replay.close();
     this.update({
       phase: "idle",
       sessionId: undefined,
       workspacePath: undefined,
+      sessions: [],
       approvals: [],
       error: undefined,
     });
   }
 
-  private pickTarget(
-    bootstrap: BridgeBootstrapResult,
-  ): { workspacePath: string; sessionId: string } | undefined {
+  private pickWorkspace(bootstrap: BridgeBootstrapResult): string | undefined {
     const viewState = bootstrap.mobileViewState ?? bootstrap.initialViewState;
-    const sessionId = viewState?.activeTaskId;
-    if (!sessionId) return undefined;
     const workspaceKey = viewState?.activeWorkspaceKey;
     const workspace =
       (workspaceKey
@@ -213,8 +248,20 @@ export class ChatSession {
             (w) => (w.workspaceIdentity ?? w.workspacePath) === workspaceKey,
           )
         : undefined) ?? bootstrap.workspaces[0];
-    if (!workspace) return undefined;
-    return { workspacePath: workspace.workspacePath, sessionId };
+    return workspace?.workspacePath;
+  }
+
+  /** 会话选择：桌面当前视图优先；否则取列表第一个。 */
+  private pickSessionId(bootstrap: BridgeBootstrapResult): string | undefined {
+    const preferred =
+      bootstrap.mobileViewState?.activeTaskId ?? bootstrap.initialViewState?.activeTaskId;
+    if (preferred) return preferred;
+    return this.snapshot.sessions[0]?.sessionId;
+  }
+
+  private onSessionsFrame(frame: SessionsIndexTopicFrame): void {
+    const sessions = applySessionsFrame(this.snapshot.sessions, frame);
+    this.update({ sessions });
   }
 
   private onFrame(frame: ConversationTopicFrame): void {
@@ -330,16 +377,7 @@ export class ChatSession {
         this.epoch += 1;
         this.board.voidAll();
         this.update({ approvals: [] });
-        this.subscription = bridge.conversation(active.target, active.sessionId, {
-          onFrame: (frame) => this.onFrame(frame),
-          onDegraded: (fault) =>
-            this.replay.onBridgeDegraded(mapBridgeDegradeReason(fault.reasonCode)),
-        });
-        this.replay.begin();
-        await this.subscription.subscribe();
-        this.update({ phase: "ready" });
-        this.startSweep();
-        this.syncInteractions();
+        await this.subscribeConversation(active.target, active.sessionId);
       } catch (error) {
         this.update({
           phase: "error",
@@ -363,3 +401,4 @@ function mapBridgeDegradeReason(reasonCode: string): ReplayDegradeReason {
       return "rpc-frame-gap";
   }
 }
+

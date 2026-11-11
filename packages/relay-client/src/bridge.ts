@@ -12,10 +12,13 @@ import {
   TopicWireFrameAssembler,
   conversationTopicFrameSchema,
   createAcknowledgedWebRemoteControlRelayProtocol,
+  sessionsIndexTopicFrameSchema,
   type AcknowledgedWebRemoteControlRelayProtocolAdapter,
   type ConversationTopicFrame,
   type ConversationTopicWireCandidate,
   type IChannel,
+  type SessionsIndexTopicFrame,
+  type SessionsIndexTopicWireCandidate,
   type SubscribeAck,
   type WebRemoteControlRpcTransportFault,
 } from "@nibi-go/shared-extract";
@@ -212,6 +215,20 @@ export class WorkspaceBridge {
     );
   }
 
+  /** 打开 workspace 级会话列表订阅（sessions-index topic；需先 openWorkspace）。 */
+  sessionsIndex(
+    target: BridgeWorkspaceTarget,
+    callbacks: SessionsIndexCallbacks,
+  ): SessionsIndexSubscription {
+    if (!this.channelClient) throw new Error("workspace bridge is not open");
+    return new SessionsIndexSubscription(
+      this.channelClient.getChannel<IChannel>(ZCODE_AGENT_CHANNEL),
+      target,
+      callbacks,
+      this.now,
+    );
+  }
+
   /** 重连后重放未 ACK 的出站帧（对应上游 replayUnacknowledged）。 */
   replayUnacknowledged(): void {
     this.ackProtocol?.replayUnacknowledged();
@@ -375,6 +392,64 @@ export class ConversationSubscription {
           terminal: true,
         });
       }
+    }
+  }
+}
+
+export interface SessionsIndexCallbacks {
+  /** workspace 会话列表帧（快照/增量）；上层维护列表状态。 */
+  onFrame(frame: SessionsIndexTopicFrame): void;
+}
+
+/** workspace 级会话列表订阅（sessions-index topic，与 conversation 同一通知按 topic 前缀分流）。 */
+export class SessionsIndexSubscription {
+  private readonly assembler = new TopicWireFrameAssembler(sessionsIndexTopicFrameSchema);
+  private listener?: { dispose(): void };
+  private subscriptionId?: string;
+
+  constructor(
+    private readonly channel: IChannel,
+    private readonly target: BridgeWorkspaceTarget,
+    private readonly callbacks: SessionsIndexCallbacks,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  get id(): string | undefined {
+    return this.subscriptionId;
+  }
+
+  async subscribe(): Promise<SubscribeAck> {
+    const result = await this.channel.call<{ ack: SubscribeAck }>("subscribeSessionsIndexV4", {
+      ...this.target,
+    });
+    this.subscriptionId = result.ack.subscriptionId;
+    this.listener = this.channel.listen<SessionsIndexTopicWireCandidate>(
+      "onDynamicSessionsIndexFrame",
+      this.target,
+    )((wire) => this.acceptWire(wire));
+    return result.ack;
+  }
+
+  async unsubscribe(): Promise<void> {
+    this.listener?.dispose();
+    this.listener = undefined;
+    const subscriptionId = this.subscriptionId;
+    this.subscriptionId = undefined;
+    if (!subscriptionId) return;
+    await this.channel
+      .call("unsubscribeSessionsIndexV4", {
+        workspacePath: this.target.workspacePath,
+        subscriptionId,
+      })
+      .catch(() => {
+        // 断开时桌面可能已清理订阅；取消失败不阻塞本地清理
+      });
+  }
+
+  private acceptWire(wire: SessionsIndexTopicWireCandidate): void {
+    if (!wire.topic.startsWith("sessions-index/")) return;
+    for (const event of this.assembler.accept(wire, this.now())) {
+      if (event.kind === "complete") this.callbacks.onFrame(event.frame);
     }
   }
 }

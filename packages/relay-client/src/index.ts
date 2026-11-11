@@ -29,6 +29,7 @@ export {
 export {
   WorkspaceBridge,
   ConversationSubscription,
+  SessionsIndexSubscription,
   type BootstrapWorkspace,
   type BridgeBootstrapResult,
   type BridgeDegradedEvent,
@@ -36,6 +37,7 @@ export {
   type ConversationSubscriptionCallbacks,
   type ExternalBridgeInfo,
   type SendTextOptions,
+  type SessionsIndexCallbacks,
   type WorkspaceBridgeOptions,
 } from "./bridge";
 export {

@@ -6,12 +6,18 @@ import {
   Emitter,
   assistantTextRowSchema,
   createQueuePair,
+  sessionsIndexSnapshotSchema,
   type ConversationTopicWireCandidate,
   type Event,
   type IServerChannel,
+  type SessionsIndexTopicWireCandidate,
 } from "@nibi-go/shared-extract";
 
-import { ConversationSubscription, WorkspaceBridge } from "../src/bridge";
+import {
+  ConversationSubscription,
+  SessionsIndexSubscription,
+  WorkspaceBridge,
+} from "../src/bridge";
 
 const TARGET = { workspacePath: "/ws", workspaceIdentity: "wi-1" };
 
@@ -51,6 +57,7 @@ function completeWire(frame: unknown, logicalFrameOrdinal = 1): ConversationTopi
 class FakeAgentChannel implements IServerChannel {
   readonly calls: Array<{ command: string; arg: unknown }> = [];
   private readonly frames = new Emitter<ConversationTopicWireCandidate>();
+  private readonly sessionsFrames = new Emitter<SessionsIndexTopicWireCandidate>();
 
   async call<T>(_ctx: string, command: string, arg?: unknown): Promise<T> {
     this.calls.push({ command, arg });
@@ -59,7 +66,16 @@ class FakeAgentChannel implements IServerChannel {
         ack: { subscriptionId: "sub-1", mode: "snapshot", logEpoch: "e1" },
       } as T;
     }
-    if (command === "unsubscribeConversationV4") return undefined as T;
+    if (command === "subscribeSessionsIndexV4") {
+      return {
+        ack: { subscriptionId: "sidx-1", mode: "snapshot", logEpoch: "e1" },
+      } as T;
+    }
+    if (
+      command === "unsubscribeConversationV4" ||
+      command === "unsubscribeSessionsIndexV4"
+    )
+      return undefined as T;
     if (command === "sendConversationCommandV4") return { accepted: true } as T;
     throw new Error(`unknown command: ${command}`);
   }
@@ -68,11 +84,18 @@ class FakeAgentChannel implements IServerChannel {
     if (event === "onDynamicConversationFrame") {
       return this.frames.event as unknown as Event<T>;
     }
+    if (event === "onDynamicSessionsIndexFrame") {
+      return this.sessionsFrames.event as unknown as Event<T>;
+    }
     throw new Error(`unknown event: ${event}`);
   }
 
   emitFrame(wire: ConversationTopicWireCandidate): void {
     this.frames.fire(wire);
+  }
+
+  emitSessionsFrame(wire: SessionsIndexTopicWireCandidate): void {
+    this.sessionsFrames.fire(wire);
   }
 }
 
@@ -249,5 +272,89 @@ describe("ConversationSubscription（真实 Channel RPC 协议 × 假服务端�
       type: "resolveInteraction",
       payload: { interactionId: "int-1", answer: { action: "accept" } },
     });
+  });
+});
+
+describe("SessionsIndexSubscription（会话列表通道）", () => {
+  it("订阅 ACK / 快照帧解析 / topic 过滤 / 退订", async () => {
+    const [clientProtocol, serverProtocol] = createQueuePair();
+    const server = new ChannelServer(serverProtocol, "fake-ctx");
+    const fake = new FakeAgentChannel();
+    server.registerChannel("nibi-agent", fake);
+    const client = new ChannelClient(clientProtocol);
+
+    const frames: unknown[] = [];
+    const subscription = new SessionsIndexSubscription(
+      client.getChannel("nibi-agent"),
+      TARGET,
+      { onFrame: (frame) => frames.push(frame) },
+    );
+
+    const ack = await subscription.subscribe();
+    expect(ack).toMatchObject({ subscriptionId: "sidx-1" });
+    expect(fake.calls[0]).toMatchObject({
+      command: "subscribeSessionsIndexV4",
+      arg: { workspacePath: "/ws" },
+    });
+
+    const snapshot = sessionsIndexSnapshotSchema.parse({
+      protocolVersion: 1,
+      workspaceId: "ws-1",
+      logEpoch: "e1",
+      sessions: [
+        {
+          sessionId: "s1",
+          workspaceId: "ws-1",
+          title: "演示会话",
+          phase: "running",
+          sessionEnded: false,
+          hasBackgroundWork: false,
+          lastActivityAt: 1_700_000_000_000,
+          createdAt: 1_700_000_000_000,
+        },
+      ],
+    });
+    const sessionsFrame = {
+      topic: "sessions-index/ws-1",
+      subscriptionId: "sidx-1",
+      fromSeq: 0,
+      toSeq: 1,
+      sentAt: 1_700_000_000_000,
+      payload: { kind: "snapshot", snapshot },
+    };
+
+    // 无关 topic 被过滤
+    fake.emitSessionsFrame({
+      wireVersion: 3,
+      kind: "complete",
+      deliveryKind: "initial",
+      logicalFrameId: "lf-1",
+      logicalFrameOrdinal: 1,
+      topic: "conversation/s1",
+      subscriptionId: "sidx-1",
+      frame: sessionsFrame,
+    } as unknown as SessionsIndexTopicWireCandidate);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(frames).toHaveLength(0);
+
+    fake.emitSessionsFrame({
+      wireVersion: 3,
+      kind: "complete",
+      deliveryKind: "initial",
+      logicalFrameId: "lf-2",
+      logicalFrameOrdinal: 2,
+      topic: "sessions-index/ws-1",
+      subscriptionId: "sidx-1",
+      frame: sessionsFrame,
+    } as unknown as SessionsIndexTopicWireCandidate);
+    await vi.waitFor(() => expect(frames).toHaveLength(1));
+    const frame = frames[0] as {
+      payload: { kind: string; snapshot: { sessions: Array<{ title: string }> } };
+    };
+    expect(frame.payload.kind).toBe("snapshot");
+    expect(frame.payload.snapshot.sessions[0]!.title).toBe("演示会话");
+
+    await subscription.unsubscribe();
+    expect(fake.calls.some((c) => c.command === "unsubscribeSessionsIndexV4")).toBe(true);
   });
 });
