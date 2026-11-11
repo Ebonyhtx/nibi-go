@@ -8,5 +8,6 @@ export { WebRemoteControlV2Heartbeat } from "./web-remote-relay/heartbeat";
 export * from "./web-remote-control/qr";
 export * from "./web-remote-control/rpc-transport";
 export * from "./nibi-protocol-v4/wire-binary";
+export * from "./nibi-protocol-v4/index";
 export * from "./nibi-auth";
 export { DEFAULT_NIBI_ENDPOINT_ORIGIN, DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL } from "./relay-endpoints";
