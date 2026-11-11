@@ -88,10 +88,10 @@ that fails this check, or that is signed with a different certificate, is not an
 official build — do not install it.
 
 The private key is never stored in this repository. It exists as an encrypted
-backup in a separate private repository, and its passphrase is held offline by
-the maintainer. `scripts/keystore.mjs` (public) is the only tool that reads it;
-it takes the passphrase from an environment variable or a local file and never
-prints it.
+backup in a separate private repository, together with its passphrase; an
+offline copy of the passphrase is also kept by the maintainer. `scripts/keystore.mjs`
+(public) is the only tool that reads it; it takes the passphrase from an
+environment variable or a local file and never prints it.
 
 
 ## Safe harbor
