@@ -7,8 +7,8 @@
  * client id 属于 OIDC 公开标识，不是密钥。
  */
 
-/** 账号中心 origin（auth.nibistudio.top 的 OIDC/Device Flow 入口） */
-export const NIBI_AUTH_ORIGIN = "https://auth.nibistudio.top";
+/** 账号中心 origin（auth.nibistudio.cn 的 OIDC/Device Flow 入口） */
+export const NIBI_AUTH_ORIGIN = "https://auth.nibistudio.cn";
 
 /** Zitadel 项目 id：access token 的 aud 必须带它，服务端 verifyBearer 才认。 */
 export const NIBI_OIDC_PROJECT_ID = "393742195619790852";
@@ -20,6 +20,13 @@ export const NIBI_DESKTOP_OIDC_CLIENT_ID = "393742196089552900";
 export const NIBI_TUI_OIDC_CLIENT_ID = "393742196290879492";
 
 /**
+ * OIDC native app：NIBI-GO 移动端（授权码 + PKCE，`nibigo://login` 深链回调）。
+ * 2026-11-12 在账号中心注册（appId 399176882886541317）。client id 是公开标识，
+ * 与桌面/CLI/Web 一样随源码分发；需要临时联调时用 EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID 覆盖。
+ */
+export const NIBI_GO_OIDC_CLIENT_ID = "399176882886606853";
+
+/**
  * OIDC SPA app：手机远控 Web 页（授权码 + PKCE，无 client secret）。
  * 回调必须与页面同源：`{endpointOrigin}/remote/v4`。Zitadel 要求 redirect_uri 与登记值
  * **完全一致**，所以二维码参数只能放在 state 里，不能拼到回调地址上。
@@ -29,7 +36,7 @@ export const NIBI_WEB_OIDC_CLIENT_ID = "396486558825381892";
 /**
  * NIBI 登录 scope。
  * offline_access 用来拿 refresh_token；project aud scope 让 access token 带上项目 audience，
- * 否则 api.nibistudio.top 的鉴权会以"令牌无效"拒掉一个完全正常的登录。
+ * 否则 api.nibistudio.cn 的鉴权会以"令牌无效"拒掉一个完全正常的登录。
  */
 export const NIBI_OIDC_SCOPE = [
   "openid",

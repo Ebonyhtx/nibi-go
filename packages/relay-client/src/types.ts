@@ -88,7 +88,7 @@ export interface SocketLike {
 export type SocketFactory = (url: string) => SocketLike;
 
 export interface RelayTransportOptions {
-  /** relay ws2 入口，如 wss://api.nibistudio.top/api/v1/remote/ws2（无 query）。 */
+  /** relay ws2 入口，如 wss://api.nibistudio.cn/api/v1/remote/ws2（无 query）。 */
   relayWsUrl: string;
   /** 目标桌面 device_sid（扫码或持久凭据，D7/D8）。 */
   deviceSid: string;

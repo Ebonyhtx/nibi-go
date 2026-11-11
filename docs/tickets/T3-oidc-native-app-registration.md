@@ -1,6 +1,6 @@
 # T3 · NIBI 账号中心注册 NIBI-GO OIDC native app
 
-> **归属：NIBI 账号中心（Zitadel 管理面）——非 nibi-client 内核票据**，不走 HANDOFF.md 的内核票据流程；由 owner 在账号中心直接操作或派发给 nibi-server 侧。
+> **状态（2026-11-12）：已注册并接入，剩真机走完整登录。** 归属：NIBI 账号中心（Zitadel 管理面）+ 令牌代理（NIBI-Site）。
 > 登记日期：2026-11-11（A1-2 收尾时确认的外部依赖）。
 
 ## 背景
@@ -25,3 +25,40 @@ NIBI-GO RN App 的登录采用 NIBI 账号中心的授权码 + PKCE 流（同桌
 ## 优先级
 
 A1 真机联调（配对全流程）的前置；不阻塞 A2 协议层工作。
+
+
+---
+
+## 完成记录（2026-11-12）
+
+**Zitadel app**
+
+| 项 | 值 |
+|---|---|
+| 名称 | NIBI-GO |
+| client id | `399176882886606853` |
+| appId | `399176882886541317` |
+| 类型 | `OIDC_APP_TYPE_NATIVE` |
+| 鉴权 | `OIDC_AUTH_METHOD_TYPE_NONE`（无 secret，PKCE 唯一持有证明） |
+| Token | `OIDC_TOKEN_TYPE_JWT` |
+| Redirect URI | `nibigo://login`（精确匹配） |
+| Grant | authorization_code + refresh_token |
+
+**令牌代理（NIBI-Site `77f7b40`）**：原先两处写死 `nibiWebClientId`。现在按 redirect_uri 反查
+public client（白名单：web 的 `/remote/v4` 与本地回环、GO 的 `nibigo://login`）；续期按
+「显式 client_id → 上次成功归属缓存 → 白名单逐个候选」三级解析。无 secret，不开放任意 client。
+
+**GO 侧（本仓）**：
+- `packages/shared-extract` 新增 `NIBI_GO_OIDC_CLIENT_ID = 399176882886606853`（公开标识），
+  `app/src/relay/config.ts` 以它为默认值，`EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID` 仍可覆盖。
+- 换码与续期请求体都补上 `client_id`：续期不再需要代理先撞 web client 再回退，少一次 IdP 往返。
+- 端点常量从 `nibistudio.top` 切到 `nibistudio.cn`（auth / api / relay ws），与客户端 2026-11-12
+  的域名迁移对齐；SECURITY/CODE_OF_CONDUCT 的联系邮箱同步。
+
+**验收**：授权端点对 `nibigo://login` 返回 302、错误 redirect 返回 400（owner 实测）；代理换码/续期
+在路由层通过（Zitadel 报 `Errors.User.Code.Invalid` / `RefreshToken.Invalid`，说明 client 与
+redirect 均已通过，只是假 code）。**剩真机**：dev build/独立包里走完 `nibigo://login` → 换 token →
+refresh 续期一次（Expo Go 的回调是 `exp://`，不适用）。
+
+**运维注意**：代理的 GO client 只在 `NIBI_GO_CLIENT_ID` 环境变量存在时进入白名单（默认空）；
+新机器部署必须显式设置，否则 GO 换码会得到 400 `parameter error`。

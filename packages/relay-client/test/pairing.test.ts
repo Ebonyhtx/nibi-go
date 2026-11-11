@@ -107,23 +107,23 @@ describe("listDevices（§06 设备列表）", () => {
 describe("QR 解析（D7：仅路由提示；V2 契约）", () => {
   it("解析 sid/mid/name/app_version 与 endpoint origin", () => {
     const raw =
-      "https://api.nibistudio.top/remote/v4?sid=d_abc&mid=mid-1&name=My%20PC&app_version=4.0.1";
+      "https://api.nibistudio.cn/remote/v4?sid=d_abc&mid=mid-1&name=My%20PC&app_version=4.0.1";
     expect(parseDesktopQr(raw)).toEqual({
       deviceSid: "d_abc",
       deviceMid: "mid-1",
       deviceName: "My PC",
       appVersion: "4.0.1",
     });
-    expect(qrEndpointOrigin(raw)).toBe("https://api.nibistudio.top");
+    expect(qrEndpointOrigin(raw)).toBe("https://api.nibistudio.cn");
   });
 
   it("带 hash/t 的旧链接 → null；非 URL → null；无 sid 参数 → 空对象（进设备列表）", () => {
     expect(
-      parseDesktopQr("https://api.nibistudio.top/remote/v4?sid=d_abc&hash=x"),
+      parseDesktopQr("https://api.nibistudio.cn/remote/v4?sid=d_abc&hash=x"),
     ).toBeNull();
-    expect(parseDesktopQr("https://api.nibistudio.top/remote/v4?sid=d_abc&t=1")).toBeNull();
+    expect(parseDesktopQr("https://api.nibistudio.cn/remote/v4?sid=d_abc&t=1")).toBeNull();
     expect(parseDesktopQr("not a url")).toBeNull();
-    expect(parseDesktopQr("https://api.nibistudio.top/remote/v4")).toEqual({});
+    expect(parseDesktopQr("https://api.nibistudio.cn/remote/v4")).toEqual({});
   });
 });
 
@@ -136,13 +136,13 @@ describe("PairingFlow（D8 配对双路径）", () => {
     const credential = await flow.resolveTarget(
       {
         qr: { deviceSid: "d_1", deviceMid: "mid-1", deviceName: "PC" },
-        origin: "https://api.nibistudio.top",
+        origin: "https://api.nibistudio.cn",
       },
       "user-1",
     );
     expect(credential).toMatchObject({
       deviceSid: "d_1",
-      endpointOrigin: "https://api.nibistudio.top",
+      endpointOrigin: "https://api.nibistudio.cn",
       userId: "user-1",
     });
     expect(store.get()?.deviceSid).toBe("d_1");
