@@ -12,3 +12,9 @@ updates:
       time: "04:30"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    # 主版本升级会改变 CI 中固定的 action commit SHA，需手动评估后升级。
+    ignore:
+      - dependency-name: "actions/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pnpm/action-setup"
+        update-types: ["version-update:semver-major"]

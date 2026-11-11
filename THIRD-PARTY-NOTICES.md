@@ -25,6 +25,14 @@ NIBI-GO 的运行时与开发依赖以宽松许可（MIT / Apache-2.0 / BSD / IS
 | husky | MIT | Git hooks |
 | @types/* | MIT | 类型定义 |
 
+## 已知依赖告警（接受的风险）
+
+| 包 | 级别 | 路径 | 处置 |
+|---|---|---|---|
+| glob / minimatch | moderate | `app > expo > @expo/cli`（构建工具链，非运行时） | 上游 Expo CLI 锁 glob ^13，修复版 14.0.2 未跟进；构建期工具、无运行时暴露，接受并跟踪。 |
+| zod | 已修复 | `packages/shared-extract`（运行时） | 4.6.5 → **4.6.6**（GHSA 内存耗尽，HIGH）。 |
+| tinypool / vitest / @vitest/mocker | 已修复 | devDependencies（测试） | vitest 3.2.7 → **5.1.0**（tinypool 移出依赖树，critical 清零）。 |
+
 ## 抽取件的上游
 
 `packages/shared-extract/` 中的协议契约代码来自 nibi-client（Apache-2.0，

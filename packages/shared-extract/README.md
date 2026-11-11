@@ -30,7 +30,7 @@ workspace 直链（A）会让本仓 install 依赖本机平级的 nibi-client �
 | ✓ `src/legacy-account-access.ts` | packages/shared/src/nibi-protocol/index.ts 行 1159-1210（局部，type-only） | usage-stats.ts 的两个类型依赖（编译期擦除）；legacy 全量桶不抽取（登记） |
 | ✓ `src/testing/fake-relay-v2.ts` | packages/shared/test/fixtures/fake-relay-v2.ts（全文，import 路径调整） | 契约测试夹具，走 `@nibi-go/shared-extract/testing` 子路径（AGENTS 规则 11） |
 
-依赖：`zod` 精确版本 **4.6.5**（与上游 shared 锁定一致，升级随抽取流程联动）。
+依赖：`zod` **4.6.6**（精确版本）。注：上游 shared 锁 4.6.5；本仓因 GHSA 内存耗尽漏洞（HIGH）先升级到 4.6.6，语义不变，上游跟进后按抽取流程对齐。
 
 ## 未抽取变更登记
 
