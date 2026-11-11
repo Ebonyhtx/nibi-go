@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。剩余全部为 owner 输入：T3（OIDC 注册）/ T4+T5 派发（桌面侧联调）/ push 授权 / 发布决策（分发方式、签名 keystore、杀软材料——见 `docs/checklists/发布检查单.md`）。真机验证按 `docs/checklists/真机验证清单.md` 逐项执行（前置 T3）。
+> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名 = 本机工作副本 + 私有仓 `nibi-go-ops` 加密备份 + 离线口令；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地，恢复演练通过。剩余 owner 输入：T3（OIDC 注册）/ T4+T5 派发（桌面侧联调）/ **口令离线保管方式**（`docs/checklists/发布检查单.md` §0.3）/ 真机验证执行。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -70,7 +70,7 @@ Phase C（挂起）    本机内核                     两个启动信号见 §
 |---|---|
 | 通知（任务完成/待审批/提问）+ KeepAlive 前台服务 | 系统通知 + 进程保活 |
 | 应用内更新（GitHub Releases + 增量 DSHDLT01 可后置） | SHA-256 校验 + PackageInstaller |
-| 签名三链 + 杀软白名单申诉材料 | 发行纪律（dsh-Go 经验） |
+| 签名三链 + 杀软白名单申诉材料 | 发行纪律（dsh-Go 经验）——签名链已落地（config plugin + 密钥库工具 + 私有仓加密备份）；杀软材料待发布后 |
 | 真机验证清单执行（AGENTS 规则 12） | 未验证项如实标注 |
 
 ### Phase A 退出标准

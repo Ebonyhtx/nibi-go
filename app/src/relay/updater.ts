@@ -1,7 +1,7 @@
 // 应用内更新 · RN 胶水层（网络 / 文件 / 原生安装）。
-// 发布源：GitHub Releases。**注意**：本仓为私有仓，匿名 API 请求会 404——分发方案
-// （公开发布仓 / 自建分发）定案前，本模块仅作联调占位；RELEASE_REPO 可用
-// EXPO_PUBLIC_NIBI_RELEASE_REPO 覆盖。检查失败/无发布一律按"无更新"处理，不打扰用户。
+// 发布源：GitHub Releases（源码仓 Ebonyhtx/nibi-go，公开仓 → 匿名 API 可读）。
+// RELEASE_REPO 可用 EXPO_PUBLIC_NIBI_RELEASE_REPO 覆盖（构建时烘入；换仓 = 重新出包）。
+// 检查失败/无发布一律按"无更新"处理，不打扰用户。
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 import { installApk, sha256File } from "nibi-updater";
@@ -37,8 +37,12 @@ export interface DownloadResult {
   verified: boolean;
 }
 
-/** 下载 APK 到缓存目录并做 SHA-256 校验（不匹配即丢弃并报错）。 */
+/** 下载 APK 到缓存目录并做 SHA-256 校验（不匹配即丢弃并报错）。
+ *  无摘要直接拒装（fail-closed）：GitHub 会为每个上传资产算 digest，缺失说明发布流程有问题。 */
 export async function downloadUpdate(info: UpdateInfo): Promise<DownloadResult> {
+  if (!info.sha256) {
+    throw new Error("更新包缺少 SHA-256 摘要，已拒绝下载（发布侧需提供 asset digest）");
+  }
   const target = `${FileSystem.cacheDirectory}nibi-go-${info.version}.apk`;
   await FileSystem.deleteAsync(target, { idempotent: true }).catch(() => {});
   const result = await FileSystem.downloadAsync(info.apkUrl, target);
