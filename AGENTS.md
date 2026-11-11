@@ -1,5 +1,8 @@
 # AGENTS.md — NIBI-GO 开发规则
 
+> **工作区位置（2026-11-12 起）**：本仓库与 nibi-client 检出平级放在同一个工作区目录下。
+> 需要看内核代码、协议 schema 或处理票据时，直接读同级的 nibi-client 检出，不要在本仓再养一份参考克隆。
+
 NIBI-GO 是 NIBI 生态的移动客户端：**双形态**（NIBI-WORK 远控投影 + NIBI-GO 本机 AGENT）。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`，调研底稿见 `docs/research/`。
 
 ## 仓库定位与边界
@@ -18,7 +21,7 @@ NIBI-GO 是 NIBI 生态的移动客户端：**双形态**（NIBI-WORK 远控投�
 | `packages/phone-tools/` | 手机工具面 TS 接口 + 平台适配器注册 | **多平台适配器设计**（D11）：接口层不得出现 Android 专属类型 |
 | `modules/kernel-host/` | 模块 C 的内核绑定（JNI 薄层 + 构建脚本） | 不修改内核源码；内核变更走 nibi-client 票据（D17） |
 | `docs/decisions/` | 架构决策记录（D1–D17 编号制） | 决策变更须新文件记录，不覆写历史决策 |
-| `reference/` | 上游参考仓（本地可选，已 gitignore，公开仓不含） | **不编译、不执行、不参与本仓构建**；仅 git pull 更新 |
+| `reference/`（已移出仓库） | 本地参考克隆曾放这里；2026-11-12 起移出仓库（dsh-Go / 旧 nibi-client 副本），由工作区统一保管，不再随仓 | **不编译、不执行、不参与本仓构建**；nibi-client 真源是同级检出 |
 
 ## 硬规则
 
