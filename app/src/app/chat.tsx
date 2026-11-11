@@ -70,6 +70,31 @@ export default function ChatScreen() {
         }
       />
 
+      {chatSnapshot.approvals.length > 0 && (
+        <View style={styles.approvalArea}>
+          {chatSnapshot.approvals.map((approval) => (
+            <View key={approval.requestId} style={styles.approvalCard}>
+              <Text style={styles.approvalTitle}>桌面请求审批：{approval.title ?? "工具调用"}</Text>
+              <Text style={styles.approvalHint}>30 秒未操作将自动拒绝</Text>
+              <View style={styles.approvalButtons}>
+                <Pressable
+                  style={styles.approvalAllow}
+                  onPress={() => session.chat.respondApproval(approval.requestId, "allow")}
+                >
+                  <Text style={styles.approvalButtonText}>允许</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.approvalDeny}
+                  onPress={() => session.chat.respondApproval(approval.requestId, "deny")}
+                >
+                  <Text style={styles.approvalButtonText}>拒绝</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {canSend ? (
         <View style={styles.inputBar}>
           <TextInput
@@ -183,4 +208,12 @@ const styles = StyleSheet.create({
   sendButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: "#2563eb" },
   sendText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   hint: { fontSize: 12, color: "#999", textAlign: "center", padding: 16 },
+  approvalArea: { paddingHorizontal: 12, gap: 8, paddingBottom: 8 },
+  approvalCard: { padding: 12, borderRadius: 12, backgroundColor: "#fff8e6", borderWidth: StyleSheet.hairlineWidth, borderColor: "#f0d9a8" },
+  approvalTitle: { fontSize: 13, fontWeight: "600", color: "#7a5b00" },
+  approvalHint: { fontSize: 11, color: "#9a7b20", marginTop: 2 },
+  approvalButtons: { flexDirection: "row", gap: 8, marginTop: 10 },
+  approvalAllow: { flex: 1, padding: 10, borderRadius: 10, backgroundColor: "#2563eb", alignItems: "center" },
+  approvalDeny: { flex: 1, padding: 10, borderRadius: 10, backgroundColor: "#e5e7eb", alignItems: "center" },
+  approvalButtonText: { fontSize: 14, fontWeight: "600" },
 });

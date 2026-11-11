@@ -3,7 +3,14 @@
 // 连接断开/重连 → teardown()（重配对后重新 bootstrap）。
 // A2 限制：会话选择用 bootstrap 的 mobileViewState.activeTaskId（桌面当前视图）；
 // 会话列表（sessions-index topic）在 A2 后续切片接入。
-import { ConversationStore, ReplaySession, type ReplayDegradeReason } from "@nibi-go/chat-core";
+import {
+  ApprovalBoard,
+  ConversationStore,
+  ReplaySession,
+  type ApprovalDecision,
+  type PendingApproval,
+  type ReplayDegradeReason,
+} from "@nibi-go/chat-core";
 import {
   ConversationSubscription,
   WorkspaceBridge,
@@ -27,6 +34,8 @@ export interface ChatSnapshot {
   sessionId?: string;
   workspacePath?: string;
   workspaces: Array<{ workspacePath: string; label?: string }>;
+  /** 在途审批卡（30s 未操作自动拒绝，A3 不变量 2）。 */
+  approvals: PendingApproval[];
   error?: string;
 }
 
@@ -34,11 +43,15 @@ export class ChatSession {
   /** 消息树状态（UI 用 useSyncExternalStore 订阅）。 */
   readonly store = new ConversationStore();
   private readonly replay: ReplaySession;
+  private readonly board: ApprovalBoard;
+  /** 连接代次：每次 start/重订阅递增——审批卡绑定代次（A3 不变量 1）。 */
+  private epoch = 0;
+  private sweepTimer?: ReturnType<typeof setInterval>;
   private bridge?: WorkspaceBridge;
   private subscription?: ConversationSubscription;
   private active?: { sessionId: string; target: BridgeWorkspaceTarget };
   private listeners = new Set<() => void>();
-  private snapshot: ChatSnapshot = { phase: "idle", workspaces: [] };
+  private snapshot: ChatSnapshot = { phase: "idle", workspaces: [], approvals: [] };
 
   constructor(
     private readonly deps: {
@@ -49,6 +62,17 @@ export class ChatSession {
   ) {
     this.replay = new ReplaySession(this.store, {
       onResyncNeeded: (reason) => this.handleResync(reason),
+    });
+    this.board = new ApprovalBoard({
+      generation: () => this.epoch,
+      onDecision: (request, decision, via) => {
+        this.deps.logger?.info("[chat] approval", { id: request.requestId, decision, via });
+        void this.subscription?.resolveInteraction(
+          request.requestId,
+          decision === "allow" ? "accept" : "decline",
+        );
+        this.update({ approvals: this.board.list() });
+      },
     });
   }
 
@@ -110,12 +134,23 @@ export class ChatSession {
     this.active = { sessionId, target };
     this.update({ phase: "subscribing" });
     this.replay.begin();
+    // 新连接代次：旧代次审批卡全部作废（A3 不变量 1）
+    this.epoch += 1;
+    this.board.voidAll();
+    this.update({ approvals: [] });
     this.subscription = bridge.conversation(target, sessionId, {
       onFrame: (frame) => this.onFrame(frame),
       onDegraded: (fault) => this.replay.onBridgeDegraded(mapBridgeDegradeReason(fault.reasonCode)),
     });
     await this.subscription.subscribe();
     this.update({ phase: "ready" });
+    this.startSweep();
+    this.syncInteractions();
+  }
+
+  /** 用户作答审批卡（A3）：绑定当前代次；迟到/已作废返回 false。 */
+  respondApproval(requestId: string, decision: ApprovalDecision): boolean {
+    return this.board.resolve(requestId, decision) === "resolved";
   }
 
   /** relay data 入口（RelayTransport.onData 转发；桥控制回包与 rpc-frame 都走这里）。 */
@@ -128,13 +163,22 @@ export class ChatSession {
   }
 
   teardown(): void {
+    this.stopSweep();
+    this.epoch += 1;
+    this.board.voidAll();
     void this.subscription?.unsubscribe();
     this.subscription = undefined;
     this.bridge?.dispose();
     this.bridge = undefined;
     this.active = undefined;
     this.replay.close();
-    this.update({ phase: "idle", sessionId: undefined, workspacePath: undefined, error: undefined });
+    this.update({
+      phase: "idle",
+      sessionId: undefined,
+      workspacePath: undefined,
+      approvals: [],
+      error: undefined,
+    });
   }
 
   private pickTarget(
@@ -160,6 +204,42 @@ export class ChatSession {
     } else {
       this.replay.onDeltas(frame.payload.deltas);
     }
+    this.syncInteractions();
+  }
+
+  /** 快照 pendingInteractions → 审批板（只接 permission 类；提问卡留后续切片）。 */
+  private syncInteractions(): void {
+    const snapshot = this.store.snapshot;
+    const pending = snapshot?.pendingInteractions ?? [];
+    const currentIds = new Set<string>();
+    for (const interaction of pending) {
+      if (interaction.kind !== "permission") continue;
+      currentIds.add(interaction.interactionId);
+      const payload = interaction.payload as { summary?: string; toolName?: string };
+      this.board.present({
+        requestId: interaction.interactionId,
+        generation: this.epoch,
+        title: payload.summary?.trim() || payload.toolName?.trim() || "工具调用",
+      });
+    }
+    // 快照里已消失的卡（桌面侧已作答/请求撤回）→ 静默对齐
+    for (const pendingApproval of this.board.list()) {
+      if (!currentIds.has(pendingApproval.requestId)) this.board.drop(pendingApproval.requestId);
+    }
+    this.update({ approvals: this.board.list() });
+  }
+
+  private startSweep(): void {
+    this.stopSweep();
+    // 30s 默认拒绝由 board.sweep 执行；1s 粒度驱动（不变量 2）
+    this.sweepTimer = setInterval(() => {
+      if (this.board.sweep() > 0) this.update({ approvals: this.board.list() });
+    }, 1_000);
+  }
+
+  private stopSweep(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = undefined;
   }
 
   private handleResync(reason: ReplayDegradeReason): void {
@@ -171,6 +251,9 @@ export class ChatSession {
     void (async () => {
       try {
         await this.subscription?.unsubscribe();
+        this.epoch += 1;
+        this.board.voidAll();
+        this.update({ approvals: [] });
         this.subscription = bridge.conversation(active.target, active.sessionId, {
           onFrame: (frame) => this.onFrame(frame),
           onDegraded: (fault) =>
@@ -179,6 +262,8 @@ export class ChatSession {
         this.replay.begin();
         await this.subscription.subscribe();
         this.update({ phase: "ready" });
+        this.startSweep();
+        this.syncInteractions();
       } catch (error) {
         this.update({
           phase: "error",

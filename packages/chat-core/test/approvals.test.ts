@@ -83,4 +83,14 @@ describe("ApprovalBoard（两条不变量）", () => {
     expect(board.present({ requestId: "r1", generation: 1 })).toBe("duplicate");
     expect(board.resolve("nope", "allow")).toBe("unknown");
   });
+
+  it("drop：外部已解决的卡静默移除，不发决策；之后作答为 late", () => {
+    const { board, decisions } = makeBoard();
+    board.present({ requestId: "r1", generation: 1 });
+    expect(board.drop("r1")).toBe(true);
+    expect(board.drop("r1")).toBe(false);
+    expect(decisions).toEqual([]);
+    expect(board.resolve("r1", "allow")).toBe("late");
+    expect(board.list()).toEqual([]);
+  });
 });

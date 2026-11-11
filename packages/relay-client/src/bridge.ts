@@ -312,19 +312,36 @@ export class ConversationSubscription {
 
   /** 发送文本（inputOrigin: mobile 由上游 payload source 面表达，A2 先带最小载荷）。 */
   async sendText(text: string, options: SendTextOptions = {}): Promise<unknown> {
+    return this.sendCommand("sendText", {
+      text,
+      ...(options.requestedDelivery ? { requestedDelivery: options.requestedDelivery } : {}),
+    });
+  }
+
+  /**
+   * 审批/提问作答（A3）：resolveInteraction 命令（command.ts 契约）。
+   * decision 映射 accept/decline；cancel 走显式参数。
+   */
+  async resolveInteraction(
+    interactionId: string,
+    decision: "accept" | "decline" | "cancel",
+  ): Promise<unknown> {
+    return this.sendCommand("resolveInteraction", {
+      interactionId,
+      answer: { action: decision },
+    });
+  }
+
+  /** 通用 V4 命令（commandEnvelopeSchema 信封；服务面按需扩展）。 */
+  async sendCommand(type: string, payload: unknown): Promise<unknown> {
     return this.channel.call("sendConversationCommandV4", {
       ...this.target,
       envelope: {
         commandId: randomId(),
         clientId: this.clientId,
         sessionId: this.sessionId,
-        type: "sendText",
-        payload: {
-          text,
-          ...(options.requestedDelivery
-            ? { requestedDelivery: options.requestedDelivery }
-            : {}),
-        },
+        type,
+        payload,
         issuedAt: this.now(),
       },
     });

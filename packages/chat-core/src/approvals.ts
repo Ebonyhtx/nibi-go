@@ -80,6 +80,17 @@ export class ApprovalBoard {
     return "resolved";
   }
 
+  /**
+   * 外部已解决（桌面侧已作答/请求消失）：静默移除，不发决策。
+   * 用于快照 pendingInteractions 不再包含该卡时对齐本地状态。
+   */
+  drop(requestId: string): boolean {
+    if (!this.pending.has(requestId)) return false;
+    this.pending.delete(requestId);
+    this.resolved.add(requestId);
+    return true;
+  }
+
   /** 超时扫描：到期未答 → 默认拒绝（不变量 2）。返回本次超时数量。 */
   sweep(): number {
     const now = this.now();

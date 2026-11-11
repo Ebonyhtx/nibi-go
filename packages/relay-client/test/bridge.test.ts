@@ -222,4 +222,32 @@ describe("ConversationSubscription（真实 Channel RPC 协议 × 假服务端�
     await subscription.unsubscribe();
     expect(fake.calls.some((c) => c.command === "unsubscribeConversationV4")).toBe(true);
   });
+
+  it("resolveInteraction（A3 审批作答）信封", async () => {
+    const [clientProtocol, serverProtocol] = createQueuePair();
+    const server = new ChannelServer(serverProtocol, "fake-ctx");
+    const fake = new FakeAgentChannel();
+    server.registerChannel("nibi-agent", fake);
+    const client = new ChannelClient(clientProtocol);
+    const subscription = new ConversationSubscription(
+      client.getChannel("nibi-agent"),
+      TARGET,
+      "s1",
+      { onFrame: () => {} },
+    );
+    await subscription.subscribe();
+
+    await subscription.resolveInteraction("int-1", "accept");
+    const call = fake.calls.find(
+      (c) =>
+        c.command === "sendConversationCommandV4" &&
+        (c.arg as { envelope: { type: string } }).envelope.type === "resolveInteraction",
+    );
+    expect(call).toBeDefined();
+    expect((call!.arg as { envelope: Record<string, unknown> }).envelope).toMatchObject({
+      sessionId: "s1",
+      type: "resolveInteraction",
+      payload: { interactionId: "int-1", answer: { action: "accept" } },
+    });
+  });
 });
