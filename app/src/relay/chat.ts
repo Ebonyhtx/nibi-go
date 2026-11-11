@@ -6,7 +6,10 @@
 import {
   ApprovalBoard,
   ConversationStore,
+  PulseTracker,
   ReplaySession,
+  type AgentPulseEvent,
+  type AgentSustainedState,
   type ApprovalDecision,
   type PendingApproval,
   type ReplayDegradeReason,
@@ -19,6 +22,8 @@ import {
   type RelayJson,
 } from "@nibi-go/relay-client";
 import type { ConversationTopicFrame } from "@nibi-go/shared-extract";
+
+import { notifyAgent } from "./notifications";
 
 export type ChatPhase =
   | "idle"
@@ -52,17 +57,27 @@ export class ChatSession {
   private active?: { sessionId: string; target: BridgeWorkspaceTarget };
   private listeners = new Set<() => void>();
   private snapshot: ChatSnapshot = { phase: "idle", workspaces: [], approvals: [] };
+  /** A4 通知：PulseTracker（D14/A4 共同上游）+ 已见提问 id + 上次会话 phase。 */
+  private pulse: PulseTracker;
+  private seenQuestions = new Set<string>();
+  private lastPhase?: string;
+  /** 前台时通知交给 in-app UI（后台才弹系统通知）。 */
+  private isForeground: () => boolean;
 
   constructor(
     private readonly deps: {
       /** 发送 relay data（转发到当前 RelayTransport.sendData）。 */
       send(payload: RelayJson): boolean;
+      /** 是否前台（缺省按非前台处理：通知照常弹，不静默丢事件）。 */
+      isForeground?: () => boolean;
       logger?: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
     },
   ) {
+    this.isForeground = deps.isForeground ?? (() => false);
     this.replay = new ReplaySession(this.store, {
       onResyncNeeded: (reason) => this.handleResync(reason),
     });
+    this.pulse = new PulseTracker((pulse) => this.onPulse(pulse));
     this.board = new ApprovalBoard({
       generation: () => this.epoch,
       onDecision: (request, decision, via) => {
@@ -91,6 +106,10 @@ export class ChatSession {
   /** 连接配对成功：bootstrap → 打开 workspace → 订阅桌面当前会话。 */
   async start(): Promise<void> {
     this.teardown();
+    // 新会话：通知去重与 phase 基线重置
+    this.pulse = new PulseTracker((pulse) => this.onPulse(pulse));
+    this.seenQuestions.clear();
+    this.lastPhase = undefined;
     this.update({ phase: "bootstrapping", error: undefined, workspaces: [] });
     try {
       this.bridge = new WorkspaceBridge({
@@ -205,22 +224,79 @@ export class ChatSession {
       this.replay.onDeltas(frame.payload.deltas);
     }
     this.syncInteractions();
+    this.detectTaskFinished();
   }
 
-  /** 快照 pendingInteractions → 审批板（只接 permission 类；提问卡留后续切片）。 */
+  /** A4：会话 phase 迁移 → 任务完成/失败/中断通知（running → completed*）。 */
+  private detectTaskFinished(): void {
+    const phase = this.store.snapshot?.control?.phase;
+    if (!phase) return;
+    const previous = this.lastPhase;
+    this.lastPhase = phase;
+    if (!previous) return;
+    if (previous !== "running" && previous !== "prewarming") return;
+    if (phase === "completedSuccess") this.pulse.taskFinished(this.active?.sessionId ?? "task", "success");
+    else if (phase === "completedInterrupted") this.pulse.taskFinished(this.active?.sessionId ?? "task", "cancelled");
+    else if (phase === "error") this.pulse.taskFinished(this.active?.sessionId ?? "task", "failed");
+  }
+
+  /** PulseTracker 下游：前台交给 in-app UI；后台弹系统通知（点击直达 chat）。 */
+  private onPulse(pulse: { kind: "sustained"; state: AgentSustainedState } | AgentPulseEvent): void {
+    if (pulse.kind === "sustained") return; // 持续态由 UI/桌宠消费（A4 通知不发）
+    if (this.isForeground()) return;
+    switch (pulse.kind) {
+      case "approval-requested":
+        void notifyAgent({
+          title: "需要审批",
+          body: "桌面 AGENT 正在等待你的审批",
+          route: "/chat",
+        });
+        return;
+      case "question-asked":
+        void notifyAgent({
+          title: "有一个问题",
+          body: "桌面 AGENT 在等你回答",
+          route: "/chat",
+        });
+        return;
+      case "task-finished":
+        void notifyAgent({
+          title:
+            pulse.outcome === "success"
+              ? "任务完成"
+              : pulse.outcome === "cancelled"
+                ? "任务已中断"
+                : "任务失败",
+          body: "点按查看会话详情",
+          route: "/chat",
+        });
+        return;
+      case "task-started":
+        return;
+    }
+  }
+
+  /** 快照 pendingInteractions → 审批板（permission）+ 提问通知（userInput）；提问卡 UI 留后续切片。 */
   private syncInteractions(): void {
     const snapshot = this.store.snapshot;
     const pending = snapshot?.pendingInteractions ?? [];
     const currentIds = new Set<string>();
     for (const interaction of pending) {
-      if (interaction.kind !== "permission") continue;
-      currentIds.add(interaction.interactionId);
-      const payload = interaction.payload as { summary?: string; toolName?: string };
-      this.board.present({
-        requestId: interaction.interactionId,
-        generation: this.epoch,
-        title: payload.summary?.trim() || payload.toolName?.trim() || "工具调用",
-      });
+      if (interaction.kind === "permission") {
+        currentIds.add(interaction.interactionId);
+        const payload = interaction.payload as { summary?: string; toolName?: string };
+        this.board.present({
+          requestId: interaction.interactionId,
+          generation: this.epoch,
+          title: payload.summary?.trim() || payload.toolName?.trim() || "工具调用",
+        });
+      } else if (interaction.kind === "userInput") {
+        // 提问：只发通知（A4），回答 UI 留后续切片
+        if (!this.seenQuestions.has(interaction.interactionId)) {
+          this.seenQuestions.add(interaction.interactionId);
+          this.pulse.questionAsked(interaction.interactionId);
+        }
+      }
     }
     // 快照里已消失的卡（桌面侧已作答/请求撤回）→ 静默对齐
     for (const pendingApproval of this.board.list()) {

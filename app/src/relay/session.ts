@@ -9,6 +9,8 @@ import { AppState } from "react-native";
 
 import { startKeepAlive, stopKeepAlive } from "nibi-keepalive";
 
+import { ensureNotificationSetup } from "./notifications";
+
 import type { WebRemoteControlRelayV2Device } from "@nibi-go/shared-extract";
 import {
   PairingFlow,
@@ -75,11 +77,15 @@ export class RelaySession {
     this.pairing = new PairingFlow(pairCredentialStore);
     this.chat = new ChatSession({
       send: (payload: RelayJson) => this.transport?.sendData(payload) ?? false,
+      // 前台由 in-app UI 呈现，后台才弹系统通知（A4）
+      isForeground: () => AppState.currentState === "active",
       logger: {
         info: (...args) => console.log("[chat]", ...args),
         warn: (...args) => console.warn("[chat]", ...args),
       },
     });
+    // A4：通知渠道 + 权限（幂等；失败静默）
+    void ensureNotificationSetup();
     // Spike 2 结论：后台期间连接被 abort、定时器暂停；回前台立即重连（跳过退避等待）
     this.appStateSubscription = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
