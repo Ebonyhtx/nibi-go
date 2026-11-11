@@ -161,6 +161,30 @@ describe("RelayTransport（terminal 状态机 × fake-relay-v2）", () => {
     }
   }, 10_000);
 
+  it("reconnectNow：回前台跳过退避立即重连（Spike 2）", async () => {
+    const relay = await createFakeRelayV2({ users: { [JWT]: "user-1" } });
+    try {
+      const sid = await registerDevice(relay);
+      const rec = stateRecorder();
+      const transport = makeTransport(relay, sid, rec, [], {
+        // 大退避：若走常规退避路径不会在测试窗口内重连
+        retry: new WebRemoteControlV2RetryPolicy(() => 0, { initialMs: 60_000, maxMs: 60_000, jitter: 0.2 }),
+      });
+      transport.start();
+      await rec.waitFor("waiting_terminal");
+
+      // 模拟后台断连后的回前台：先触发一次断连（fake relay 断 terminal 侧）
+      relay.disconnect({ role: "terminal" });
+      await rec.waitFor("connecting");
+      // reconnectNow 立即重连（不等 60s 退避）
+      transport.reconnectNow();
+      await rec.waitFor("waiting_terminal", 4000);
+      transport.dispose();
+    } finally {
+      await relay.close();
+    }
+  }, 15_000);
+
   it("auth_init 后 AUTH_FAILED：device-not-owned 终态", async () => {
     const relay = await createFakeRelayV2({ users: { [JWT]: "user-1" } });
     try {

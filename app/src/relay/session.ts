@@ -2,7 +2,10 @@
 // onData 仅预留（A2：chat-core reducer 接手，本阶段不消费业务 payload）。
 // RelaySession——App 侧配对/连接编排：PairingFlow（D8）+ RelayTransport（A1-1）+ NibiAuthProvider。
 // 聊天接线（A2-6）与 E2E 握手（A3）在此汇合：secure 通道完成（或降级）后才启动 ChatSession。
+// 后台恢复（Spike 2）：切后台连接被 abort、JS 定时器暂停；回前台经 AppState 立即重连，不等退避。
 import "./cryptoPolyfill";
+
+import { AppState } from "react-native";
 
 import type { WebRemoteControlRelayV2Device } from "@nibi-go/shared-extract";
 import {
@@ -75,7 +78,23 @@ export class RelaySession {
         warn: (...args) => console.warn("[chat]", ...args),
       },
     });
+    // Spike 2 结论：后台期间连接被 abort、定时器暂停；回前台立即重连（跳过退避等待）
+    this.appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      if (this.transport && this.snapshot.connState !== "paired") {
+        this.transport.reconnectNow();
+      }
+    });
     void this.bootstrap();
+  }
+
+  /** AppState 监听句柄（App 卸载时可清理；单例场景保持到进程结束）。 */
+  private appStateSubscription?: { remove(): void };
+
+  dispose(): void {
+    this.appStateSubscription?.remove();
+    this.appStateSubscription = undefined;
+    this.disconnect();
   }
 
   private async bootstrap(): Promise<void> {

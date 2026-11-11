@@ -90,6 +90,17 @@ export class RelayTransport {
     return true;
   }
 
+  /**
+   * 回前台/网络恢复（Spike 2 结论）：跳过退避等待立即重连。
+   * 已配对时不动（配对中连接仍活）；后台恢复后应主动探测而非信任旧 socket——
+   * 调用方先 disconnect 再 resume，或直接 reconnectNow（重连后 onSendReady 会带 reconnected-socket）。
+   */
+  reconnectNow(): void {
+    if (!this.controller || this.controller.signal.aborted) return;
+    if (this.state === "paired") return;
+    this.scheduleReconnect(0);
+  }
+
   private async connect(): Promise<void> {
     const signal = this.controller?.signal;
     if (!signal || signal.aborted) return;
