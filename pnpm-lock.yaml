@@ -68,13 +68,20 @@ importers:
         version: 6.0.3
 
   packages/chat-core:
+    dependencies:
+      '@nibi-go/shared-extract':
+        specifier: workspace:*
+        version: link:../shared-extract
     devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.4
-        version: 3.2.7(@types/node@26.6.6)(lightningcss@1.33.0)(terser@5.51.2)
+        version: 3.2.7(@types/node@24.19.2)(lightningcss@1.33.0)(terser@5.51.2)
 
   packages/phone-tools:
     devDependencies:
