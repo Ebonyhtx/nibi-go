@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A 进行中——A0/A1/A2/A3 手机侧全部完成（A0 a97ba6f / A1-1 5707c08 / A1-2 d8a8f02 / A2-1..6 / A3-1 3706aec / A3-2 887478a；78 项测试绿）。A3 剩余为桌面侧配合：**T4**（审批 capability 开闸）+ **T5**（E2E 插桩，规格 docs/design/e2e-envelope-v1.md）；**T3**（OIDC 注册）待 owner。下一步：Spike 2（RN 后台长连接实测）→ A4 发布准备。
+> 状态：Phase A 进行中——A0/A1/A2/A3 手机侧全部完成（78 项测试绿）；**dev-client 构建阻塞已解除**（2026-11-11：`buildStagingDirectory` 迁短路径 + cmake 3.31.4，`app/plugins/withCmakeVersion.js` 固化，APK 构建成功）。A3 剩余为桌面侧配合：T4（审批 capability 开闸）+ T5（E2E 插桩，规格 docs/design/e2e-envelope-v1.md）；T3（OIDC 注册）待 owner。下一步：A4 发布准备（KeepAlive/通知/更新/签名）+ Spike 2 结论已落档。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 

@@ -32,7 +32,8 @@
         }
       ],
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withCmakeVersion"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
