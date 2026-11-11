@@ -70,6 +70,28 @@ node scripts/keystore.mjs verify <apk>   # 校验 APK 签名证书与发布密�
 node scripts/release.mjs 0.1.1           # 版本号→门禁→prebuild→构建→验签→GitHub Release
 ```
 
+### Windows 本地 Android 构建（MAX_PATH）
+
+Windows 上 ninja 对**对象路径**有 260 字符硬限制，而 `expo-modules-autolinking` 用
+`fs.promises.realpath` 解析依赖——虚拟盘（`subst`）和 junction 都会被解析回真实路径，
+所以只改盘符没用。仓库路径偏长时（例如放在多层工作区目录下），`react-native-gesture-handler`
+的 codegen 对象路径会超过 260，`assembleDebug` 报 `Filename longer than 260 characters`。
+
+可靠做法：把 `node_modules` 实体放到**短的真实路径**，再挂回仓库：
+
+1. 停掉 Gradle daemon（它通过 VFS watch 持有 `node_modules` 里的目录句柄）：`gradlew.bat --stop`。
+2. 把仓库里的 `node_modules` 整体移动到短路径（同卷 rename，秒级），然后在原位置 `mklink /J`
+   指回短路径。
+3. 在短路径目录内再建一条**自引用 junction**：`<短路径>/node_modules -> <短路径>`。
+   原因：realpath 之后 Node 从 `<短路径>` 找 `node_modules`，不自引用的话
+   `settings.gradle` 的 `require.resolve` 会失败。
+4. 删除一次 `app/android/build/generated/autolinking/autolinking.json` 与其 `.sha`：
+   autolinking 只按 package.json 哈希判断是否重算，感知不到 realpath 变化，不删会继续用旧长路径。
+5. 验证：`fs.promises.realpath("<repo>/node_modules/react-native")` 应返回短路径；随后
+   `assembleDebug` 的对象路径应降到 250 以内。
+
+`pnpm install --frozen-lockfile` 不会破坏这两条 junction（已实测）。新机器首次配置一次即可。
+
 （RN 侧 `app/` 的开发命令在 Expo 骨架落地后补充。）
 
 ## 现状与路线
