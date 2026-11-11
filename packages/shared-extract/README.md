@@ -26,6 +26,8 @@ workspace 直链（A）会让本仓 install 依赖 `nibi-client 工作区` 平�
 | ✓ `src/nibi-protocol-v4/` 闭包（56 文件） | packages/shared/src/nibi-protocol-v4/{apply,delta,rows,snapshot,toolDisplay}.ts 及其相对依赖闭包 + source-server/contracts（类型级 inline import） | V4 会话行模型 / delta 事件 / 快照 / reducer（A2-2 增量抽取，脚本 scripts/extract-v4-closure.mjs 可重放） |
 | ✓ `src/rpc/`（Layer 0-3，9 文件） | packages/rpc/src/{foundation,buffer,serialization,protocol,channels.shared,channels,channelClient,channelServer,delayedChannel}.ts | Channel RPC 框架（精简桥方案 B，脚本 scripts/extract-rpc-closure.mjs） |
 | ✓ `src/web-remote-control/acknowledged-relay-*.ts`（4 文件） | packages/client/src/webRemoteControlAcknowledgedRelay*.ts | rpc-frame 之上的 ACK/重放/期限协议（IMessagePassingProtocol 适配） |
+| ✓ `src/nibi-protocol-v4/` topic 闭包（新增 29 模块） | packages/shared/src/nibi-protocol-v4/{transport,wire,wire-codec,wire-assembler,wire-reassembly,wire-fault,sessions-index,workspace-config}.ts 及其干净依赖 | conversation topic 帧（快照/delta/命令的下行通道）——脚本 scripts/extract-topic-closure.mjs |
+| ✓ `src/legacy-account-access.ts` | packages/shared/src/nibi-protocol/index.ts 行 1159-1210（局部，type-only） | usage-stats.ts 的两个类型依赖（编译期擦除）；legacy 全量桶不抽取（登记） |
 | ✓ `src/testing/fake-relay-v2.ts` | packages/shared/test/fixtures/fake-relay-v2.ts（全文，import 路径调整） | 契约测试夹具，走 `@nibi-go/shared-extract/testing` 子路径（AGENTS 规则 11） |
 
 依赖：`zod` 精确版本 **4.6.5**（与上游 shared 锁定一致，升级随抽取流程联动）。
