@@ -8,6 +8,7 @@ import {
   ConversationStore,
   PulseTracker,
   ReplaySession,
+  interactionAnswerForDecision,
   type AgentPulseEvent,
   type AgentSustainedState,
   type ApprovalDecision,
@@ -97,9 +98,13 @@ export class ChatSession {
       generation: () => this.epoch,
       onDecision: (request, decision, via) => {
         this.deps.logger?.info("[chat] approval", { id: request.requestId, decision, via });
+        // 桌面按 optionId 判定权限；从快照里的同一张卡取 allowOnce/allowAlways/deny 选项。
+        const interaction = this.store.snapshot?.pendingInteractions.find(
+          (candidate) => candidate.interactionId === request.requestId,
+        );
         void this.subscription?.resolveInteraction(
           request.requestId,
-          decision === "allow" ? "accept" : "decline",
+          interactionAnswerForDecision(interaction, decision),
         );
         this.update({ approvals: this.board.list() });
       },

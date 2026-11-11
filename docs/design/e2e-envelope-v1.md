@@ -15,12 +15,15 @@
 
 ## 2. 消息格式（JSON 文本帧，字段 base64）
 
+> **nonce 长度以实现为准：24B。** 初稿此处写 32B 属笔误；`packages/relay-client/src/handshake.ts`
+> 硬校验 24B，nibi-client 桌面侧已按 24B 镜像。下一端实现请勿按旧的 32B 文本实现，否则握手全部失败。
+
 ```jsonc
 // terminal → desktop（配对成功后立即发送）
-{ "nibi_type": "keyneg-init", "v": 1, "pub": "<X25519 公钥 32B>", "nonce": "<32B 随机>" }
+{ "nibi_type": "keyneg-init", "v": 1, "pub": "<X25519 公钥 32B>", "nonce": "<24B 随机>" }
 
 // desktop → terminal
-{ "nibi_type": "keyneg-response", "v": 1, "pub": "<X25519 公钥 32B>", "nonce": "<32B 随机>" }
+{ "nibi_type": "keyneg-response", "v": 1, "pub": "<X25519 公钥 32B>", "nonce": "<24B 随机>" }
 
 // 握手完成后，业务 data payload 全部替换为密文信封
 { "nibi_type": "enc", "v": 1, "n": "<XChaCha20 nonce 24B>", "ct": "<密文+16B tag>" }
@@ -30,7 +33,7 @@
 
 ```
 shared   = X25519(ephemeral_priv, peer_ephemeral_pub)
-salt     = clientNonce ‖ serverNonce          （64B）
+salt     = clientNonce ‖ serverNonce          （48B = 24B + 24B）
 info     = "nibi-e2e-v1|<context>"            （context = deviceSid，UTF-8）
 K        = HKDF-SHA256(shared, salt, info, 32)
 ```

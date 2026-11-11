@@ -36,10 +36,20 @@ export {
   type BridgeWorkspaceTarget,
   type ConversationSubscriptionCallbacks,
   type ExternalBridgeInfo,
+  type ResolveInteractionAnswer,
   type SendTextOptions,
   type SessionsIndexCallbacks,
   type WorkspaceBridgeOptions,
 } from "./bridge";
+export {
+  AgentV4AttachmentHandshake,
+  BridgeHandshakeError,
+  isHandshakeMethodUnavailable,
+  type AgentV4Attachment,
+  type AgentV4AttachmentHandshakeOptions,
+  type BridgeHandshakeErrorKind,
+  type BridgeHandshakeState,
+} from "./v4Attachment";
 export {
   PairingFlow,
   listDevices,

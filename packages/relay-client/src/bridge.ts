@@ -24,6 +24,10 @@ import {
 } from "@nibi-go/shared-extract";
 
 import type { RelayJson } from "./types";
+import {
+  AgentV4AttachmentHandshake,
+  type AgentV4Attachment,
+} from "./v4Attachment";
 
 /** 来源: packages/shared/src/channels.ts ServiceChannels.ZCodeAgent。 */
 const ZCODE_AGENT_CHANNEL = "nibi-agent";
@@ -97,6 +101,8 @@ export class WorkspaceBridge {
   private readonly pending = new Map<string, PendingRequest>();
   private ackProtocol?: AcknowledgedWebRemoteControlRelayProtocolAdapter;
   private channelClient?: ChannelClient;
+  /** attachment 级 V4 握手 + clientId；openWorkspace 重建，conversation/sessions-index 共享。 */
+  private attachment?: AgentV4AttachmentHandshake;
   private bridgeInfo?: ExternalBridgeInfo;
   private readonly degradedListeners = new Set<(event: BridgeDegradedEvent) => void>();
   private readonly now: () => number;
@@ -149,6 +155,12 @@ export class WorkspaceBridge {
       }
     });
     this.channelClient = new ChannelClient(this.ackProtocol.protocol);
+    // 新的 bridge attachment：clientId 与握手状态都属于它，不能复用上一条连接的。
+    this.attachment = new AgentV4AttachmentHandshake(
+      this.channelClient.getChannel<IChannel>(ZCODE_AGENT_CHANNEL),
+      randomId(),
+      { logger: this.options.logger },
+    );
     return info;
   }
 
@@ -205,13 +217,14 @@ export class WorkspaceBridge {
     sessionId: string,
     callbacks: ConversationSubscriptionCallbacks,
   ): ConversationSubscription {
-    if (!this.channelClient) throw new Error("workspace bridge is not open");
+    if (!this.channelClient || !this.attachment) throw new Error("workspace bridge is not open");
     return new ConversationSubscription(
       this.channelClient.getChannel<IChannel>(ZCODE_AGENT_CHANNEL),
       target,
       sessionId,
       callbacks,
       this.now,
+      this.attachment,
     );
   }
 
@@ -220,12 +233,13 @@ export class WorkspaceBridge {
     target: BridgeWorkspaceTarget,
     callbacks: SessionsIndexCallbacks,
   ): SessionsIndexSubscription {
-    if (!this.channelClient) throw new Error("workspace bridge is not open");
+    if (!this.channelClient || !this.attachment) throw new Error("workspace bridge is not open");
     return new SessionsIndexSubscription(
       this.channelClient.getChannel<IChannel>(ZCODE_AGENT_CHANNEL),
       target,
       callbacks,
       this.now,
+      this.attachment,
     );
   }
 
@@ -241,6 +255,7 @@ export class WorkspaceBridge {
     this.ackProtocol?.dispose();
     this.ackProtocol = undefined;
     this.channelClient = undefined;
+    this.attachment = undefined;
     this.bridgeInfo = undefined;
   }
 
@@ -293,10 +308,19 @@ export interface SendTextOptions {
   requestedDelivery?: "startNow" | "queue" | "guide";
 }
 
+/** resolveInteraction 的 answer：新路径用 optionId；旧载荷/取消用 action。 */
+export interface ResolveInteractionAnswer {
+  /** 快照 pendingInteractions[].payload.options[].optionId（桌面按它判定 allow/deny）。 */
+  optionId?: string;
+  /** 无 options 的兼容路径；cancel 也走这里（command.ts answer.action 闭集）。 */
+  action?: "accept" | "decline" | "cancel";
+}
+
 /** 单个会话的 V4 订阅 + sendText（方法面见 zcodeAgent.ts 契约）。 */
 export class ConversationSubscription {
   private readonly assembler = new TopicWireFrameAssembler(conversationTopicFrameSchema);
-  private readonly clientId = randomId();
+  /** attachment 级 clientId：clientHello 绑定它，sendConversationCommandV4 会按它校验。 */
+  private readonly clientId: string;
   private listener?: { dispose(): void };
   private subscriptionId?: string;
 
@@ -306,7 +330,11 @@ export class ConversationSubscription {
     private readonly sessionId: string,
     private readonly callbacks: ConversationSubscriptionCallbacks,
     private readonly now: () => number = Date.now,
-  ) {}
+    /** 直连构造（测试/旧调用）可缺省：无 attachment 时不握手、自用一次性 clientId。 */
+    private readonly attachment?: AgentV4Attachment,
+  ) {
+    this.clientId = attachment?.clientId ?? randomId();
+  }
 
   get id(): string | undefined {
     return this.subscriptionId;
@@ -314,10 +342,16 @@ export class ConversationSubscription {
 
   /** 订阅会话：ACK 返回 subscriptionId 与初始帧模式（snapshot/resume）。 */
   async subscribe(): Promise<SubscribeAck> {
-    const result = await this.channel.call<{ ack: SubscribeAck }>("subscribeConversationV4", {
-      ...this.target,
-      sessionId: this.sessionId,
-    });
+    // 必须先 hello → clientHello：桌面 connection scope 未握手时直接拒绝订阅。
+    await this.attachment?.ensureHandshake();
+    // 注意：桌面服务经 ProxyChannel 暴露，call 的 arg 是"方法实参数组"（target.apply(handler, args)）。
+    // 传裸对象会让 ProxyChannel 解出 0 个实参，订阅方法收到 undefined。
+    const result = await this.channel.call<{ ack: SubscribeAck }>("subscribeConversationV4", [
+      {
+        ...this.target,
+        sessionId: this.sessionId,
+      },
+    ]);
     this.subscriptionId = result.ack.subscriptionId;
     // 通知按 workspace fan-out，这里按 topic 过滤本会话（conversation/<sessionId>）
     this.listener = this.channel.listen<ConversationTopicWireCandidate>(
@@ -337,31 +371,44 @@ export class ConversationSubscription {
 
   /**
    * 审批/提问作答（A3）：resolveInteraction 命令（command.ts 契约）。
-   * decision 映射 accept/decline；cancel 走显式参数。
+   *
+   * 根因：桌面按 answer.optionId 精确匹配快照 options[].optionId 判定；没有 optionId 时
+   * permission 一律 deny（Node interaction-broker v4AnswerToPermissionResponse / Rust
+   * commands.rs resolve）。旧的 `{action:"accept"}` 只对 AskUserQuestion 等 elicitation
+   * 通道有效，权限卡点"允许"会被当成拒绝。新路径必须传选项的 optionId；无 options 的
+   * 旧载荷（userInput/旧快照）仍退回 action 兼容。
    */
   async resolveInteraction(
     interactionId: string,
-    decision: "accept" | "decline" | "cancel",
+    answer: ResolveInteractionAnswer,
   ): Promise<unknown> {
+    if (!answer.optionId && !answer.action) {
+      throw new Error("resolveInteraction requires optionId (new path) or action (legacy)");
+    }
+    // optionId 优先：同时给出时不混入 action，避免桌面按 action 走 elicitation 分支。
     return this.sendCommand("resolveInteraction", {
       interactionId,
-      answer: { action: decision },
+      answer: answer.optionId ? { optionId: answer.optionId } : { action: answer.action },
     });
   }
 
   /** 通用 V4 命令（commandEnvelopeSchema 信封；服务面按需扩展）。 */
   async sendCommand(type: string, payload: unknown): Promise<unknown> {
-    return this.channel.call("sendConversationCommandV4", {
-      ...this.target,
-      envelope: {
-        commandId: randomId(),
-        clientId: this.clientId,
-        sessionId: this.sessionId,
-        type,
-        payload,
-        issuedAt: this.now(),
+    // 命令同样受 connection scope 的 handshakeRequired / boundClientId 校验。
+    await this.attachment?.ensureHandshake();
+    return this.channel.call("sendConversationCommandV4", [
+      {
+        ...this.target,
+        envelope: {
+          commandId: randomId(),
+          clientId: this.clientId,
+          sessionId: this.sessionId,
+          type,
+          payload,
+          issuedAt: this.now(),
+        },
       },
-    });
+    ]);
   }
 
   async unsubscribe(): Promise<void> {
@@ -371,10 +418,13 @@ export class ConversationSubscription {
     this.subscriptionId = undefined;
     if (!subscriptionId) return;
     await this.channel
-      .call("unsubscribeConversationV4", {
-        workspacePath: this.target.workspacePath,
-        subscriptionId,
-      })
+      .call("unsubscribeConversationV4", [
+        {
+          // 必须带全 target：桌面按 workspaceIdentity（若存在）匹配 ownership，只带 path 会 no-op。
+          ...this.target,
+          subscriptionId,
+        },
+      ])
       .catch(() => {
         // 断开时桌面可能已清理订阅；取消失败不阻塞本地清理
       });
@@ -412,6 +462,8 @@ export class SessionsIndexSubscription {
     private readonly target: BridgeWorkspaceTarget,
     private readonly callbacks: SessionsIndexCallbacks,
     private readonly now: () => number = Date.now,
+    /** 与 conversation 订阅共享 attachment 握手；无 attachment（直连测试）时跳过。 */
+    private readonly attachment?: AgentV4Attachment,
   ) {}
 
   get id(): string | undefined {
@@ -419,9 +471,13 @@ export class SessionsIndexSubscription {
   }
 
   async subscribe(): Promise<SubscribeAck> {
-    const result = await this.channel.call<{ ack: SubscribeAck }>("subscribeSessionsIndexV4", {
-      ...this.target,
-    });
+    // sessions-index 同样在 connection scope 的 assertReady() 之后，必须先握手。
+    await this.attachment?.ensureHandshake();
+    const result = await this.channel.call<{ ack: SubscribeAck }>("subscribeSessionsIndexV4", [
+      {
+        ...this.target,
+      },
+    ]);
     this.subscriptionId = result.ack.subscriptionId;
     this.listener = this.channel.listen<SessionsIndexTopicWireCandidate>(
       "onDynamicSessionsIndexFrame",
@@ -437,10 +493,13 @@ export class SessionsIndexSubscription {
     this.subscriptionId = undefined;
     if (!subscriptionId) return;
     await this.channel
-      .call("unsubscribeSessionsIndexV4", {
-        workspacePath: this.target.workspacePath,
-        subscriptionId,
-      })
+      .call("unsubscribeSessionsIndexV4", [
+        {
+          // 同上：workspaceIdentity 参与 ownership 匹配。
+          ...this.target,
+          subscriptionId,
+        },
+      ])
       .catch(() => {
         // 断开时桌面可能已清理订阅；取消失败不阻塞本地清理
       });
