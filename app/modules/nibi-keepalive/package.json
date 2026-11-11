@@ -1,0 +1,8 @@
+{
+  "name": "nibi-keepalive",
+  "version": "0.1.0",
+  "description": "NIBI-GO KeepAlive 前台服务（Android）：保持与桌面的远程连接不被系统回收",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

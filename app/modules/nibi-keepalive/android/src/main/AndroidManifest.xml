@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- A4 KeepAlive：前台服务保持远程连接；通知渠道由服务自建 -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <application>
+    <service
+      android:name="expo.modules.nibikeepalive.KeepAliveService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
+  </application>
+</manifest>

@@ -6,6 +6,8 @@ node_modules/
 # 本仓产出的构建物（reference/ 是独立仓，有自己的 .gitignore）
 app/.expo/
 app/android/.gradle/
+app/modules/*/android/build/
+app/modules/*/android/.gradle/
 packages/*/dist/
 *.tsbuildinfo
 

@@ -7,6 +7,8 @@ import "./cryptoPolyfill";
 
 import { AppState } from "react-native";
 
+import { startKeepAlive, stopKeepAlive } from "nibi-keepalive";
+
 import type { WebRemoteControlRelayV2Device } from "@nibi-go/shared-extract";
 import {
   PairingFlow,
@@ -176,6 +178,7 @@ export class RelaySession {
     this.paired = false;
     this.chatStarted = false;
     this.chat.teardown();
+    stopKeepAlive();
     this.update({ connState: "idle", encryption: "idle" });
   }
 
@@ -245,11 +248,19 @@ export class RelaySession {
         if (state === "paired" && !this.paired) {
           this.paired = true;
           this.secure?.begin();
+          // A4 KeepAlive：连接期间前台服务保活（Spike 2：无它切后台即断）
+          startKeepAlive(
+            "NIBI-GO 已连接",
+            this.snapshot.credential?.deviceName
+              ? `已连接 ${this.snapshot.credential.deviceName}`
+              : "保持与桌面的远程连接",
+          );
         } else if (state !== "paired" && this.paired) {
           this.paired = false;
           this.chatStarted = false;
           this.secure?.dispose();
           this.chat.teardown();
+          stopKeepAlive();
           this.update({ encryption: "idle" });
         }
       },
