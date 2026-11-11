@@ -1,6 +1,32 @@
 // @nibi-go/relay-client 公共入口（草案 §导出面；A1 = transport + pairing，A2-5 = workspace bridge）。
 export { RelayTransport } from "./transport";
 export {
+  E2E_ENVELOPE_VERSION,
+  E2E_KEY_BYTES,
+  E2E_NONCE_BYTES,
+  generateKey,
+  generateNonce,
+  isEncryptedPayload,
+  openPayload,
+  sealPayload,
+  xchachaCipher,
+  type Cipher,
+  type EncryptedPayload,
+} from "./crypto";
+export {
+  KEYNEG_INIT_TYPE,
+  KEYNEG_RESPONSE_TYPE,
+  KeyExchange,
+  SecureDataChannel,
+  deriveSessionKey,
+  isKeyNegInit,
+  isKeyNegResponse,
+  type KeyNegInitPayload,
+  type KeyNegResponsePayload,
+  type SecureChannelState,
+  type SecureDataChannelOptions,
+} from "./handshake";
+export {
   WorkspaceBridge,
   ConversationSubscription,
   type BootstrapWorkspace,

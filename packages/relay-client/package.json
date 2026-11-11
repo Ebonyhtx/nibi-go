@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nibi-go/shared-extract": "workspace:*"
+    "@nibi-go/shared-extract": "workspace:*",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

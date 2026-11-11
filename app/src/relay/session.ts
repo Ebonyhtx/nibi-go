@@ -1,9 +1,14 @@
 // RelaySession——App 侧配对/连接编排：PairingFlow（D8）+ RelayTransport（A1-1）+ NibiAuthProvider。
 // onData 仅预留（A2：chat-core reducer 接手，本阶段不消费业务 payload）。
+// RelaySession——App 侧配对/连接编排：PairingFlow（D8）+ RelayTransport（A1-1）+ NibiAuthProvider。
+// 聊天接线（A2-6）与 E2E 握手（A3）在此汇合：secure 通道完成（或降级）后才启动 ChatSession。
+import "./cryptoPolyfill";
+
 import type { WebRemoteControlRelayV2Device } from "@nibi-go/shared-extract";
 import {
   PairingFlow,
   RelayTransport,
+  SecureDataChannel,
   listDevices,
   parseDesktopQr,
   qrEndpointOrigin,
@@ -30,6 +35,8 @@ export interface SessionSnapshot {
   displayName?: string;
   credential?: PairCredential;
   connState: ConnState;
+  /** E2E 信封状态（D9：secure=密文；plaintext=对端不支持协商的降级；UI 必须明示）。 */
+  encryption: "idle" | "negotiating" | "secure" | "plaintext";
   error: SessionError | null;
 }
 
@@ -47,9 +54,16 @@ export class RelaySession {
   /** 聊天接线（paired 后自动 bootstrap workspace bridge 并订阅桌面当前会话）。 */
   readonly chat: ChatSession;
   private transport?: RelayTransport;
-  private chatActive = false;
+  private secure?: SecureDataChannel;
+  private paired = false;
+  private chatStarted = false;
   private listeners = new Set<() => void>();
-  private snapshot: SessionSnapshot = { loggedIn: false, connState: "idle", error: null };
+  private snapshot: SessionSnapshot = {
+    loggedIn: false,
+    connState: "idle",
+    encryption: "idle",
+    error: null,
+  };
 
   constructor() {
     this.auth = new NibiAuthProvider();
@@ -138,9 +152,12 @@ export class RelaySession {
   disconnect(): void {
     this.transport?.dispose();
     this.transport = undefined;
-    this.chatActive = false;
+    this.secure?.dispose();
+    this.secure = undefined;
+    this.paired = false;
+    this.chatStarted = false;
     this.chat.teardown();
-    this.update({ connState: "idle" });
+    this.update({ connState: "idle", encryption: "idle" });
   }
 
   /** 设备列表数据（§06）：401 → auth-required，由调用方引导重新登录。 */
@@ -150,15 +167,36 @@ export class RelaySession {
     return listDevices(origin, jwt, signal);
   }
 
+  private startChatOnce(): void {
+    if (!this.paired || this.chatStarted) return;
+    this.chatStarted = true;
+    void this.chat.start();
+  }
+
   private async startTransport(credential: PairCredential | undefined): Promise<void> {
     if (!credential) {
       this.update({ error: null, connState: "idle" });
       return;
     }
     this.transport?.dispose();
+    // E2E 会话级 K（P3b）：每次建连重建握手；deviceSid 作为 KDF context 防跨设备串用
+    this.secure?.dispose();
+    this.secure = new SecureDataChannel({
+      send: (payload) => this.transport?.sendData(payload) ?? false,
+      context: credential.deviceSid,
+      onSecure: () => {
+        this.update({ encryption: "secure" });
+        this.startChatOnce();
+      },
+      onDowngrade: () => {
+        this.update({ encryption: "plaintext" });
+        this.startChatOnce();
+      },
+    });
     this.update({
       credential,
       connState: "connecting",
+      encryption: "idle",
       error: null,
     });
     const transport = new RelayTransport({
@@ -167,6 +205,11 @@ export class RelaySession {
       deviceMid: credential.deviceMid,
       meta: { name: "NIBI-GO", platform: "android" },
       createSocket: createRnSocketFactory(),
+      // A1 预留的信封插桩点（草案 §1）：仅 data 类型过钩子
+      transformOutgoingData: (payload) =>
+        this.secure?.transformOutgoing(payload as RelayJson) ?? payload,
+      transformIncomingData: (payload) =>
+        this.secure?.transformIncoming(payload as RelayJson) ?? payload,
       getToken: async (signal) => {
         const jwt = await this.auth.getJwt(signal);
         return (await requestTerminalToken(credential.endpointOrigin, jwt, signal)).token;
@@ -178,17 +221,21 @@ export class RelaySession {
       },
       onStateChange: (state) => {
         this.update({ connState: state });
-        // 配对成功 → 启动聊天接线；离开 paired（断线/冲突）→ 拆掉桥（重配对后重新 bootstrap）
-        if (state === "paired" && !this.chatActive) {
-          this.chatActive = true;
-          void this.chat.start();
-        } else if (state !== "paired" && this.chatActive) {
-          this.chatActive = false;
+        // 配对成功 → 启动 E2E 握手（完成后或降级后由 startChatOnce 启动聊天）；
+        // 离开 paired（断线/冲突）→ 拆桥拆握手（重配对后重新 bootstrap + 新 K）
+        if (state === "paired" && !this.paired) {
+          this.paired = true;
+          this.secure?.begin();
+        } else if (state !== "paired" && this.paired) {
+          this.paired = false;
+          this.chatStarted = false;
+          this.secure?.dispose();
           this.chat.teardown();
+          this.update({ encryption: "idle" });
         }
       },
       onData: (payload) => {
-        // 桥控制回包 + rpc-frame 都经 ChatSession 路由到 WorkspaceBridge
+        // 握手完成前 keyneg-response 已被 secure 层吞掉；这里收到的是明文控制回包或解密后的业务帧
         this.chat.acceptPayload(payload);
       },
       onError: (error) =>

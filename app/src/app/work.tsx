@@ -50,6 +50,20 @@ export default function WorkScreen() {
             {snapshot.credential?.deviceName && (
               <Text style={styles.deviceName}>{snapshot.credential.deviceName}</Text>
             )}
+            {snapshot.connState === "paired" && (
+              <Text
+                style={[
+                  styles.encryption,
+                  snapshot.encryption === "plaintext" && styles.encryptionWarn,
+                ]}
+              >
+                {snapshot.encryption === "secure"
+                  ? "🔒 端到端加密"
+                  : snapshot.encryption === "plaintext"
+                    ? "⚠️ 未加密连接（对端不支持协商）"
+                    : "正在协商加密…"}
+              </Text>
+            )}
           </View>
 
           {busy ? (
@@ -103,6 +117,8 @@ const styles = StyleSheet.create({
   },
   statusText: { fontSize: 15, fontWeight: "600" },
   deviceName: { fontSize: 12, color: "#666", marginTop: 4 },
+  encryption: { fontSize: 12, color: "#1e7d32", marginTop: 6 },
+  encryptionWarn: { color: "#b26a00" },
   errorCard: {
     width: "100%",
     padding: 12,
