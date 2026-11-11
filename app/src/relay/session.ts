@@ -10,11 +10,13 @@ import {
   requestTerminalToken,
   type ConnState,
   type PairCredential,
+  type RelayJson,
   type TerminalTransportErrorKind,
 } from "@nibi-go/relay-client";
 
 import { ENDPOINT_ORIGIN, relayWsUrlFor } from "./config";
 import { NibiAuthProvider } from "./auth";
+import { ChatSession } from "./chat";
 import { pairCredentialStore, tokenStore } from "./secureStore";
 import { createRnSocketFactory } from "./wsAdapter";
 
@@ -42,13 +44,23 @@ const ERROR_TEXT: Record<string, string> = {
 export class RelaySession {
   private readonly auth: NibiAuthProvider;
   private readonly pairing: PairingFlow;
+  /** 聊天接线（paired 后自动 bootstrap workspace bridge 并订阅桌面当前会话）。 */
+  readonly chat: ChatSession;
   private transport?: RelayTransport;
+  private chatActive = false;
   private listeners = new Set<() => void>();
   private snapshot: SessionSnapshot = { loggedIn: false, connState: "idle", error: null };
 
   constructor() {
     this.auth = new NibiAuthProvider();
     this.pairing = new PairingFlow(pairCredentialStore);
+    this.chat = new ChatSession({
+      send: (payload: RelayJson) => this.transport?.sendData(payload) ?? false,
+      logger: {
+        info: (...args) => console.log("[chat]", ...args),
+        warn: (...args) => console.warn("[chat]", ...args),
+      },
+    });
     void this.bootstrap();
   }
 
@@ -126,6 +138,8 @@ export class RelaySession {
   disconnect(): void {
     this.transport?.dispose();
     this.transport = undefined;
+    this.chatActive = false;
+    this.chat.teardown();
     this.update({ connState: "idle" });
   }
 
@@ -162,9 +176,20 @@ export class RelaySession {
         // 禁止把 token/JWT 打进日志（规则 14）——transport 只输出固定文案
         warn: (...args) => console.warn("[relay]", ...args),
       },
-      onStateChange: (state) => this.update({ connState: state }),
-      onData: () => {
-        // A2：chat-core reducer 接手（V4 事件 → 消息树）；A1 阶段不消费
+      onStateChange: (state) => {
+        this.update({ connState: state });
+        // 配对成功 → 启动聊天接线；离开 paired（断线/冲突）→ 拆掉桥（重配对后重新 bootstrap）
+        if (state === "paired" && !this.chatActive) {
+          this.chatActive = true;
+          void this.chat.start();
+        } else if (state !== "paired" && this.chatActive) {
+          this.chatActive = false;
+          this.chat.teardown();
+        }
+      },
+      onData: (payload) => {
+        // 桥控制回包 + rpc-frame 都经 ChatSession 路由到 WorkspaceBridge
+        this.chat.acceptPayload(payload);
       },
       onError: (error) =>
         this.update({

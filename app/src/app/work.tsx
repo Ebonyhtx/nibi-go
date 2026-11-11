@@ -53,9 +53,14 @@ export default function WorkScreen() {
           </View>
 
           {busy ? (
-            <Pressable style={styles.buttonSecondary} onPress={() => session.disconnect()}>
-              <Text style={styles.buttonText}>断开</Text>
-            </Pressable>
+            <>
+              <Pressable style={styles.button} onPress={() => router.push("/chat")}>
+                <Text style={styles.buttonText}>打开聊天</Text>
+              </Pressable>
+              <Pressable style={styles.buttonSecondary} onPress={() => session.disconnect()}>
+                <Text style={styles.buttonText}>断开</Text>
+              </Pressable>
+            </>
           ) : (
             <>
               {snapshot.credential && (

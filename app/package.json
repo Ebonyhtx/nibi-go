@@ -10,6 +10,7 @@
     "ios": "expo start --ios"
   },
   "dependencies": {
+    "@nibi-go/chat-core": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
     "@nibi-go/shared-extract": "workspace:*",
     "expo": "~58.0.23",

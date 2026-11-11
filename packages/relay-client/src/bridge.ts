@@ -55,10 +55,18 @@ export interface BootstrapWorkspace extends BridgeWorkspaceTarget {
   kind?: "local" | "remote";
 }
 
+export interface BridgeMobileViewState {
+  activeWorkspaceKey?: string;
+  activeTaskId?: string;
+}
+
 export interface BridgeBootstrapResult {
   windowControlSessionId: string;
   desktopAppVersion?: string;
   workspaces: BootstrapWorkspace[];
+  /** 桌面当前视图（activeWorkspaceKey/activeTaskId）——手机据此决定订阅哪个会话。 */
+  mobileViewState?: BridgeMobileViewState;
+  initialViewState?: BridgeMobileViewState;
 }
 
 /** 对应上游 WebRemoteControlExternalWorkspaceBridge（手机侧消费的字段子集）。 */
