@@ -1,5 +1,17 @@
-// @nibi-go/relay-client 公共入口（草案 §导出面；A1 = transport + pairing，crypto/handshake 排 A3）。
+// @nibi-go/relay-client 公共入口（草案 §导出面；A1 = transport + pairing，A2-5 = workspace bridge）。
 export { RelayTransport } from "./transport";
+export {
+  WorkspaceBridge,
+  ConversationSubscription,
+  type BootstrapWorkspace,
+  type BridgeBootstrapResult,
+  type BridgeDegradedEvent,
+  type BridgeWorkspaceTarget,
+  type ConversationSubscriptionCallbacks,
+  type ExternalBridgeInfo,
+  type SendTextOptions,
+  type WorkspaceBridgeOptions,
+} from "./bridge";
 export {
   PairingFlow,
   listDevices,
