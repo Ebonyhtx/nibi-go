@@ -34,7 +34,7 @@
 
 ## 决议追加（2026-11-11 · P1–P5 用户拍板）
 
-- P1 ✅ 初始提交 `84a95b5`（身份 Ebonyhtx，GitHub noreply 邮箱）。
+- P1 ✅ 初始提交 `394fa7d`（身份 Ebonyhtx，GitHub noreply 邮箱）。
 - P2/P3a ✅ **选 B：抽取件**——`packages/shared-extract/`（来源 nibi-client dev @ ff1c5f4f；纪律见 AGENTS 规则 6 新版与本包 README；抽取范围表与升级流程已建）。AGENTS 规则 6 已改写。
 - P3b ✅ 第一版会话级 K + 重连重协商（device 级 K 轮换等 C 立项再定）。
 - P3c ✅ 信封用 JSON 文本帧（维持 relay 契约；B 阶段屏幕流如需二进制帧届时提扩展）。
