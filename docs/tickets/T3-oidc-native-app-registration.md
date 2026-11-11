@@ -62,3 +62,26 @@ refresh 续期一次（Expo Go 的回调是 `exp://`，不适用）。
 
 **运维注意**：代理的 GO client 只在 `NIBI_GO_CLIENT_ID` 环境变量存在时进入白名单（默认空）；
 新机器部署必须显式设置，否则 GO 换码会得到 400 `parameter error`。
+
+
+### 模拟器验收发现并修复（2026-11-12）
+
+在 x86_64 模拟器上跑 debug 包，**实际发出的 redirect_uri 是 `nibigo:///login`（三个斜杠）**，
+Zitadel 报 `invalid_request: The requested redirect_uri is missing in the client configuration`。
+根因：`Linking.createURL("/login")` 在无 dev server 的独立构建里 host 为空，expo-linking
+会补前导斜杠再拼 `${scheme}:/${hostUri}${path}`，得到三斜杠；Zitadel 完全一致匹配，差一个
+斜杠就拒。
+
+修法：新增 `app/src/relay/redirectUri.ts::buildRedirectUri`，按 `<scheme>://login` 显式构造
+（scheme 取自 `Constants.expoConfig.scheme`，缺失回落 `nibigo`）；`config.ts` 导出
+`REDIRECT_URI`，`auth.ts` 不再用 `createURL`。带单测（含「不能出现三斜杠」断言）。
+
+模拟器同时确认：授权 host 是 `auth.nibistudio.cn`、client_id/scope/PKCE 参数正确、
+`nibigo` intent-filter 已进 APK、深链能把应用带回前台。**完整登录仍未验证**（无账号凭据）。
+
+### Windows 构建路径约束（迁仓后新增）
+
+仓库迁入 NIBI 工作区后（路径比旧位置多 5 个字符），Android debug 构建在 `react-native-gesture-handler` 的
+codegen 对象路径上触发 MAX_PATH（264 字符 > 260）；旧位置恰好 259 压线。
+短期绕行是把工作树复制到短路径构建（本次验收即如此做）；彻底解决需要更短的仓库路径
+（更短的工作区目录名）或 `subst` 虚拟盘，待 owner 定。
