@@ -1,26 +1,35 @@
 name: CI
 
-# 架构门禁 + 纯 TS 层测试（AGENTS 验证纪律 / plan.md §5）。
+# 架构门禁 + 公开仓策略 + 纯 TS 层测试（AGENTS 验证纪律 / plan.md §5）。
 # 与本地 husky pre-commit 双保险：防 --no-verify 绕过，并守 PR。
+# 公开仓安全规则：GitHub-hosted runner、只读权限、action 固定到完整 commit SHA、
+# 不使用 pull_request_target、不引用 secrets（见 SECURITY.md / CONTRIBUTING.md）。
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   gates-and-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # pinned: actions/checkout v4
 
-      - uses: pnpm/action-setup@v4
-        # 从根 package.json 的 packageManager 字段读取 pnpm 版本
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        # pinned: pnpm/action-setup v4（版本来自根 package.json 的 packageManager）
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.2
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: 公开仓策略（check-public-repo）
+        run: node scripts/check-public-repo.mjs
 
       - name: 架构门禁（check-boundaries）
         run: node scripts/check-boundaries.mjs

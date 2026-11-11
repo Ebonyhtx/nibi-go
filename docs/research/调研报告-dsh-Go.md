@@ -1,6 +1,6 @@
 # DSH Go 深度调研报告（v2）
 
-> 调研对象：https://github.com/ccch1mneyyy/dsh-Go（克隆于 `reference/dsh-Go`，commit `d5ad25c5`，v1.0.12）
+> 调研对象：https://github.com/ccch1mneyyy/dsh-Go（本地只读参考克隆，commit `d5ad25c5`，v1.0.12）
 > 调研日期：2026-11-07 · 方法：主线程 + 10 个并行子代理分层深挖，全部结论带文件:行号证据
 > v2 相比 v1：补齐手机操控、运行时补丁、插件协议、伴侣系统、服务端、安全分析、测试体系的全部实现细节
 

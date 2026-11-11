@@ -18,3 +18,11 @@ packages/*/dist/
 *.keystore
 !debug.keystore
 .env.local
+
+# 环境变量（只提交示例）
+.env
+.env.*
+!.env.example
+app/.env
+app/.env.*
+!app/.env.example

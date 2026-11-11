@@ -1,6 +1,6 @@
 # 票据 · 发布 `@nibi-studio/cli-android-arm64` 平台包
 
-> 提交方：NIBI-GO（`本仓`）。随 Phase C 启动信号一起生效，**不催主线排期**——何时做由你定。
+> 提交方：NIBI-GO 仓库。随 Phase C 启动信号一起生效，**不催主线排期**——何时做由你定。
 > 期望载体：nibi-client 仓的 `.github/workflows/rust-npm-packages.yml`（一次改动，详见下）。
 
 ## 需求

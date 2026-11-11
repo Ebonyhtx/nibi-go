@@ -10,7 +10,8 @@
   "scripts": {
     "gates": "node scripts/check-boundaries.mjs",
     "test": "pnpm -r --if-present run test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:public-repo": "node scripts/check-public-repo.mjs"
   },
   "devDependencies": {
     "husky": "^9.1.7"
