@@ -1,5 +1,8 @@
 // 构建期/运行时端点配置（联调用 EXPO_PUBLIC_* 环境变量覆盖）。
 // 常量真源在 @nibi-go/shared-extract（规则 6 抽取件），此处只做覆盖装配。
+import Constants from "expo-constants";
+
+import { buildRedirectUri } from "./redirectUri";
 import {
   DEFAULT_NIBI_ENDPOINT_ORIGIN,
   DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL,
@@ -42,3 +45,6 @@ export const OIDC_CLIENT_ID =
   process.env.EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID?.trim() || NIBI_GO_OIDC_CLIENT_ID;
 
 export const OAUTH_SCOPE = NIBI_OIDC_SCOPE;
+
+/** OAuth 回调：固定 `<scheme>://login`，必须与账号中心登记值完全一致。 */
+export const REDIRECT_URI = buildRedirectUri(Constants.expoConfig?.scheme);

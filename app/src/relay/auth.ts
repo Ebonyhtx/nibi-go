@@ -4,12 +4,17 @@
 //   - PKCE 是唯一持有证明（无 client secret）；access token 同时是中继 Bearer
 // 凭据纪律：token 只进 expo-secure-store（Keystore 加密），不进日志。
 import * as Crypto from "expo-crypto";
-import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 
 import { WebRemoteControlV2ConnectionError } from "@nibi-go/shared-extract";
 
-import { AUTHORIZE_URL, OAUTH_SCOPE, OIDC_CLIENT_ID, TOKEN_EXCHANGE_URL } from "./config";
+import {
+  AUTHORIZE_URL,
+  OAUTH_SCOPE,
+  OIDC_CLIENT_ID,
+  REDIRECT_URI,
+  TOKEN_EXCHANGE_URL,
+} from "./config";
 import { tokenStore, type StoredTokenSet } from "./secureStore";
 
 const VERIFIER_BYTES = 48; // RFC 7636 上游惯例：48 随机字节 → 64 字符 verifier
@@ -94,7 +99,9 @@ export class NibiAuthProvider {
       ),
     );
     const state = bytesToBase64Url(Crypto.getRandomValues(new Uint8Array(16)));
-    const redirectUri = Linking.createURL("/login");
+    // 必须用固定构造：Linking.createURL 在独立构建里会给出 nibigo:///login（三个斜杠），
+    // 与账号中心登记的 nibigo://login 不一致，Zitadel 直接报 invalid_request。
+    const redirectUri = REDIRECT_URI;
 
     const query = new URLSearchParams({
       client_id: OIDC_CLIENT_ID,
