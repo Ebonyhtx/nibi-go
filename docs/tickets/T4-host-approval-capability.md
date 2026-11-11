@@ -1,7 +1,7 @@
 # T4 · Host 审批 capability 开闸（interaction 事件到手机）
 
-> 归属：nibi-client 主线（桌面 Host 侧，~10 行 PR）。GO 侧手机端已就绪（A3-2，`ApprovalBoard` + `resolveInteraction` 命令），只等桌面把 interaction 事件放进 V4 conversation 快照。
-> 登记日期：2026-11-11。派发时机由 owner 定；GO 侧不自行实现（D17 单向消费）。
+> **状态（2026-11-12）：结案——桌面侧无缺口，已在 GO 侧修复。** 结论见文末「归因修正」。
+> 原始归属：nibi-client 桌面 Host；登记日期 2026-11-11。
 
 ## 背景
 
@@ -23,3 +23,34 @@
 
 - GO 侧实现：`packages/chat-core/src/approvals.ts`（两条不变量）+ `app/src/relay/chat.ts`（接线）+ `packages/relay-client/src/bridge.ts`（resolveInteraction 命令）。
 - 协议依据：`reference/nibi-client` 的 `nibi-protocol-v4/snapshot.ts`（pendingInteractionSchema）与 `command.ts`（resolveInteraction）。
+
+
+---
+
+## 归因修正（2026-11-12，上游逐帧核对）
+
+票据的断言「桌面 Host 快照里 `pendingInteractions` 恒为空」**不成立**：
+
+- Rust 内核（默认）：`kernel/crates/protocol-nibi/src/projection/mod.rs` 在 permission 询问时写
+  `patch.pendingInteractions`，冷快照固定携带该字段；`commands.rs` 已处理 `resolveInteraction`。
+- Node 回退：`bootstrap/src/nibi-protocol-v4/product-projection.ts` 的 `onPermissionRequested`
+  产出同样的 `state.updated{pendingInteractions}`。
+- CLI 打帧与 Host 扇出不过滤该字段；relay 数据面是不透明 payload。定向测试
+  （`cargo test -p nibi-kernel-protocol-nibi projection::tests::`、
+  `bootstrap tests/guarded-interaction-lifecycle.test.ts`、`zcodeAgentConnectionScope`）全绿。
+
+真正的两个断点都在**客户端**，已在本仓修复（`850341a`）：
+
+1. **没有 V4 握手**：桌面 connection scope 对 `terminal-client` 先 `assertReady()`，未完成
+   `hello` → `clientHello` 时 `subscribeConversationV4` 直接
+   `fault.connection.handshakeRequired`。GO 只把 phase 置 error，`store.snapshot` 永远为空，
+   `snapshot?.pendingInteractions ?? []` 就表现为「恒为空」。
+   修法：attachment 级握手（并发订阅共享一次、旧桌面降级 legacy、clientId 全生命周期稳定）。
+2. **`resolveInteraction` 只发 `action`**：桌面权限按 `answer.optionId` 精确匹配快照
+   `options[].optionId`，缺 optionId 一律 deny。修法：从快照按 `kind` 取
+   `allowOnce`/`allowAlways`/`deny`；无 options 与 cancel 保留 action 兼容。
+
+顺带修正：桌面服务经 `ProxyChannel` 暴露，RPC 实参必须是方法实参数组（裸对象会被解成
+0 个实参），订阅/命令/unsubscribe 已改为 `[params]`。
+
+**剩余**：真机验收（手机连桌面 → 审批卡出现 → 允许/拒绝 → 30s 超时默认拒绝）。

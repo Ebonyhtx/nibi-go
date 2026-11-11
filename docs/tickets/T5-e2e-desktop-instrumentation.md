@@ -1,7 +1,7 @@
 # T5 · E2E 插桩（桌面侧镜像 e2e-envelope-v1）
 
-> 归属：nibi-client 主线（桌面 transport 两处插桩，~200 行 PR）。GO 侧手机端已实现（A3-1），规格见 `docs/design/e2e-envelope-v1.md`。
-> 登记日期：2026-11-11。派发时机由 owner 定；GO 侧不自行实现（D17 单向消费）。
+> **状态（2026-11-12）：已实现**（nibi-client `9d0fc7c0`），待真机联调。
+> 归属：nibi-client 桌面 transport；登记日期 2026-11-11。
 
 ## 背景
 
@@ -28,3 +28,19 @@ D9：E2E 密钥藏在握手内，服务端零改动。手机端已在 relay data
 
 - GO 侧实现：`packages/relay-client/src/{crypto,handshake}.ts` + `test/{crypto,handshake}.test.ts`（KAT 断言）。
 - 规格：`docs/design/e2e-envelope-v1.md`。
+
+
+---
+
+## 实现记录（2026-11-12，nibi-client `9d0fc7c0`）
+
+- 新模块 `packages/desktop/src/main/web-remote-relay/webRemoteControlE2E.ts`：桌面作为纯响应端，
+  收 `keyneg-init` → 回 `keyneg-response` → 派生 K → 出向 `enc` 包装、入向解密后进业务管线。
+- 接在 `webRemoteControlTransport` 的 `sendPayload` / `onPayload` 两个收口；`measurePayloadBytes`
+  复用同一路径，分片计量与实发字节一致。
+- 兼容：旧手机不发 init 则明文，PWA 永远明文；非法材料/握手前的 `enc` 丢弃该帧、不断连；
+  K 在换 socket 与配对状态离开 `matched` 时重置。
+- 规格 §7 密文向量双向验证通过；14 条定向用例（含真实 fake relay + WS 双向环路、重连换钥）。
+- **规格修正**：keyneg nonce 以实现为准 **24B**（`relay-client/src/handshake.ts` 硬校验）；
+  文档已从 32B 更正，salt 为 48B。桌面按 24B 镜像，未按旧文档实现。
+- 依赖：复用 lockfile 已有的 `@noble/{ciphers,curves,hashes}`，未引入新包。

@@ -11,8 +11,8 @@
 | T1 | nibi-client 内核 | android 平台包发布 |
 | T2 | nibi-client 内核 | npm scope 统一 |
 | T3 | **NIBI 账号中心（Zitadel 管理面）** | NIBI-GO OIDC native app 注册（`nibigo://login`）——不走票据流程，维护者直接操作 |
-| T4 | nibi-client 桌面 Host | 审批 capability 开闸（interaction 事件到手机，~10 行） |
-| T5 | nibi-client 桌面 transport | E2E 插桩（按 [docs/design/e2e-envelope-v1.md](../design/e2e-envelope-v1.md) 镜像，~200 行） |
+| T4 | **已结案（GO 侧修复）** | 审批卡恒空；归因修正：桌面无缺口，客户端缺 V4 握手与 optionId（见 T4 末节） |
+| T5 | nibi-client 桌面 transport | **已实现**（`9d0fc7c0`，2026-11-12）；待真机 |
 
 ## 处理方式（三步）
 
