@@ -5,7 +5,15 @@
 ## 推荐交接流程（三步，零主线干扰）
 
 **第 1 步 · 票据落仓**
-票据文本已写好在 [`docs/tickets/`](.)（T1 android 平台包 / T2 npm scope 统一），内容已按"给另一个 AI 看的任务书"标准写：现状证据（文件:行号）/ 具体改动清单 / 验收标准 / 边界承诺（不影响主线）。
+票据文本已写好在 [`docs/tickets/`](.)，内容已按"给另一个 AI 看的任务书"标准写：现状证据（文件:行号）/ 具体改动清单 / 验收标准 / 边界承诺（不影响主线）。
+
+| 票据 | 归属 | 内容 |
+|---|---|---|
+| T1 | nibi-client 内核 | android 平台包发布 |
+| T2 | nibi-client 内核 | npm scope 统一 |
+| T3 | **NIBI 账号中心（Zitadel 管理面）** | NIBI-GO OIDC native app 注册（nibigo://login）——不走本交接流程，owner 直接操作 |
+| T4 | nibi-client 桌面 Host | 审批 capability 开闸（interaction 事件到手机，~10 行） |
+| T5 | nibi-client 桌面 transport | E2E 插桩（按 docs/design/e2e-envelope-v1.md 镜像，~200 行） |
 
 **第 2 步 · 在 NIBI 工作区的 AI 会话里派发**
 在 nibi-client 工作区开一次 AI 会话，把票据文件路径喂给它（例如）：
