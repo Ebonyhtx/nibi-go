@@ -60,13 +60,18 @@ pnpm -r test                # 全部测试（relay-client/chat-core 须 Node 可
 pnpm --filter relay-client test   # 单包
 pnpm --filter chat-core test
 node scripts/check-boundaries.mjs # 架构门禁：层间依赖白名单检查
+node scripts/check-public-repo.mjs # 公开仓门禁：本机路径/凭据/CI 权限检查
+
+# 发布（细节见 docs/checklists/发布检查单.md）
+node scripts/keystore.mjs verify <apk>   # 校验 APK 签名证书与发布密钥一致
+node scripts/release.mjs 0.1.1           # 版本号→门禁→prebuild→构建→验签→GitHub Release
 ```
 
 （RN 侧 `app/` 的开发命令在 Expo 骨架落地后补充。）
 
 ## 现状与路线
 
-- **Phase A**（NIBI-WORK 远控客户端）：进行中——骨架已提交（84a95b5），relay-client 草案待评审后开工 A1。
+- **Phase A**（NIBI-WORK 远控客户端）：代码侧完成（A0–A4），仓库已公开（https://github.com/Ebonyhtx/nibi-go）；发布链路已定（源码仓 Releases + 独立签名密钥）。剩余 owner 输入：OIDC 注册、桌面侧票据派发、真机验证。
 - **Phase C**（本机内核）：挂起，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（D12 修正）。
 - **Phase B**（WORK 形态手机操控路由，nibi-phone-bridge）：最后。
-- 决策台账 D1–D17 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。
+- 决策台账 D1–D18 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。

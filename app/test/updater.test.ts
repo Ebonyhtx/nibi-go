@@ -70,9 +70,10 @@ describe("updater-core（应用内更新纯函数）", () => {
     expect(resolveUpdate({ ...release, assets: [] }, "0.1.0")).toBeNull();
   });
 
-  it("digestMatches：大小写不敏感；无期望值放行", () => {
+  it("digestMatches：大小写不敏感；无期望值判失败（fail-closed）", () => {
     expect(digestMatches("ABCD", "abcd")).toBe(true);
     expect(digestMatches("abcd", "abce")).toBe(false);
-    expect(digestMatches(undefined, "anything")).toBe(true);
+    expect(digestMatches(undefined, "anything")).toBe(false);
+    expect(digestMatches("", "anything")).toBe(false);
   });
 });

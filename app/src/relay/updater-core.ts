@@ -84,8 +84,9 @@ export function resolveUpdate(
   };
 }
 
-/** 校验下载文件摘要（hex，大小写不敏感）；无期望值时视为通过（由调用方决定是否强制）。 */
+/** 校验下载文件摘要（hex，大小写不敏感）。**无期望值即判失败**（fail-closed）：
+ *  发布通道没提供 sha256 时宁可拒装，也不放行未经校验的更新包。 */
 export function digestMatches(expectedHex: string | undefined, actualHex: string): boolean {
-  if (!expectedHex) return true;
+  if (!expectedHex) return false;
   return expectedHex.trim().toLowerCase() === actualHex.trim().toLowerCase();
 }

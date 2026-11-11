@@ -68,6 +68,32 @@ If you find a workflow that violates these rules, treat it as a security report.
 
 `scripts/check-public-repo.mjs` enforces the public-tree policy in CI.
 
+## Release signing certificate
+
+Android only accepts an in-place update when the new APK is signed with the same
+certificate as the installed app. Official releases are signed with the project
+release key; its certificate fingerprint is public information and is published
+here so you can verify what you install:
+
+`SHA-256  39:D4:5F:4E:51:92:AD:E5:D7:1D:0C:7D:81:14:DB:F8:C2:E7:D9:8A:EF:7B:75:38:16:24:84:88:4C:73:6A:48`
+
+Verify a downloaded APK before installing:
+
+```bash
+apksigner verify --print-certs nibi-go-<version>.apk
+```
+
+The printed `certificate SHA-256 digest` must match the fingerprint above. An APK
+that fails this check, or that is signed with a different certificate, is not an
+official build — do not install it.
+
+The private key is never stored in this repository. It exists as an encrypted
+backup in a separate private repository, and its passphrase is held offline by
+the maintainer. `scripts/keystore.mjs` (public) is the only tool that reads it;
+it takes the passphrase from an environment variable or a local file and never
+prints it.
+
+
 ## Safe harbor
 
 We will not pursue legal action for good-faith security research that:
