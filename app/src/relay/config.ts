@@ -3,6 +3,7 @@
 import {
   DEFAULT_NIBI_ENDPOINT_ORIGIN,
   DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL,
+  NIBI_GO_OIDC_CLIENT_ID,
   NIBI_OIDC_SCOPE,
   WEB_REMOTE_CONTROL_RELAY_V2_WS_PATH,
   resolveNibiAuthOrigin,
@@ -37,6 +38,7 @@ export const TOKEN_EXCHANGE_URL = `${ENDPOINT_ORIGIN}/api/v1/oauth/nibi/token`;
  * 需在 NIBI 账号中心注册"NIBI-GO"native app 并登记 `nibigo://login` 后配置
  * （EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID）。未配置前登录动作会明确报错，不静默退化。
  */
-export const OIDC_CLIENT_ID = process.env.EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID?.trim() ?? "";
+export const OIDC_CLIENT_ID =
+  process.env.EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID?.trim() || NIBI_GO_OIDC_CLIENT_ID;
 
 export const OAUTH_SCOPE = NIBI_OIDC_SCOPE;

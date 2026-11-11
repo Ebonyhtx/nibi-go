@@ -148,6 +148,8 @@ export class NibiAuthProvider {
         code: params.code,
         redirect_uri: params.redirectUri,
         code_verifier: params.codeVerifier,
+        // 代理按 redirect_uri 认 client；带上 client_id 只是让代理日志/续期归属更明确。
+        client_id: OIDC_CLIENT_ID,
       }),
     });
     return this.parseEnvelope(response, "登录交换失败");
@@ -159,7 +161,12 @@ export class NibiAuthProvider {
       const response = await fetch(TOKEN_EXCHANGE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken }),
+        body: JSON.stringify({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        // 没有它代理只能逐个候选 client 试（GO 会先撞 web 再回退），多一次 IdP 往返。
+        client_id: OIDC_CLIENT_ID,
+      }),
       });
       const tokens = await this.parseEnvelope(response, "令牌续期失败");
       this.cached = tokens;

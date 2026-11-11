@@ -101,10 +101,10 @@ describe("Relay V2 wire 契约（抽取件）", () => {
   });
 
   it("NIBI 账号中心 origin 覆盖（联调用）", () => {
-    expect(resolveNibiAuthOrigin()).toBe("https://auth.nibistudio.top");
+    expect(resolveNibiAuthOrigin()).toBe("https://auth.nibistudio.cn");
     expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "https://auth.local.example/" })).toBe(
       "https://auth.local.example",
     );
-    expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "  " })).toBe("https://auth.nibistudio.top");
+    expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "  " })).toBe("https://auth.nibistudio.cn");
   });
 });
