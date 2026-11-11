@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+  <!-- 更新包下载到应用缓存目录；只暴露缓存与文件目录 -->
+  <cache-path name="cache" path="." />
+  <files-path name="files" path="." />
+</paths>

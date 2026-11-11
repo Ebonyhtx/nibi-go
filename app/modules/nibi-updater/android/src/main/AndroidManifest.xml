@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- A4 应用内更新：安装 APK 需要 REQUEST_INSTALL_PACKAGES（用户需授权"安装未知应用"） -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+  <application>
+    <!-- 把下载好的 APK 暴露给系统 PackageInstaller（不导出、仅授权读） -->
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.nibi-updater"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/nibi_updater_paths" />
+    </provider>
+  </application>
+</manifest>

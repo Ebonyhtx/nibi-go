@@ -1,8 +1,11 @@
 import { router } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
 
 import type { ConnState } from "@nibi-go/relay-client";
 
+import { checkForUpdate, downloadUpdate, installUpdate } from "../relay/updater";
+import type { UpdateInfo } from "../relay/updater-core";
 import { useSession } from "../relay/useSession";
 
 // 连接过程页阶段文案（对齐 relay-v2-pairing.md §06 连接过程页；非线性态不高亮进度段）
@@ -21,6 +24,34 @@ const PHASE_TEXT: Record<ConnState, string> = {
 export default function WorkScreen() {
   const { session, snapshot } = useSession();
   const busy = snapshot.connState !== "idle";
+  // A4 应用内更新：检查 → 下载校验 → 系统安装器
+  const [updateStatus, setUpdateStatus] = useState<
+    "idle" | "checking" | "downloading" | "none" | "error"
+  >("idle");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+
+  const checkUpdate = async () => {
+    setUpdateStatus("checking");
+    const info = await checkForUpdate();
+    if (info) {
+      setUpdateInfo(info);
+      setUpdateStatus("idle");
+    } else {
+      setUpdateStatus("none");
+    }
+  };
+
+  const applyUpdate = async () => {
+    if (!updateInfo) return;
+    setUpdateStatus("downloading");
+    try {
+      const { apkPath } = await downloadUpdate(updateInfo);
+      await installUpdate(apkPath);
+      setUpdateStatus("idle");
+    } catch {
+      setUpdateStatus("error");
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -96,6 +127,30 @@ export default function WorkScreen() {
           <Pressable style={styles.link} onPress={() => void session.logout()}>
             <Text style={styles.linkText}>切换账号</Text>
           </Pressable>
+
+          <View style={styles.updateArea}>
+            {updateInfo ? (
+              <Pressable style={styles.button} onPress={() => void applyUpdate()}>
+                <Text style={styles.buttonText}>
+                  {updateStatus === "downloading"
+                    ? "正在下载更新…"
+                    : `发现新版本 v${updateInfo.version}，下载并安装`}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => void checkUpdate()}>
+                <Text style={styles.linkText}>
+                  {updateStatus === "checking"
+                    ? "正在检查更新…"
+                    : updateStatus === "none"
+                      ? "已是最新版本"
+                      : updateStatus === "error"
+                        ? "检查更新失败，点按重试"
+                        : "检查更新"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </>
       )}
     </ScrollView>
@@ -144,4 +199,5 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 15, fontWeight: "600" },
   link: { marginTop: 12, padding: 8 },
   linkText: { fontSize: 12, color: "#888" },
+  updateArea: { marginTop: 8, alignItems: "center" },
 });

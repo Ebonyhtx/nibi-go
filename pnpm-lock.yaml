@@ -35,6 +35,9 @@ importers:
       expo-crypto:
         specifier: ~58.0.7
         version: 58.0.7(expo@58.0.23)
+      expo-file-system:
+        specifier: ~58.0.13
+        version: 58.0.13(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.13)(@react-native/metro-config@0.88.1(@babel/core@7.29.13))(@types/react@19.3.0)(react@19.3.0))
       expo-linking:
         specifier: ~58.0.16
         version: 58.0.16(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.13)(@react-native/metro-config@0.88.1(@babel/core@7.29.13))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
@@ -56,6 +59,9 @@ importers:
       nibi-keepalive:
         specifier: workspace:*
         version: link:modules/nibi-keepalive
+      nibi-updater:
+        specifier: workspace:*
+        version: link:modules/nibi-updater
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -75,8 +81,13 @@ importers:
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@26.6.6)(lightningcss@1.33.0)(terser@5.51.2)
 
   app/modules/nibi-keepalive: {}
+
+  app/modules/nibi-updater: {}
 
   packages/chat-core:
     dependencies:

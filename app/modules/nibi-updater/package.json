@@ -1,0 +1,8 @@
+{
+  "name": "nibi-updater",
+  "version": "0.1.0",
+  "description": "NIBI-GO 应用内更新安装器（Android）：文件 SHA-256 + PackageInstaller 意图",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}
