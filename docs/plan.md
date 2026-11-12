@@ -13,13 +13,14 @@ Phase A（现在）    NIBI-WORK 远控原生客户端    零内核耦合 · 零
    │
    ├─ Spike 1/2（并行，各 ~1 天）：iroh 实测 / RN 后台长连接
    │
-Phase B（最后）    WORK 形态手机操控路由        phone-bridge 插件
-   │
 Phase C（挂起）    本机内核                     两个启动信号见 §3
    （信号触发后先跑 Spike 3，再进入实现）
+   前置：原 B0 手机工具面（A11y/执行器/确认卡/悬浮条/多任务）
+
+Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 share-sheet 类窄需求预案
 ```
 
-**为什么这样排**：A 与主线 kernel 迭代完全解耦（D17 单向消费 / A 零内核耦合），可立即动工；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑；B 依赖 A 的 Relay 通道与 C 的存在理由，排最后。
+**为什么这样排**：A 与主线 kernel 迭代完全解耦（D17 单向消费 / A 零内核耦合），可立即动工；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑。**B 已取消（D6，2026-11-12）**：手机自动化归 C，B0 工具面并入 C 前置，B1 的桥与市场件不做。
 
 ---
 
@@ -81,28 +82,32 @@ Phase C（挂起）    本机内核                     两个启动信号见 §
 
 ---
 
-## 2. Phase B：WORK 形态手机操控路由（nibi-phone-bridge）
+## 2. Phase B：已取消（原 WORK 形态手机操控路由）
 
-### 里程碑 B0 · 工具面（与 A3 并行可开工——它属于 App 原生能力）
+**2026-11-12 决策：不做**（D6 已改）。原方案是桌面侧 `nibi-phone-bridge` MCP 插件 + relay 路由，
+让 WORK 会话的模型驱动手机 UI。取消理由：
 
-| 任务 | 交付物 |
-|---|---|
-| phone-tools Android 实现 | PhoneA11yService + Actuator + ScreenFormat/Mask（词表单一真源） |
-| 确认卡 | GuardedButton 三拒绝 + armed 窗口 + 任务 owner 绑定 |
-| 悬浮条三态 | 胶囊/卡片/小球 + 按住 1 秒停止（HoldToStop） |
-| 多任务（D18） | taskId 贯穿 + 后台上限 + observe/截图坐标/learn-skill |
+1. **方向反了**：手机自动化应由手机上的内核做（C）；B 等于用桌面隔着 relay 驱动手机，绕远路做同一件事。
+2. **只能 Android 且脆**：无障碍驱动在厂商后台策略、权限弹窗、Secure surface 下差异大；iOS 做不了。
+3. **场景窄**：真正的独占场景只有「App 只在手机上有」，频率低；用户多数宁愿自己点。
+4. **风险到账号级**：远端 agent 用无障碍点支付/社交，即使有确认卡，信任成本过高。
 
-### 里程碑 B1 · 桥与市场
+### 保留与移交
 
-| 任务 | 交付物 |
-|---|---|
-| 进程内桥（GO 形态用） | PhoneMcpTransport（内核 MCP 直连） |
-| nibi-phone-bridge 插件 | WORK 路由：桌面会话 → phone_* 工具 → 手机执行 → 结果回内核 |
-| 官方作用域发布 | nibi-go-market 首个官方件 |
+- **B0 工具面保留** → 并入 C 前置（C 里手机上的 agent 同样需要）：PhoneA11yService、Actuator、
+  ScreenFormat/Mask 词表、GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 维度。
+- **B1 不做**：`nibi-phone-bridge` 插件、relay 工具路由、nibi-go-market 官方件。
+- **将来的窄需求预案**：若出现「桌面需要读手机内容」，只做 share-sheet（分享到 NIBI）+ 3~4 个显式工具
+  （截屏 / 读剪贴板 / 打开链接 / 导出分享文本），不做坐标级的 a11y 远程操控。
 
 ---
 
 ## 3. Phase C：本机内核（挂起）
+
+### 前置（原 B0，已并入）
+
+手机侧工具面必须在 C 之前或同期具备：PhoneA11yService、Actuator、ScreenFormat/Mask 单一词表、
+GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯穿。C 的手机内 agent 直接复用它们。
 
 ### 启动信号（两者同时满足，由你判断）
 
@@ -111,13 +116,16 @@ Phase C（挂起）    本机内核                     两个启动信号见 §
 
 ### Spike 3（信号触发后 ~1 天）
 
-libnibi.so 进程内运行 + jniLibs spawn W^X @ targetSdk 36（Node 方案唯一技术风险）。
+`libnibi.so` 进程内运行 + jniLibs spawn W^X @ targetSdk 36（Node 方案唯一技术风险）。
+运行形态与分发载体的口径见 **D19**：进程内 `.so` 运行；npm 平台包 `@nibi-studio/cli-android-arm64`
+携带 `lib/libnibi.so` + `build.json`（版本/ABI/sha256），GO 构建时拷进 jniLibs；
+子进程形态只用于开发机验证。
 
 ### 里程碑 C0–C2（信号后细化）
 
 | 里程碑 | 内容 |
 |---|---|
-| C0 内核上机 | android target + busybox/git 三件套 + app-server --stdio 拉起 + 会话库 |
+| C0 内核上机 | android target + busybox/git 三件套 + **JNI host（进程内 transport）** + 会话库；子进程 `app-server --stdio` 仅作开发机对照 |
 | C1 GO 形态 UI | 独立 UI（非 PWA）：会话/聊天/设置接进程内内核 |
 | C2 GO 插件生态 | nibi-go-market 仓 + plugin-kit（SDK 四件套）+ Node Plugin Runtime + native-ui v1 + 用户自开发链路 |
 

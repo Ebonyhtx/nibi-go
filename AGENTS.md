@@ -97,6 +97,6 @@ Windows 上 ninja 对**对象路径**有 260 字符硬限制，而 `expo-modules
 ## 现状与路线
 
 - **Phase A**（NIBI-WORK 远控客户端）：代码侧完成（A0–A4），仓库已公开（https://github.com/Ebonyhtx/nibi-go）；发布链路已定（源码仓 Releases + 独立签名密钥）。剩余 owner 输入：OIDC 注册、桌面侧票据派发、真机验证。
-- **Phase C**（本机内核）：挂起，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（D12 修正）。
-- **Phase B**（WORK 形态手机操控路由，nibi-phone-bridge）：最后。
-- 决策台账 D1–D18 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。
+- **Phase C**（本机内核）：挂起，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（D12 修正）。运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（D19）；手机工具面（原 B0）是它的前置。
+- **Phase B**（WORK 形态手机操控路由）：**已取消**（D6，2026-11-12）。手机自动化归 C；将来只有「桌面读手机内容」的窄需求时才做 share-sheet + 少量显式工具。
+- 决策台账 D1–D19 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。
