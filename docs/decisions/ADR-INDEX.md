@@ -6,14 +6,14 @@
 | # | 决策 | 结论 | 状态 |
 |---|---|---|---|
 | D1 | 引擎选型 | 不用 DSH，自研 Rust 内核（nibi-client/kernel，ZCode-rs fork 0.1.67 → 自有演进）。Android 交叉编译无硬阻塞（已核实：ring android 目标、rusqlite bundled、vendored rg/bfs/ugrep 全源码） | ✅ |
-| D2 | 双形态 | NIBI-WORK（远控投影，复用 PWA 形式）+ NIBI-GO（本机 AGENT，UI 独立开发）。App 内切换按钮 | ✅ |
+| D2 | 双形态 | **GO 主体默认（2026-11-13 修订）**：打开即 NIBI-GO（本机 AGENT）主体；NIBI-WORK（远控投影）是 GO 主体内的一个入口，点击才切换；并列双卡切换形态作废 | ✅（2026-11-13 修订） |
 | D3 | 会话关系 | 两形态两份独立列表按 owner 分组；不做任何迁移（含冷交接） | ✅ |
-| D4 | WORK UI | 复用现有 PWA 形式原生重画；桌面插件管理 = IPluginManagementService 手机合同投影 | ✅ |
+| D4 | WORK UI | **同源直接承载（2026-11-13 修订，替代「原生重画」）**：WORK = WebView 承载 PWA/桌面同源 web UI——`@nibi/ui` Root（桌面同一套外壳/任务列表/会话）+ `packages/web/src/web-remote-control/ui/*`（登录卡/选择电脑/ScanPage/连接中/失败页）+ `@nibi/client` transport；原生壳经 `createWebPlatform({ externalWebRemoteControlProxy })`（main.tsx:458 现成接缝）注入平台能力；原生不自绘任何远控屏；桌面插件管理投影随同源 UI 自然获得 | ✅（2026-11-13 修订） |
 | D5 | 模块 C 本机内核 | libnibi.so 进程内运行（app-server 形态），一层拓扑无 Node Host；会话库与桌面 schema 互认（迁移账本 0024 三方比对） | ✅ |
 | D6 | 模块 B 手机执行器 | **取消**（2026-11-12 重议）。理由：方向反了（手机自动化应由手机上的内核做，即 C）、只能 Android 且无障碍驱动跨厂商很脆、真实场景窄、风险面到账号级。B0 工具面（A11y 服务/执行器/确认卡/悬浮条/多任务 taskId）**移交 C 作为前置**；B1（phone-bridge 插件 + relay 路由 + 市场件）不做。若将来出现「桌面需要读手机内容」的真实需求，只做 share-sheet + 少量显式工具，不做 a11y 坐标驱动的远程操控 | ❌ 取消 |
 | D7 | 二维码职责 | 仅路由提示（sid/mid/name），不承载加密决策，桌面 UI 零变化 | ✅ |
 | D8 | 配对模型 | 设备级持久配对：登录+扫一次码；免扫重连，仅过期/删除才重配。deviceId（Keystore 持久 UUID）同时是未来 license dev claim | ✅ |
-| D9 | E2E 加密 | 做，密钥藏登录握手（账号身份协商，auth_init.meta 透传）。NIBI-GO↔桌面自动密文；PWA 永远明文；连旧桌面放行+提示未加密；服务端零改动 | ✅ |
+| D9 | E2E 加密 | 做，密钥藏登录握手（账号身份协商，auth_init.meta 透传）。NIBI-GO↔桌面自动密文；**App 内 WORK 经原生隧道（D4 修订后的承载形态）视同原生连接，走同一 E2E 密文（2026-11-13 豁免）**；浏览器打开的 PWA 永远明文；连旧桌面放行+提示未加密；服务端零改动 | ✅（2026-11-13 修订） |
 | D10 | 连接拓扑 | 四态自动选路：①本地直连 ②打洞直连（iroh，relay 指路）③中转 E2E ④PWA 明文兜底。桌面零新增监听端口（全出站）。控制信令走 Relay V2 WS，数据面自适应 | ✅ |
 | D11 | 跨平台前瞻 | iOS/鸿蒙不做但留口：B 工具面多平台适配器接口（iOS 残血=系统限制）、C 平台无关 C ABI、crypto Cipher 接口化。Rust 三平台一级目标 | ✅ |
 | D12 | 实施顺序 | **A → C（B 取消，见 D6）**。A 先行（零内核耦合）；C 挂起（信号：主线 kernel 对齐批次收尾 + cli-android-arm64 发布）；B0 工具面并入 C 前置 | ✅（2026-11-12 修订） |
@@ -51,3 +51,4 @@
 更新参考仓 = `git pull` 后在此表登记新 commit；重大变化写 `docs/research/reference-update-<日期>.md`。
 
 - 2026-11-12：**D6 取消（模块 B 不做）**。理由见 D6 行；B0 工具面移交 C 前置，B1 不做；D12 顺序同步改成 A → C。同时新增 D19：Android 内核运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（`lib/libnibi.so` + `build.json`）。
+- 2026-11-13：**D2/D4 修订（运营者指正）**。①形态：默认 GO 主体，WORK 只是其中一个入口，并列双卡作废。②WORK UI：不是「原生重画」模仿，是直接承载同源 web UI——源码实证 `packages/web/src/main.tsx:18` 从 `@nibi/ui` 挂载 `Root`（与桌面同一套外壳），main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」；main.tsx:458 `createWebPlatform({ externalWebRemoteControlProxy })` 是上游预留的原生壳接缝。原生壳 = WebView 载体 + IPlatformService 桥。Phase A 已建的原生远控屏（work/chat/sessions/devices/scan）退役；relay-client/chat-core/KeepAlive/通知资产按 E2E 方案继续复用。**E2E 已拍板（2026-11-13 当日）：案 A 原生隧道**——连接所有权在原生 RelayTransport（E2E 密文 + 后台通知/保活成立），WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文；D9 已补 App 内 WORK 豁免；上游注入口立票据 **T7**（web transport 注入口）。
