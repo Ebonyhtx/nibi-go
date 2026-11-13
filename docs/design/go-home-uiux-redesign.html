@@ -345,6 +345,9 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12);
     </table>
     <p class="sub" style="margin-top:8px"><strong>位置</strong>：宠物<strong>永远固定在输入栏正上方</strong>（对齐 dsh-Go）——有会话时中间是消息流，宠物不占正文；空态时正文区只放说明文案，宠物仍在输入栏上方。不加地面投影（运营者 2026-11-13 明确去掉）。</p>
     <p class="sub"><strong>三条实现纪律（都是踩过的坑）</strong>：① <strong>全部图集预加载</strong>——<span class="mono">useImage</span> 若跟着 state 走，换状态时新图未解码返回 null，宠物会先消失半拍再出现（"一卡一卡"）；② Skia 绘制必须 <span class="mono">Group clip</span> 收死到当前格，否则相邻帧从图集漏出（鸟周围出现多余月亮/碎片）；③ 页面背景用 <span class="mono">expo-linear-gradient</span>——Skia 画铺满背景在 Android 上不铺满、会留一个居中矩形；暖光渐变终点须用同 RGB 零 alpha，用 <span class="mono">transparent</span> 会留硬边。</p>
+    <p class="sub"><strong>尺寸与拖动</strong>：宠物目标尺寸按窗口给（手机 88dp / 横屏 72dp / 平板 104dp），<span class="mono">PetView</span> 再按设备像素取整数倍——先算 <span class="mono">M=round(dp·density/64)</span>，实际尺寸 <span class="mono">64·M/density</span>，所以 1080×2400@2.625 上 88dp 落在 97.5dp，逐格像素仍是整数（原 128dp 偏大）。宠物可<strong>横向拖动</strong>改变在输入栏上方的位置，偏移归一化 −1..1，行程只到输入栏内容宽度内，拖不出去；旋转/换尺寸自动收敛。</p>
+    <p class="sub"><strong>顶栏控件统一 40dp 高</strong>（≡ / 会话 chip / 模型 chip / 新建）：此前 chip 靠内边距撑到 ~48、模型 chip 仅 ~32，一排高矮不齐。</p>
+    <p class="sub"><strong>性能实测（模拟器）</strong>：静止屏 <span class="ok-t">0 帧重绘 / 0 卡顿</span>；宠物动画每帧 <span class="warn-t">17ms（GPU 13–14ms）</span>——瓶颈是该环境的 GL 翻译层每帧固定开销（GPU 为 AMD RX6650XT 的 OpenGL ES 翻译），不是 JS 逻辑。已加：系统「移除动画」时宠物只画静态帧、页面两层渐变合成一层。真机需另行验证。</p>
     <p class="sub">模拟器已验：睡觉 / 敲代码（含 enter-working 过渡）/ 等确认 / 思考 四态渲染与播放正常（3× 整数倍，像素锐利），九态连点无白屏；输入栏为<strong>单行 pill</strong>（+ / 占位 / 发送），不占高度。</p>
   </div>
 
