@@ -109,41 +109,51 @@ export default function GoHomeScreen() {
 
         <View style={[styles.body, { paddingRight: insets.right }]}>
           <View style={[styles.bodyInner, { maxWidth: bodyMax }]}>
-            {/* 顶栏：rail 模式由 rail 自带 ≡，其余情况给折叠/抽屉键 */}
+            {/*
+              顶栏分两组，视觉重心居中：
+              左组（身份/导航）= ≡ + 会话 chip；右组（操作）= 模型 chip + 新建对话。
+              之前四件全挤在左边、右侧空一大片，重心偏左。
+              rail 模式由 rail 自带 ≡，左组只剩会话 chip。
+            */}
             <View style={[styles.topbar, { paddingTop: insets.top + space(1) }]}>
-              {!hasRail ? (
-                <Pressable
-                  style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
-                  onPress={onMenu}
-                  accessibilityRole="button"
-                  accessibilityLabel={layout.menuAction === "collapse" ? "折叠对话列表" : "打开对话列表"}
-                >
-                  <Icon name="menu" size={17} color={th.ink} />
-                </Pressable>
-              ) : null}
+              <View style={styles.topLeft}>
+                {!hasRail ? (
+                  <Pressable
+                    style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                    onPress={onMenu}
+                    accessibilityRole="button"
+                    accessibilityLabel={layout.menuAction === "collapse" ? "折叠对话列表" : "打开对话列表"}
+                  >
+                    <Icon name="menu" size={17} color={th.ink} />
+                  </Pressable>
+                ) : null}
 
-              <View style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
-                <View style={styles.chipBody}>
-                  <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
-                    新对话
-                  </Text>
-                  <View style={styles.chipStatus}>
-                    <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
-                    <Text style={[styles.chipSub, { color: th.inkFaint }]}>本机 · 挂起</Text>
+                <View style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
+                  <View style={styles.chipBody}>
+                    <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
+                      新对话
+                    </Text>
+                    <View style={styles.chipStatus}>
+                      <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
+                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>本机 · 挂起</Text>
+                    </View>
                   </View>
+                  <Icon name="chevron-down" size={13} color={th.inkFaint} />
                 </View>
-                <Icon name="chevron-down" size={13} color={th.inkFaint} />
               </View>
 
-              <View style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
-                <Text style={[styles.modelText, { color: th.inkFaint }]}>NIBI-4 · 高</Text>
-                <Icon name="chevron-down" size={12} color={th.inkGhost} />
-              </View>
+              <View style={styles.topRight}>
+                <View style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
+                  <Text style={[styles.modelText, { color: th.inkSub }]}>NIBI-4 · 高</Text>
+                  <Icon name="chevron-down" size={12} color={th.inkGhost} />
+                </View>
 
-              <View style={styles.flex1} />
-
-              <View style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder, opacity: 0.5 }]}>
-                <Icon name="pen" size={17} color={th.inkFaint} />
+                <Pressable
+                  style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder, opacity: 0.5 }]}
+                  accessibilityLabel="新建对话"
+                >
+                  <Icon name="pen" size={17} color={th.inkFaint} />
+                </Pressable>
               </View>
             </View>
 
@@ -209,8 +219,14 @@ const styles = StyleSheet.create({
   shell: { flex: 1, flexDirection: "row" },
   body: { flex: 1, alignItems: "center" },
   bodyInner: { flex: 1, width: "100%", paddingHorizontal: space(4) },
-  flex1: { flex: 1 },
-  topbar: { flexDirection: "row", alignItems: "center", gap: space(2), paddingBottom: space(1.5) },
+  topbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    paddingBottom: space(1.5),
+  },
+  topLeft: { flexDirection: "row", alignItems: "center", gap: space(2), flexShrink: 1 },
+  topRight: { flexDirection: "row", alignItems: "center", gap: space(2), marginLeft: "auto" },
   fab: {
     width: TOPBAR_H,
     height: TOPBAR_H,

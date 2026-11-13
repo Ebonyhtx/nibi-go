@@ -151,9 +151,10 @@ function sheetKeyOf(anim: PetAnim): SheetKey {
  * 目标 dp → 设备像素整数倍 → 实际 dp。
  * 例：density 2.625、目标 96dp → 96×2.625=252px → /64=3.94 → M=4 → 64×4/2.625=97.5dp。
  */
-export function petDisplaySize(targetDp: number): { dp: number; multiple: number } {
+export function petDisplaySize(targetDp: number, crop = 1): { dp: number; multiple: number } {
   const density = PixelRatio.get() || 1;
-  const wanted = (targetDp * density) / CELL;
+  // crop<1 表示只显示中间那一块，等价于把原格放大 → 一个原格落在更多设备像素上
+  const wanted = (targetDp * density) / (CELL * crop);
   const multiple = Math.max(2, Math.min(6, Math.round(wanted)));
   return { dp: (CELL * multiple) / density, multiple };
 }
@@ -180,12 +181,24 @@ export interface PetViewProps {
   state: PetStateId;
   /** 目标显示尺寸（dp）；实际尺寸会按设备像素取整数倍微调。 */
   targetSize?: number;
+  /** false = 只画静止首帧（侧栏小图标、列表缩略图用，不占动画预算）。 */
+  animated?: boolean;
+  /**
+   * 只显示原格中间的 crop 比例（0–1，默认 1 = 整格）。
+   * 素材每格含月亮/蜡烛等道具，缩略图里整体缩会显零碎；crop 时仍按设备像素
+   * 整数倍绘制再居中裁切，所以不会糊。
+   */
+  crop?: number;
 }
 
-export function PetView({ state, targetSize = 96 }: PetViewProps) {
+export function PetView({ state, targetSize = 96, animated = true, crop = 1 }: PetViewProps) {
   const sheets = useAllSheets();
-  const reduceMotion = useReduceMotion();
-  const { dp: size } = petDisplaySize(targetSize);
+  const systemReduceMotion = useReduceMotion();
+  const reduceMotion = systemReduceMotion || !animated;
+  const box = targetSize;
+  const { dp: cell } = petDisplaySize(targetSize, crop);
+  // 整格比视窗大：把当前格居中，视窗只露出中间 crop 那块
+  const inset = (box - cell) / 2;
 
   const stateDef = petPack.states.find((s) => s.id === state);
   const enterId = stateDef?.enter ?? null;
@@ -240,16 +253,16 @@ export function PetView({ state, targetSize = 96 }: PetViewProps) {
   const skImage = sheets[sheetKeyOf(anim)] ?? null;
 
   return (
-    <View style={[styles.cell, { width: size, height: size }]}>
+    <View style={[styles.cell, { width: box, height: box }]}>
       <Canvas style={styles.canvas}>
-        <Group clip={rect(0, 0, size, size)}>
+        <Group clip={rect(0, 0, box, box)}>
           {skImage ? (
             <SkiaImage
               image={skImage}
-              x={-frameIdx * size}
-              y={0}
-              width={anim.frameCount * size}
-              height={size}
+              x={inset - frameIdx * cell}
+              y={inset}
+              width={anim.frameCount * cell}
+              height={cell}
               fit="cover"
               sampling={{ filter: FilterMode.Nearest, mipmap: MipmapMode.None }}
             />
