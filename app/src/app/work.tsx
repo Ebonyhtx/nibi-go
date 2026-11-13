@@ -55,6 +55,10 @@ export default function WorkScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      {/* 从 GO 主体抽屉进入，给一个显式返回入口（T7 载体落地后由同源 UI 自己的顶栏接管） */}
+      <Pressable style={styles.backPill} onPress={() => router.back()} accessibilityLabel="返回">
+        <Text style={styles.backText}>‹ 返回</Text>
+      </Pressable>
       <Text style={styles.title}>NIBI-WORK</Text>
 
       {snapshot.error && (
@@ -162,6 +166,8 @@ export default function WorkScreen() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
+  backPill: { position: "absolute", left: 12, top: 40, paddingHorizontal: 12, paddingVertical: 8 },
+  backText: { fontSize: 14, color: "#4a79b8", fontWeight: "600" },
   title: { fontSize: 24, fontWeight: "700", marginBottom: 12 },
   hint: { fontSize: 13, color: "#666", textAlign: "center", marginBottom: 8 },
   account: { fontSize: 12, color: "#666" },
