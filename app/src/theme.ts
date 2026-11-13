@@ -10,8 +10,8 @@ export interface NibiTheme {
   bg: string;
   /** 页面竖向渐变（顶 → 底） */
   bgGradient: [string, string];
-  /** 顶部暖光（渐变上的极淡染色） */
-  glow: string;
+  /** 顶部暖光（页面渐变顶端的极淡染色，直接作为 LinearGradient 首段） */
+  glowTop: string;
   /** 次级面 */
   panel: string;
   /** 卡片 / 玻璃底的实色回退 */
@@ -47,7 +47,7 @@ export interface NibiTheme {
 const LIGHT: NibiTheme = {
   bg: "#f9f2e4",
   bgGradient: ["#fef8ec", "#f3e8d3"],
-  glow: "rgba(224,138,62,0.10)",
+  glowTop: "#fdf6ea",
   panel: "#f3ead8",
   card: "#fffdf9",
   glass: "rgba(255,252,246,0.80)",
@@ -79,7 +79,7 @@ const LIGHT: NibiTheme = {
 const DARK: NibiTheme = {
   bg: "#1b1b1c",
   bgGradient: ["#202022", "#141415"],
-  glow: "rgba(232,196,145,0.07)",
+  glowTop: "#232221",
   panel: "#101011",
   card: "#1b1b1c",
   glass: "rgba(27,27,28,0.86)",
