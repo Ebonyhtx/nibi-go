@@ -322,6 +322,22 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12);
     <tr><td>排队插话控制（排队中 · 立即发送/改为插话/撤回）</td><td>Phase C 后对齐（本轮先不做，列入 C0 UI backlog）</td></tr>
   </table>
 
+  <h2>WORK 载体骨架 · 已落地（不等 T7）</h2>
+  <div class="card">
+    <p class="sub"><code>app/src/app/work.tsx</code> 用 <code>react-native-webview</code> 加载
+    <code>{endpointOrigin}/remote/v4</code>（<code>relay/workUrl.ts</code>；<code>EXPO_PUBLIC_NIBI_WORK_URL</code> 可覆盖）——
+    打开这里看到的登录卡、选择电脑、桌面主体、任务会话，全部是线上 PWA 本体，原生不画任何远控屏。</p>
+    <table>
+      <tr><th>要点</th><th>说明</th></tr>
+      <tr><td>登录态</td><td>OAuth 在 WebView 内完成（同源回调），cookie/storage 留在 WebView：登录一次后直接进设备列表，不再回系统浏览器</td></tr>
+      <tr><td>语言</td><td>不注入时站点按 Accept-Language 判成 en-US、登录卡变英文；文档加载前覆写 <code>navigator.language</code> 钉 zh-CN，与桌面/官网一致</td></tr>
+      <tr><td>系统返回</td><td>页面钩子 <code>__nibiAppBack</code> → WebView 历史 → 退出载体（对齐 dsh-Go <code>web_back</code> 语义）</td></tr>
+      <tr><td>壳能力</td><td>加载进度 / 失败重试 / 刷新 / 安全区；webview 14 的 d.ts 泛型塌成 <code>never</code>，本地做类型适配不改库</td></tr>
+      <tr><td>仍等 T7</td><td>E2E 密文与后台通知/保活——连接所有权移交原生后，在 <code>injectedJavaScriptBeforeContentLoaded</code> 里拼 bridge（与 locale 同一时机）</td></tr>
+    </table>
+    <p class="sub" style="margin-top:8px">模拟器实测（2026-11-13）：打开即中文 PWA 登录卡（与你给的截图逐字一致）→ 点「使用 NIBI 账号登录」在页内进 Zitadel 登录 → 邮箱可正常输入；<code>curl</code> 与页面内 <code>fetch</code> 双路验证 <code>/remote/v4</code> 返回 200。</p>
+  </div>
+
   <h2>与已定决策的关系</h2>
   <div class="card">
     <p class="sub">① 不动 D2/D4/D9：WORK 仍是抽屉目的地 → D4 同源 WebView 载体屏；E2E 仍走原生隧道。② 本稿只重设「GO 主体 + 抽屉」两块原生 UI；载体内一切视觉 = PWA/桌面同源（那不是我们画）。③ theme.ts 仍按纸上鸟 token 建，但吸收 dsh-Go 的渐变纸面与玻璃面规则（写进 token 层：<code>bg-gradient-top/bottom</code>、<code>glass-surface</code>、强调色用量纪律）。④ 深色待启：按 dsh-Go 的口径校准为"暖墨夜"（明度 0.23–0.25 档、非纯黑），现有 <code>#171716</code> 届时上移一档。</p>
