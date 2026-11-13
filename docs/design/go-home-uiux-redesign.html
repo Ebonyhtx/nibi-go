@@ -343,7 +343,9 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12);
       <tr><td class="mono">flying</td><td>云海横滚（唯一无过渡态）</td><td>页面切换 / 深链启动 / 重连（短时态）</td></tr>
       <tr><td class="mono">sleeping</td><td>闭眼 + 月亮 + Zzz</td><td>无连接 / 内核挂起 / 后台</td></tr>
     </table>
-    <p class="sub" style="margin-top:8px">模拟器已验：睡觉 / 敲代码（含 enter-working 过渡）/ 等确认 三态渲染与播放正常（3× 整数倍，像素锐利）。验证台临时挂在 <span class="mono">nibigo://go</span>（GO 主体重排时退役，宠物挪进空态舞台与输入栏上方）。</p>
+    <p class="sub" style="margin-top:8px"><strong>位置</strong>：宠物<strong>永远固定在输入栏正上方</strong>（对齐 dsh-Go）——有会话时中间是消息流，宠物不占正文；空态时正文区只放说明文案，宠物仍在输入栏上方。不加地面投影（运营者 2026-11-13 明确去掉）。</p>
+    <p class="sub"><strong>三条实现纪律（都是踩过的坑）</strong>：① <strong>全部图集预加载</strong>——<span class="mono">useImage</span> 若跟着 state 走，换状态时新图未解码返回 null，宠物会先消失半拍再出现（"一卡一卡"）；② Skia 绘制必须 <span class="mono">Group clip</span> 收死到当前格，否则相邻帧从图集漏出（鸟周围出现多余月亮/碎片）；③ 页面背景用 <span class="mono">expo-linear-gradient</span>——Skia 画铺满背景在 Android 上不铺满、会留一个居中矩形；暖光渐变终点须用同 RGB 零 alpha，用 <span class="mono">transparent</span> 会留硬边。</p>
+    <p class="sub">模拟器已验：睡觉 / 敲代码（含 enter-working 过渡）/ 等确认 / 思考 四态渲染与播放正常（3× 整数倍，像素锐利），九态连点无白屏；输入栏为<strong>单行 pill</strong>（+ / 占位 / 发送），不占高度。</p>
   </div>
 
   <h2>自适应：手机 / 手机横屏 / 平板（对齐 dsh-Go adaptive_layout.dart）</h2>
