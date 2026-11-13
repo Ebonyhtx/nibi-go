@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>NIBI-GO 移动端 UI/UX 设计 · v3（2026-11-13）</title>
+<style>
+:root{
+  --bg:#f9f2e4; --panel:#f3ead8; --card:#fffdf9;
+  --ink:#1c2f4e; --ink-sub:rgba(28,47,78,.62); --ink-faint:rgba(28,47,78,.42);
+  --bord:rgba(28,47,78,.13);
+  --brand:#e08a3e; --brand-fg:#fff9ef; --brand-soft:rgba(224,138,62,.14);
+  --steel:#4a79b8; --steel-soft:rgba(74,121,184,.14);
+  --ok:#3f8f5f; --ok-soft:rgba(63,143,95,.14);
+  --amber:#c98a2c; --amber-soft:rgba(201,138,44,.13);
+  --red:#c25b4e;
+  --rad:16px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  line-height:1.6}
+.wrap{max-width:1080px;margin:0 auto;padding:36px 24px 64px}
+h1{font-size:26px;margin:0 0 6px;letter-spacing:.02em}
+h2{font-size:19px;margin:38px 0 14px;padding-top:14px;border-top:1px solid var(--bord)}
+h3{font-size:15.5px;margin:18px 0 8px}
+.sub{color:var(--ink-sub);font-size:13.5px;margin:0}
+code,.mono{font-family:ui-monospace,Consolas,"SF Mono",monospace;font-size:.92em;background:var(--panel);
+  border-radius:6px;padding:1px 6px;word-break:break-all}
+.card{background:var(--card);border:1px solid var(--bord);border-radius:var(--rad);padding:16px 18px}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600;
+  background:var(--panel);color:var(--ink-sub)}
+.dot{width:7px;height:7px;border-radius:999px;display:inline-block}
+.i{width:16px;height:16px;flex-shrink:0}
+.decis{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:16px 0}
+.decis .card h3{margin:0 0 6px;font-size:14px}
+.decis .card p{margin:0;font-size:12.5px;color:var(--ink-sub)}
+.sw{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:10px 0 0}
+.tok{display:inline-flex;align-items:center;gap:7px;padding:5px 11px 5px 6px;border-radius:999px;border:1px solid var(--bord);background:var(--card)}
+.tok i{width:16px;height:16px;border-radius:5px;display:inline-block}
+.tok code{background:none;padding:0}
+.tok-label{font-size:12px;color:var(--ink-faint);margin-right:2px}
+.board{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;margin-top:18px}
+.phone{background:var(--panel);border-radius:42px;padding:9px;width:308px;box-shadow:0 14px 34px rgba(20,45,82,.16)}
+.screen{background:var(--bg);border-radius:35px;min-height:640px;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.sbar{display:flex;justify-content:space-between;align-items:center;padding:13px 22px 4px;font-size:12.5px;font-weight:500}
+.sbar .si{display:flex;gap:6px;align-items:center}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:108px;height:4px;border-radius:999px;background:var(--ink-faint);opacity:.55}
+.scrolly{flex:1;display:flex;flex-direction:column;padding:8px 18px 30px}
+.menu-row{display:flex;align-items:center;gap:12px;padding:13px 4px;font-size:14.5px;font-weight:600}
+.menu-row .mi{color:var(--ink-sub);display:flex}
+.menu-row.disabled{color:var(--ink-faint)}
+.menu-row.disabled .mi{color:var(--ink-faint)}
+.mr-spacer{flex:1}
+.chev{color:var(--ink-faint);display:flex}
+.sect-row{display:flex;align-items:center;gap:8px;padding:12px 2px 8px}
+.sect-row .st{font-size:13px;font-weight:700;color:var(--ink-sub)}
+.sect-row .sact{color:var(--ink-faint);display:flex;margin-left:8px}
+.go-head{display:flex;align-items:center;gap:12px;padding:8px 2px 14px}
+.brand-mark{width:44px;height:44px;border-radius:14px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.gh-t{font-size:18px;font-weight:700;letter-spacing:.08em}
+.gh-s{font-size:11.5px;color:var(--ink-faint);margin-top:2px}
+.empty-go{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:10px}
+.eg-t{font-size:14px;font-weight:600;color:var(--ink-sub)}
+.eg-s{font-size:11.5px;color:var(--ink-faint);max-width:210px;line-height:1.6}
+.work-entry{display:flex;align-items:center;gap:12px;padding:14px;margin:4px 0 10px;width:100%;text-align:left;
+  background:var(--card);border:1px solid var(--steel);border-radius:var(--rad)}
+.work-entry .we-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  background:var(--steel-soft);color:var(--steel);flex-shrink:0}
+.we-t{font-size:14.5px;font-weight:700}
+.we-s{font-size:11.5px;color:var(--ink-sub);margin-top:3px}
+.botbar{display:flex;align-items:center;gap:9px;margin-top:auto;padding:12px 2px 6px}
+.botbar .avatar{width:32px;height:32px;border-radius:999px;background:var(--panel);border:1px solid var(--bord);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-sub)}
+.bb-name{font-size:13.5px;font-weight:600}
+.chain{display:flex;flex-direction:column;margin:14px 0}
+.chain-node{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;background:var(--card);border:1px solid var(--bord)}
+.chain-node:first-child{border-radius:var(--rad) var(--rad) 0 0}
+.chain-node:last-child{border-radius:0 0 var(--rad) var(--rad)}
+.chain-node + .chain-node{border-top:none}
+.chain-node .ci{color:var(--brand);display:flex;margin-top:2px}
+.cn-t{font-size:13px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+.cn-s{font-size:11.5px;color:var(--ink-sub);line-height:1.55;margin-top:3px}
+.chain-node.hl{background:var(--brand-soft);border-color:var(--brand)}
+.seam{display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border:1px dashed var(--steel);border-radius:12px;background:var(--card);margin:12px 0}
+.seam .ci{color:var(--steel);display:flex;margin-top:2px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th{text-align:left;font-size:12px;color:var(--ink-faint);font-weight:600;border-bottom:1px solid var(--bord);padding:7px 10px}
+td{border-bottom:1px solid var(--bord);padding:9px 10px;vertical-align:top}
+td .mono{font-size:.85em}
+.ok-t{color:var(--ok);font-weight:600}
+.warn-t{color:var(--amber);font-weight:600}
+ol.steps{margin:10px 0 0;padding-left:22px;font-size:13.5px}
+ol.steps li{margin-bottom:8px}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--bord);font-size:12px;color:var(--ink-faint)}
+.note{font-size:12.5px;color:var(--ink-sub);background:var(--panel);border-radius:12px;padding:10px 14px;margin:10px 0}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-bird" viewBox="0 0 40 40">
+      <path fill="currentColor" d="M22 7c-7.5 0-13 5.2-13 11.6 0 7.3 6.2 12.4 13.6 12.4 3.2 0 6.2-1 8.4-2.9l7.5 1.1-3.2-5.3c.8-1.9 1.2-3.4 1.2-5.3C36.5 12.2 29.9 7 22 7z"/>
+      <circle cx="19.5" cy="23" r="5.4" fill="#e08a3e"/>
+      <circle cx="27" cy="15" r="1.7" fill="#fffdf9"/>
+    </symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 16v4M8 20h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V7a4 4 0 018 0v4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M17 3l4 4L9 19l-5 1 1-5L17 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5 7.5l3 8M16.5 7.5l-3 8M8.4 6h7.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 9v10h14V9M10 13h4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.3-5.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 19h20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-winsq" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="4" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="13" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="13" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 10-12h-7l1-8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="14" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 14h3v3h-3zM20 14v6M14 20h3" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0119 0M5.5 12.5a10 10 0 0113 0M8.5 16a5.4 5.4 0 017 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 20v-5M9 20v-9M14 20v-13M19 20V4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="8" width="17" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21.5 11v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4" y="10" width="10" height="4" rx="1" fill="currentColor"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 012-2h4l2 3h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <h1>NIBI-GO 移动端 UI/UX 设计</h1>
+  <p class="sub">v3 · 2026-11-13 · 状态：三决策已定（D2 / D4 / D9 修订完成），上游前置 = 票据 T6 + T7，实施未开工</p>
+
+  <div class="decis">
+    <div class="card"><h3><span class="dot" style="background:var(--brand)"></span> 形态 · D2 修订</h3>
+      <p>打开即 <strong>GO 主体</strong>（本机 AGENT）；NIBI-WORK 只是主体内一个入口，点击才切换。并列双卡形态作废。</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--steel)"></span> WORK · D4 修订</h3>
+      <p><strong>同源直接承载</strong>：WebView 跑 PWA/桌面同一套 web UI，原生不自绘任何远控屏。视觉真源 = 线上 PWA。</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--ok)"></span> E2E · D9 拍板</h3>
+      <p><strong>案 A 原生隧道</strong>：连接所有权在原生 RelayTransport（密文 + 后台通知/保活成立）；WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文。</p></div>
+  </div>
+
+  <h2>1 · 设计 token（纸上鸟 · 真源 = 桌面 <code>packages/ui/src/styles.css</code>）</h2>
+  <div class="sw">
+    <span class="tok-label">浅色（当前锁定）</span>
+    <span class="tok"><i style="background:#f9f2e4"></i><code>纸面 f9f2e4</code></span>
+    <span class="tok"><i style="background:#f3ead8"></i><code>次面 f3ead8</code></span>
+    <span class="tok"><i style="background:#fffdf9"></i><code>纸卡 fffdf9</code></span>
+    <span class="tok"><i style="background:#1c2f4e"></i><code>海军蓝字 1c2f4e</code></span>
+    <span class="tok"><i style="background:#e08a3e"></i><code>橙 CTA e08a3e</code></span>
+    <span class="tok"><i style="background:#4a79b8"></i><code>钢蓝 4a79b8</code></span>
+    <span class="tok"><i style="background:#3f8f5f"></i><code>成功/在线 3f8f5f</code></span>
+    <span class="tok"><i style="background:#c98a2c"></i><code>琥珀/工具 c98a2c</code></span>
+    <span class="tok"><i style="background:#c25b4e"></i><code>警示 c25b4e</code></span>
+  </div>
+  <div class="sw">
+    <span class="tok-label">墨夜（深色无蓝，已备未启）</span>
+    <span class="tok"><i style="background:#171716"></i><code>墨夜 171716</code></span>
+    <span class="tok"><i style="background:#101011"></i><code>深面板 101011</code></span>
+    <span class="tok"><i style="background:#1b1b1c"></i><code>卡片 1b1b1c</code></span>
+    <span class="tok"><i style="background:#cdced2"></i><code>字 cdced2</code></span>
+    <span class="tok"><i style="background:#e8c491"></i><code>沙金 CTA e8c491</code></span>
+  </div>
+  <p class="sub" style="margin-top:10px">实施 = <code>app/src/theme.ts</code> 单一真源（色 / 字号 / 间距 / 圆角），全部屏从 token 取值，禁止再写硬编码色。</p>
+
+  <h2>2 · 默认首页 = GO 主体（唯一原生自绘屏）</h2>
+  <div class="board">
+    <div class="phone"><div class="screen">
+      <div class="sbar"><span>9:41</span><span class="si"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+      <div class="scrolly">
+        <div class="go-head">
+          <span class="brand-mark"><svg width="26" height="26" viewBox="0 0 40 40" style="color:#1c2f4e"><use href="#i-bird"/></svg></span>
+          <span style="display:flex;flex-direction:column">
+            <span class="gh-t">NIBI-GO</span>
+            <span class="gh-s">本机 AGENT · 数据不出机</span>
+          </span>
+        </div>
+        <div class="menu-row disabled"><span class="mi"><svg class="i"><use href="#i-pen"/></svg></span>新建任务<span class="mr-spacer"></span><span class="pill">内核挂起</span></div>
+        <div class="menu-row"><span class="mi"><svg class="i"><use href="#i-workflow"/></svg></span>自动化<span class="mr-spacer"></span><span class="chev"><svg class="i"><use href="#i-chev-r"/></svg></span></div>
+        <div class="menu-row"><span class="mi"><svg class="i"><use href="#i-puzzle"/></svg></span>插件市场<span class="mr-spacer"></span><span class="chev"><svg class="i"><use href="#i-chev-r"/></svg></span></div>
+        <div class="sect-row"><span class="st">任务列表</span><span class="mr-spacer"></span><span class="sact"><svg class="i"><use href="#i-search"/></svg></span><span class="sact"><svg class="i"><use href="#i-filter"/></svg></span></div>
+        <div class="empty-go">
+          <svg width="74" height="74" viewBox="0 0 40 40" style="color:#1c2f4e;opacity:.88"><use href="#i-bird"/></svg>
+          <span class="eg-t">本机内核挂起中</span>
+          <span class="eg-s">Phase C 启动后，这里就是手机上的任务列表——AGENT 直接在你手机上干活。</span>
+        </div>
+        <button class="work-entry" type="button" style="cursor:pointer">
+          <span class="we-ico"><svg class="i"><use href="#i-monitor"/></svg></span>
+          <span style="flex:1;display:flex;flex-direction:column">
+            <span class="we-t">连接桌面 · NIBI-WORK</span>
+            <span class="we-s">同源 UI 承载 · 选择电脑后远控桌面 AGENT</span>
+          </span>
+          <span class="chev" style="color:var(--steel)"><svg class="i"><use href="#i-chev-r"/></svg></span>
+        </button>
+        <div class="botbar">
+          <span class="avatar"><svg width="16" height="16" viewBox="0 0 40 40"><use href="#i-bird"/></svg></span>
+          <span class="bb-name">NIBI Admin</span>
+          <span class="mr-spacer"></span>
+          <span style="color:var(--ink-sub);display:flex"><svg class="i"><use href="#i-gear"/></svg></span>
+        </div>
+      </div>
+      <div class="homebar"></div>
+    </div></div>
+    <div style="max-width:520px">
+      <h3>要点</h3>
+      <table>
+        <tr><th>区域</th><th>设计</th></tr>
+        <tr><td>头部</td><td>鸟标 + NIBI-GO + 「本机 AGENT · 数据不出机」</td></tr>
+        <tr><td>菜单</td><td>新建任务 / 自动化 / 插件市场——与 W3 桌面主体同一语义（Phase C 上机后无缝承接）；新建任务挂起态如实标注</td></tr>
+        <tr><td>任务列表</td><td>空态鸟插画 + 挂起说明；Phase C 后即本机任务列表</td></tr>
+        <tr><td>WORK 入口</td><td>钢蓝描边卡「连接桌面 · NIBI-WORK」——WORK 的唯一门面</td></tr>
+        <tr><td>底栏</td><td>账号 + 设置（同 PWA 桌面主体底栏语义）</td></tr>
+      </table>
+      <p class="sub">鸟标为占位，实现用真源资产 <code>app/assets/icon.png</code>。</p>
+    </div>
+  </div>
+
+  <h2>3 · WORK 形态 = 同源 UI 直接承载（不自绘）</h2>
+  <div class="card">
+    <p class="sub">源码实证（nibi-client）：<code>packages/web/src/main.tsx:18</code> 从 <code>@nibi/ui</code> 挂载 <code>Root</code>——桌面的同一套外壳/任务列表/会话；main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」。配对后的 workspace「归既有 bootstrap」（<code>web-remote-control/CONTRACT.md</code>）。PWA 截图里的登录卡 / 选择电脑 / 桌面主体 / 任务会话，就是这套 UI 本体——WORK 直接承载，不再有第二份实现。</p>
+    <div class="chain">
+      <div class="chain-node">
+        <span class="ci"><svg class="i"><use href="#i-monitor"/></svg></span>
+        <span><span class="cn-t">@nibi/ui · Root + 工作区外壳</span>
+        <span class="cn-s">桌面同一套组件与「纸上鸟」主题真源——桌面上什么样，WORK 里就什么样</span></span>
+      </div>
+      <div class="chain-node">
+        <span class="ci"><svg class="i"><use href="#i-folder"/></svg></span>
+        <span><span class="cn-t">packages/web/src/web-remote-control/ui/*</span>
+        <span class="cn-s">手机专属 admission 面：登录卡、DeviceListPage（选择电脑）、ScanPage、连接中/失败页、切换账号</span></span>
+      </div>
+      <div class="chain-node">
+        <span class="ci"><svg class="i"><use href="#i-zap"/></svg></span>
+        <span><span class="cn-t">@nibi/client · connectViaProtocol / relay transport</span>
+        <span class="cn-s">连接与帧协议同源（默认路径；注入路径见下）</span></span>
+      </div>
+      <div class="chain-node hl">
+        <span class="ci"><svg class="i"><use href="#i-monitor"/></svg></span>
+        <span><span class="cn-t">NIBI-GO · WebView 载体（原生壳）</span>
+        <span class="cn-s">WORK = WebView 加载同源 web 构建；原生只做壳与系统衔接</span></span>
+      </div>
+    </div>
+    <div class="seam">
+      <span class="ci"><svg class="i"><use href="#i-zap"/></svg></span>
+      <span><strong style="font-size:13px">两个上游接缝</strong><br/>
+      <span class="sub">① <code>createWebPlatform({ externalWebRemoteControlProxy })</code>（main.tsx:458，现成）：原生壳按 <code>IPlatformService</code> 注入通知 / 保活 / secure store / 更新；<br/>
+      ② <strong>票据 T7 · transport 注入口</strong>（待上游实现）：宿主注入已实现的 transport——<code>contracts/transport.ts</code> 的对外行为面（状态枚举 / onPayload / onStateChange / reloadPage）已齐备，<code>WebSocketCtor</code> 注入参数是先例。</span></span>
+    </div>
+  </div>
+
+  <h2>4 · E2E：案 A 原生隧道（已拍板，D9 修订）</h2>
+  <div class="card">
+    <p class="sub"><strong>为什么</strong>：WebView 里跑 web 自建连接 = 与 PWA 同为明文，且 WebView 切后台 JS 暂停、连接断——后台通知/保活全失效。手机远控的主场景是「人不在电脑前」，通知是核心体验；Phase A 已建成的原生链路不该废弃。</p>
+    <table>
+      <tr><th>层</th><th>职责</th><th>实现来源</th></tr>
+      <tr><td>原生（App 进程）</td><td class="mono">relay 连接、心跳、replay、E2E keyneg、token、通知、前台服务</td><td>GO 仓 <code>packages/relay-client</code>（已建成已测）+ nibi-keepalive / notifications</td></tr>
+      <tr><td>bridge（postMessage）</td><td class="mono">状态迁移 + 已解密帧流双向转发；WebView 刷新/崩溃时原生连接保持</td><td>GO 仓新增载体桥</td></tr>
+      <tr><td>WebView（web UI）</td><td class="mono">同源 UI 只消费状态与帧、走原发送通道</td><td>上游 T7 注入口</td></tr>
+    </table>
+    <table>
+      <tr><th>影响面</th><th>结论</th></tr>
+      <tr><td>桌面</td><td class="ok-t">零改动零影响</td></tr>
+      <tr><td>浏览器 PWA</td><td class="ok-t">代码纯增量（不传注入 = 逐字同路径），行为不变、维持明文</td></tr>
+      <tr><td>服务端 / relay</td><td class="ok-t">零改动（D9 承诺继续成立）</td></tr>
+      <tr><td>NIBI-GO App</td><td class="warn-t">五张原生远控屏退役 → WebView 载体；GO 主体 / 登录 / 通知 / 保活保留</td></tr>
+    </table>
+    <div class="note">桥上实现期决策（届时确认）：WebView 内登录 = <strong>复用原生已登录 token（推荐，免二次登录）</strong> vs WebView 独立走一遍 PWA 登录。</div>
+  </div>
+
+  <h2>5 · 实施计划（GO 仓）</h2>
+  <div class="card">
+    <ol class="steps">
+      <li><strong>theme.ts token 层</strong>：纸上鸟 / 墨夜双套 token（色/字/距/圆角单一真源），全屏取值改造。</li>
+      <li><strong>路由与 GO 主体重排</strong>：<code>index</code> 改为 GO 主体（上图）；<code>go.tsx</code> 占位屏退役；WORK 入口卡指向载体屏。</li>
+      <li><strong>WORK 载体屏 + bridge</strong>：WebView 加载同源 web 构建（远端 PWA 地址优先）；bridge 实现 <code>IPlatformService</code> 注入 + transport 桥（T7 落地后接通）。</li>
+      <li><strong>通知 / 保活接原生连接</strong>：原生 transport 保持连接所有权，nibi-keepalive / notifications 照常工作（F2/F4/G1-G3 验收项保住）。</li>
+      <li><strong>退役清理</strong>：work / chat / sessions / devices / scan 五张原生远控屏下线；relay-client / chat-core 保留（Phase C 本机 AGENT 用）。</li>
+      <li><strong>验收更新</strong>：真机验证清单按载体形态改写 D/E 组执行方式；模拟器已验项（authorize 参数、深链回调、404 修复）对载体屏重验。</li>
+    </ol>
+  </div>
+
+  <h2>6 · 决策与票据索引</h2>
+  <table>
+    <tr><th>编号</th><th>内容</th><th>状态</th></tr>
+    <tr><td class="mono">D2 / D4 / D9</td><td>形态 / WORK 承载 / E2E 案 A</td><td>2026-11-13 修订完成（ADR-INDEX）</td></tr>
+    <tr><td class="mono">T6</td><td>android 平台包补 cdylib（Phase C 前置）</td><td>票据已立，待上游</td></tr>
+    <tr><td class="mono">T7</td><td>web transport 注入口（WORK 原生隧道承载）</td><td>票据已立，待上游</td></tr>
+    <tr><td class="mono">404 修复</td><td>OAuth 回调 expo-router 叠屏（<code>app/src/app/+native-intent.tsx</code>）</td><td>已修，模拟器验证通过</td></tr>
+  </table>
+
+  <footer>NIBI-GO · 移动端 UI/UX 设计 v3 · 2026-11-13 · 本文件随仓公开（Apache-2.0）；配色真源见 nibi-client packages/ui/src/styles.css</footer>
+</div>
+</body>
+</html>
