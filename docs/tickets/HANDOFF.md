@@ -13,6 +13,8 @@
 | T3 | **已结案** | NIBI-GO OIDC native app 已注册（client `399176882886606853`）并接入令牌代理；剩真机走完整登录 |
 | T4 | **已结案（GO 侧修复）** | 审批卡恒空；归因修正：桌面无缺口，客户端缺 V4 握手与 optionId（见 T4 末节） |
 | T5 | nibi-client 桌面 transport | **已实现**（`9d0fc7c0`，2026-11-12）；待真机 |
+| T6 | nibi-client 内核 | android 平台包补 cdylib 产物 `lib/libnibi.so`（Phase C 进程内形态，D19） |
+| T7 | nibi-client web transport | web 远程控制 transport 注入口（WORK 原生隧道承载，D2/D4/D9 修订） |
 
 ## 处理方式（三步）
 
