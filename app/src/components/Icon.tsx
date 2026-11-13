@@ -7,7 +7,9 @@ export type IconName =
   | "plus"
   | "arrow-up"
   | "chevron-right"
+  | "chevron-left"
   | "chevron-down"
+  | "refresh"
   | "monitor"
   | "phone"
   | "sliders"
@@ -44,8 +46,15 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
           <Path path="M12 19V6M6.5 11.5L12 6L17.5 11.5" {...paint} />
         ) : name === "chevron-right" ? (
           <Path path="M9.5 6L15.5 12L9.5 18" {...paint} />
+        ) : name === "chevron-left" ? (
+          <Path path="M14.5 6L8.5 12L14.5 18" {...paint} />
         ) : name === "chevron-down" ? (
           <Path path="M6 9.5L12 15.5L18 9.5" {...paint} />
+        ) : name === "refresh" ? (
+          <>
+            <Path path="M20 12a8 8 0 11-2.3-5.7" {...paint} />
+            <Path path="M20.5 3.5V8H16" {...paint} />
+          </>
         ) : name === "monitor" ? (
           <>
             <Path path="M3.5 5.5H20.5V16.5H3.5Z" {...paint} />
