@@ -1,19 +1,25 @@
 // NIBI 像素桌宠 · 图集播放器（Skia 最近邻渲染）。
 // 素材真源：nibi-pixel-pet 仓（单一数据源 out/pack.json，本仓随 assets/pet/ 快照）。
-// 播放纪律（素材规格）：64×64 原生格；显示只允许 2×/3×/4× 整数倍（非整数会把
-// 1px 高光吃掉）；基线 y=58（所有状态共用，调用方把容器底边对齐摆放即可）；
-// 逐帧时长以 pack.json 为准（连续同帧已合并、ms 不相等，不能匀速 steps）。
-// 状态机：states[x].enter 过渡先播一遍（终点帧已对齐目标状态首帧），随后循环
-// 状态本身；flying 是唯一没有过渡的状态（直接切）。
-// 渲染必须走 Skia 且 sampling=Nearest：RN 核心 Image 在 Android 上恒为双线性，
-// 整数倍放大也会糊边（2026-11-13 模拟器实拍确认）。
-import { useEffect, useMemo, useRef, useState } from "react";
+// 播放纪律（素材规格）：
+//   · 64×64 原生格；显示只允许 2×/3×/4× 整数倍（非整数会把 1px 高光吃掉）
+//   · 基线 y=58（所有状态共用）
+//   · 逐帧时长以 pack.json 为准（连续同帧已合并、ms 不相等，不能匀速 steps）
+//   · 状态切换先播 enter-* 过渡（终点帧已对齐目标首帧），再循环目标状态；
+//     flying 是唯一没有过渡的状态
+// 渲染：必须 Skia + sampling=Nearest——RN 核心 Image 在 Android 恒为双线性，
+// 整数倍放大也糊边（2026-11-13 模拟器实拍确认）。绘制区用 clip 收死到当前格，
+// 否则相邻帧会从图集里漏出来（同轮实拍：鸟周围出现多余的月亮/碎片）。
+// 切换不卡：**全部图集预加载**——原来 useImage 跟着 state 走，换状态时新图未解码
+// 会先返回 null（宠物消失半拍再出现），这就是"一卡一卡"的来源。
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import {
   Canvas,
   FilterMode,
+  Group,
   Image as SkiaImage,
   MipmapMode,
+  rect,
   useImage,
 } from "@shopify/react-native-skia";
 
@@ -59,76 +65,75 @@ const petPack = petPackRaw as PetPack;
 const CELL = petPack.spec.cell.w;
 const BASELINE = petPack.spec.baseline;
 
-const SHEETS: Record<string, { light: number; dark: number }> = {
-  idle: {
-    light: require("../../assets/pet/sheets/idle.png"),
-    dark: require("../../assets/pet/sheets-dark/idle.png"),
-  },
-  working: {
-    light: require("../../assets/pet/sheets/working.png"),
-    dark: require("../../assets/pet/sheets-dark/working.png"),
-  },
-  done: {
-    light: require("../../assets/pet/sheets/done.png"),
-    dark: require("../../assets/pet/sheets-dark/done.png"),
-  },
-  waiting: {
-    light: require("../../assets/pet/sheets/waiting.png"),
-    dark: require("../../assets/pet/sheets-dark/waiting.png"),
-  },
-  sleeping: {
-    light: require("../../assets/pet/sheets/sleeping.png"),
-    dark: require("../../assets/pet/sheets-dark/sleeping.png"),
-  },
-  thinking: {
-    light: require("../../assets/pet/sheets/thinking.png"),
-    dark: require("../../assets/pet/sheets-dark/thinking.png"),
-  },
-  error: {
-    light: require("../../assets/pet/sheets/error.png"),
-    dark: require("../../assets/pet/sheets-dark/error.png"),
-  },
-  carrying: {
-    light: require("../../assets/pet/sheets/carrying.png"),
-    dark: require("../../assets/pet/sheets-dark/carrying.png"),
-  },
-  flying: {
-    light: require("../../assets/pet/sheets/flying.png"),
-    dark: require("../../assets/pet/sheets-dark/flying.png"),
-  },
-  "enter-idle": {
-    light: require("../../assets/pet/sheets/enter-idle.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-idle.png"),
-  },
-  "enter-working": {
-    light: require("../../assets/pet/sheets/enter-working.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-working.png"),
-  },
-  "enter-done": {
-    light: require("../../assets/pet/sheets/enter-done.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-done.png"),
-  },
-  "enter-waiting": {
-    light: require("../../assets/pet/sheets/enter-waiting.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-waiting.png"),
-  },
-  "enter-sleeping": {
-    light: require("../../assets/pet/sheets/enter-sleeping.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-sleeping.png"),
-  },
-  "enter-thinking": {
-    light: require("../../assets/pet/sheets/enter-thinking.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-thinking.png"),
-  },
-  "enter-error": {
-    light: require("../../assets/pet/sheets/enter-error.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-error.png"),
-  },
-  "enter-carrying": {
-    light: require("../../assets/pet/sheets/enter-carrying.png"),
-    dark: require("../../assets/pet/sheets-dark/enter-carrying.png"),
-  },
-};
+/**
+ * 图集键 → 本地资源。
+ * 只用浅色一套（app 当前锁 light）；墨夜启用时在这里补 sheets-dark 分支。
+ */
+const SHEET_SOURCES = {
+  idle: require("../../assets/pet/sheets/idle.png"),
+  working: require("../../assets/pet/sheets/working.png"),
+  done: require("../../assets/pet/sheets/done.png"),
+  waiting: require("../../assets/pet/sheets/waiting.png"),
+  sleeping: require("../../assets/pet/sheets/sleeping.png"),
+  thinking: require("../../assets/pet/sheets/thinking.png"),
+  error: require("../../assets/pet/sheets/error.png"),
+  carrying: require("../../assets/pet/sheets/carrying.png"),
+  flying: require("../../assets/pet/sheets/flying.png"),
+  "enter-idle": require("../../assets/pet/sheets/enter-idle.png"),
+  "enter-working": require("../../assets/pet/sheets/enter-working.png"),
+  "enter-done": require("../../assets/pet/sheets/enter-done.png"),
+  "enter-waiting": require("../../assets/pet/sheets/enter-waiting.png"),
+  "enter-sleeping": require("../../assets/pet/sheets/enter-sleeping.png"),
+  "enter-thinking": require("../../assets/pet/sheets/enter-thinking.png"),
+  "enter-error": require("../../assets/pet/sheets/enter-error.png"),
+  "enter-carrying": require("../../assets/pet/sheets/enter-carrying.png"),
+} as const;
+
+type SheetKey = keyof typeof SHEET_SOURCES;
+
+/**
+ * 全部图集一次性预加载（hooks 顺序固定，17 个 useImage 必须逐条写）。
+ * 这是"切换不卡"的关键：任何状态下图都已解码，切换只改绘制偏移。
+ */
+function useAllSheets() {
+  const idle = useImage(SHEET_SOURCES.idle);
+  const working = useImage(SHEET_SOURCES.working);
+  const done = useImage(SHEET_SOURCES.done);
+  const waiting = useImage(SHEET_SOURCES.waiting);
+  const sleeping = useImage(SHEET_SOURCES.sleeping);
+  const thinking = useImage(SHEET_SOURCES.thinking);
+  const error = useImage(SHEET_SOURCES.error);
+  const carrying = useImage(SHEET_SOURCES.carrying);
+  const flying = useImage(SHEET_SOURCES.flying);
+  const enterIdle = useImage(SHEET_SOURCES["enter-idle"]);
+  const enterWorking = useImage(SHEET_SOURCES["enter-working"]);
+  const enterDone = useImage(SHEET_SOURCES["enter-done"]);
+  const enterWaiting = useImage(SHEET_SOURCES["enter-waiting"]);
+  const enterSleeping = useImage(SHEET_SOURCES["enter-sleeping"]);
+  const enterThinking = useImage(SHEET_SOURCES["enter-thinking"]);
+  const enterError = useImage(SHEET_SOURCES["enter-error"]);
+  const enterCarrying = useImage(SHEET_SOURCES["enter-carrying"]);
+
+  return {
+    idle,
+    working,
+    done,
+    waiting,
+    sleeping,
+    thinking,
+    error,
+    carrying,
+    flying,
+    "enter-idle": enterIdle,
+    "enter-working": enterWorking,
+    "enter-done": enterDone,
+    "enter-waiting": enterWaiting,
+    "enter-sleeping": enterSleeping,
+    "enter-thinking": enterThinking,
+    "enter-error": enterError,
+    "enter-carrying": enterCarrying,
+  } as Record<SheetKey, ReturnType<typeof useImage>>;
+}
 
 /** ms 时刻落在图集第几帧（frames 的 ms 是合并后的真实时长）。 */
 function frameAt(anim: PetAnim, ms: number): number {
@@ -140,19 +145,24 @@ function frameAt(anim: PetAnim, ms: number): number {
   return anim.frames[anim.frames.length - 1]!.i;
 }
 
+/** animations 的 key 与图集文件名一一对应（out/pack.json 的 sheet 字段）。 */
+function sheetKeyOf(anim: PetAnim): SheetKey {
+  return anim.sheet.replace(/^(sheets|sheets-dark)\//u, "").replace(/\.png$/u, "") as SheetKey;
+}
+
 export interface PetViewProps {
   /** 桌宠状态（语义映射见 petStates.ts）。 */
   state: PetStateId;
   /** 显示倍率：只允许 2 / 3 / 4（整数倍最近邻，素材规格硬约束）。 */
   scale?: 2 | 3 | 4;
-  /** 深色图集（应用当前锁浅色，Phase C 墨夜启用）。 */
-  dark?: boolean;
 }
 
-export function PetView({ state, scale = 3, dark = false }: PetViewProps) {
+export function PetView({ state, scale = 2 }: PetViewProps) {
   if (!petPack.spec.allowedScales.includes(scale)) {
     throw new Error(`PetView scale 必须是素材规格允许的整数倍 ${petPack.spec.allowedScales.join("/")}`);
   }
+
+  const sheets = useAllSheets();
 
   const stateDef = petPack.states.find((s) => s.id === state);
   const enterId = stateDef?.enter ?? null;
@@ -200,28 +210,29 @@ export function PetView({ state, scale = 3, dark = false }: PetViewProps) {
     return () => cancelAnimationFrame(raf);
   }, [anim, phase, enterAnim]);
 
-  const source = useMemo(() => {
-    if (!anim) return undefined;
-    const pair = SHEETS[anim.sheet.replace(/^(sheets|sheets-dark)\//u, "").replace(/\.png$/u, "")];
-    return dark ? pair?.dark : pair?.light;
-  }, [anim, dark]);
+  if (!anim) return null;
 
-  const skImage = useImage(source);
-
-  if (!anim || !skImage) return null;
+  const skImage = sheets[sheetKeyOf(anim)] ?? null;
+  // 图已预加载；理论上不会为空，兜底保留一个空占位避免布局跳动
+  const w = CELL * scale;
+  const h = CELL * scale;
 
   return (
-    <View style={[styles.cell, { width: CELL * scale, height: CELL * scale }]}>
+    <View style={[styles.cell, { width: w, height: h }]}>
       <Canvas style={styles.canvas}>
-        <SkiaImage
-          image={skImage}
-          x={-frameIdx * CELL * scale}
-          y={0}
-          width={anim.frameCount * CELL * scale}
-          height={CELL * scale}
-          fit="cover"
-          sampling={{ filter: FilterMode.Nearest, mipmap: MipmapMode.None }}
-        />
+        <Group clip={rect(0, 0, w, h)}>
+          {skImage ? (
+            <SkiaImage
+              image={skImage}
+              x={-frameIdx * w}
+              y={0}
+              width={anim.frameCount * w}
+              height={h}
+              fit="cover"
+              sampling={{ filter: FilterMode.Nearest, mipmap: MipmapMode.None }}
+            />
+          ) : null}
+        </Group>
       </Canvas>
     </View>
   );
