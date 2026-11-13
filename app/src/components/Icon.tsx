@@ -1,15 +1,6 @@
 // 极简线性图标（Skia 路径手绘，不引图标字体/新原生依赖）。
 // 24×24 设计网格，round cap；只覆盖 GO 主体 + 抽屉用到的集合。
-import {
-  Canvas,
-  Circle,
-  Group,
-  LinearGradient,
-  Path,
-  RadialGradient,
-  Rect,
-  vec,
-} from "@shopify/react-native-skia";
+import { Canvas, Circle, Group, Path } from "@shopify/react-native-skia";
 
 export type IconName =
   | "menu"
@@ -92,39 +83,6 @@ export function Dot({ size = 7, color, ring }: { size?: number; color: string; r
       ) : (
         <Circle cx={size / 2} cy={size / 2} r={size / 2} color={color} />
       )}
-    </Canvas>
-  );
-}
-
-/**
- * 页面背景：竖向极淡渐变 + 顶部暖光（dsh-Go palette.dart 的页面渐变口径）。
- * 用 Skia 画，避免为一个背景再引 expo-linear-gradient。
- */
-export function ScreenBackground({
-  width,
-  height,
-  top,
-  bottom,
-  glow,
-}: {
-  width: number;
-  height: number;
-  top: string;
-  bottom: string;
-  glow: string;
-}) {
-  return (
-    <Canvas style={{ position: "absolute", left: 0, top: 0, width, height }}>
-      <Rect x={0} y={0} width={width} height={height}>
-        <LinearGradient start={vec(0, 0)} end={vec(0, height)} colors={[top, bottom]} />
-      </Rect>
-      <Rect x={0} y={0} width={width} height={height * 0.45}>
-        <RadialGradient
-          c={vec(width / 2, 0)}
-          r={width * 0.9}
-          colors={[glow, "rgba(0,0,0,0)"]}
-        />
-      </Rect>
     </Canvas>
   );
 }
