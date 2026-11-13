@@ -15,6 +15,7 @@
     "@nibi-go/chat-core": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
     "@nibi-go/shared-extract": "workspace:*",
+    "@shopify/react-native-skia": "2.14.0",
     "expo": "~58.0.23",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.15",

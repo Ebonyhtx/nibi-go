@@ -1,0 +1,975 @@
+{
+  "schema": 2,
+  "id": "nibi-bird",
+  "name": "NIBI 小鸟",
+  "spec": {
+    "canvas": {
+      "w": 64,
+      "h": 64
+    },
+    "cell": {
+      "w": 64,
+      "h": 64
+    },
+    "baseline": 58,
+    "sheetScale": 1,
+    "allowedScales": [
+      2,
+      3,
+      4
+    ],
+    "gif": {
+      "scale": 4,
+      "pad": 8,
+      "width": 320,
+      "height": 320
+    }
+  },
+  "states": [
+    {
+      "id": "idle",
+      "label": "待机",
+      "desc": "呼吸 · 绿植",
+      "enter": "enter-idle"
+    },
+    {
+      "id": "working",
+      "label": "敲代码",
+      "desc": "小桌 · 笔电",
+      "enter": "enter-working"
+    },
+    {
+      "id": "done",
+      "label": "完成",
+      "desc": "对勾 · 彩纸",
+      "enter": "enter-done"
+    },
+    {
+      "id": "waiting",
+      "label": "等你确认",
+      "desc": "… 气泡",
+      "enter": "enter-waiting"
+    },
+    {
+      "id": "sleeping",
+      "label": "睡觉",
+      "desc": "月亮 · 蜡烛",
+      "enter": "enter-sleeping"
+    },
+    {
+      "id": "thinking",
+      "label": "思考",
+      "desc": "… 思考云",
+      "enter": "enter-thinking"
+    },
+    {
+      "id": "error",
+      "label": "出错",
+      "desc": "红 ! · 抖动线",
+      "enter": "enter-error"
+    },
+    {
+      "id": "carrying",
+      "label": "搬东西",
+      "desc": "纸箱 · 一摞",
+      "enter": "enter-carrying"
+    },
+    {
+      "id": "flying",
+      "label": "飞行",
+      "desc": "云海 · 太阳",
+      "enter": null
+    }
+  ],
+  "transitions": [
+    {
+      "id": "enter-idle",
+      "label": "过渡 → 待机",
+      "target": "idle"
+    },
+    {
+      "id": "enter-working",
+      "label": "过渡 → 敲代码",
+      "target": "working"
+    },
+    {
+      "id": "enter-done",
+      "label": "过渡 → 完成",
+      "target": "done"
+    },
+    {
+      "id": "enter-waiting",
+      "label": "过渡 → 等你确认",
+      "target": "waiting"
+    },
+    {
+      "id": "enter-sleeping",
+      "label": "过渡 → 睡觉",
+      "target": "sleeping"
+    },
+    {
+      "id": "enter-thinking",
+      "label": "过渡 → 思考",
+      "target": "thinking"
+    },
+    {
+      "id": "enter-error",
+      "label": "过渡 → 出错",
+      "target": "error"
+    },
+    {
+      "id": "enter-carrying",
+      "label": "过渡 → 搬东西",
+      "target": "carrying"
+    }
+  ],
+  "demo": {
+    "script": [
+      "idle",
+      "enter-working",
+      "working",
+      "done",
+      "enter-idle"
+    ]
+  },
+  "palette": {
+    "k": [
+      11,
+      23,
+      40
+    ],
+    "e": [
+      16,
+      24,
+      36
+    ],
+    "N": [
+      20,
+      45,
+      82
+    ],
+    "n": [
+      30,
+      58,
+      95
+    ],
+    "m": [
+      44,
+      76,
+      116
+    ],
+    "w": [
+      36,
+      70,
+      112
+    ],
+    "O": [
+      224,
+      138,
+      62
+    ],
+    "o": [
+      196,
+      103,
+      42
+    ],
+    "p": [
+      240,
+      164,
+      92
+    ],
+    "C": [
+      245,
+      231,
+      211
+    ],
+    "c": [
+      224,
+      203,
+      178
+    ],
+    "W": [
+      255,
+      255,
+      255
+    ],
+    "g": [
+      76,
+      107,
+      87
+    ],
+    "G": [
+      107,
+      138,
+      116
+    ],
+    "r": [
+      214,
+      92,
+      74
+    ],
+    "R": [
+      166,
+      62,
+      50
+    ],
+    "v": [
+      179,
+      174,
+      198
+    ],
+    "V": [
+      137,
+      130,
+      160
+    ],
+    "q": [
+      150,
+      74,
+      34
+    ],
+    "d": [
+      198,
+      170,
+      140
+    ],
+    "u": [
+      238,
+      188,
+      140
+    ],
+    "x": [
+      241,
+      208,
+      176
+    ],
+    "y": [
+      243,
+      222,
+      196
+    ]
+  },
+  "animations": {
+    "idle": {
+      "sheet": "sheets/idle.png",
+      "sheetDark": "sheets-dark/idle.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 400
+        },
+        {
+          "i": 1,
+          "ms": 400
+        },
+        {
+          "i": 2,
+          "ms": 350
+        },
+        {
+          "i": 3,
+          "ms": 50
+        },
+        {
+          "i": 4,
+          "ms": 200
+        },
+        {
+          "i": 5,
+          "ms": 200
+        },
+        {
+          "i": 6,
+          "ms": 100
+        },
+        {
+          "i": 7,
+          "ms": 100
+        },
+        {
+          "i": 8,
+          "ms": 200
+        },
+        {
+          "i": 9,
+          "ms": 400
+        }
+      ],
+      "frameCount": 10,
+      "totalMs": 2400,
+      "loop": true
+    },
+    "working": {
+      "sheet": "sheets/working.png",
+      "sheetDark": "sheets-dark/working.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 100
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 150
+        },
+        {
+          "i": 3,
+          "ms": 50
+        },
+        {
+          "i": 4,
+          "ms": 50
+        },
+        {
+          "i": 5,
+          "ms": 50
+        },
+        {
+          "i": 6,
+          "ms": 150
+        },
+        {
+          "i": 7,
+          "ms": 100
+        },
+        {
+          "i": 8,
+          "ms": 50
+        },
+        {
+          "i": 9,
+          "ms": 150
+        },
+        {
+          "i": 10,
+          "ms": 50
+        },
+        {
+          "i": 11,
+          "ms": 50
+        },
+        {
+          "i": 12,
+          "ms": 50
+        },
+        {
+          "i": 13,
+          "ms": 150
+        }
+      ],
+      "frameCount": 14,
+      "totalMs": 1200,
+      "loop": true
+    },
+    "done": {
+      "sheet": "sheets/done.png",
+      "sheetDark": "sheets-dark/done.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 200
+        },
+        {
+          "i": 1,
+          "ms": 100
+        },
+        {
+          "i": 2,
+          "ms": 100
+        },
+        {
+          "i": 3,
+          "ms": 50
+        },
+        {
+          "i": 4,
+          "ms": 50
+        },
+        {
+          "i": 5,
+          "ms": 100
+        },
+        {
+          "i": 6,
+          "ms": 100
+        },
+        {
+          "i": 7,
+          "ms": 50
+        },
+        {
+          "i": 8,
+          "ms": 50
+        },
+        {
+          "i": 9,
+          "ms": 100
+        },
+        {
+          "i": 10,
+          "ms": 100
+        },
+        {
+          "i": 11,
+          "ms": 100
+        },
+        {
+          "i": 12,
+          "ms": 100
+        },
+        {
+          "i": 13,
+          "ms": 50
+        },
+        {
+          "i": 14,
+          "ms": 50
+        },
+        {
+          "i": 15,
+          "ms": 50
+        },
+        {
+          "i": 16,
+          "ms": 150
+        },
+        {
+          "i": 17,
+          "ms": 100
+        }
+      ],
+      "frameCount": 18,
+      "totalMs": 1600,
+      "loop": true
+    },
+    "waiting": {
+      "sheet": "sheets/waiting.png",
+      "sheetDark": "sheets-dark/waiting.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 100
+        },
+        {
+          "i": 1,
+          "ms": 100
+        },
+        {
+          "i": 2,
+          "ms": 150
+        },
+        {
+          "i": 3,
+          "ms": 50
+        },
+        {
+          "i": 4,
+          "ms": 200
+        },
+        {
+          "i": 5,
+          "ms": 100
+        },
+        {
+          "i": 6,
+          "ms": 100
+        },
+        {
+          "i": 7,
+          "ms": 200
+        },
+        {
+          "i": 8,
+          "ms": 100
+        },
+        {
+          "i": 9,
+          "ms": 100
+        },
+        {
+          "i": 10,
+          "ms": 150
+        },
+        {
+          "i": 11,
+          "ms": 50
+        },
+        {
+          "i": 12,
+          "ms": 200
+        },
+        {
+          "i": 13,
+          "ms": 100
+        },
+        {
+          "i": 14,
+          "ms": 100
+        },
+        {
+          "i": 15,
+          "ms": 200
+        }
+      ],
+      "frameCount": 16,
+      "totalMs": 2000,
+      "loop": true
+    },
+    "sleeping": {
+      "sheet": "sheets/sleeping.png",
+      "sheetDark": "sheets-dark/sleeping.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 300
+        },
+        {
+          "i": 1,
+          "ms": 100
+        },
+        {
+          "i": 2,
+          "ms": 200
+        },
+        {
+          "i": 3,
+          "ms": 200
+        },
+        {
+          "i": 4,
+          "ms": 100
+        },
+        {
+          "i": 5,
+          "ms": 100
+        },
+        {
+          "i": 6,
+          "ms": 200
+        },
+        {
+          "i": 7,
+          "ms": 300
+        },
+        {
+          "i": 8,
+          "ms": 100
+        },
+        {
+          "i": 9,
+          "ms": 200
+        },
+        {
+          "i": 10,
+          "ms": 200
+        },
+        {
+          "i": 11,
+          "ms": 100
+        },
+        {
+          "i": 12,
+          "ms": 100
+        },
+        {
+          "i": 13,
+          "ms": 200
+        }
+      ],
+      "frameCount": 14,
+      "totalMs": 2400,
+      "loop": true
+    },
+    "thinking": {
+      "sheet": "sheets/thinking.png",
+      "sheetDark": "sheets-dark/thinking.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 100
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 150
+        },
+        {
+          "i": 3,
+          "ms": 150
+        },
+        {
+          "i": 4,
+          "ms": 150
+        },
+        {
+          "i": 5,
+          "ms": 150
+        },
+        {
+          "i": 6,
+          "ms": 150
+        },
+        {
+          "i": 7,
+          "ms": 150
+        },
+        {
+          "i": 8,
+          "ms": 150
+        },
+        {
+          "i": 9,
+          "ms": 100
+        },
+        {
+          "i": 10,
+          "ms": 50
+        },
+        {
+          "i": 11,
+          "ms": 150
+        },
+        {
+          "i": 12,
+          "ms": 150
+        },
+        {
+          "i": 13,
+          "ms": 150
+        },
+        {
+          "i": 14,
+          "ms": 150
+        },
+        {
+          "i": 15,
+          "ms": 150
+        },
+        {
+          "i": 16,
+          "ms": 150
+        },
+        {
+          "i": 17,
+          "ms": 150
+        }
+      ],
+      "frameCount": 18,
+      "totalMs": 2400,
+      "loop": true
+    },
+    "flying": {
+      "sheet": "sheets/flying.png",
+      "sheetDark": "sheets-dark/flying.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 110
+        },
+        {
+          "i": 1,
+          "ms": 110
+        },
+        {
+          "i": 2,
+          "ms": 110
+        },
+        {
+          "i": 3,
+          "ms": 110
+        },
+        {
+          "i": 4,
+          "ms": 110
+        },
+        {
+          "i": 5,
+          "ms": 110
+        },
+        {
+          "i": 6,
+          "ms": 110
+        },
+        {
+          "i": 7,
+          "ms": 110
+        }
+      ],
+      "frameCount": 8,
+      "totalMs": 880,
+      "loop": true
+    },
+    "enter-working": {
+      "sheet": "sheets/enter-working.png",
+      "sheetDark": "sheets-dark/enter-working.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        },
+        {
+          "i": 3,
+          "ms": 50
+        }
+      ],
+      "frameCount": 4,
+      "totalMs": 200,
+      "loop": true
+    },
+    "enter-idle": {
+      "sheet": "sheets/enter-idle.png",
+      "sheetDark": "sheets-dark/enter-idle.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 100
+        }
+      ],
+      "frameCount": 2,
+      "totalMs": 150,
+      "loop": true
+    },
+    "enter-done": {
+      "sheet": "sheets/enter-done.png",
+      "sheetDark": "sheets-dark/enter-done.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        },
+        {
+          "i": 3,
+          "ms": 50
+        }
+      ],
+      "frameCount": 4,
+      "totalMs": 200,
+      "loop": true
+    },
+    "enter-waiting": {
+      "sheet": "sheets/enter-waiting.png",
+      "sheetDark": "sheets-dark/enter-waiting.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        }
+      ],
+      "frameCount": 3,
+      "totalMs": 150,
+      "loop": true
+    },
+    "enter-sleeping": {
+      "sheet": "sheets/enter-sleeping.png",
+      "sheetDark": "sheets-dark/enter-sleeping.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        }
+      ],
+      "frameCount": 3,
+      "totalMs": 150,
+      "loop": true
+    },
+    "enter-thinking": {
+      "sheet": "sheets/enter-thinking.png",
+      "sheetDark": "sheets-dark/enter-thinking.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 100
+        }
+      ],
+      "frameCount": 2,
+      "totalMs": 150,
+      "loop": true
+    },
+    "enter-error": {
+      "sheet": "sheets/enter-error.png",
+      "sheetDark": "sheets-dark/enter-error.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        }
+      ],
+      "frameCount": 3,
+      "totalMs": 150,
+      "loop": true
+    },
+    "enter-carrying": {
+      "sheet": "sheets/enter-carrying.png",
+      "sheetDark": "sheets-dark/enter-carrying.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 50
+        },
+        {
+          "i": 2,
+          "ms": 50
+        }
+      ],
+      "frameCount": 3,
+      "totalMs": 150,
+      "loop": true
+    },
+    "error": {
+      "sheet": "sheets/error.png",
+      "sheetDark": "sheets-dark/error.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 200
+        },
+        {
+          "i": 1,
+          "ms": 100
+        },
+        {
+          "i": 2,
+          "ms": 300
+        },
+        {
+          "i": 3,
+          "ms": 200
+        },
+        {
+          "i": 4,
+          "ms": 100
+        },
+        {
+          "i": 5,
+          "ms": 100
+        },
+        {
+          "i": 6,
+          "ms": 300
+        },
+        {
+          "i": 7,
+          "ms": 300
+        }
+      ],
+      "frameCount": 8,
+      "totalMs": 1600,
+      "loop": true
+    },
+    "carrying": {
+      "sheet": "sheets/carrying.png",
+      "sheetDark": "sheets-dark/carrying.png",
+      "frames": [
+        {
+          "i": 0,
+          "ms": 50
+        },
+        {
+          "i": 1,
+          "ms": 100
+        },
+        {
+          "i": 2,
+          "ms": 50
+        },
+        {
+          "i": 3,
+          "ms": 100
+        },
+        {
+          "i": 4,
+          "ms": 100
+        },
+        {
+          "i": 5,
+          "ms": 400
+        },
+        {
+          "i": 6,
+          "ms": 50
+        },
+        {
+          "i": 7,
+          "ms": 100
+        },
+        {
+          "i": 8,
+          "ms": 50
+        },
+        {
+          "i": 9,
+          "ms": 100
+        },
+        {
+          "i": 10,
+          "ms": 100
+        },
+        {
+          "i": 11,
+          "ms": 400
+        }
+      ],
+      "frameCount": 12,
+      "totalMs": 1600,
+      "loop": true
+    }
+  }
+}
