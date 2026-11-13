@@ -41,11 +41,17 @@ D19（2026-11-12 定案）把 Phase C 的内核运行形态定为**进程内 `li
 
 ## 具体改动（参考落点，上游可改造）
 
-1. **内核 crate**：给 android target 产 cdylib——`nibi-kernel-cli` 加 `[lib]`/crate-type
-   （或独立薄 crate）；入口面最小化（v1 只要 app-server 等价的启动 + 双向传输），android 专属
-   逻辑用 `cfg(target_os = "android")` 收口。
+1. **内核 crate**：给 android target 产 cdylib——**建议独立薄 crate 或在 android leg 用
+   `cargo rustc --lib --crate-type cdylib`**，而不是直接给 `nibi-kernel-cli` 加 `[lib]`：
+   Cargo 的 `[lib] crate-type` **不支持 `cfg(target_os = ...)` 条件化**，写在 crate 上会让四个
+   平台都多产一个 cdylib（files 白名单没变所以产物仍一致，但白付三份编译、artifact 变大）。
+   入口面最小化（v1 只要 app-server 等价的启动 + 双向传输），android 专属逻辑用
+   `cfg(target_os = "android")` 收口。
 2. **`package.mjs`**：android target 的 files 白名单加 `lib/libnibi.so`（与可选的
    `lib/libc++_shared.so`）；`buildBuildJson`（:95-97）同步双产物 schema。
+   **必须同 commit 改 `scripts/rust-cli/npm/package.test.mjs:55`**——那里 `assert.deepEqual`
+   硬断言 `manifest.files` 精确等于 `["bin/nibi-rs", "build.json"]`，加文件不改它会直接让
+   `dev` 的单测变红。
 3. **workflow android leg**：构建命令补 cdylib 目标（`--lib` 或第二条 cargo build）；pack
    步骤带上新文件。android 产物无法在 runner 上执行，`.so` 侧用 `file`/`llvm-readelf` 做头部
    校验即可（bin 侧维持现状的 runner 之外豁免）。
@@ -58,6 +64,11 @@ D19（2026-11-12 定案）把 Phase C 的内核运行形态定为**进程内 `li
   darwin-arm64 三个包逐文件一致（仅版本字段差异）。
 - android 产物不进内核其他代码路径（延续 T1 的边界）；入口面是新增导出符号，不改现有内部
   调用。
+- **别让 android leg 拖住整条发版**：`rust-npm-packages.yml` 的 `publish` job 是
+  `needs: pack`（`.github/workflows/rust-npm-packages.yml:183`），`fail-fast: false` 只保证
+  其他 leg 不被取消，**任何一支 pack 失败都会让 publish 整体跳过**。android cdylib 一旦构建
+  不稳，等于卡住四个平台的 npm 发版列车。建议 android 的 cdylib 构建放成同一 leg 内的独立
+  step 并明确失败语义，别让它变成其他三平台的隐性依赖。
 - GO 被动消费：包发布后 GO 构建拷进 jniLibs（D19）；JNI host、进程内 transport、panic=abort +
   兜底、iroh NDK 都是 GO 侧自己的活（Spike 3 / C0），不要求上游实现。
 

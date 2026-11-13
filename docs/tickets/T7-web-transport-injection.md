@@ -26,6 +26,9 @@ WebView 里的 UI 只消费状态与帧流；不注入时一切照旧。
 
 1. 编排层（main.tsx 构造 transport 的位置）接受可选的 transport 工厂/实例参数：宿主提供的实现
    满足 web transport 的对外行为面（状态迁移、帧回调、发送、生命周期）；**不提供时行为逐字不变**。
+   落点按符号定位（`connectViaProtocol` / `connectViaWebSocket` / `createWebPlatform`），
+   **不要按行号改**——`main.tsx` 正在被日常改动（最近一次 `1ac2598f` 去 zcode 前缀），
+   本票的行号只是 2026-11-13 的快照。
 2. 注入实现的语义由宿主负责：连接生命周期、心跳、replay、E2E（NIBI-GO 用其 RelayTransport +
    keyneg 握手）；web 侧只消费回调并走原发送通道。
 3. 状态枚举映射：宿主原生状态（如 `waiting_terminal`）→ web 枚举（`waiting` / `reconnecting` /
