@@ -1,18 +1,22 @@
 // NIBI 像素桌宠 · 图集播放器（Skia 最近邻渲染）。
 // 素材真源：nibi-pixel-pet 仓（单一数据源 out/pack.json，本仓随 assets/pet/ 快照）。
+//
 // 播放纪律（素材规格）：
-//   · 64×64 原生格；显示只允许 2×/3×/4× 整数倍（非整数会把 1px 高光吃掉）
+//   · 64×64 原生格；逐帧时长以 pack.json 为准（连续同帧已合并、ms 不相等，不能匀速 steps）
 //   · 基线 y=58（所有状态共用）
-//   · 逐帧时长以 pack.json 为准（连续同帧已合并、ms 不相等，不能匀速 steps）
-//   · 状态切换先播 enter-* 过渡（终点帧已对齐目标首帧），再循环目标状态；
-//     flying 是唯一没有过渡的状态
-// 渲染：必须 Skia + sampling=Nearest——RN 核心 Image 在 Android 恒为双线性，
-// 整数倍放大也糊边（2026-11-13 模拟器实拍确认）。绘制区用 clip 收死到当前格，
-// 否则相邻帧会从图集里漏出来（同轮实拍：鸟周围出现多余的月亮/碎片）。
-// 切换不卡：**全部图集预加载**——原来 useImage 跟着 state 走，换状态时新图未解码
-// 会先返回 null（宠物消失半拍再出现），这就是"一卡一卡"的来源。
+//   · 状态切换先播 enter-* 过渡（终点帧已对齐目标首帧），再循环目标状态；flying 无过渡
+//
+// 尺寸：**按设备像素取整数倍**。素材要求整数倍最近邻，但 dp×density 通常不是整数
+// （1080×2400@420dpi = 2.625），所以这里反过来算：先定目标 dp，再取最接近的整数倍
+// M，实际 dp 尺寸 = 64·M / density —— 这样设备像素上每格正好 M 个像素，既不糊也不虚胖。
+//
+// 渲染：Skia + sampling=Nearest（RN 核心 Image 在 Android 恒双线性，整数倍也糊边），
+// 并用 Group clip 收死到当前格（否则相邻帧从图集漏出）。
+// 全部图集一次性预加载：useImage 跟着 state 走时，换状态新图未解码会返回 null，
+// 宠物会先消失半拍再出现（"一卡一卡"的来源之一）。
+// 省电/无障碍：系统开启"降低动画"时只画静态帧，不持续重绘。
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { AccessibilityInfo, PixelRatio, StyleSheet, View } from "react-native";
 import {
   Canvas,
   FilterMode,
@@ -65,10 +69,7 @@ const petPack = petPackRaw as PetPack;
 const CELL = petPack.spec.cell.w;
 const BASELINE = petPack.spec.baseline;
 
-/**
- * 图集键 → 本地资源。
- * 只用浅色一套（app 当前锁 light）；墨夜启用时在这里补 sheets-dark 分支。
- */
+/** 图集键 → 本地资源（当前只用浅色套；墨夜启用时在这里补 sheets-dark）。 */
 const SHEET_SOURCES = {
   idle: require("../../assets/pet/sheets/idle.png"),
   working: require("../../assets/pet/sheets/working.png"),
@@ -91,10 +92,7 @@ const SHEET_SOURCES = {
 
 type SheetKey = keyof typeof SHEET_SOURCES;
 
-/**
- * 全部图集一次性预加载（hooks 顺序固定，17 个 useImage 必须逐条写）。
- * 这是"切换不卡"的关键：任何状态下图都已解码，切换只改绘制偏移。
- */
+/** 全部图集一次性预加载（hooks 顺序固定，必须逐条写）——切换不卡的关键。 */
 function useAllSheets() {
   const idle = useImage(SHEET_SOURCES.idle);
   const working = useImage(SHEET_SOURCES.working);
@@ -145,36 +143,61 @@ function frameAt(anim: PetAnim, ms: number): number {
   return anim.frames[anim.frames.length - 1]!.i;
 }
 
-/** animations 的 key 与图集文件名一一对应（out/pack.json 的 sheet 字段）。 */
 function sheetKeyOf(anim: PetAnim): SheetKey {
   return anim.sheet.replace(/^(sheets|sheets-dark)\//u, "").replace(/\.png$/u, "") as SheetKey;
+}
+
+/**
+ * 目标 dp → 设备像素整数倍 → 实际 dp。
+ * 例：density 2.625、目标 96dp → 96×2.625=252px → /64=3.94 → M=4 → 64×4/2.625=97.5dp。
+ */
+export function petDisplaySize(targetDp: number): { dp: number; multiple: number } {
+  const density = PixelRatio.get() || 1;
+  const wanted = (targetDp * density) / CELL;
+  const multiple = Math.max(2, Math.min(6, Math.round(wanted)));
+  return { dp: (CELL * multiple) / density, multiple };
+}
+
+/** 系统"降低动画"：开着就只画静态帧（省电 + 无障碍）。 */
+function useReduceMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((v) => {
+      if (alive) setReduce(v);
+    });
+    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduce);
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return reduce;
 }
 
 export interface PetViewProps {
   /** 桌宠状态（语义映射见 petStates.ts）。 */
   state: PetStateId;
-  /** 显示倍率：只允许 2 / 3 / 4（整数倍最近邻，素材规格硬约束）。 */
-  scale?: 2 | 3 | 4;
+  /** 目标显示尺寸（dp）；实际尺寸会按设备像素取整数倍微调。 */
+  targetSize?: number;
 }
 
-export function PetView({ state, scale = 2 }: PetViewProps) {
-  if (!petPack.spec.allowedScales.includes(scale)) {
-    throw new Error(`PetView scale 必须是素材规格允许的整数倍 ${petPack.spec.allowedScales.join("/")}`);
-  }
-
+export function PetView({ state, targetSize = 96 }: PetViewProps) {
   const sheets = useAllSheets();
+  const reduceMotion = useReduceMotion();
+  const { dp: size } = petDisplaySize(targetSize);
 
   const stateDef = petPack.states.find((s) => s.id === state);
   const enterId = stateDef?.enter ?? null;
   const enterAnim = enterId ? petPack.animations[enterId] : undefined;
   const loopAnim = petPack.animations[state] as PetAnim | undefined;
 
-  // 状态切换回到过渡相位；flying（无过渡）直接进循环。
+  // 状态切换回到过渡相位；flying（无过渡）直接进循环；降低动画时直接画首帧。
   const [phase, setPhase] = useState<"enter" | "loop">(enterAnim ? "enter" : "loop");
   useEffect(() => {
-    setPhase(enterAnim ? "enter" : "loop");
+    setPhase(reduceMotion ? "loop" : enterAnim ? "enter" : "loop");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, reduceMotion]);
 
   const anim = phase === "enter" && enterAnim ? enterAnim : loopAnim;
 
@@ -183,22 +206,24 @@ export function PetView({ state, scale = 2 }: PetViewProps) {
   const frameRef = useRef(0);
   useEffect(() => {
     if (!anim) return;
-    // 图集/相位切换：帧序号归零（不同图集的帧空间互不连续）
     frameRef.current = 0;
     setFrameIdx(0);
+
+    // 降低动画：只画一帧，不启动 RAF（不持续重绘 = 不跟交互抢帧预算）
+    if (reduceMotion) return;
+
     let raf = 0;
     startRef.current = -1;
     const tick = (t: number) => {
       if (startRef.current < 0) startRef.current = t;
       const elapsed = t - startRef.current;
       if (phase === "enter" && enterAnim && elapsed >= enterAnim.totalMs) {
-        // 过渡播完（总时长一次），切目标状态循环
         setPhase("loop");
         return;
       }
       const anim_ = anim as PetAnim;
       const ms = anim_.loop ? elapsed % anim_.totalMs : Math.min(elapsed, anim_.totalMs - 1);
-      // 只在帧序号真变化时 setState：源动画 20fps，避免每个 vsync 都触发 React 重渲染
+      // 只在帧序号真变化时 setState：源动画 20fps，避免每 vsync 都触发 React 重渲染
       const next = frameAt(anim_, ms);
       if (next !== frameRef.current) {
         frameRef.current = next;
@@ -208,26 +233,23 @@ export function PetView({ state, scale = 2 }: PetViewProps) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [anim, phase, enterAnim]);
+  }, [anim, phase, enterAnim, reduceMotion]);
 
   if (!anim) return null;
 
   const skImage = sheets[sheetKeyOf(anim)] ?? null;
-  // 图已预加载；理论上不会为空，兜底保留一个空占位避免布局跳动
-  const w = CELL * scale;
-  const h = CELL * scale;
 
   return (
-    <View style={[styles.cell, { width: w, height: h }]}>
+    <View style={[styles.cell, { width: size, height: size }]}>
       <Canvas style={styles.canvas}>
-        <Group clip={rect(0, 0, w, h)}>
+        <Group clip={rect(0, 0, size, size)}>
           {skImage ? (
             <SkiaImage
               image={skImage}
-              x={-frameIdx * w}
+              x={-frameIdx * size}
               y={0}
-              width={anim.frameCount * w}
-              height={h}
+              width={anim.frameCount * size}
+              height={size}
               fit="cover"
               sampling={{ filter: FilterMode.Nearest, mipmap: MipmapMode.None }}
             />

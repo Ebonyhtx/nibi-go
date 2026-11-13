@@ -7,8 +7,8 @@
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C 挂起：空态文案 + 睡着的鸟 + 灰态输入栏，如实标注。
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -38,6 +38,10 @@ export default function GoHomeScreen() {
     setPreviewState(ids[(i + 1) % ids.length]!);
   };
 
+  // 宠物目标尺寸（dp）；PetView 内部再按设备像素取整数倍微调（像素不糊）。
+  // 手机 88 / 横屏 72（省高度）/ 平板 104。
+  const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
+
   const hasSidebar = layout.left === "sidebar";
   const hasRail = layout.left === "rail";
   const inShell = hasSidebar || hasRail;
@@ -50,21 +54,45 @@ export default function GoHomeScreen() {
   };
 
   const bodyMax = Math.min(layout.bodyMaxWidth, hasSidebar ? layout.bodyWidth - space(8) : layout.bodyMaxWidth);
-  // 宠物在输入栏上方：手机 2×，平板（medium/expanded）3×；横屏压到 2× 省高度
-  const petScale: 2 | 3 | 4 = layout.landscapeCompact ? 2 : layout.windowClass === "compact" ? 2 : 3;
+
+  // 宠物可横向拖动（正式功能，不是 dev 手势）：偏移归一化到 -1..1，
+  // 跨旋转/换尺寸自动收敛；行程只允许在输入栏范围内，拖不出去。
+  const petRange = Math.max(0, (bodyMax - space(8) - petTarget) / 2);
+  const [petOffset, setPetOffset] = useState(0);
+  const offsetRef = useRef(0);
+  const dragStartRef = useRef(0);
+  const applyOffset = (v: number) => {
+    const clamped = Math.max(-1, Math.min(1, v));
+    offsetRef.current = clamped;
+    setPetOffset(clamped);
+  };
+  const petResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4,
+        onPanResponderGrant: () => {
+          dragStartRef.current = offsetRef.current;
+        },
+        onPanResponderMove: (_e, g) => {
+          if (petRange <= 0) return;
+          applyOffset(dragStartRef.current + g.dx / petRange);
+        },
+      }),
+    [petRange],
+  );
 
   return (
     <View style={styles.root}>
-      {/* 页面底：极淡竖向渐变 + 顶部暖光（dsh-Go palette 的页面口径） */}
+      {/*
+        页面底：一条竖向渐变做完「顶部暖光 → 纸面 → 纸底」。
+        原来拆成两层全屏图层（暖光 + 底），软件 GPU 上每层都要整屏混合，
+        动画时白付两次全屏 blend；合成一层后只混合一次。
+      */}
       <LinearGradient
-        colors={[th.bgGradient[0], th.bgGradient[1]]}
+        colors={[th.glowTop, th.bgGradient[0], th.bgGradient[1]]}
+        locations={[0, 0.38, 1]}
         style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-      {/* 顶部暖光：终点必须是同 RGB 零 alpha——用 "transparent" 在 Android 上会留硬边 */}
-      <LinearGradient
-        colors={[th.glow, th.glow.replace(/,\s*[\d.]+\)$/u, ", 0)")]}
-        style={styles.glow}
         pointerEvents="none"
       />
 
@@ -138,9 +166,14 @@ export default function GoHomeScreen() {
             </View>
 
             {/* 宠物：固定在输入栏正上方（dsh-Go 位置），有会话时也不占正文 */}
-            <Pressable style={styles.petDock} onPress={cyclePetState} accessibilityLabel="桌宠">
-              <PetView state={petState} scale={petScale} />
-            </Pressable>
+            <View
+              style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
+              {...petResponder.panHandlers}
+            >
+              <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
+                <PetView state={petState} targetSize={petTarget} />
+              </Pressable>
+            </View>
 
             {/* 输入栏：单行 pill */}
             <View
@@ -168,17 +201,19 @@ export default function GoHomeScreen() {
   );
 }
 
+/** 顶栏控件统一高度（圆钮/会话 chip/模型 chip 同高）。 */
+const TOPBAR_H = 40;
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  glow: { position: "absolute", left: 0, right: 0, top: 0, height: "45%" },
   shell: { flex: 1, flexDirection: "row" },
   body: { flex: 1, alignItems: "center" },
   bodyInner: { flex: 1, width: "100%", paddingHorizontal: space(4) },
   flex1: { flex: 1 },
   topbar: { flexDirection: "row", alignItems: "center", gap: space(2), paddingBottom: space(1.5) },
   fab: {
-    width: 40,
-    height: 40,
+    width: TOPBAR_H,
+    height: TOPBAR_H,
     borderRadius: radius.chip,
     alignItems: "center",
     justifyContent: "center",
@@ -189,13 +224,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
+  // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   chip: {
+    height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
     paddingLeft: space(3.5),
     paddingRight: space(3),
-    paddingVertical: 7,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     maxWidth: "56%",
@@ -205,11 +241,11 @@ const styles = StyleSheet.create({
   chipStatus: { flexDirection: "row", alignItems: "center", gap: 4 },
   chipSub: { fontSize: 10 },
   modelChip: {
+    height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     paddingHorizontal: space(3),
-    paddingVertical: 8,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
