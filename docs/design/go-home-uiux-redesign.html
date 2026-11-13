@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>NIBI-GO 主体重设计 v4 · 会话即首页（对齐 dsh-Go 结构语言）</title>
+<style>
+:root{
+  --ink:#1c2f4e;
+  --ink-sub:rgba(28,47,78,.62);
+  --ink-faint:rgba(28,47,78,.42);
+  --ink-ghost:rgba(28,47,78,.25);
+  --hairline:rgba(28,47,78,.10);
+  --brand:#e08a3e; --brand-fg:#fff9ef; --brand-soft:rgba(224,138,62,.13);
+  --steel:#4a79b8; --steel-soft:rgba(74,121,184,.13);
+  --ok:#3f8f5f; --amber:#c98a2c; --red:#c25b4e;
+  --glass:rgba(255,252,246,.78);
+  --glass-solid:#fffcf6;
+  --rad:18px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#efe6d6;color:var(--ink);
+  font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 24px 64px}
+h1{font-size:25px;margin:0 0 6px}
+.sub{color:var(--ink-sub);font-size:13.5px;margin:0}
+h2{font-size:18px;margin:38px 0 12px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12)}
+h3{font-size:15px;margin:16px 0 8px}
+.card{background:var(--glass-solid);border:1px solid var(--hairline);border-radius:var(--rad);padding:16px 18px}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
+.dot{width:7px;height:7px;border-radius:999px;display:inline-block;flex-shrink:0}
+.i{width:16px;height:16px;flex-shrink:0}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th{text-align:left;font-size:12px;color:var(--ink-faint);font-weight:600;border-bottom:1px solid var(--hairline);padding:7px 10px}
+td{border-bottom:1px solid var(--hairline);padding:9px 10px;vertical-align:top}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:.88em}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:16px 0}
+.rules .card h3{margin:0 0 6px;font-size:13.5px}
+.rules .card p{margin:0;font-size:12.5px;color:var(--ink-sub)}
+.compare{display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap;margin-top:18px}
+.phone{background:#2a2c33;border-radius:44px;padding:10px;width:316px;box-shadow:0 18px 44px rgba(20,45,82,.22);flex-shrink:0}
+.screen{position:relative;border-radius:36px;min-height:656px;display:flex;flex-direction:column;overflow:hidden;
+  background:linear-gradient(178deg,#fef8ec 0%,#faf1df 46%,#f3e8d3 100%)}
+.screen::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 46% at 50% -4%,rgba(224,138,62,.10),transparent 62%)}
+.sbar{display:flex;justify-content:space-between;align-items:center;padding:13px 24px 4px;font-size:12.5px;font-weight:500;color:var(--ink-sub);position:relative;z-index:3}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:108px;height:4px;border-radius:999px;background:var(--ink-ghost);z-index:5}
+.glass{background:var(--glass);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.65);
+  box-shadow:0 4px 14px rgba(28,47,78,.08),0 1px 3px rgba(28,47,78,.05)}
+/* 顶栏浮 pill */
+.topbar{display:flex;align-items:center;gap:8px;padding:10px 16px 6px;position:relative;z-index:4}
+.fab{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+.fab .i{width:17px;height:17px}
+.chip{display:flex;align-items:center;gap:8px;border-radius:999px;padding:8px 13px}
+.chip .ct{font-size:13.5px;font-weight:700;line-height:1.15}
+.chip .cs{font-size:10.5px;color:var(--ink-faint);display:flex;align-items:center;gap:4px;margin-top:1px}
+.chip .cs .dot{width:6px;height:6px}
+.chip .chev{color:var(--ink-faint);display:flex}
+.fab-compose{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+/* 会话流 */
+.stream{flex:1;display:flex;flex-direction:column;padding:14px 18px 0;position:relative;z-index:2;overflow:hidden}
+.bub-user{align-self:flex-end;max-width:82%;background:var(--brand-soft);border-radius:18px 18px 6px 18px;padding:11px 14px;
+  font-size:13.5px;line-height:1.6;color:var(--ink)}
+.sumline{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-sub);padding:2px 2px}
+.sumline .ck{width:15px;height:15px;border-radius:999px;border:1.5px solid var(--ok);display:flex;align-items:center;justify-content:center;color:var(--ok)}
+.assist{font-size:13.5px;line-height:1.7;padding:4px 2px}
+.assist b{font-weight:700}
+.toolrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-sub);padding:4px 2px}
+.toolrow .ti{width:22px;height:22px;border-radius:8px;background:var(--glass-solid);border:1px solid var(--hairline);
+  display:flex;align-items:center;justify-content:center;color:var(--steel);flex-shrink:0}
+.toolrow .ti .i{width:12px;height:12px}
+.toolrow .tt{color:var(--ink-sub)}
+.toolrow .tt code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--ink-sub);background:none}
+.toolrow .tm{margin-left:auto;font-size:11px;color:var(--ink-faint)}
+.meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-faint);padding:6px 2px;justify-content:flex-end}
+.filecard{background:var(--glass-solid);border:1px solid var(--hairline);border-radius:16px;padding:12px 13px;
+  box-shadow:0 4px 16px rgba(28,47,78,.07);margin-top:6px}
+.filecard .fh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;padding-bottom:8px}
+.filecard .fh .fi{width:26px;height:26px;border-radius:9px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center}
+.filerow{display:flex;align-items:center;gap:10px;padding:8px 2px}
+.filerow + .filerow{border-top:1px solid var(--hairline)}
+.filerow .ft{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.filerow .fn{font-size:13px;font-weight:600}
+.filerow .fd{font-size:11px;color:var(--ink-faint);margin-top:2px}
+.filerow .dots{margin-left:auto;color:var(--ink-faint);letter-spacing:2px;font-weight:700}
+/* 宠物 */
+.petzone{display:flex;justify-content:center;align-items:flex-end;padding:6px 0 2px;position:relative;z-index:2}
+.petwrap{position:relative}
+/* 输入栏 */
+.composer{margin:8px 16px 22px;border-radius:999px;padding:9px 10px 9px 16px;display:flex;align-items:center;gap:10px;position:relative;z-index:4}
+.composer .plus{width:26px;height:26px;border-radius:999px;background:rgba(28,47,78,.06);display:flex;align-items:center;justify-content:center;color:var(--ink-sub);flex-shrink:0}
+.composer .ph{flex:1;font-size:14px;color:var(--ink-faint)}
+.composer .ph small{display:block;font-size:10.5px;color:var(--ink-ghost);margin-top:1px}
+.sendkey{width:38px;height:38px;border-radius:999px;background:var(--brand);color:var(--brand-fg);display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:0 5px 14px rgba(224,138,62,.35)}
+.composer.off{opacity:.68}
+/* 空态（挂起） */
+.emptystage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:8px 26px 0}
+.emptystage .et{font-size:15.5px;font-weight:700}
+.emptystage .es{font-size:12.5px;color:var(--ink-sub);max-width:230px;line-height:1.7}
+.zzz{position:absolute;top:-4px;right:22px;display:flex;gap:4px}
+.zzz span{width:7px;height:7px;border-radius:999px;background:var(--ink-ghost)}
+.zzz span:nth-child(2){transform:translateY(-7px);opacity:.6}
+.zzz span:nth-child(3){transform:translateY(-14px);opacity:.35}
+/* 抽屉 */
+.drawer{position:absolute;inset:0;z-index:10;display:flex}
+.drawer .dim{flex:1;background:rgba(28,47,78,.24);backdrop-filter:blur(2px)}
+.drawer .panel{width:264px;background:#fffcf5;border-right:1px solid var(--hairline);display:flex;flex-direction:column;
+  box-shadow:16px 0 40px rgba(28,47,78,.14)}
+.dr-head{display:flex;align-items:center;gap:9px;padding:18px 16px 10px}
+.dr-head .logo{width:34px;height:34px;border-radius:11px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center}
+.dr-head .nm{font-size:15px;font-weight:700;letter-spacing:.04em;flex:1}
+.dr-new{display:flex;align-items:center;gap:7px;border-radius:999px;background:var(--brand);color:var(--brand-fg);
+  font-size:12.5px;font-weight:700;padding:8px 14px}
+.dr-search{margin:6px 14px 10px;border-radius:12px;background:rgba(28,47,78,.05);padding:9px 12px;font-size:12.5px;color:var(--ink-faint);display:flex;gap:8px;align-items:center}
+.dr-filters{display:flex;gap:7px;padding:0 14px 4px;flex-wrap:wrap}
+.dr-fchip{font-size:11px;font-weight:600;color:var(--ink-sub);border-radius:999px;padding:5px 11px;background:rgba(28,47,78,.05)}
+.dr-fchip.on{background:var(--ink);color:#fffcf6}
+.dr-group{font-size:10.5px;color:var(--ink-ghost);padding:12px 16px 4px;font-weight:600}
+.dr-item{padding:10px 16px;font-size:13.5px;color:var(--ink-sub);display:flex;align-items:center;gap:8px}
+.dr-item.on{background:var(--brand-soft);color:var(--ink);font-weight:700;border-radius:12px;margin:0 8px;padding:10px 8px}
+.dr-dest{border-top:1px solid var(--hairline);margin-top:10px;padding-top:6px}
+.dr-dest .dt{font-size:10.5px;color:var(--ink-ghost);padding:8px 16px 2px;font-weight:600}
+.dr-dest .di{display:flex;align-items:center;gap:11px;padding:11px 16px;font-size:13.5px;font-weight:600;color:var(--ink)}
+.dr-dest .di .ic{width:32px;height:32px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dr-dest .di .sub{display:block;font-size:10.5px;color:var(--ink-faint);font-weight:500;margin-top:2px}
+.dr-dest .di .chev{margin-left:auto;color:var(--ink-ghost);display:flex}
+.dr-dest .di.avail .ic{background:var(--steel-soft);color:var(--steel)}
+.dr-dest .di.soon .ic{background:rgba(28,47,78,.05);color:var(--ink-faint)}
+.dr-foot{margin-top:auto;border-top:1px solid var(--hairline);padding:12px 14px 16px;display:flex;align-items:center;gap:9px}
+.dr-foot .fa{width:32px;height:32px;border-radius:11px;background:var(--steel-soft);color:var(--steel);display:flex;align-items:center;justify-content:center}
+.dr-foot .fn{font-size:13px;font-weight:700}
+.dr-foot .fs{font-size:10.5px;color:var(--ink-faint);display:flex;align-items:center;gap:4px;margin-top:1px}
+.dr-foot .sp{flex:1}
+.dr-foot .ga{color:var(--ink-sub);display:flex}
+.caption{font-size:12px;color:var(--ink-faint);text-align:center;margin-top:10px;line-height:1.6}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12);font-size:12px;color:var(--ink-faint)}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+.tdots span{display:inline-block;width:4px;height:4px;border-radius:999px;background:var(--steel);margin-right:3px;animation:blink 1.2s infinite}
+.tdots span:nth-child(2){animation-delay:.2s}.tdots span:nth-child(3){animation-delay:.4s}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="g-bird" viewBox="0 0 40 40">
+      <path fill="currentColor" d="M22 7c-7.5 0-13 5.2-13 11.6 0 7.3 6.2 12.4 13.6 12.4 3.2 0 6.2-1 8.4-2.9l7.5 1.1-3.2-5.3c.8-1.9 1.2-3.4 1.2-5.3C36.5 12.2 29.9 7 22 7z"/>
+      <circle cx="19.5" cy="23" r="5.4" fill="#e08a3e"/>
+      <circle cx="27" cy="15" r="1.7" fill="#fffcf6"/>
+    </symbol>
+    <symbol id="g-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="g-pen" viewBox="0 0 24 24"><path d="M17 3l4 4L9 19l-5 1 1-5L17 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="g-chev-d" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-spark" viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9l-4.3 1.4L12 15l-1.7-4.6L6 9l4.3-1.4L12 3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="g-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="g-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15.8 15.8L20 20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="g-brain" viewBox="0 0 24 24"><path d="M9 4a3.2 3.2 0 00-3.2 3.2c-1.2.5-2 1.7-2 3 0 .8.3 1.6.8 2.2-.5.6-.8 1.4-.8 2.2a3.2 3.2 0 002 3c.3 1.5 1.6 2.6 3.2 2.6h1V4H9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 4a3.2 3.2 0 013.2 3.2c1.2.5 2 1.7 2 3 0 .8-.3 1.6-.8 2.2.5.6.8 1.4.8 2.2a3.2 3.2 0 01-2 3c-.3 1.5-1.6 2.6-3.2 2.6h-1V4H15z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="g-run" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 9l3 2.5L7 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.5 14h4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="g-read" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="g-box" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="g-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M4 15h16M10 3v18" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+    <symbol id="g-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 15l4.5-4 4 3.5L16 10l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="8.5" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="g-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 16v4M8 20h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="g-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M11 18.5h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="g-puzzle" viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9 9-9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="g-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="g-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></symbol>
+    <symbol id="g-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.1 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.1-3.9-8.5s1.3-6.2 3.9-8.5z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="g-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0119 0M5.5 12.5a10 10 0 0113 0M8.5 16a5.4 5.4 0 017 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="g-signal" viewBox="0 0 24 24"><path d="M4 20v-5M9 20v-9M14 20v-13M19 20V4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="g-battery" viewBox="0 0 24 24"><rect x="2" y="8" width="17" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M21.5 11v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4" y="10" width="10" height="4" rx="1" fill="currentColor"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <h1>NIBI-GO 主体重设计 v4 · 会话即首页</h1>
+  <p class="sub">2026-11-13 · 对齐 dsh-Go 的结构语言（源码拆解），纸上鸟 token 落色。WORK 同源承载（D4）与 E2E 案 A（D9）不变。</p>
+
+  <h2>从 dsh-Go 源码拆出的六条设计规则（本稿全数采用）</h2>
+  <div class="rules">
+    <div class="card"><h3>① 会话即首页</h3><p><code>home_shell.dart</code>：chat 是默认构建，没有仪表盘；会话列表与功能入口住<strong>抽屉</strong>里。NIBI-GO 同构：打开即在对话里。</p></div>
+    <div class="card"><h3>② 极淡渐变纸面</h3><p><code>palette.dart</code>：页面是顶→底的极淡竖向渐变（彩度 ≤0.019），纯白只给玻璃高光。NIBI 版：<code>#fef8ec → #f3e8d3</code> + 顶部暖橙极淡光晕。</p></div>
+    <div class="card"><h3>③ 70 / 25 / ≤5</h3><p>70% 中性面 + 25% 字与细线 + <strong>强调色 ≤5%</strong>——橙只出现在发送键、主按钮（新对话）、选中态、链接、进度。"铺多了就不静了"。</p></div>
+    <div class="card"><h3>④ 浮动玻璃 pill</h3><p>顶栏与输入栏都是玻璃 pill（模糊 + 发丝线 + 软阴影），浮在渐变上；squircle 圆角家族。</p></div>
+    <div class="card"><h3>⑤ 结构化结果渲染</h3><p>「✓ 已完成 · N 次工具调用」可折叠摘要行、交付文件卡、工具行（思考/读取/运行）、用量元信息——消息流本身就是产品。</p></div>
+    <div class="card"><h3>⑥ 宠物在场</h3><p>pet 状态机（敲代码/完成/等确认/睡觉）坐在输入栏上方——NIBI 的鸟对位 D14 桌宠预案，挂起期=睡着。</p></div>
+  </div>
+
+  <h2>三块屏</h2>
+  <div class="compare">
+
+    <!-- 屏 1 · 挂起空会话 -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span style="display:flex;gap:6px;align-items:center"><svg class="i" style="width:14px"><use href="#g-wifi"/></svg><svg class="i" style="width:14px"><use href="#g-signal"/></svg><svg class="i" style="width:14px"><use href="#g-battery"/></svg></span></div>
+        <div class="topbar">
+          <span class="fab glass"><svg class="i"><use href="#g-menu"/></svg></span>
+          <span class="chip glass"><span style="display:flex;flex-direction:column"><span class="ct">新对话</span><span class="cs"><span class="dot" style="background:var(--ink-ghost)"></span>本机 · 挂起</span></span><span class="chev"><svg class="i" style="width:13px"><use href="#g-chev-d"/></svg></span></span>
+          <span style="flex:1"></span>
+          <span class="fab glass"><svg class="i"><use href="#g-pen"/></svg></span>
+        </div>
+        <div class="emptystage">
+          <div style="position:relative;padding-top:8px">
+            <svg width="96" height="96" viewBox="0 0 40 40" style="color:#1c2f4e;opacity:.92"><use href="#g-bird"/></svg>
+            <span class="zzz"><span></span><span></span><span></span></span>
+          </div>
+          <div class="et">本机 AGENT 还在装修</div>
+          <div class="es">内核 Phase C 挂起中。启动后，在这里直接跟它说话、派任务、收文件。</div>
+          <div class="pill" style="background:rgba(28,47,78,.05);color:var(--ink-faint)">数据不出机</div>
+        </div>
+        <div class="petzone" style="min-height:34px"></div>
+        <div class="composer glass off">
+          <span class="plus"><svg class="i" style="width:13px"><use href="#g-plus"/></svg></span>
+          <span class="ph">给 NIBI 发消息…<small>内核挂起中 · 暂不能对话</small></span>
+          <span class="sendkey" style="opacity:.5"><svg class="i" style="width:15px"><use href="#g-arrow-up"/></svg></span>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+      <div class="caption">① 打开即会话（挂起态）：<br/>玻璃 pill 顶栏 + 安静空态 + 睡着的鸟 + 灰态输入栏</div>
+    </div>
+
+    <!-- 屏 2 · Phase C 后 -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="sbar"><span>9:41</span><span style="display:flex;gap:6px;align-items:center"><svg class="i" style="width:14px"><use href="#g-wifi"/></svg><svg class="i" style="width:14px"><use href="#g-signal"/></svg><svg class="i" style="width:14px"><use href="#g-battery"/></svg></span></div>
+        <div class="topbar">
+          <span class="fab glass"><svg class="i"><use href="#g-menu"/></svg></span>
+          <span class="chip glass"><span style="display:flex;flex-direction:column"><span class="ct">整理今天的票据</span><span class="cs"><span class="dot" style="background:var(--ok)"></span>本机 · 运行中</span></span><span class="chev"><svg class="i" style="width:13px"><use href="#g-chev-d"/></svg></span></span>
+          <span class="chip glass"><svg class="i" style="width:13px;color:var(--brand)"><use href="#g-spark"/></svg><span class="ct" style="font-size:12px;font-weight:600">NIBI-4 · 高</span><span class="chev"><svg class="i" style="width:12px"><use href="#g-chev-d"/></svg></span></span>
+        </div>
+        <div class="stream">
+          <div class="bub-user">把这堆票据整理成表，按类别汇总，存到文档里。</div>
+          <div class="sumline"><span class="ck">✓</span>已完成 · 4 次工具调用 · 1 条消息<span style="flex:1"></span><svg class="i" style="width:13px;color:var(--ink-faint)"><use href="#g-chev-d"/></svg></div>
+          <div class="assist">整理好了：今天一共 <b>12 张票据，¥486.50</b>——餐饮 5 张、交通 4 张、办公用品 3 张。</div>
+          <div class="filecard">
+            <div class="fh"><span class="fi"><svg class="i" style="width:13px"><use href="#g-box"/></svg></span>交付了 2 个文件</div>
+            <div class="filerow">
+              <span class="ft" style="background:var(--ok-soft);color:var(--ok)"><svg class="i" style="width:15px"><use href="#g-sheet"/></svg></span>
+              <span style="display:flex;flex-direction:column"><span class="fn">票据汇总-11月.xlsx</span><span class="fd">按类别汇总 · 3 个工作表</span></span>
+              <span class="dots">···</span>
+            </div>
+            <div class="filerow">
+              <span class="ft" style="background:var(--steel-soft);color:var(--steel)"><svg class="i" style="width:15px"><use href="#g-img"/></svg></span>
+              <span style="display:flex;flex-direction:column"><span class="fn">每日累计趋势.png</span><span class="fd">近 30 天花销曲线</span></span>
+              <span class="dots">···</span>
+            </div>
+          </div>
+          <div class="meta">38 秒 · 6 步 · 2.1 万 tokens ›</div>
+        </div>
+        <div class="petzone">
+          <span class="petwrap">
+            <svg width="56" height="56" viewBox="0 0 40 40" style="color:#1c2f4e"><use href="#g-bird"/></svg>
+            <span class="tdots" style="position:absolute;top:-6px;right:-14px"><span></span><span></span><span></span></span>
+          </span>
+        </div>
+        <div class="composer glass">
+          <span class="plus"><svg class="i" style="width:13px"><use href="#g-plus"/></svg></span>
+          <span class="ph">给 NIBI 发消息…</span>
+          <span class="sendkey"><svg class="i" style="width:15px"><use href="#g-arrow-up"/></svg></span>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+      <div class="caption">② Phase C 后同一结构点亮：<br/>会话 chip 带状态灯 · 摘要行/交付卡/用量 · 鸟在工作 · 输入栏激活</div>
+    </div>
+
+    <!-- 屏 3 · 抽屉 -->
+    <div>
+      <div class="phone"><div class="screen" style="background:linear-gradient(178deg,#fef8ec,#f3e8d3)">
+        <div class="sbar" style="color:rgba(255,252,246,.85)"><span>9:41</span><span style="display:flex;gap:6px;align-items:center;opacity:.8"><svg class="i" style="width:14px"><use href="#g-wifi"/></svg><svg class="i" style="width:14px"><use href="#g-signal"/></svg><svg class="i" style="width:14px"><use href="#g-battery"/></svg></span></div>
+        <div class="drawer">
+          <div class="dim"></div>
+          <div class="panel">
+            <div class="dr-head">
+              <span class="logo"><svg width="20" height="20" viewBox="0 0 40 40" style="color:#1c2f4e"><use href="#g-bird"/></svg></span>
+              <span class="nm">NIBI-GO</span>
+              <span class="dr-new"><svg class="i" style="width:13px"><use href="#g-pen"/></svg>新对话</span>
+            </div>
+            <div class="dr-search"><svg class="i" style="width:13px"><use href="#g-search"/></svg>搜索对话</div>
+            <div class="dr-filters">
+              <span class="dr-fchip on">全部</span><span class="dr-fchip">运行中</span><span class="dr-fchip">待确认</span><span class="dr-fchip">未读</span>
+            </div>
+            <div class="dr-group">今天</div>
+            <div class="dr-item on"><span class="dot" style="background:var(--ok)"></span>整理今天的票据</div>
+            <div class="dr-item"><span class="dot" style="background:transparent;border:1.5px solid var(--ink-ghost)"></span>帮我比比两个房贷方案</div>
+            <div class="dr-group">昨天</div>
+            <div class="dr-item">把会议录音整理成纪要</div>
+            <div class="dr-dest">
+              <div class="dt">目的地</div>
+              <div class="di soon"><span class="ic"><svg class="i"><use href="#g-phone"/></svg></span><span>本机 AGENT<span class="sub">Phase C 挂起 · 数据不出机</span></span></div>
+              <div class="di avail"><span class="ic"><svg class="i"><use href="#g-monitor"/></svg></span><span>桌面 · NIBI-WORK<span class="sub">远控同账号电脑 · UI 与桌面同源</span></span><span class="chev"><svg class="i" style="width:14px"><use href="#g-chev-r"/></svg></span></div>
+              <div class="di soon"><span class="ic"><svg class="i"><use href="#g-puzzle"/></svg></span><span>插件市场<span class="sub">GO 生态 · 随 C 立项</span></span></div>
+              <div class="di soon"><span class="ic"><svg class="i"><use href="#g-gear"/></svg></span><span>设置</span></div>
+            </div>
+            <div class="dr-foot">
+              <span class="fa"><svg class="i" style="width:15px"><use href="#g-phone"/></svg></span>
+              <span style="display:flex;flex-direction:column"><span class="fn">本机</span><span class="fs"><span class="dot" style="background:var(--ink-ghost)"></span>AGENT 挂起</span></span>
+              <span class="sp"></span>
+              <span class="ga"><svg class="i"><use href="#g-globe"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+      <div class="caption">③ 抽屉（对齐 dsh-Go sessions_drawer 语义）：<br/>新对话 / 搜索 / 状态筛选 / 按时间分组 / <strong>目的地=WORK 入口</strong> / 底栏本机状态</div>
+    </div>
+
+  </div>
+
+  <h2>dsh-Go 模式 → NIBI-GO 落点（迁移映射）</h2>
+  <table class="card" style="border-collapse:collapse">
+    <tr><th>dsh-Go 的做法（源码位置）</th><th>NIBI-GO 对应</th></tr>
+    <tr><td><span class="mono">home_shell.dart</span> chat 为默认构建，抽屉承载目的地</td><td>打开即会话；<strong>WORK 从"首页卡片"降为抽屉目的地「桌面」</strong>——与 dsh-Go 的 web/remote 同位</td></tr>
+    <tr><td><span class="mono">palette.dart</span> 极淡竖向渐变 + 玻璃 + 70/25/≤5</td><td>纸面渐变 <span class="mono">#fef8ec→#f3e8d3</span>；橙只给发送键/新对话按钮/选中态（纸上鸟"橙 CTA"语义不变，用量收敛）</td></tr>
+    <tr><td><span class="mono">sessions_drawer.dart</span> 搜索+筛选 chips+时间分组</td><td>同构：搜索对话 / 全部-运行中-待确认-未读 / 今天-昨天-本周</td></tr>
+    <tr><td>会话 chip 内嵌状态（本机 · 生成中/运行中）</td><td>会话 chip = 标题 + <span class="dot">状态灯</span>（挂起/运行中/待确认），目的地切换即 chip 内容切换</td></tr>
+    <tr><td>结构化消息：✓ 摘要行 / 交付文件卡 / 工具行 / 用量元</td><td>chat-core 现有 reducer 输出（V4 事件）直接映射这四类渲染件；桌面同源语义走 WORK 承载</td></tr>
+    <tr><td>pet 状态机（敲码/完成/等确认/睡觉）</td><td>NIBI 鸟四态：<b>工作/完成/待审批/睡觉</b>——正好是审批通知（F2-F4）的 in-app 表达；挂起期=睡觉</td></tr>
+    <tr><td>排队插话控制（排队中 · 立即发送/改为插话/撤回）</td><td>Phase C 后对齐（本轮先不做，列入 C0 UI backlog）</td></tr>
+  </table>
+
+  <h2>与已定决策的关系</h2>
+  <div class="card">
+    <p class="sub">① 不动 D2/D4/D9：WORK 仍是抽屉目的地 → D4 同源 WebView 载体屏；E2E 仍走原生隧道。② 本稿只重设「GO 主体 + 抽屉」两块原生 UI；载体内一切视觉 = PWA/桌面同源（那不是我们画）。③ theme.ts 仍按纸上鸟 token 建，但吸收 dsh-Go 的渐变纸面与玻璃面规则（写进 token 层：<code>bg-gradient-top/bottom</code>、<code>glass-surface</code>、强调色用量纪律）。④ 深色待启：按 dsh-Go 的口径校准为"暖墨夜"（明度 0.23–0.25 档、非纯黑），现有 <code>#171716</code> 届时上移一档。</p>
+  </div>
+
+  <h2>宠物态 · 真素材已接入（nibi-pixel-pet）</h2>
+  <div class="card">
+    <p class="sub" style="margin-bottom:8px">素材真源 = <span class="mono">nibi-pixel-pet</span> 仓（64×64 原生像素 · 9 状态 · 8 过渡 · 17 动画 142 帧 · 深浅两套；单一数据源 <span class="mono">out/pack.json</span>）。本仓已接：<span class="mono">app/assets/pet/</span>（sheets / sheets-dark / pack.json 快照，168K）+ <span class="mono">app/src/components/PetView.tsx</span>（逐帧时长播放器，过渡播完自动接状态循环；渲染走 <span class="mono">@shopify/react-native-skia</span> 且 <span class="mono">sampling=Nearest</span>——RN 核心 Image 在 Android 恒为双线性，整数倍放大也糊边，Skia 最近邻才符合素材规格）+ <span class="mono">petStates.ts</span>（事件映射）。规格纪律：显示只允许 2×/3×/4× 整数倍最近邻；基线 y=58；逐帧 ms 以 pack.json 为准。</p>
+    <img src="assets/nibi-pet-contact.png" alt="NIBI 桌宠九状态与八过渡总览" style="width:100%;border-radius:12px;border:1px solid var(--hairline)"/>
+    <table style="margin-top:12px">
+      <tr><th>状态</th><th>场景</th><th>App 事件接线（PET_STATE）</th></tr>
+      <tr><td class="mono">idle</td><td>待机 · 呼吸+绿植</td><td>会话空闲（连接正常无活动回合）</td></tr>
+      <tr><td class="mono">working</td><td>敲代码 · 笔电+咖啡</td><td>工具执行 / 流式输出中</td></tr>
+      <tr><td class="mono">thinking</td><td>思考云 8 方块绕圈</td><td>长推理段</td></tr>
+      <tr><td class="mono">done</td><td>落地对勾 + 彩纸</td><td>回合完成 / 任务完成通知</td></tr>
+      <tr><td class="mono">waiting</td><td>…气泡 + 台钟 + 抬头</td><td><strong>审批卡待操作</strong>（验收 D 组的 in-app 表达）</td></tr>
+      <tr><td class="mono">error</td><td>红 ! 气泡 + 摇头</td><td>工具失败 / 连接错误</td></tr>
+      <tr><td class="mono">carrying</td><td>抱纸箱 + 箱堆轻跳</td><td>文件交付</td></tr>
+      <tr><td class="mono">flying</td><td>云海横滚（唯一无过渡态）</td><td>页面切换 / 深链启动 / 重连（短时态）</td></tr>
+      <tr><td class="mono">sleeping</td><td>闭眼 + 月亮 + Zzz</td><td>无连接 / 内核挂起 / 后台</td></tr>
+    </table>
+    <p class="sub" style="margin-top:8px">模拟器已验：睡觉 / 敲代码（含 enter-working 过渡）/ 等确认 三态渲染与播放正常（3× 整数倍，像素锐利）。验证台临时挂在 <span class="mono">nibigo://go</span>（GO 主体重排时退役，宠物挪进空态舞台与输入栏上方）。</p>
+  </div>
+
+  <footer>NIBI-GO · GO 主体重设计 v4（会话即首页） · 2026-11-13 · 参考对齐：dsh-Go v1.0.15（pin 8f31b2ed）· 桌宠素材真源：nibi-pixel-pet（角色形象为 NIBI 品牌素材）· 选定后并入 mobile-uiux-design.html v4 并开工 theme.ts</footer>
+</div>
+</body>
+</html>
