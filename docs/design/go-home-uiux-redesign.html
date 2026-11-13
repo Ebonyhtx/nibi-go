@@ -346,6 +346,40 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid rgba(28,47,78,.12);
     <p class="sub" style="margin-top:8px">模拟器已验：睡觉 / 敲代码（含 enter-working 过渡）/ 等确认 三态渲染与播放正常（3× 整数倍，像素锐利）。验证台临时挂在 <span class="mono">nibigo://go</span>（GO 主体重排时退役，宠物挪进空态舞台与输入栏上方）。</p>
   </div>
 
+  <h2>自适应：手机 / 手机横屏 / 平板（对齐 dsh-Go adaptive_layout.dart）</h2>
+  <div class="card">
+    <p class="sub" style="margin-bottom:8px">规则来自 <span class="mono">app/lib/ui/shell/adaptive/adaptive_layout.dart</span>，实现于 <span class="mono">app/src/layout/adaptive.ts</span>（纯函数 + 9 条契约测试 <span class="mono">app/test/adaptive-layout.test.ts</span>）。</p>
+    <table>
+      <tr><th>窗口</th><th>栏位计划</th><th>≡ 键语义</th><th>本机实测</th></tr>
+      <tr>
+        <td><strong>compact</strong><br/><span class="mono">&lt;600 宽，或 高&lt;480</span></td>
+        <td>单列；对话列表 = 滑出抽屉</td>
+        <td>开抽屉</td>
+        <td class="ok-t">手机竖屏 ✓</td>
+      </tr>
+      <tr>
+        <td><strong>compact + 横屏</strong><br/><span class="mono">915×412</span></td>
+        <td>单列但<strong>横向摊开</strong>：鸟左、文案右；输入栏压成单行省高度</td>
+        <td>开抽屉</td>
+        <td class="ok-t">手机横屏 ✓</td>
+      </tr>
+      <tr>
+        <td><strong>medium</strong><br/><span class="mono">600–840</span></td>
+        <td>单列，正文限宽居中（≤760）</td>
+        <td>开抽屉</td>
+        <td class="ok-t">平板竖屏 800×1280 ✓</td>
+      </tr>
+      <tr>
+        <td><strong>expanded</strong><br/><span class="mono">≥840</span></td>
+        <td>常驻侧栏 320 + 居中正文；正文保不住 600 时退成 <strong>rail</strong>（68px 圆键列）</td>
+        <td>侧栏：折叠 / rail：展开（放不下则开抽屉）</td>
+        <td class="ok-t">平板横屏 1280×800 侧栏 ✓<br/>折叠成 rail ✓</td>
+      </tr>
+    </table>
+    <p class="sub" style="margin-top:8px"><strong>两条上游判断直接沿用</strong>：① 断点用<strong>短边 + 矮窗规则</strong>——手机横屏虽然宽，但状态栏+顶栏+输入栏+键盘吃掉一半，并排两栏每栏只剩一条缝，单列居中才留得住宽度；② <strong>侧栏能不能常驻看正文还剩多少</strong>（正文必须留 600），放不下就退 rail，而已是 rail 时 ≡ 改为开抽屉而不是硬展开。</p>
+    <p class="sub">实测路径：手机竖屏（1080×2400）→ 横屏（2400×1080，高 411 &lt; 480 判 compact）→ 平板竖屏（1600×2560 @320dpi = 800×1280，medium）→ 平板横屏（2560×1600 = 1280×800，expanded 侧栏）→ 点 ≡ 折叠为 rail。竖屏顶栏曾被状态栏压住（insets 漏用）已修；横屏输入栏双行改单行；侧栏左缘漏底色带已修。</p>
+  </div>
+
   <footer>NIBI-GO · GO 主体重设计 v4（会话即首页） · 2026-11-13 · 参考对齐：dsh-Go v1.0.15（pin 8f31b2ed）· 桌宠素材真源：nibi-pixel-pet（角色形象为 NIBI 品牌素材）· 选定后并入 mobile-uiux-design.html v4 并开工 theme.ts</footer>
 </div>
 </body>
