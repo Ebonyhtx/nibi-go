@@ -160,8 +160,12 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   → `model.request_completed` → `turn.terminal status=success`（139ms / 24 tokens）。
   只用 `NIBI_MODEL_BASE_URL` / `NIBI_API_KEY` / `NIBI_MODEL` 时内核走 **Anthropic 协议**
   （`POST /v1/messages`），本地假服务在 `scripts/dev/mock-openai.mjs`。
-- **未做**：真实 Provider 凭据与设置页、会话 UI 接 `chat-core`、前台服务、panic 看门狗、
-  D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套。
+- **会话模型已按 dsh-Go 对齐（2026-11-15）**：`kernel-session` 改为订阅 V4 投影
+  （`v4/conversation/subscribe` → snapshot + `row.delta`），行模型对齐 ChatRow
+  （用户 / 助手含推理与流式光标 / 工具行 / ≥3 收组 / 轮末脚注 / 乐观 pending）；
+  真机验证：正文按 `row.delta` 实时增长、完成后脚注 `✓ 已完成 · 用时 …`。
+- **未做**：真实 Provider 凭据与设置页、审批/提问卡、文件变更卡、前台服务、
+  panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套。
 
 ---
 
