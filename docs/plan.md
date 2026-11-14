@@ -176,6 +176,9 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   revision/logEpoch 两道 CAS），卡片挂在轮末脚注之后；真机 Write 后显示
   `改动了 1 个文件 / nibi-approval-test.txt / +1`。**工具输出里没有 `file_diff`**
   （Rust 内核不发，那是桌面/Node 的展示面），不能从 tool display 推改动。
+- **轮折叠（2026-11-15 真机跑通）**：completedSuccess 且有过程的轮收成
+  `✓ 已完成 · N 次工具 · M 条消息` 一行，点开展开思考/工具；最终回答与脚注留在外面。
+  失败/中断/运行中不折；普通问答不折（思考本来就在气泡里）。
 - **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
   panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
   Android 上的 shell 执行（T9）。
