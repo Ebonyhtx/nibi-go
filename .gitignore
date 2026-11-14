@@ -1,4 +1,4 @@
-# 本地只读参考仓（不参与构建、不进版本库）
+# 历史本地只读参考仓（已移到工作区 .artifacts/go-reference-archive；保留忽略规则防误入）
 reference/
 
 # 构建产物
@@ -6,7 +6,7 @@ node_modules/
 *.log
 .DS_Store
 
-# 本仓产出的构建物（reference/ 是独立仓，有自己的 .gitignore）
+# 本仓产出的构建物
 app/.expo/
 app/android/.gradle/
 app/modules/*/android/build/

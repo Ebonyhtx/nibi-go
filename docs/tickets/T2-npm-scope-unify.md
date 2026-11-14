@@ -1,5 +1,7 @@
 # 票据 · npm scope 统一：`@nibi/cli-*` → `@nibi-studio/cli-*`
 
+> 状态（2026-11-14）：**已落地**（npm scope 已统一为 `@nibi-studio/cli-<platform>`）。本文件保留为票据历史记录。
+>
 > 提交方：NIBI-GO。小改动，建议尽早（GO 侧引用写法以 registry 实发为准，仓内 scope 漂移越久，下游踩坑越广）。
 
 ## 现状（不一致点）

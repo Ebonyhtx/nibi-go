@@ -1,7 +1,7 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名 = 本机工作副本 + 私有仓 `nibi-go-ops` 加密备份 + 离线口令；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地，恢复演练通过。剩余 owner 输入：T3（OIDC 注册）/ T4+T5 派发（桌面侧联调）/ **口令离线保管方式**（`docs/checklists/发布检查单.md` §0.3）/ 真机验证执行。
-> 依据：`docs/decisions/ADR-INDEX.md`（D1–D18）；参考仓 pin（nibi-client dev @ ff1c5f4f / dsh-Go v1.0.15 @ 8f31b2ed）
+> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：真机验证执行与 Phase C 启动判断。
+> 依据：`docs/decisions/ADR-INDEX.md`（D1–D19，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
 ---
@@ -9,22 +9,25 @@
 ## 0. 总览
 
 ```
-Phase A（现在）    NIBI-WORK 远控原生客户端    零内核耦合 · 零主线干扰
+Phase A（已完成）  NIBI-GO 应用主体 + WORK 远控入口    零内核耦合 · 零主线干扰
    │
-   ├─ Spike 1/2（并行，各 ~1 天）：iroh 实测 / RN 后台长连接
+   ├─ Spike 1/2（已完成）：iroh 实测 / RN 后台长连接
    │
-Phase C（挂起）    本机内核                     两个启动信号见 §3
+Phase C（待启动）  本机内核                     两个启动信号见 §3
    （信号触发后先跑 Spike 3，再进入实现）
    前置：原 B0 手机工具面（A11y/执行器/确认卡/悬浮条/多任务）
 
 Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 share-sheet 类窄需求预案
 ```
 
-**为什么这样排**：A 与主线 kernel 迭代完全解耦（D17 单向消费 / A 零内核耦合），可立即动工；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑。**B 已取消（D6，2026-11-12）**：手机自动化归 C，B0 工具面并入 C 前置，B1 的桥与市场件不做。
+**为什么这样排**：A 与主线 kernel 迭代完全解耦（D17 单向消费 / A 零内核耦合），已先行完成；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）此前还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑。**B 已取消（D6，2026-11-12）**：手机自动化归 C，B0 工具面并入 C 前置，B1 的桥与市场件不做。
 
 ---
 
-## 1. Phase A：NIBI-WORK 远控原生客户端
+## 1. Phase A：应用主体与 WORK 远控入口（历史交付）
+
+> 2026-11-13 D2/D4 修订：默认 GO 主体，WORK 为入口并经 WebView 承载同源 UI；
+> 下列 A0–A4 是已完成的历史交付，原生远控屏已退役，协议层/保活/通知资产继续复用。
 
 ### 里程碑 A0 · 项目启动（~半天）
 
@@ -71,7 +74,7 @@ Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 
 |---|---|
 | 通知（任务完成/待审批/提问）+ KeepAlive 前台服务 | 系统通知 + 进程保活 |
 | 应用内更新（GitHub Releases + 增量 DSHDLT01 可后置） | SHA-256 校验 + PackageInstaller |
-| 签名三链 + 杀软白名单申诉材料 | 发行纪律（dsh-Go 经验）——签名链已落地（config plugin + 密钥库工具 + 私有仓加密备份）；杀软材料待发布后 |
+| 签名三链 + 杀软白名单申诉材料 | 发行纪律（dsh-Go 经验）——签名链已落地（config plugin + 密钥库工具；密钥保管见 `SECURITY.md`）；杀软材料待发布后 |
 | 真机验证清单执行（AGENTS 规则 12） | 未验证项如实标注 |
 
 ### Phase A 退出标准
@@ -102,17 +105,17 @@ Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 
 
 ---
 
-## 3. Phase C：本机内核（挂起）
+## 3. Phase C：本机内核（待启动）
 
 ### 前置（原 B0，已并入）
 
 手机侧工具面必须在 C 之前或同期具备：PhoneA11yService、Actuator、ScreenFormat/Mask 单一词表、
 GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯穿。C 的手机内 agent 直接复用它们。
 
-### 启动信号（两者同时满足，由你判断）
+### 启动信号（由你判断；平台包信号已满足）
 
-1. 主线 kernel 的"对齐 NODE"批次收尾（语义稳定，不再一晚万行地改）——今晚 dev 仍在补 memory/cron/commands 对齐
-2. `@nibi-studio/cli-android-arm64` 发布（CI matrix + `Platform::published()` 各加一行 entry，工作量极小但需要你决定发）
+1. 主线 kernel 的"对齐 NODE"批次收尾（语义稳定，不再一晚万行地改）——2026-11-12 时 dev 仍在补 memory/cron/commands 对齐
+2. ✅ `@nibi-studio/cli-android-arm64` 已发布（T1 已交付；T6 cdylib 产物上游已完成 `697f86cf`）
 
 ### Spike 3（信号触发后 ~1 天）
 
@@ -159,4 +162,4 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - P1 初始提交 `394fa7d`（身份 Ebonyhtx）✅
 - P2/P3a 选 B：shared 走 `packages/shared-extract/` 抽取件，禁直链 ✅
 - P3b 会话级 K 先行；P3c JSON 文本帧 ✅
-- P4/P5 票据已写好（docs/tickets/T1/T2 + HANDOFF 交接流程），派发时机由你定 ✅
+- P4/P5 票据制落地：`docs/tickets/T1`（android 平台包）、`T2`（npm scope 统一）均已交付；后续 T6/T7 也由上游完成（nibi-client `697f86cf`）✅

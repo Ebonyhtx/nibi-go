@@ -2,14 +2,16 @@
 
 简体中文 | [English](README.en.md)
 
-NIBI-GO 是 NIBI 生态的**移动客户端**，双形态：
+NIBI-GO 是 NIBI 生态的**移动客户端**，默认主体即 NIBI-GO（本机 AGENT）：
 
-- **NIBI-WORK**：手机远控桌面（Relay V2 端到端通道 + 会话/审批/任务投影）；
-- **NIBI-GO**：本机 AGENT（Phase C 挂起，独立 GO 插件生态，不在本仓库范围）。
+- **NIBI-GO（默认主体）**：本机 AGENT；GO 插件生态独立于桌面体系（D13）。
+- **NIBI-WORK（入口）**：从 GO 主体内进入的手机远控桌面（Relay V2 端到端通道 +
+  会话/审批/任务投影），不再是与 GO 并列的主产品。
 
 本仓库是 NIBI-GO 的公开源码（Android 客户端 + 纯 TS 协议层 + 原生模块）。
 Rust 内核不在此仓库——它以独立 npm 平台包（`@nibi-studio/cli-*`）单向消费，
-详见 [AGENTS.md](AGENTS.md) 的 D17 纪律。
+详见 [AGENTS.md](AGENTS.md) 的 D17 纪律；本机内核能力随 Phase C 落地
+（启动信号见 [ADR-INDEX D12](docs/decisions/ADR-INDEX.md)）。
 
 ## 开源范围
 
@@ -18,7 +20,7 @@ Rust 内核不在此仓库——它以独立 npm 平台包（`@nibi-studio/cli-*
 - `app/`：Expo / React Native 应用（登录、扫码配对、连接状态、聊天、审批、通知、保活、应用内更新）
 - `app/modules/`：本地 Expo 原生模块（KeepAlive 前台服务、APK 安装器）
 - `packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`：纯 TS 协议层
-- `docs/`：架构决策（D1–D18）、设计规格、调研与验证清单
+- `docs/`：架构决策（D1–D19）、设计规格、调研与验证清单
 - `scripts/`：架构门禁与公开仓检查
 
 以下内容**不在**本仓库中：
@@ -27,8 +29,8 @@ Rust 内核不在此仓库——它以独立 npm 平台包（`@nibi-studio/cli-*
 - 发布签名材料（keystore）、发布流水线与运营侧服务；
 - 任何私有部署细节或凭据（见 [SECURITY.md](SECURITY.md)）。
 
-`reference/` 是开发者本地可选的只读上游参考（已 gitignore，不参与构建、
-不属于本仓库）。
+历史上游参考存档（nibi-client / dsh-Go 的只读副本）已移出本仓库，由 NIBI 工作区
+统一保管，不参与构建；本仓不再包含 `reference/`。
 
 ## 环境要求
 
@@ -70,8 +72,8 @@ pnpm exec expo run:android    # dev-client 构建并安装到模拟器/真机
 | `packages/relay-client` | Relay V2 terminal 客户端：状态机、配对、workspace bridge、E2E 信封 |
 | `packages/chat-core` | 聊天状态机：V4 reducer 宿主、replay/gap、审批状态机、AgentPulse |
 | `packages/shared-extract` | 从 nibi-client 抽取的协议契约（来源标注，见 [NOTICE.md](NOTICE.md)） |
-| `packages/phone-tools` | 手机工具面接口（多平台适配器，Phase B 落地） |
-| `modules/kernel-host` | 内核 JNI 薄层（Phase C 挂起，仅骨架） |
+| `packages/phone-tools` | 手机工具面接口（多平台适配器；原 B0，已并入 Phase C 前置） |
+| `modules/kernel-host` | 内核 JNI 薄层（Phase C 骨架，启动信号见 ADR-INDEX D12） |
 | `docs/` | 决策台账、设计规格、调研、清单（入口 [docs/README.md](docs/README.md)） |
 | `scripts/` | 架构门禁、公开仓检查、抽取脚本 |
 
@@ -100,9 +102,11 @@ node scripts/check-public-repo.mjs  # 公开仓策略检查
 
 ## 路线
 
-- **Phase A**（当前，代码侧完成）：NIBI-WORK 远控原生客户端。零内核耦合。
-- **Phase C**（挂起）：本机内核。启动信号见 [ADR-INDEX D12](docs/decisions/ADR-INDEX.md)。
-- **Phase B**（最后）：WORK 形态手机操控路由（nibi-phone-bridge）。
+- **Phase A**（代码侧完成）：NIBI-GO 应用主体与 NIBI-WORK 远控入口。零内核耦合。
+- **Phase B**（已取消，D6）：原 WORK 形态手机操控路由（nibi-phone-bridge）；
+  B0 工具面（`packages/phone-tools`）已移交 Phase C 前置。
+- **Phase C**（待启动）：本机内核（`libnibi.so` 进程内运行，D19）。启动信号见
+  [ADR-INDEX D12](docs/decisions/ADR-INDEX.md)。
 
 ## 参与贡献
 

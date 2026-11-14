@@ -3,7 +3,7 @@
 > **工作区位置（2026-11-12 起）**：本仓库与 nibi-client 检出平级放在同一个工作区目录下。
 > 需要看内核代码、协议 schema 或处理票据时，直接读同级的 nibi-client 检出，不要在本仓再养一份参考克隆。
 
-NIBI-GO 是 NIBI 生态的移动客户端：**双形态**（NIBI-WORK 远控投影 + NIBI-GO 本机 AGENT）。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`，调研底稿见 `docs/research/`。
+NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGENT，NIBI-WORK 是主体内的远控入口**。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`（权威索引 `ADR-INDEX.md`），调研底稿见 `docs/research/`。
 
 ## 仓库定位与边界
 
@@ -20,8 +20,8 @@ NIBI-GO 是 NIBI 生态的移动客户端：**双形态**（NIBI-WORK 远控投�
 | `packages/chat-core/` | 聊天状态机（V4 事件 reducer、replay、审批状态机，纯 TS） | 同上；这是 UI 框架可替换的退出保险（D12 反思条款） |
 | `packages/phone-tools/` | 手机工具面 TS 接口 + 平台适配器注册 | **多平台适配器设计**（D11）：接口层不得出现 Android 专属类型 |
 | `modules/kernel-host/` | 模块 C 的内核绑定（JNI 薄层 + 构建脚本） | 不修改内核源码；内核变更走 nibi-client 票据（D17） |
-| `docs/decisions/` | 架构决策记录（D1–D17 编号制） | 决策变更须新文件记录，不覆写历史决策 |
-| `reference/`（已移出仓库） | 本地参考克隆曾放这里；2026-11-12 起移出仓库（dsh-Go / 旧 nibi-client 副本），由工作区统一保管，不再随仓 | **不编译、不执行、不参与本仓构建**；nibi-client 真源是同级检出 |
+| `docs/decisions/` | 架构决策记录（D1–D19 编号制，权威索引 `ADR-INDEX.md`） | 决策变更须新文件记录，不覆写历史决策 |
+| `reference/`（已移出仓库） | 本地参考克隆曾放这里；2026-11-12 起归档到工作区 `.artifacts/go-reference-archive/`（dsh-Go / 旧 nibi-client 副本），不再随仓 | **不编译、不执行、不参与本仓构建**；nibi-client 真源是同级检出 |
 
 ## 硬规则
 
@@ -96,7 +96,7 @@ Windows 上 ninja 对**对象路径**有 260 字符硬限制，而 `expo-modules
 
 ## 现状与路线
 
-- **Phase A**（NIBI-WORK 远控客户端）：代码侧完成（A0–A4），仓库已公开（https://github.com/Ebonyhtx/nibi-go）；发布链路已定（源码仓 Releases + 独立签名密钥）。剩余 owner 输入：OIDC 注册、桌面侧票据派发、真机验证。
-- **Phase C**（本机内核）：挂起，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（D12 修正）。运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（D19）；手机工具面（原 B0）是它的前置。
+- **Phase A**（NIBI-GO 应用主体 + WORK 远控入口）：代码侧完成（A0–A4），仓库已公开（https://github.com/Ebonyhtx/nibi-go）；发布链路已定（源码仓 Releases + 独立签名密钥）。剩余 owner 输入：真机验证。
+- **Phase C**（本机内核）：待启动，启动信号 = 主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布（平台包已发布，后者已满足；D12 修正）。运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（D19）；手机工具面（原 B0）是它的前置。
 - **Phase B**（WORK 形态手机操控路由）：**已取消**（D6，2026-11-12）。手机自动化归 C；将来只有「桌面读手机内容」的窄需求时才做 share-sheet + 少量显式工具。
-- 决策台账 D1–D19 见 `docs/decisions/`；架构总览可视化见 `docs/NIBI-GO架构总览.html`。
+- 决策台账 D1–D19 见 `docs/decisions/`；架构总览可视化（历史快照）见 `docs/NIBI-GO架构总览.html`。

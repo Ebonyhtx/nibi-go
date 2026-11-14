@@ -1,7 +1,7 @@
 # 架构决策记录（ADR）索引
 
-> 决策编号 D1–D17 源自 2026-11-07/08 与 2026-11-11 的架构讨论（对话台账完整版在会话记忆；本文是仓内权威索引）。
-> 状态图例：✅ 定案 · 📋 预案（未启动） · ⏸ 挂起待信号
+> 决策编号 D1–D19 源自 2026-11-07/08、2026-11-11 及后续架构讨论（D18/D19 为后续追加；对话台账完整版在会话记忆；本文是仓内权威索引）。
+> 状态图例：✅ 定案 · 📋 预案（未启动） · ⏸ 待启动（等信号）
 
 | # | 决策 | 结论 | 状态 |
 |---|---|---|---|
@@ -16,7 +16,7 @@
 | D9 | E2E 加密 | 做，密钥藏登录握手（账号身份协商，auth_init.meta 透传）。NIBI-GO↔桌面自动密文；**App 内 WORK 经原生隧道（D4 修订后的承载形态）视同原生连接，走同一 E2E 密文（2026-11-13 豁免）**；浏览器打开的 PWA 永远明文；连旧桌面放行+提示未加密；服务端零改动 | ✅（2026-11-13 修订） |
 | D10 | 连接拓扑 | 四态自动选路：①本地直连 ②打洞直连（iroh，relay 指路）③中转 E2E ④PWA 明文兜底。桌面零新增监听端口（全出站）。控制信令走 Relay V2 WS，数据面自适应 | ✅ |
 | D11 | 跨平台前瞻 | iOS/鸿蒙不做但留口：B 工具面多平台适配器接口（iOS 残血=系统限制）、C 平台无关 C ABI、crypto Cipher 接口化。Rust 三平台一级目标 | ✅ |
-| D12 | 实施顺序 | **A → C（B 取消，见 D6）**。A 先行（零内核耦合）；C 挂起（信号：主线 kernel 对齐批次收尾 + cli-android-arm64 发布）；B0 工具面并入 C 前置 | ✅（2026-11-12 修订） |
+| D12 | 实施顺序 | **A → C（B 取消，见 D6）**。A 先行（零内核耦合）；C 待启动（信号：主线 kernel 对齐批次收尾 + cli-android-arm64 发布）；B0 工具面并入 C 前置 | ✅（2026-11-12 修订） |
 | D13 | GO 插件生态 | 与桌面彻底隔离，五子项：13.1 独立市场仓 nibi-go-market（npm+PR 双通道、GO manifest、ci-entry 防注入）；13.2 语言层 = Node 24 Plugin Runtime 子进程（stdio MCP）+ 声明式 HTTP；13.3 运行时点名清单 ~75-100MB（bash/busybox/git/Node/py，无 Ubuntu/pnpm/proot）**+ 升级语义 = 管理面/用户面分离**（v1.0.15 先例：升级只替换管理面，用户目录/技能/依赖保留）；13.4 沙箱三层（SELinux 基线/Policy 强翻译/特权 ns 随 B）；13.5 一层拓扑无 Node Host。用户自开发与市场同能力（agent 写→validate→install） | ✅ |
 | D14 | 桌宠（预案） | 状态指示器非养成；消费 AgentPulse 投影（A 阶段定义协议）；挂 GO 形态 | 📋 |
 | D15 | 伴侣（预案） | 轻量=内核 headless 会话；完整=伴侣 preset 插件；状态存会话库；人设单源 @nibi/shared | 📋 |
@@ -41,14 +41,16 @@
 - P3c ✅ 信封用 JSON 文本帧（维持 relay 契约；B 阶段屏幕流如需二进制帧届时提扩展）。
 - P4/P5 ✅ 票据制落地：`docs/tickets/T1`（android 平台包）、`T2`（npm scope 统一）、`HANDOFF.md`（三步交接：票据落仓 → NIBI 工作区 AI 自主复核排期 → GO 被动消费）。主线零干扰。
 
-## 参考仓 pin（本仓调研依据的冻结版本）
+## 附：历史参考仓 pin（2026-11-12 归档前）
+
+> 参考仓已移出本仓，现归档于工作区 `.artifacts/go-reference-archive/`；下表是当时的冻结版本，仅作历史对照，不再更新。
 
 | 仓 | 分支 | commit |
 |---|---|---|
-| reference/nibi-client | dev | `ff1c5f4f`（2026-11-11 复核：无新增） |
-| reference/dsh-Go | main | `8f31b2ed`（v1.0.15；2026-11-11 更新） |
+| nibi-client | dev | `ff1c5f4f`（2026-11-11 复核：无新增） |
+| dsh-Go | main | `8f31b2ed`（v1.0.15；2026-11-11 更新） |
 
-更新参考仓 = `git pull` 后在此表登记新 commit；重大变化写 `docs/research/reference-update-<日期>.md`。
+重大变化仍可写 `docs/research/reference-update-<日期>.md` 作为历史记录。
 
 - 2026-11-12：**D6 取消（模块 B 不做）**。理由见 D6 行；B0 工具面移交 C 前置，B1 不做；D12 顺序同步改成 A → C。同时新增 D19：Android 内核运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（`lib/libnibi.so` + `build.json`）。
 - 2026-11-13：**D2/D4 修订（运营者指正）**。①形态：默认 GO 主体，WORK 只是其中一个入口，并列双卡作废。②WORK UI：不是「原生重画」模仿，是直接承载同源 web UI——源码实证 `packages/web/src/main.tsx:18` 从 `@nibi/ui` 挂载 `Root`（与桌面同一套外壳），main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」；main.tsx:458 `createWebPlatform({ externalWebRemoteControlProxy })` 是上游预留的原生壳接缝。原生壳 = WebView 载体 + IPlatformService 桥。Phase A 已建的原生远控屏（work/chat/sessions/devices/scan）退役；relay-client/chat-core/KeepAlive/通知资产按 E2E 方案继续复用。**E2E 已拍板（2026-11-13 当日）：案 A 原生隧道**——连接所有权在原生 RelayTransport（E2E 密文 + 后台通知/保活成立），WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文；D9 已补 App 内 WORK 豁免；上游注入口立票据 **T7**（web transport 注入口）。

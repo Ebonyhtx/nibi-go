@@ -1,4 +1,4 @@
-# modules/kernel-host（模块 C，挂起）
+# modules/kernel-host（模块 C，待启动）
 
 > 启动信号见 `docs/decisions/ADR-INDEX.md` D12：主线 kernel 对齐批次收尾 + `@nibi-studio/cli-android-arm64` 发布。在此之前本目录只有占位与设计笔记，**不写实现**。
 
