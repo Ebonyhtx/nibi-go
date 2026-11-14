@@ -35,7 +35,7 @@ D19（2026-11-12 定案）把 Phase C 的内核运行形态定为**进程内 `li
 
 - 4.0.2 tarball 实测（registry 下载、sha256 `6dad802f…` 对账一致）：只有 `bin/nibi-rs` +
   `build.json` + `package.json`，无 `.so`。**截至 2026-11-14 npm `latest` 仍是 4.0.2**
-  （仓库根已 `5.0.0`，尚未发版）；本票验收对 4.x / 5.x 同样适用。
+  （仓库根已 `4.1.0`，尚未发版）；本票验收对 4.x / 5.x 同样适用。
 - `kernel/crates/cli/Cargo.toml`：`nibi-kernel-cli` 只有 `[[bin]] name = "nibi-rs"`（:16-19），
   无 `[lib]`/crate-type——不产 cdylib；**`kernel/crates/cli/src/` 下也没有 `lib.rs`**，
   cdylib 需要新增 lib 目标（不是改现有文件）。
