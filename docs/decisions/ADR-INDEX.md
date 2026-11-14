@@ -59,3 +59,35 @@
 - 2026-11-12：**D6 取消（模块 B 不做）**。理由见 D6 行；B0 工具面移交 C 前置，B1 不做；D12 顺序同步改成 A → C。同时新增 D19：Android 内核运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（`lib/libnibi.so` + `build.json`）。
 - 2026-11-13：**D2/D4 修订（运营者指正）**。①形态：默认 GO 主体，WORK 只是其中一个入口，并列双卡作废。②WORK UI：不是「原生重画」模仿，是直接承载同源 web UI——源码实证 `packages/web/src/main.tsx:18` 从 `@nibi/ui` 挂载 `Root`（与桌面同一套外壳），main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」；main.tsx:458 `createWebPlatform({ externalWebRemoteControlProxy })` 是上游预留的原生壳接缝。原生壳 = WebView 载体 + IPlatformService 桥。Phase A 已建的原生远控屏（work/chat/sessions/devices/scan）退役；relay-client/chat-core/KeepAlive/通知资产按 E2E 方案继续复用。**E2E 已拍板（2026-11-13 当日）：案 A 原生隧道**——连接所有权在原生 RelayTransport（E2E 密文 + 后台通知/保活成立），WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文；D9 已补 App 内 WORK 豁免；上游注入口立票据 **T7**（web transport 注入口）。
 - 2026-11-15：**C0 真机冒烟（OnePlus PHK110 / Android 16 / arm64）**——`libnibi.so` + JNI 薄层加载成功，`abiVersion()`=v1，`start()`=true，第一帧 `startup/storageState` 按 LF 切帧送达；随后内核在 egress 构造退出（`rustls-platform-verifier could not load extra certs`），立票据 **T8**。同日上游分支 `feat/android-kernel` 的 S1（Android 平台根不可用时退内置根）真机验证 `storageState` 走到 `ready`、内核保持运行。**D19 的进程内 dlopen 选择被真机证实成立**；据此新增 **D20（承载进程与重启语义）/ D21（预发布消费）/ D22（16 KB 页对齐）/ D23（ABI 与升级）**。实测 4.1.0 的 `libnibi.so` LOAD 段 4 KB，不满足 D22，故不当发布产物用。
+
+## 待定决策与推进顺序（2026-11-15 定）
+
+> 原则：**只把“这周要动手”的写进 ADR**（本轮 D20–D23），其余留到触发点再定案，避免写过期的预判。
+
+### 推进顺序
+
+1. **第一批 · 现在（不依赖上游）**：D22 16 KB（已完成：内核 + shim 链接参数、fetch 断言、真机复验）；
+   D20–D23 四张 ADR（已完成）。
+2. **第二批 · T8/S2 之后**：④ 可执行内容/工具链边界（那时才知道进程内能力边界）、⑤ FGS 立项。
+3. **第三批 · C2 之前**：④ 的插件运行时定案（决定 C2 是否推倒重来，最晚卡这里）。
+4. **第四批 · 发布前**：⑧ 体积/ABI 预算、国内 App 备案、Play FGS 声明。
+
+### 待定项
+
+| 项 | 方向（已达成共识的部分） | 触发点 / 待定 |
+|---|---|---|
+| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM | T8/S2 后定案；插件运行时最晚 C2 前 |
+| ⑤ FGS 策略 | `dataSync` 在 targetSdk 35+ 有 6h/24h 上限；长任务走 `specialUse` + Play 声明，或分段续跑 | C0 收口后立项；上架前补声明 |
+| ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
+| 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
+| T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | 上游排期 |
+| D20 进程拆分实施 | 前置「协议握手先跑通」**已满足**（2026-11-15 会话协议真机跑通：create/send/流式） | 下一阶段；新增 IPC 契约，不是顺手改 |
+| 预发布节奏 | S1 现在发 `4.2.0-android.1`，还是等 S2 一起发 `.2` | 运营者决定（占 5 个 npm 版本/次） |
+
+### 记录位置（压缩会话后按这些找回）
+
+- 决策：本文件 D19–D23 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、`HANDOFF.md`。
+- 实施状态与真机结果：`docs/plan.md`「C0 进展」。
+- 协议与架构事实：`packages/kernel-session/README.md`。
+- 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{pin.json,fetch.mjs,lib.mjs}`、
+  上游 `kernel/.cargo/config.toml` 与 `rust-npm-packages.yml` 断言。
