@@ -122,6 +122,23 @@ export default function KernelSmokeScreen() {
         },
       ]);
     },
+    readMessages() {
+      if (!sessionId) {
+        setLines((prev) => [...prev, { id: prev.length, kind: "error", text: "先建会话" }]);
+        return;
+      }
+      const id = requestId.current++;
+      const frame = {
+        id,
+        method: "session/messages",
+        params: { sessionId },
+      };
+      const ok = sendKernelLine(JSON.stringify(frame));
+      setLines((prev) => [
+        ...prev,
+        { id: prev.length, kind: "info", text: `send #${id} session/messages → ${ok}` },
+      ]);
+    },
     sendPrompt() {
       if (!sessionId) {
         setLines((prev) => [...prev, { id: prev.length, kind: "error", text: "先建会话" }]);
@@ -195,6 +212,14 @@ export default function KernelSmokeScreen() {
           label="启动（mock 模型）"
           onPress={presses.startMock}
           color={th.violet}
+          fg="#fffdf9"
+        />
+      </View>
+      <View style={styles.actions}>
+        <Action
+          label="读消息（session/messages）"
+          onPress={presses.readMessages}
+          color={th.amber}
           fg="#fffdf9"
         />
       </View>
