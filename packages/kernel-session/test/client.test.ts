@@ -159,6 +159,44 @@ describe("@nibi-go/kernel-session", () => {
     expect(messages[0]?.info.messageId).toBe("msg_2");
   });
 
+  it("listSessions：按 workspace 列出并返回 sessions", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+
+    const pending = client.listSessions({ workspace, limit: 10 });
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionList,
+      params: { workspace, limit: 10 },
+    });
+    transport.receive({
+      id: 1,
+      result: {
+        sessions: [
+          { sessionId: "sess_1", title: "第一个", updatedAt: 2 },
+          { sessionId: "sess_2", title: "", updatedAt: 1 },
+        ],
+      },
+    });
+    const sessions = await pending;
+    expect(sessions.map((session) => session.sessionId)).toEqual(["sess_1", "sess_2"]);
+  });
+
+  it("resumeSession：发 session/resume 并切换 currentSessionId", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+
+    const pending = client.resumeSession("sess_9");
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionResume,
+      params: { sessionId: "sess_9" },
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_9" } } });
+    await pending;
+    expect(client.currentSessionId).toBe("sess_9");
+  });
+
   it("内核 error 帧映射成 KernelProtocolError", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

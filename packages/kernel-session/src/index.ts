@@ -20,6 +20,7 @@ export type {
   KernelMessagePart,
   KernelNotification,
   KernelSessionCreateResult,
+  KernelSessionSummary,
   KernelTransport,
   KernelWorkspaceRef,
 } from "./protocol";

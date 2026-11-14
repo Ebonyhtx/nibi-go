@@ -3,6 +3,7 @@ import {
   type KernelMessage,
   type KernelNotification,
   type KernelSessionCreateResult,
+  type KernelSessionSummary,
   type KernelTransport,
   type KernelWorkspaceRef,
 } from "./protocol";
@@ -144,6 +145,28 @@ export class KernelSessionClient {
       ...(options?.limit === undefined ? {} : { limit: options.limit }),
     });
     return Array.isArray(result?.messages) ? (result.messages as KernelMessage[]) : [];
+  }
+
+  /** 列会话（`session/list`）；按 workspace 过滤，缺省取内核目录里的最近 50 条。 */
+  async listSessions(options?: {
+    workspace?: KernelWorkspaceRef;
+    limit?: number;
+  }): Promise<KernelSessionSummary[]> {
+    const result = await this.request<{ sessions?: unknown }>(KERNEL_METHODS.sessionList, {
+      ...(options?.workspace ? { workspace: options.workspace } : {}),
+      ...(options?.limit === undefined ? {} : { limit: options.limit }),
+    });
+    return Array.isArray(result?.sessions) ? (result.sessions as KernelSessionSummary[]) : [];
+  }
+
+  /**
+   * 恢复会话（`session/resume`）：内核冷加载运行实例，返回快照。
+   * 之后用 `readMessages()` 拿历史。
+   */
+  async resumeSession(sessionId: string): Promise<unknown> {
+    const result = await this.request(KERNEL_METHODS.sessionResume, { sessionId });
+    this.sessionId = sessionId;
+    return result;
   }
 
   /** 停止监听；未完成的请求一律 reject。 */

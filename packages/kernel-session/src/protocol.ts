@@ -56,9 +56,25 @@ export interface KernelSessionCreateResult {
   [key: string]: unknown;
 }
 
+/** `session/list` 的一行（内核 `session_directory::info`）。 */
+export interface KernelSessionSummary {
+  sessionId: string;
+  title: string;
+  mode?: string;
+  status?: string;
+  sessionKind?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  workspace?: { workspacePath?: string; workspaceKey?: string };
+  parentSessionId?: string;
+  [key: string]: unknown;
+}
+
 export const KERNEL_METHODS = {
   sessionCreate: "session/create",
   sessionSend: "session/send",
   sessionMessages: "session/messages",
+  sessionList: "session/list",
+  sessionResume: "session/resume",
   requestRuntimePreferences: "session/requestRuntimePreferences",
 } as const;

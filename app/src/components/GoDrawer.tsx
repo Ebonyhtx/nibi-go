@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Dot, Icon } from "./Icon";
 import type { PetStateId } from "./PetView";
 import { PET_STATE } from "./petStates";
+import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 import { radius, space, useNibiTheme } from "../theme";
 
 export interface NavProps {
@@ -40,6 +41,21 @@ export interface NavProps {
   onNavigate?: () => void;
   /** 桌面端在线设备数（0 = 未登录 / 无在线）。 */
   onlineDevices?: number;
+  /** 本机会话列表（session/list）；空数组显示空态。 */
+  sessions?: readonly KernelSessionSummary[];
+  activeSessionId?: string | null;
+  onOpenSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
+}
+
+function sessionTime(ms: number | undefined): string {
+  if (typeof ms !== "number" || ms <= 0) return "";
+  const date = new Date(ms);
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay
+    ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+    : `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 /**
@@ -59,6 +75,10 @@ export function GoNavContent({
   insetBottom = 0,
   onNavigate,
   onlineDevices = 0,
+  sessions = [],
+  activeSessionId = null,
+  onOpenSession,
+  onNewSession,
 }: NavProps) {
   const t = useNibiTheme();
   const router = useRouter();
@@ -74,7 +94,10 @@ export function GoNavContent({
         <Pressable
           style={[styles.newChat, { backgroundColor: t.panel }]}
           accessibilityRole="button"
-          onPress={onNavigate}
+          onPress={() => {
+            onNewSession?.();
+            onNavigate?.();
+          }}
         >
           <Icon name="plus" size={12} color={t.inkSub} />
           <Text style={[styles.newChatText, { color: t.inkSub }]}>新对话</Text>
@@ -87,11 +110,38 @@ export function GoNavContent({
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-          {suspended
-            ? "还没有对话。本机内核 Phase C 挂起中。"
-            : "还没有对话。点右上角铅笔开始新对话。"}
-        </Text>
+        {sessions.length === 0 ? (
+          <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+            {suspended
+              ? "还没有对话。本机内核 Phase C 挂起中。"
+              : "还没有对话。点右上角铅笔开始新对话。"}
+          </Text>
+        ) : (
+          sessions.map((session) => {
+            const active = session.sessionId === activeSessionId;
+            return (
+              <Pressable
+                key={session.sessionId}
+                onPress={() => {
+                  onOpenSession?.(session.sessionId);
+                  onNavigate?.();
+                }}
+                style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
+                accessibilityRole="button"
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
+                >
+                  {session.title || "新对话"}
+                </Text>
+                <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
+                  {sessionTime(session.updatedAt ?? session.createdAt)}
+                </Text>
+              </Pressable>
+            );
+          })
+        )}
       </ScrollView>
 
       {/* 底部工具条：本机状态 / 位置切换 / 设置 */}
@@ -134,11 +184,19 @@ export function GoDrawer({
   onClose,
   petState,
   onlineDevices,
+  sessions,
+  activeSessionId,
+  onOpenSession,
+  onNewSession,
 }: {
   open: boolean;
   onClose: () => void;
   petState?: PetStateId;
   onlineDevices?: number;
+  sessions?: readonly KernelSessionSummary[];
+  activeSessionId?: string | null;
+  onOpenSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
 }) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
@@ -182,6 +240,10 @@ export function GoDrawer({
           insetBottom={insets.bottom}
           onNavigate={onClose}
           onlineDevices={onlineDevices}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onOpenSession={onOpenSession}
+          onNewSession={onNewSession}
         />
       </Animated.View>
     </View>
@@ -192,9 +254,17 @@ export function GoDrawer({
 export function GoSidebar({
   petState,
   onlineDevices,
+  sessions,
+  activeSessionId,
+  onOpenSession,
+  onNewSession,
 }: {
   petState?: PetStateId;
   onlineDevices?: number;
+  sessions?: readonly KernelSessionSummary[];
+  activeSessionId?: string | null;
+  onOpenSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -210,6 +280,10 @@ export function GoSidebar({
         insetTop={insets.top}
         insetBottom={insets.bottom + space(2)}
         onlineDevices={onlineDevices}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onOpenSession={onOpenSession}
+        onNewSession={onNewSession}
       />
     </View>
   );
@@ -304,6 +378,17 @@ const styles = StyleSheet.create({
   searchText: { fontSize: 12.5 },
   scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
   emptyText: { fontSize: 12, lineHeight: 19, paddingTop: space(2) },
+  sessionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+    borderRadius: radius.control,
+    marginBottom: 2,
+  },
+  sessionTitle: { flex: 1, fontSize: 12.5, fontWeight: "600" },
+  sessionTime: { fontSize: 10.5 },
   foot: {
     flexDirection: "row",
     alignItems: "center",
