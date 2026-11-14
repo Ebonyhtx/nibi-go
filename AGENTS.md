@@ -1,14 +1,15 @@
 # AGENTS.md — NIBI-GO 开发规则
 
-> **工作区位置（2026-11-12 起）**：本仓库与 nibi-client 检出平级放在同一个工作区目录下。
-> 需要看内核代码、协议 schema 或处理票据时，直接读同级的 nibi-client 检出，不要在本仓再养一份参考克隆。
+> **仓库位置**：本仓是独立的公开移动客户端仓库；内核真源是上游 nibi-client 仓，由维护者在
+> 本仓之外另行检出。需要看内核代码、协议 schema 或处理票据时，直接读该上游检出，不要在本仓
+> 再养一份参考克隆。
 
 NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGENT，NIBI-WORK 是主体内的远控入口**。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`（权威索引 `ADR-INDEX.md`），调研底稿见 `docs/research/`。
 
 ## 仓库定位与边界
 
 - 本仓只含 **App 侧代码**（RN/Expo 壳、纯 TS 协议层、Kotlin 原生模块）。
-- **Rust 内核不属于本仓**：内核真源在 `nibi-client/kernel/`（自包含、独立 npm 分发 `@nibi-studio/cli-*`）。本仓通过**锁定的 npm 平台包**消费内核（D17 单向消费），不 fork、不开长期分支、不养 Rust 构建链（`modules/kernel-host/rust/` 仅存放 JNI 薄层的构建脚本，内核本体版本由 lockfile 锁定）。
+- **Rust 内核不属于本仓**：内核真源在上游 nibi-client 仓的 `kernel/` 目录（自包含、独立 npm 分发 `@nibi-studio/cli-*`）。本仓通过**锁定的 npm 平台包**消费内核（D17 单向消费），不 fork、不开长期分支、不养 Rust 构建链（`app/modules/kernel-host/` 只放 JNI 薄层与构建期产物校验；内核本体版本由 `scripts/android-kernel/pin.json` + lockfile 锁定）。
 - **GO 插件生态与桌面插件体系彻底隔离**（D13）：本仓的市场、manifest、原生 UI 协议（nibi-go-native-ui）不引用桌面体系任何内容。WORK 形态的桌面插件管理是投影（IPluginManagementService 手机合同），不算耦合。
 
 ## 目录契约
@@ -19,9 +20,9 @@ NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGE
 | `packages/relay-client/` | Relay V2 terminal 客户端（纯 TS，无 UI） | 禁止 import react-native 任何内容（保 Node 可测 + 跨平台保险 D11） |
 | `packages/chat-core/` | 聊天状态机（V4 事件 reducer、replay、审批状态机，纯 TS） | 同上；这是 UI 框架可替换的退出保险（D12 反思条款） |
 | `packages/phone-tools/` | 手机工具面 TS 接口 + 平台适配器注册 | **多平台适配器设计**（D11）：接口层不得出现 Android 专属类型 |
-| `modules/kernel-host/` | 模块 C 的内核绑定（JNI 薄层 + 构建脚本） | 不修改内核源码；内核变更走 nibi-client 票据（D17） |
+| `app/modules/kernel-host/` | 模块 C 的内核绑定（Expo 模块 + C JNI 薄层 + 构建期产物校验） | 不修改内核源码；内核变更走 nibi-client 票据（D17）；`android/prebuilt/` 不入库 |
 | `docs/decisions/` | 架构决策记录（D1–D19 编号制，权威索引 `ADR-INDEX.md`） | 决策变更须新文件记录，不覆写历史决策 |
-| `reference/`（已移出仓库） | 本地参考克隆曾放这里；2026-11-12 起归档到工作区 `.artifacts/go-reference-archive/`（dsh-Go / 旧 nibi-client 副本），不再随仓 | **不编译、不执行、不参与本仓构建**；nibi-client 真源是同级检出 |
+| `reference/`（不在本仓） | 本仓不保存参考克隆；上游 nibi-client 与 dsh-Go 参考由维护者在仓库之外另行检出 | **不编译、不执行、不参与本仓构建**；内核变更走上游 nibi-client 票据（D17） |
 
 ## 硬规则
 
@@ -40,7 +41,7 @@ NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGE
 ### 双形态纪律（D2/D13）
 
 7. 两形态的会话、插件、市场互不引用；WORK 形态只做投影，GO 形态只认 GO 生态。
-8. 手机工具面（`phone-tools`）是 App 原生能力，接口按多平台适配器设计；Android 实现放 `modules/`，接口层零 Android 类型。
+8. 手机工具面（`phone-tools`）是 App 原生能力，接口按多平台适配器设计；Android 实现放 `app/modules/`，接口层零 Android 类型。
 9. 用户数据不越形态：GO 形态数据不出机（沙箱第 1 层），插件依赖不逃出插件目录。
 
 ### 验证纪律
