@@ -132,6 +132,20 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 | C1 GO 形态 UI | 独立 UI（非 PWA）：会话/聊天/设置接进程内内核 |
 | C2 GO 插件生态 | nibi-go-market 仓 + plugin-kit（SDK 四件套）+ Node Plugin Runtime + native-ui v1 + 用户自开发链路 |
 
+**C0 进展（2026-11-15）**
+
+- 产物消费链：`scripts/android-kernel/fetch.mjs` 按 `pin.json`（当前 `4.1.0`）从 npm 平台包拉取，
+  逐项校验 `build.json.artifacts` 的 sha256、ELF64/AArch64/shared object、`.note.android.ident`
+  的 API ≤ minSdk(24)，fail-closed；落盘到 `app/modules/kernel-host/android/prebuilt/`（gitignore）。
+- JNI 薄层：`app/modules/kernel-host`（Expo 本地模块 + C shim + CMake），暴露
+  `abiVersion/start/send/stop/destroy`；输出在内核线程回调、按 LF 切帧后转 UTF-8 行；
+  `start` 前由模块 `setenv`（HOME / NIBI_DATA_BASE_DIR / TMPDIR → App 私有目录）。
+- 冒烟入口 `nibigo://kernel-smoke`：模块可用性、C ABI 版本、start/stop/destroy 结果与内核输出。
+- 已验证（本机）：arm64 debug APK 打包含 `libnibi.so` / `libc++_shared.so` / `libnibi_kernel_jni.so`，
+  模块进入 `ExpoModulesPackageList`；`fetch --check` 可复验落盘产物。
+- **未验证**：真机 dlopen 与内核启动（当前无 arm64 设备）；协议初始化帧、前台服务、panic 看门狗、
+  iroh NDK、busybox/git 三件套与会话库都还没做。
+
 ---
 
 ## 4. 与主线的同步协议（D17 执行细则）

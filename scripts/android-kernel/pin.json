@@ -1,0 +1,7 @@
+{
+  "package": "@nibi-studio/cli-android-arm64",
+  "version": "4.1.0",
+  "target": "aarch64-linux-android",
+  "abi": "arm64-v8a",
+  "maxAndroidApiLevel": 24
+}

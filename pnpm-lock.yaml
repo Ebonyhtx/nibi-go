@@ -68,6 +68,9 @@ importers:
       nibi-keepalive:
         specifier: workspace:*
         version: link:modules/nibi-keepalive
+      nibi-kernel-host:
+        specifier: workspace:*
+        version: link:modules/kernel-host
       nibi-updater:
         specifier: workspace:*
         version: link:modules/nibi-updater
@@ -96,6 +99,8 @@ importers:
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(vite@7.3.8(@types/node@26.6.6)(lightningcss@1.33.0)(terser@5.51.2))
+
+  app/modules/kernel-host: {}
 
   app/modules/nibi-keepalive: {}
 

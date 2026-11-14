@@ -29,6 +29,7 @@
     "expo-status-bar": "~58.0.4",
     "expo-web-browser": "~58.0.7",
     "nibi-keepalive": "workspace:*",
+    "nibi-kernel-host": "workspace:*",
     "nibi-updater": "workspace:*",
     "react": "19.3.0",
     "react-native": "0.88.1",

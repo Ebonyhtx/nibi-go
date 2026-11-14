@@ -1,0 +1,8 @@
+{
+  "name": "nibi-kernel-host",
+  "version": "0.1.0",
+  "description": "NIBI-GO Phase C：进程内 libnibi.so 的 JNI 薄层（内核本体从 npm 平台包消费，D17/D19）",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}

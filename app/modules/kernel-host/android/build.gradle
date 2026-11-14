@@ -1,0 +1,34 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.nibikernelhost'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.nibikernelhost"
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    // 内核产物目前只有 arm64-v8a（D19）；其它 ABI 不构建 JNI 薄层，JS 侧按不可用降级。
+    ndk {
+      abiFilters "arm64-v8a"
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path "src/main/cpp/CMakeLists.txt"
+      version "3.31.4"
+    }
+  }
+
+  sourceSets {
+    main {
+      // 由 scripts/android-kernel/fetch.mjs 按 build.json.artifacts 校验后落盘（不入库）。
+      jniLibs.srcDirs += ["$projectDir/prebuilt/jniLibs"]
+    }
+  }
+}
