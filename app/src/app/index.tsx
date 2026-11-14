@@ -7,16 +7,25 @@
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
-import { router } from "expo-router";
 import { useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import {
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ConversationList } from "../components/ConversationList";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PET_STATE } from "../components/petStates";
+import { useKernelConversation } from "../kernel/useKernelConversation";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
 import { radius, space, type as t, useNibiTheme } from "../theme";
 
@@ -28,6 +37,9 @@ export default function GoHomeScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const layout = resolveAdaptiveLayout({ width, height, sidebarOpen });
+  // 首页即会话（D2）：内核会话与消息流直接挂在这页。
+  const conversation = useKernelConversation();
+  const [draft, setDraft] = useState("");
   // C0 已就绪：空闲时用 idle，不再一律睡着的鸟（内核能跑，但还没接线到本页的活动）。
   // dev 下点宠物可循环九个状态，用来核对切换与过渡（发布构建不生效）。
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
@@ -136,7 +148,9 @@ export default function GoHomeScreen() {
                     </Text>
                     <View style={styles.chipStatus}>
                       <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
-                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>本机 · 就绪</Text>
+                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>
+                        本机 · {conversation.turn === "running" ? "思考中" : conversation.status}
+                      </Text>
                     </View>
                   </View>
                   <Icon name="chevron-down" size={13} color={th.inkFaint} />
@@ -152,35 +166,42 @@ export default function GoHomeScreen() {
                 <Pressable
                   style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
                   accessibilityLabel="新建对话"
-                  onPress={() => router.push("/go-chat")}
+                  onPress={() => {
+                    setDraft("");
+                    void conversation.newSession();
+                  }}
                 >
                   <Icon name="pen" size={17} color={th.ink} />
                 </Pressable>
               </View>
             </View>
 
-            {/* 正文区：Phase C 挂起时空态说明；将来这里是消息流 */}
-            <View style={[styles.stage, layout.landscapeCompact && styles.stageLandscape]}>
-              <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
-                <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 已就绪</Text>
-                <Text style={[styles.stageSub, { color: th.inkSub }]}>
-                  内核在本机运行。开始一段新对话，直接跟它说话、派任务。
-                </Text>
-                <View style={styles.stageChips}>
-                  <View style={[styles.badge, { backgroundColor: th.panel }]}>
-                    <Text style={[styles.badgeText, { color: th.inkFaint }]}>数据不出机</Text>
-                  </View>
-                  <View style={[styles.badge, { backgroundColor: th.steelSoft }]}>
-                    <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
+            {/* 正文区：有消息就是会话流；没有消息才是空态说明（会话即首页）。 */}
+            <View
+              style={[
+                styles.stage,
+                conversation.rows.length > 0 && styles.stageList,
+                layout.landscapeCompact && styles.stageLandscape,
+              ]}
+            >
+              {conversation.rows.length > 0 ? (
+                <ConversationList rows={conversation.rows} />
+              ) : (
+                <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
+                  <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 已就绪</Text>
+                  <Text style={[styles.stageSub, { color: th.inkSub }]}>
+                    内核在本机运行。直接在下方输入，跟它说话、派任务。
+                  </Text>
+                  <View style={styles.stageChips}>
+                    <View style={[styles.badge, { backgroundColor: th.panel }]}>
+                      <Text style={[styles.badgeText, { color: th.inkFaint }]}>数据不出机</Text>
+                    </View>
+                    <View style={[styles.badge, { backgroundColor: th.steelSoft }]}>
+                      <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
+                    </View>
                   </View>
                 </View>
-                <Pressable
-                  onPress={() => router.push("/go-chat")}
-                  style={[styles.startCta, { backgroundColor: th.brand }]}
-                >
-                  <Text style={[styles.startCtaText, { color: th.brandFg }]}>开始新对话</Text>
-                </Pressable>
-              </View>
+              )}
             </View>
 
             {/* 宠物：固定在输入栏正上方（dsh-Go 位置），有会话时也不占正文 */}
@@ -203,12 +224,43 @@ export default function GoHomeScreen() {
               <View style={[styles.plus, { backgroundColor: th.panel }]}>
                 <Icon name="plus" size={13} color={th.inkSub} />
               </View>
-              <Text style={[styles.placeholder, { color: th.inkFaint }]} numberOfLines={1}>
-                给 NIBI 发消息…
-              </Text>
-              <View style={[styles.send, { backgroundColor: th.brand, opacity: 0.4 }]}>
+              <TextInput
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="给 NIBI 发消息…"
+                placeholderTextColor={th.inkFaint}
+                style={[styles.composerInput, { color: th.ink }]}
+                returnKeyType="send"
+                editable={conversation.ready}
+                onSubmitEditing={() => {
+                  const text = draft;
+                  setDraft("");
+                  void conversation.send(text);
+                }}
+              />
+              <Pressable
+                accessibilityLabel="发送"
+                disabled={
+                  !conversation.ready || conversation.sending || draft.trim().length === 0
+                }
+                onPress={() => {
+                  const text = draft;
+                  setDraft("");
+                  void conversation.send(text);
+                }}
+                style={[
+                  styles.send,
+                  {
+                    backgroundColor: th.brand,
+                    opacity:
+                      !conversation.ready || conversation.sending || draft.trim().length === 0
+                        ? 0.4
+                        : 1,
+                  },
+                ]}
+              >
                 <Icon name="arrow-up" size={16} color={th.brandFg} />
-              </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -275,6 +327,7 @@ const styles = StyleSheet.create({
   },
   modelText: { fontSize: 11.5, fontWeight: "600" },
   stage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space(4) },
+  stageList: { alignItems: "stretch", justifyContent: "flex-start", paddingHorizontal: 0 },
   stageLandscape: { justifyContent: "flex-start", paddingTop: space(3) },
   stageText: { alignItems: "center", gap: space(2) },
   stageTextLandscape: { alignItems: "center", maxWidth: 460, gap: space(1) },
@@ -309,6 +362,6 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   plus: { width: 32, height: 32, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
-  placeholder: { flex: 1, fontSize: 14 },
+  composerInput: { flex: 1, fontSize: 14, paddingVertical: space(1) },
   send: { width: 38, height: 38, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
 });
