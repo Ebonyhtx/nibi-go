@@ -1,0 +1,224 @@
+import {
+  KERNEL_METHODS,
+  type KernelMessage,
+  type KernelNotification,
+  type KernelSessionCreateResult,
+  type KernelTransport,
+  type KernelWorkspaceRef,
+} from "./protocol";
+
+/** 内核返回的 JSON-RPC 错误（例如 `-32601 Method not found`）。 */
+export class KernelProtocolError extends Error {
+  readonly code: number;
+
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "KernelProtocolError";
+    this.code = code;
+  }
+}
+
+export interface KernelSessionClientOptions {
+  transport: KernelTransport;
+  /** 单次请求超时，默认 30 s（建会话/首轮模型请求都可能慢）。 */
+  requestTimeoutMs?: number;
+  /**
+   * 内核建会话时会反向请求运行期偏好（`session/requestRuntimePreferences`），
+   * 这里的返回值就是给它的 result。默认最小可用集合；产品侧按设置页填全。
+   */
+  runtimePreferences?: (scope: string) => Record<string, unknown>;
+}
+
+interface IncomingFrame {
+  id?: unknown;
+  method?: unknown;
+  params?: unknown;
+  result?: unknown;
+  error?: { code?: unknown; message?: unknown };
+}
+
+interface PendingRequest {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * 进程内内核的会话客户端（纯 TS，Node 可测；不依赖 react-native）。
+ *
+ * 只负责协议：请求/应答配对、内核反向请求的应答、通知转发。
+ * UI 状态（行模型、reducer）是上一层的事。
+ */
+export class KernelSessionClient {
+  private readonly transport: KernelTransport;
+  private readonly requestTimeoutMs: number;
+  private readonly runtimePreferences: (scope: string) => Record<string, unknown>;
+  private readonly pending = new Map<number, PendingRequest>();
+  private readonly listeners = new Set<(notification: KernelNotification) => void>();
+  private readonly offLine: () => void;
+  private nextId = 1;
+  private sessionId: string | null = null;
+  private closed = false;
+
+  constructor(options: KernelSessionClientOptions) {
+    this.transport = options.transport;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.runtimePreferences =
+      options.runtimePreferences ?? (() => ({ nativeSearchEnhancementsEnabled: false }));
+    this.offLine = this.transport.onLine((line) => this.handleLine(line));
+  }
+
+  get currentSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  /** 订阅内核通知（`v4/telemetry/event`、`computer-use/operation-event` 等）。 */
+  onNotification(listener: (notification: KernelNotification) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** 发一条请求并等对应 result；内核回 error 或超时会 reject。 */
+  request<T = unknown>(method: string, params: unknown): Promise<T> {
+    if (this.closed) return Promise.reject(new Error("内核会话客户端已关闭"));
+    const id = this.nextId++;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`内核请求超时：${method}`));
+      }, this.requestTimeoutMs);
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timer,
+      });
+      const sent = this.transport.sendLine(JSON.stringify({ id, method, params }));
+      if (!sent) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new Error(`内核输入通道不可用：${method}`));
+      }
+    });
+  }
+
+  /** 建会话；成功后记住 sessionId。 */
+  async createSession(workspace: KernelWorkspaceRef): Promise<KernelSessionCreateResult> {
+    const result = await this.request<KernelSessionCreateResult>(KERNEL_METHODS.sessionCreate, {
+      workspace,
+    });
+    const id = result?.session?.sessionId;
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error("session/create 没有返回 sessionId");
+    }
+    this.sessionId = id;
+    return { ...result, sessionId: id };
+  }
+
+  /** 发一条用户提示（`session/send`）。 */
+  async sendPrompt(
+    content: string,
+    extra?: Record<string, unknown>,
+  ): Promise<{ accepted: boolean; stateRevision?: number }> {
+    const sessionId = this.requireSessionId();
+    const result = await this.request<{ accepted?: unknown; stateRevision?: unknown }>(
+      KERNEL_METHODS.sessionSend,
+      { sessionId, content, ...extra },
+    );
+    return {
+      accepted: result?.accepted === true,
+      stateRevision: typeof result?.stateRevision === "number" ? result.stateRevision : undefined,
+    };
+  }
+
+  /** 读会话消息（`session/messages`；增量用 `afterMessageId`）。 */
+  async readMessages(options?: {
+    afterMessageId?: string;
+    limit?: number;
+  }): Promise<KernelMessage[]> {
+    const sessionId = this.requireSessionId();
+    const result = await this.request<{ messages?: unknown }>(KERNEL_METHODS.sessionMessages, {
+      sessionId,
+      ...(options?.afterMessageId ? { afterMessageId: options.afterMessageId } : {}),
+      ...(options?.limit === undefined ? {} : { limit: options.limit }),
+    });
+    return Array.isArray(result?.messages) ? (result.messages as KernelMessage[]) : [];
+  }
+
+  /** 停止监听；未完成的请求一律 reject。 */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.offLine();
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("内核会话客户端已关闭"));
+      this.pending.delete(id);
+    }
+    this.listeners.clear();
+  }
+
+  private requireSessionId(): string {
+    if (!this.sessionId) throw new Error("还没有会话：先 createSession()");
+    return this.sessionId;
+  }
+
+  private handleLine(line: string): void {
+    let frame: IncomingFrame;
+    try {
+      frame = JSON.parse(line) as IncomingFrame;
+    } catch {
+      return; // 非 JSON 行（启动期诊断）不参与协议。
+    }
+    if (!frame || typeof frame !== "object") return;
+
+    // 我们对内核的请求：数字 id。
+    if (typeof frame.id === "number" && this.pending.has(frame.id)) {
+      this.settle(frame.id, frame);
+      return;
+    }
+
+    // 内核对我们的请求：字符串 id（如 "rs-1"）。
+    if (typeof frame.id === "string" && typeof frame.method === "string") {
+      this.answerRequest(frame.id, frame.method, frame.params);
+      return;
+    }
+
+    // 通知帧：只有 method。
+    if (typeof frame.method === "string") {
+      const notification: KernelNotification = { method: frame.method };
+      if (frame.params !== undefined) notification.params = frame.params;
+      for (const listener of this.listeners) listener(notification);
+    }
+  }
+
+  private settle(id: number, frame: IncomingFrame): void {
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    const error = frame.error;
+    if (error && typeof error === "object") {
+      const code = typeof error.code === "number" ? error.code : -32603;
+      const message = typeof error.message === "string" ? error.message : "内核请求失败";
+      pending.reject(new KernelProtocolError(code, message));
+      return;
+    }
+    pending.resolve(frame.result);
+  }
+
+  private answerRequest(id: string, method: string, params: unknown): void {
+    if (method === KERNEL_METHODS.requestRuntimePreferences) {
+      const scope =
+        params && typeof params === "object" && typeof (params as { scope?: unknown }).scope === "string"
+          ? (params as { scope: string }).scope
+          : "";
+      this.transport.sendLine(JSON.stringify({ id, result: this.runtimePreferences(scope) }));
+      return;
+    }
+    this.transport.sendLine(
+      JSON.stringify({ id, error: { code: -32601, message: `Method not found: ${method}` } }),
+    );
+  }
+}
