@@ -87,11 +87,11 @@ export function GoNavContent({
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {suspended ? (
-          <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-            还没有对话。本机内核 Phase C 挂起中。
-          </Text>
-        ) : null}
+        <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+          {suspended
+            ? "还没有对话。本机内核 Phase C 挂起中。"
+            : "还没有对话。点右上角铅笔开始新对话。"}
+        </Text>
       </ScrollView>
 
       {/* 底部工具条：本机状态 / 位置切换 / 设置 */}

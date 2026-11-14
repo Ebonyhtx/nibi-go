@@ -6,7 +6,8 @@
 //
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
-// Phase C 挂起：空态文案 + 睡着的鸟 + 灰态输入栏，如实标注。
+// Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
+import { router } from "expo-router";
 import { useMemo, useRef, useState } from "react";
 import { PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,10 +28,10 @@ export default function GoHomeScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const layout = resolveAdaptiveLayout({ width, height, sidebarOpen });
-  // Phase C 挂起：AGENT 无活可干 → 睡着的鸟。
+  // C0 已就绪：空闲时用 idle，不再一律睡着的鸟（内核能跑，但还没接线到本页的活动）。
   // dev 下点宠物可循环九个状态，用来核对切换与过渡（发布构建不生效）。
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
-  const petState = previewState ?? PET_STATE.sleeping;
+  const petState = previewState ?? PET_STATE.idle;
   const cyclePetState = () => {
     if (!__DEV__) return;
     const ids = Object.values(PET_STATE);
@@ -135,7 +136,7 @@ export default function GoHomeScreen() {
                     </Text>
                     <View style={styles.chipStatus}>
                       <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
-                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>本机 · 挂起</Text>
+                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>本机 · 就绪</Text>
                     </View>
                   </View>
                   <Icon name="chevron-down" size={13} color={th.inkFaint} />
@@ -149,10 +150,11 @@ export default function GoHomeScreen() {
                 </View>
 
                 <Pressable
-                  style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder, opacity: 0.5 }]}
+                  style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
                   accessibilityLabel="新建对话"
+                  onPress={() => router.push("/go-chat")}
                 >
-                  <Icon name="pen" size={17} color={th.inkFaint} />
+                  <Icon name="pen" size={17} color={th.ink} />
                 </Pressable>
               </View>
             </View>
@@ -160,9 +162,9 @@ export default function GoHomeScreen() {
             {/* 正文区：Phase C 挂起时空态说明；将来这里是消息流 */}
             <View style={[styles.stage, layout.landscapeCompact && styles.stageLandscape]}>
               <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
-                <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 还在装修</Text>
+                <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 已就绪</Text>
                 <Text style={[styles.stageSub, { color: th.inkSub }]}>
-                  内核 Phase C 挂起中。启动后，在这里直接跟它说话、派任务、收文件。
+                  内核在本机运行。开始一段新对话，直接跟它说话、派任务。
                 </Text>
                 <View style={styles.stageChips}>
                   <View style={[styles.badge, { backgroundColor: th.panel }]}>
@@ -172,6 +174,12 @@ export default function GoHomeScreen() {
                     <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
                   </View>
                 </View>
+                <Pressable
+                  onPress={() => router.push("/go-chat")}
+                  style={[styles.startCta, { backgroundColor: th.brand }]}
+                >
+                  <Text style={[styles.startCtaText, { color: th.brandFg }]}>开始新对话</Text>
+                </Pressable>
               </View>
             </View>
 
@@ -275,6 +283,14 @@ const styles = StyleSheet.create({
   stageChips: { flexDirection: "row", gap: space(2), marginTop: space(1) },
   badge: { paddingHorizontal: space(3), paddingVertical: 4, borderRadius: radius.chip },
   badgeText: { fontSize: 11, fontWeight: "600" },
+  startCta: {
+    marginTop: space(3),
+    borderRadius: radius.control,
+    paddingHorizontal: space(6),
+    paddingVertical: space(3),
+    alignSelf: "center",
+  },
+  startCtaText: { fontSize: 14, fontWeight: "700" },
   petDock: { alignItems: "center", paddingBottom: space(1) },
   composer: {
     flexDirection: "row",
