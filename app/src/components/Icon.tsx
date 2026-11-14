@@ -17,7 +17,8 @@ export type IconName =
   | "search"
   | "pen"
   | "shield"
-  | "question";
+  | "question"
+  | "x";
 
 export interface IconProps {
   name: IconName;
@@ -77,6 +78,8 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
             <Circle cx={11} cy={11} r={6.2} {...ring} />
             <Path path="M15.6 15.6L20 20" {...paint} />
           </>
+        ) : name === "x" ? (
+          <Path path="M6.5 6.5L17.5 17.5M17.5 6.5L6.5 17.5" {...paint} />
         ) : name === "shield" ? (
           <Path path="M12 3.2L19 6V11.4C19 15.8 16 19 12 20.8C8 19 5 15.8 5 11.4V6Z" {...paint} />
         ) : name === "question" ? (
