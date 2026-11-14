@@ -12,7 +12,7 @@
 //   5. 位置：GO 的双形态落地点——本机 AGENT（当前）与桌面电脑（可立即用）
 //   6. 更多：插件市场（D13 独立生态）、设置
 // 底栏不重复"本机"（状态卡已说），改为版本标识。
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -20,6 +20,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -31,6 +32,7 @@ import type { PetStateId } from "./PetView";
 import { PET_STATE } from "./petStates";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 import { radius, space, useNibiTheme } from "../theme";
+import { filterSessionsByTitle, groupSessionsByDay } from "./sessionGroups";
 
 export interface NavProps {
   /** 底栏展示的本机状态（挂起期固定 sleeping）。 */
@@ -83,6 +85,11 @@ export function GoNavContent({
   const t = useNibiTheme();
   const router = useRouter();
   const suspended = petState === PET_STATE.sleeping;
+  const [search, setSearch] = useState("");
+  const groups = useMemo(
+    () => groupSessionsByDay(filterSessionsByTitle(sessions, search)),
+    [sessions, search],
+  );
 
   return (
     <>
@@ -106,41 +113,71 @@ export function GoNavContent({
 
       <View style={[styles.search, { backgroundColor: t.panel }]}>
         <Icon name="search" size={13} color={t.inkFaint} />
-        <Text style={[styles.searchText, { color: t.inkFaint }]}>搜索对话</Text>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="搜索对话"
+          placeholderTextColor={t.inkFaint}
+          style={[styles.searchInput, { color: t.ink }]}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {search.length > 0 ? (
+          <Pressable
+            onPress={() => setSearch("")}
+            accessibilityRole="button"
+            accessibilityLabel="清除搜索"
+            hitSlop={8}
+          >
+            <Icon name="x" size={13} color={t.inkFaint} />
+          </Pressable>
+        ) : null}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {sessions.length === 0 ? (
           <Text style={[styles.emptyText, { color: t.inkFaint }]}>
             {suspended
               ? "还没有对话。本机内核 Phase C 挂起中。"
               : "还没有对话。点右上角铅笔开始新对话。"}
           </Text>
+        ) : groups.length === 0 ? (
+          <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
         ) : (
-          sessions.map((session) => {
-            const active = session.sessionId === activeSessionId;
-            return (
-              <Pressable
-                key={session.sessionId}
-                onPress={() => {
-                  onOpenSession?.(session.sessionId);
-                  onNavigate?.();
-                }}
-                style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
-                accessibilityRole="button"
-              >
-                <Text
-                  numberOfLines={1}
-                  style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
-                >
-                  {session.title || "新对话"}
-                </Text>
-                <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
-                  {sessionTime(session.updatedAt ?? session.createdAt)}
-                </Text>
-              </Pressable>
-            );
-          })
+          groups.map((group) => (
+            <View key={group.day}>
+              <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
+              {group.items.map((session) => {
+                const active = session.sessionId === activeSessionId;
+                return (
+                  <Pressable
+                    key={session.sessionId}
+                    onPress={() => {
+                      onOpenSession?.(session.sessionId);
+                      onNavigate?.();
+                    }}
+                    style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
+                    accessibilityRole="button"
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
+                    >
+                      {session.title || "新对话"}
+                    </Text>
+                    <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
+                      {sessionTime(session.updatedAt ?? session.createdAt)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))
         )}
       </ScrollView>
 
@@ -375,9 +412,17 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 12,
   },
-  searchText: { fontSize: 12.5 },
+  searchInput: { flex: 1, fontSize: 12.5, padding: 0 },
   scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
   emptyText: { fontSize: 12, lineHeight: 19, paddingTop: space(2) },
+  groupLabel: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    paddingHorizontal: space(2.5),
+    paddingTop: space(2),
+    paddingBottom: 2,
+  },
   sessionRow: {
     flexDirection: "row",
     alignItems: "center",
