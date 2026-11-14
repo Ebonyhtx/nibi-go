@@ -151,7 +151,11 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 真机暴露并已修的两个缺陷：JNI 回调签名不匹配（Kotlin Sink 用 `ByteArray` 而非 `String`，
   原先 `GetMethodID` 抛 `NoSuchMethodError` 导致进程 abort）；`libnibi.so` 无 SONAME 时
   `DT_NEEDED` 会记成构建机绝对路径（改 `-L` + `-l` 后为 `libnibi.so`）。
-- **未做**：协议初始化帧（等 T8 解除 egress 致命错误后继续）、前台服务、panic 看门狗、
+- **T8 的 S1 已在真机验证**（上游 `feat/android-kernel`）：Android 平台根不可用时退内置
+  Mozilla 根，`storageState` 走到 `ready`、内核保持运行（D21/D22 见 ADR-INDEX）。
+- **16 KB 页对齐（D22）**：4.1.0 的 `libnibi.so` 实测 4 KB，不满足；上游分支已加
+  `-Wl,-z,max-page-size=16384`，GO 的 `fetch.mjs` 与本仓 JNI 薄层同步加断言/链接参数。
+- **未做**：协议初始化帧（等内核带 16 KB 的新包）、前台服务、panic 看门狗、
   iroh NDK、busybox/git 三件套与会话库。
 
 ---

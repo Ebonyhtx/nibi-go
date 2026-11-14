@@ -23,7 +23,14 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
-import { parseElfIdentity, readAndroidAbiLevel, REQUIRED_KINDS, sha256Hex, verifyBuildJson } from "./lib.mjs";
+import {
+  elfLoadAlignment,
+  parseElfIdentity,
+  readAndroidAbiLevel,
+  REQUIRED_KINDS,
+  sha256Hex,
+  verifyBuildJson,
+} from "./lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const PIN_PATH = join(ROOT, "scripts/android-kernel/pin.json");
@@ -190,7 +197,16 @@ async function main() {
             `${entry.path} 目标 API ${apiLevel} 高于 App minSdk ${pin.maxAndroidApiLevel}，在低版本设备上可能 dlopen 失败`,
           );
         }
-        console.log(`[android-kernel] cdylib 目标 API ${apiLevel}（App minSdk ${pin.maxAndroidApiLevel}）`);
+        const loadAlign = elfLoadAlignment(bytes);
+        if (loadAlign < pin.minPageAlign) {
+          throw new Error(
+            `${entry.path} 的 LOAD 段对齐 ${loadAlign} 小于 16 KB（${pin.minPageAlign}）：` +
+              `16 KB 页设备装不上，需要上游带 -Wl,-z,max-page-size=16384 重新构建`,
+          );
+        }
+        console.log(
+          `[android-kernel] cdylib 目标 API ${apiLevel}（App minSdk ${pin.maxAndroidApiLevel}），页对齐 0x${loadAlign.toString(16)}`,
+        );
       }
       console.log(`[android-kernel] ${kind}: ${entry.path} sha256 匹配`);
     }

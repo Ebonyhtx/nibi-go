@@ -24,7 +24,12 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 ```
 
 校验是 fail-closed：`build.json.artifacts` 逐项 sha256、ELF64/AArch64/shared object、
-`.note.android.ident` 的 API level ≤ App minSdk（24），任何一项不过就不落盘。
+`.note.android.ident` 的 API level ≤ App minSdk（24）、**ELF `LOAD` 段 16 KB 对齐**
+（`0x4000`，否则 16 KB 页设备装不上；D22），任何一项不过就不落盘。
+
+> 4.1.0 的 `libnibi.so` 实测是 4 KB 对齐，**不满足 D22**；在上游发 16 KB 的预发布/正式包之前，
+> `fetch.mjs` 会拒绝它。JNI 薄层自己的 `libnibi_kernel_jni.so` 由 CMake
+> `target_link_options` 对齐到 16 KB。
 
 > 注意：AGP 打包时会 strip `.so`，所以**APK 里的 libnibi.so 与落盘文件 sha256 不同**（实测
 > `956a865b…` → `0896c9c9…`）。校验只对「落盘前的包内原件」有意义，别拿 APK 内容去对

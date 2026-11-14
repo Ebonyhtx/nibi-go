@@ -144,6 +144,30 @@ export function readAndroidAbiLevel(bytes) {
   return null;
 }
 
+/**
+ * ELF 的 PT_LOAD 段最大对齐（16 KB 页设备要求 ≥ 0x4000）。
+ * @returns {number} 没有 LOAD 段时返回 0。
+ */
+export function elfLoadAlignment(bytes) {
+  if (!bytes || bytes.length < 64) return 0;
+  const view = viewOf(bytes);
+  if (u32(view, 0) !== 0x464c457f) return 0; // \x7fELF
+  if (bytes[4] !== 2) return 0; // 只支持 ELF64
+  const PT_LOAD = 1;
+  const phoff = u64(view, 32);
+  const phentsize = u16(view, 54);
+  const phnum = u16(view, 56);
+  let max = 0;
+  for (let i = 0; i < phnum; i++) {
+    const ph = phoff + i * phentsize;
+    if (ph + 56 > bytes.length) break;
+    if (u32(view, ph) !== PT_LOAD) continue;
+    const align = u64(view, ph + 48);
+    if (align > max) max = align;
+  }
+  return max;
+}
+
 function align4(value) {
   return (value + 3) & ~3;
 }
