@@ -104,6 +104,17 @@ export type ChatRow =
       toolCalls: number;
       tokens?: number;
       files?: { additions: number; deletions: number; files: number; reverted?: boolean };
+      /** 这一轮的过程已收进 process 行：脚注不再重复“已完成/工具数”。 */
+      folded?: boolean;
+    }
+  | {
+      /** 一轮正常结束后的过程摘要（dsh-Go TurnProcessRow）：点开才列出里面的行。 */
+      kind: "process";
+      key: string;
+      rows: ChatRow[];
+      toolCalls: number;
+      /** 收进来的、有正文的中间助手消息条数（最终回答不算）。 */
+      messages: number;
     }
   | {
       /** 权限审批（dsh-Go ApprovalRow）：放在会话末尾，等用户放行/拒绝。 */
@@ -300,6 +311,63 @@ function interactionRow(interaction: PendingInteraction): ChatRow {
 }
 
 /**
+ * 一轮正常结束后的折叠（dsh-Go `fold()`）：把过程收进一行，最终回答留在外面。
+ *
+ * 只折「有过程」的轮：工具调用 > 0，或中间助手消息 > 0。普通问答（一段思考 + 一段回答）
+ * 不折——思考本来就在同一张气泡里。最终回答取最后一条有正文的助手行；它的思考挪进过程。
+ * 轮里夹了用户消息（插话）时不折，保持时间顺序。
+ */
+function foldTurnRows(
+  rows: ChatRow[],
+  turnRowId: number,
+): { process: ChatRow; answer?: ChatRow } | null {
+  if (rows.some((row) => row.kind === "user")) return null;
+  let toolCalls = 0;
+  for (const row of rows) {
+    if (row.kind === "tool") toolCalls += 1;
+    else if (row.kind === "toolGroup") toolCalls += row.tools.length;
+  }
+  let answerIndex = -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row.kind === "assistant" && row.text.trim().length > 0) {
+      answerIndex = index;
+      break;
+    }
+  }
+  const processRows = rows.filter((_, index) => index !== answerIndex);
+  let answer: Extract<ChatRow, { kind: "assistant" }> | undefined;
+  if (answerIndex >= 0) {
+    const original = rows[answerIndex] as Extract<ChatRow, { kind: "assistant" }>;
+    if (original.reasoning.trim().length > 0) {
+      processRows.push({
+        kind: "assistant",
+        key: `${original.key}#r`,
+        text: "",
+        reasoning: original.reasoning,
+        streaming: false,
+        ...(original.model ? { model: original.model } : {}),
+      });
+    }
+    answer = { ...original, reasoning: "" };
+  }
+  const messages = processRows.filter(
+    (row) => row.kind === "assistant" && row.text.trim().length > 0,
+  ).length;
+  if (toolCalls === 0 && messages === 0) return null;
+  return {
+    process: {
+      kind: "process",
+      key: `tp${turnRowId}`,
+      rows: processRows,
+      toolCalls,
+      messages,
+    },
+    ...(answer ? { answer } : {}),
+  };
+}
+
+/**
  * 把快照的行窗口派生为 UI 行。
  *
  * 同一 `assistantResponseId` 的正文/推理/工具收成一个 assistant 行 + 其后的工具行
@@ -315,14 +383,32 @@ export function deriveRows(
     let group: AssistantGroup | null = null;
     let currentTurn: ProtocolTurnHeader | null = null;
     let turnToolCount = 0;
+    // 当前轮的行从 out 的哪个位置开始（关闭时整段取出，按需折叠）。
+    let turnStart: number | null = null;
+    // 轮头先于用户行到达：等这一轮的第一条用户行落位后再开始记轮范围，
+    // 否则折叠会把用户气泡卷进过程里。
+    let turnAwaitingUser = false;
 
     const closeTurn = () => {
       if (!currentTurn) return;
-      const footnote = turnFootnote(currentTurn);
-      if (footnote) {
-        out.push({ ...footnote, toolCalls: turnToolCount } as ChatRow);
-      }
+      const turn = currentTurn;
+      const rows = out.splice(turnStart ?? out.length);
       currentTurn = null;
+      turnStart = null;
+      turnAwaitingUser = false;
+      const footnote = turnFootnote(turn);
+      const folded =
+        footnote && turn.state === "completedSuccess" ? foldTurnRows(rows, turn.rowId) : null;
+      if (folded) {
+        out.push(folded.process);
+        if (folded.answer) out.push(folded.answer);
+        out.push({ ...footnote, toolCalls: turnToolCount, folded: true } as ChatRow);
+      } else {
+        out.push(...rows);
+        if (footnote) {
+          out.push({ ...footnote, toolCalls: turnToolCount } as ChatRow);
+        }
+      }
       turnToolCount = 0;
     };
 
@@ -374,6 +460,8 @@ export function deriveRows(
           flush();
           closeTurn();
           currentTurn = row as ProtocolTurnHeader;
+          turnStart = out.length;
+          turnAwaitingUser = true;
           break;
         }
         case "userInput": {
@@ -387,6 +475,11 @@ export function deriveRows(
               ? { createdAt: user.createdAt as unknown as number }
               : {}),
           });
+          // 这一轮的用户气泡落在轮头之后：轮范围从这里开始（气泡本身不进折叠）。
+          if (currentTurn && turnAwaitingUser) {
+            turnStart = out.length;
+            turnAwaitingUser = false;
+          }
           break;
         }
         case "assistantText": {

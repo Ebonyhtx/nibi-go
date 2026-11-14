@@ -4,10 +4,11 @@
 //   工具 = 一行式卡片（名称 + 状态 + 参数摘要）。
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
-import { type ComponentRef, useRef } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { type ComponentRef, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { radius, space, useNibiTheme } from "../theme";
+import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
 
 export function ConversationList({
@@ -141,7 +142,8 @@ export function ConversationList({
         if (row.kind === "turn") {
           const parts: string[] = [];
           if (row.durationMs !== undefined) parts.push(`用时 ${formatDuration(row.durationMs)}`);
-          if (row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
+          // 折叠后工具数已在过程摘要行里，脚注不再重复。
+          if (!row.folded && row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
           if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
           if (row.files) {
             parts.push(
@@ -151,16 +153,22 @@ export function ConversationList({
             );
           }
           const ok = row.state === "completedSuccess";
+          const stateLabel = row.folded ? "" : ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断";
           const files = turnChanges[row.key] ?? [];
           return (
             <View key={row.key} style={styles.turnBlock}>
               <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
-                {ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断"}
-                {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
+                {stateLabel}
+                {stateLabel && parts.length > 0 ? " · " : ""}
+                {parts.join(" · ")}
               </Text>
               {files.length > 0 ? <ChangeCard files={files} /> : null}
             </View>
           );
+        }
+
+        if (row.kind === "process") {
+          return <TurnProcessCard key={row.key} row={row} />;
         }
 
         if (row.kind === "approval" || row.kind === "question") {
@@ -195,10 +203,12 @@ export function ConversationList({
                   </Text>
                 </View>
               ) : null}
-              {row.text.length > 0 || !row.streaming ? (
+              {row.text.length > 0 ? (
                 <Text style={[styles.text, { color: th.ink }]} selectable>
-                  {row.text || "…"}
+                  {row.text}
                 </Text>
+              ) : row.reasoning.length === 0 && !row.streaming ? (
+                <Text style={[styles.text, { color: th.ink }]}>…</Text>
               ) : null}
               {row.streaming ? (
                 <Text style={[styles.streaming, { color: th.brand }]}>
@@ -211,6 +221,76 @@ export function ConversationList({
       })}
     </ScrollView>
   );
+}
+
+/** 一轮的过程摘要（dsh-Go TurnProcess）：默认收起，点开列出思考/工具/中间消息。 */
+function TurnProcessCard({ row }: { row: Extract<ChatRow, { kind: "process" }> }) {
+  const th = useNibiTheme();
+  const [open, setOpen] = useState(false);
+  const parts = ["✓ 已完成"];
+  if (row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
+  if (row.messages > 0) parts.push(`${row.messages} 条消息`);
+  const label = parts.join(" · ");
+  return (
+    <View style={styles.process}>
+      <Pressable
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={label}
+        style={styles.processHeader}
+      >
+        <Text style={[styles.processTitle, { color: th.inkSub }]}>{label}</Text>
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color={th.inkFaint} />
+      </Pressable>
+      {open ? (
+        <View style={[styles.processBody, { borderLeftColor: th.hairline }]}>
+          {row.rows.map((child) => (
+            <ProcessChild key={child.key} row={child} />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** 折叠里的行：思考、工具行、中间消息；只读，不带交互。 */
+function ProcessChild({ row }: { row: ChatRow }) {
+  const th = useNibiTheme();
+  if (row.kind === "assistant") {
+    return (
+      <View style={styles.processBlock}>
+        {row.reasoning.length > 0 ? (
+          <Text style={[styles.processReasoning, { color: th.inkFaint }]}>{row.reasoning}</Text>
+        ) : null}
+        {row.text.length > 0 ? (
+          <Text style={[styles.processText, { color: th.inkSub }]}>{row.text}</Text>
+        ) : null}
+      </View>
+    );
+  }
+  if (row.kind === "tool") {
+    return (
+      <Text
+        style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkFaint }]}
+      >
+        {row.name || "tool"} · {row.status}
+        {row.detail ? ` · ${row.detail}` : ""}
+      </Text>
+    );
+  }
+  if (row.kind === "toolGroup") {
+    return (
+      <Text style={[styles.processTool, { color: th.inkFaint }]}>
+        {row.tools.length} 次工具 · {row.tools.slice(0, 4).map((tool) => tool.name || "tool").join(" · ")}
+        {row.tools.length > 4 ? " …" : ""}
+      </Text>
+    );
+  }
+  if (row.kind === "notice") {
+    return <Text style={[styles.processTool, { color: th.inkFaint }]}>{row.text}</Text>;
+  }
+  return null;
 }
 
 /** 轮末改动卡（dsh-Go ChangeCard 的信息面）：改了哪些文件、各自 +/−。 */
@@ -298,6 +378,25 @@ const styles = StyleSheet.create({
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
   turnBlock: { gap: space(2) },
+  process: { gap: 2 },
+  processHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    minHeight: 32,
+  },
+  processTitle: { fontSize: 11.5, fontWeight: "600" },
+  processBody: {
+    borderLeftWidth: 2,
+    paddingLeft: space(3),
+    marginLeft: space(1),
+    paddingVertical: space(1),
+    gap: space(2),
+  },
+  processBlock: { gap: 2 },
+  processReasoning: { fontSize: 11.5, lineHeight: 16 },
+  processText: { fontSize: 12.5, lineHeight: 18 },
+  processTool: { fontSize: 11, lineHeight: 16 },
   notice: { fontSize: 11.5, textAlign: "center", paddingHorizontal: space(2) },
   tool: {
     borderWidth: StyleSheet.hairlineWidth,

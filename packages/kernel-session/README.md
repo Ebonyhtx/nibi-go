@@ -41,6 +41,15 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 - 答完内核把它从 `pendingInteractions` 移除，卡片随下一帧消失；晚到/已收口回 `noop`，这里当成功。
 - 工具行带 `output.text`（成功/失败都有），UI 在工具卡里显示前几行。
 
+## 轮折叠（dsh-Go foldCompletedTurns）
+
+- 只折 **completedSuccess** 的轮；失败/中断/运行中保持原样——停在哪一步要一眼看得到。
+- **有过程才折**：工具数 > 0，或中间助手消息 > 0。普通问答（一段思考 + 一段回答）不折。
+- `process` 行里放思考、工具行、中间消息；最终回答留在折叠外。脚注 `folded: true` 时
+  不再重复“已完成/工具数”（过程摘要行已经说了）。
+- 轮范围从这一轮的用户行之后开始（内核先发 turnHeader 再发 userInput）；用户气泡不进折叠。
+  轮里夹了用户插话时不折，保持时间顺序。
+
 ## 轮末改动卡
 
 - 数据源是 `v4/conversation/fileChanges`。**不要从工具输出推**：Rust 内核不发 `file_diff`

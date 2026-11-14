@@ -144,6 +144,122 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     });
   });
 
+  it("正常结束的轮折叠：过程收进 process 行，最终回答留在外面", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "completedSuccess",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        { ...base, rowId: 2, kind: "userInput", text: "改个文件", origin: "realUser" },
+        {
+          ...base,
+          rowId: 3,
+          kind: "toolCall",
+          assistantResponseId: "resp_1",
+          toolCallId: "call_1",
+          toolName: "Write",
+          status: "success",
+          inputText: "{}",
+        },
+        {
+          ...base,
+          rowId: 4,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "改好了",
+          state: "complete",
+          model: "mock-model",
+        },
+      ]),
+    );
+
+    expect(rows.map((row) => row.kind)).toEqual(["user", "process", "assistant", "turn"]);
+    expect(rows[1]).toMatchObject({ kind: "process", toolCalls: 1, messages: 0 });
+    if (rows[1]?.kind === "process") {
+      expect(rows[1].rows.map((row) => row.kind)).toEqual(["tool"]);
+    }
+    expect(rows[2]).toMatchObject({ kind: "assistant", text: "改好了", reasoning: "" });
+    expect(rows[3]).toMatchObject({ kind: "turn", folded: true, toolCalls: 1 });
+  });
+
+  it("普通问答不折叠（一段思考 + 一段回答）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "completedSuccess",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        { ...base, rowId: 2, kind: "userInput", text: "你好", origin: "realUser" },
+        {
+          ...base,
+          rowId: 3,
+          kind: "reasoning",
+          assistantResponseId: "resp_1",
+          text: "想一下",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 4,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "你好呀",
+          state: "complete",
+        },
+      ]),
+    );
+
+    expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "turn"]);
+    expect(rows[1]).toMatchObject({
+      kind: "assistant",
+      text: "你好呀",
+      reasoning: "想一下",
+    });
+    expect(rows[2]).toMatchObject({ kind: "turn" });
+    if (rows[2]?.kind === "turn") expect(rows[2].folded).toBeUndefined();
+  });
+
+  it("失败/中断的轮不折叠", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "failed",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        { ...base, rowId: 2, kind: "userInput", text: "跑一下", origin: "realUser" },
+        {
+          ...base,
+          rowId: 3,
+          kind: "toolCall",
+          assistantResponseId: "resp_1",
+          toolCallId: "call_1",
+          toolName: "Bash",
+          status: "error",
+          inputText: "{}",
+        },
+      ]),
+    );
+
+    expect(rows.map((row) => row.kind)).toEqual(["user", "tool", "turn"]);
+    expect(rows[2]).toMatchObject({ kind: "turn", state: "failed" });
+  });
+
   it("pending 提示追加在末尾", () => {
     const rows = deriveRows(snapshotWith([]), [{ id: "p1", text: "刚发出的" }]);
     expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);
