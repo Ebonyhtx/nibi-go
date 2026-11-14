@@ -41,6 +41,15 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 - 答完内核把它从 `pendingInteractions` 移除，卡片随下一帧消失；晚到/已收口回 `noop`，这里当成功。
 - 工具行带 `output.text`（成功/失败都有），UI 在工具卡里显示前几行。
 
+## 轮末改动卡
+
+- 数据源是 `v4/conversation/fileChanges`。**不要从工具输出推**：Rust 内核不发 `file_diff`
+  展示（那是桌面/Node 的 `toolResultDisplaySchema`，真机核对过），按工具输出聚合永远出不了卡。
+- 参数：`{ sessionId, target: { rowId, entityId }, baseRevision, baseLogEpoch }`，`target` 必须是轮头行；
+  水位取自当前快照。过期回 `proto.staleRevision` / `proto.staleLogEpoch`，用下一帧的新水位重试。
+- 返回 `{ files, additions, deletions, items: [{ path, additions, deletions, writeCount, toolNames, patches }] }`；
+  UI 把卡挂在轮末脚注之后（dsh-Go `ChangeCardRow` 的位置）。当前只取最近 3 个已结束轮，避免打开会话打一串 RPC。
+
 ## 开发期假模型
 
 ```bash

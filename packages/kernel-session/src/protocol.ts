@@ -82,4 +82,6 @@ export const KERNEL_METHODS = {
   requestRuntimePreferences: "session/requestRuntimePreferences",
   /** 前向命令面：回答权限/提问等交互（`resolveInteraction`）。 */
   command: "v4/command",
+  /** 一轮的文件改动明细（按轮头行取）。 */
+  fileChanges: "v4/conversation/fileChanges",
 } as const;

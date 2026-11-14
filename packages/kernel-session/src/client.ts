@@ -32,6 +32,24 @@ export interface KernelSessionClientOptions {
   clientId?: string;
 }
 
+/** `v4/conversation/fileChanges` 的一个文件（内核 `FileChangeItem`）。 */
+export interface KernelFileChange {
+  path: string;
+  additions: number;
+  deletions: number;
+  /** 这一轮写这个文件的次数。 */
+  writeCount: number;
+  toolNames: string[];
+}
+
+/** `v4/conversation/fileChanges` 的结果（内核 `FileChangesReport`）。 */
+export interface KernelFileChangesReport {
+  files: number;
+  additions: number;
+  deletions: number;
+  items: KernelFileChange[];
+}
+
 interface IncomingFrame {
   id?: unknown;
   method?: unknown;
@@ -168,6 +186,25 @@ export class KernelSessionClient {
       const message = typeof ack?.message === "string" ? ack.message : "";
       throw new Error(message.length > 0 ? message : `内核拒绝了这次回答（${status}）`);
     }
+  }
+
+  /**
+   * 读一轮的文件改动明细（`v4/conversation/fileChanges`）。
+   *
+   * `target` 必须是轮头行（`rowId` + `entityId`）；`baseRevision` / `baseLogEpoch` 取自
+   * 当前快照，内核按 CAS 校验（过期回 `proto.staleRevision` / `proto.staleLogEpoch`）。
+   */
+  async fileChanges(
+    target: { rowId: number; entityId: string },
+    bases: { revision: number; logEpoch: string },
+  ): Promise<KernelFileChangesReport> {
+    const sessionId = this.requireSessionId();
+    return this.request<KernelFileChangesReport>(KERNEL_METHODS.fileChanges, {
+      sessionId,
+      target,
+      baseRevision: bases.revision,
+      baseLogEpoch: bases.logEpoch,
+    });
   }
 
   /** 读会话消息（`session/messages`；增量用 `afterMessageId`）。 */

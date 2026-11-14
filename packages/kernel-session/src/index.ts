@@ -5,6 +5,8 @@
 export {
   KernelProtocolError,
   KernelSessionClient,
+  type KernelFileChange,
+  type KernelFileChangesReport,
   type KernelSessionClientOptions,
 } from "./client";
 export {
@@ -20,6 +22,7 @@ export {
 export {
   deriveRows,
   mapLegacyMessages,
+  type ChatFileChange,
   type ChatRow,
   type LegacyKernelMessage,
 } from "./rows";

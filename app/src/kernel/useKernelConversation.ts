@@ -7,6 +7,7 @@ import {
   ConversationController,
   ConversationFeed,
   KernelSessionClient,
+  type ChatFileChange,
   type ChatRow,
   type KernelSessionSummary,
   type KernelWorkspaceRef,
@@ -45,6 +46,8 @@ export interface KernelConversation {
   openSession: (sessionId: string) => Promise<void>;
   /** 回答审批/提问（`v4/command` 的 `resolveInteraction`）。 */
   respondInteraction: (interactionId: string, answer: Record<string, unknown>) => Promise<void>;
+  /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`）。 */
+  turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
 }
 
 export function useKernelConversation(): KernelConversation {
@@ -55,6 +58,9 @@ export function useKernelConversation(): KernelConversation {
   const [sending, setSending] = useState(false);
   const [sessions, setSessions] = useState<readonly KernelSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [turnChanges, setTurnChanges] = useState<Record<string, readonly ChatFileChange[]>>({});
+  // 已经请求过明细的轮（stale 水位时才允许重试；其他失败不反复打内核）。
+  const requestedChanges = useRef(new Set<string>());
   const clientRef = useRef<KernelSessionClient | null>(null);
   const feedRef = useRef<ConversationFeed | null>(null);
   const controllerRef = useRef<ConversationController | null>(null);
@@ -77,6 +83,47 @@ export function useKernelConversation(): KernelConversation {
     }
   }, []);
 
+  // 轮末改动卡：对最近结束的几轮取 `v4/conversation/fileChanges`（按轮头行 + 快照水位）。
+  // 只取最近 3 轮，避免会话一打开就对几十条历史轮各发一次 RPC。
+  const syncTurnChanges = useCallback((controller: ConversationController) => {
+    const snapshot = controller.snapshot;
+    const client = clientRef.current;
+    if (!snapshot || !client) return;
+    const completed: Array<{ rowId: number; entityId: string }> = [];
+    for (const row of snapshot.rows.window) {
+      if (row.kind !== "turnHeader") continue;
+      if (row.state === "running" || row.endedAt === undefined) continue;
+      if (typeof row.entityId !== "string" || row.entityId.length === 0) continue;
+      completed.push({ rowId: row.rowId, entityId: row.entityId });
+    }
+    for (const turn of completed.slice(-3)) {
+      const key = `turn${turn.rowId}`;
+      if (requestedChanges.current.has(key)) continue;
+      requestedChanges.current.add(key);
+      void client
+        .fileChanges(turn, { revision: snapshot.revision, logEpoch: snapshot.logEpoch })
+        .then((report) => {
+          if (report.items.length === 0) return;
+          setTurnChanges((current) => ({
+            ...current,
+            [key]: report.items.map((item) => ({
+              path: item.path,
+              additions: item.additions,
+              deletions: item.deletions,
+              edits: item.writeCount,
+            })),
+          }));
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          // 水位刚过期：下一帧用新快照重试；其他失败（unsupported 等）不反复打。
+          if (message.includes("staleRevision") || message.includes("staleLogEpoch")) {
+            requestedChanges.current.delete(key);
+          }
+        });
+    }
+  }, []);
+
   const attach = useCallback(async (client: KernelSessionClient, sessionId: string) => {
     const previousController = controllerRef.current;
     const previousFeed = feedRef.current;
@@ -91,15 +138,18 @@ export function useKernelConversation(): KernelConversation {
       setRows([...controller.rows]);
       setTurn(controller.turn);
       syncPending(controller);
+      syncTurnChanges(controller);
     });
     feedRef.current = feed;
     controllerRef.current = controller;
     pendingRef.current = [];
     controller.setPending([]);
+    requestedChanges.current.clear();
+    setTurnChanges({});
     await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
-  }, []);
+  }, [syncTurnChanges]);
 
   const refreshSessions = useCallback(async (client: KernelSessionClient) => {
     try {
@@ -258,5 +308,6 @@ export function useKernelConversation(): KernelConversation {
     newSession,
     openSession,
     respondInteraction,
+    turnChanges,
   };
 }

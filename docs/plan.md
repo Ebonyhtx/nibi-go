@@ -172,6 +172,10 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **Bash 工具在 Android 上不可用（2026-11-15 发现）**：内核 shell 发现只认 bash/zsh
   （`kernel/crates/cli/src/shell.rs`），Android 只有 `/system/bin/sh`；同轮 `Write` 正常。
   已立票据 **T9**，归入待定项 ④（可执行内容边界）一起定方案。
+- **轮末改动卡（2026-11-15 真机跑通）**：走 `v4/conversation/fileChanges`（轮头行 + 快照
+  revision/logEpoch 两道 CAS），卡片挂在轮末脚注之后；真机 Write 后显示
+  `改动了 1 个文件 / nibi-approval-test.txt / +1`。**工具输出里没有 `file_diff`**
+  （Rust 内核不发，那是桌面/Node 的展示面），不能从 tool display 推改动。
 - **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
   panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
   Android 上的 shell 执行（T9）。
