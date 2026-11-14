@@ -14,12 +14,12 @@ import expo.modules.kotlin.modules.ModuleDefinition
  */
 class NibiKernelHostModule : Module() {
   private val sink = object : NibiKernelHostNative.Sink {
-    override fun onLine(line: String) {
-      sendEvent("onKernelLine", mapOf("line" to line))
+    override fun onLine(bytes: ByteArray) {
+      sendEvent("onKernelLine", mapOf("line" to String(bytes, Charsets.UTF_8)))
     }
 
-    override fun onError(message: String) {
-      sendEvent("onKernelError", mapOf("message" to message))
+    override fun onError(bytes: ByteArray) {
+      sendEvent("onKernelError", mapOf("message" to String(bytes, Charsets.UTF_8)))
     }
   }
 

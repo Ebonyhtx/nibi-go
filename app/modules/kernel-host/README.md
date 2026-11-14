@@ -40,12 +40,22 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 - 一个进程只允许一个实例；`destroy()` 等待内核线程退出，`OnDestroy` 里兜底调用。
 - 内核 panic 会带走 App 进程（`panic=abort`）——看门狗/前台服务待后续切片。
 
+## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
+
+- `libnibi.so` / `libnibi_kernel_jni.so` 加载成功；`abiVersion()` = v1；`start() → true`。
+- 第一帧 `startup/storageState` 已按 LF 切帧送到 JS：**dlopen、JNI、线程、切帧全部成立**。
+- 随后内核自己退出：`configuring network egress: … rustls-platform-verifier could not load
+  extra certs`。Android 平台信任库需要 JVM + Context，C ABI 目前没有传入口 →
+  上游票据 `docs/tickets/T8-android-platform-tls-trust.md`。
+- 该轮暴露并已修：Kotlin `Sink` 必须用 `ByteArray` 与 JNI 的 `([B)V` 对齐（用 `String` 会
+  `NoSuchMethodError` 直接 abort）；`libnibi.so` 无 SONAME，导入目标会把 `DT_NEEDED` 记成
+  构建机绝对路径（改为 `-L` + `-l`）。
+
 ## 尚未做（后续切片）
 
-1. **真机 dlopen 冒烟**：当前无 arm64 设备；CI 只验了 ELF/符号，运行时未验。
-2. Host ↔ 内核的协议帧收发（`sendKernelLine` 已通，尚未接协议初始化/工具面）。
-3. 前台服务 + 看门狗（panic 兜底）、iroh NDK 与内核共享底座。
-4. 产物体积治理：`libnibi.so` 36.9MB + `libc++_shared.so` 1.8MB（arm64 单 ABI）。
+1. 协议初始化帧与工具面（等 T8 解除 egress 致命错误后继续；`sendKernelLine` 通道已通）。
+2. 前台服务 + 看门狗（panic 兜底）、iroh NDK 与内核共享底座。
+3. 产物体积治理：`libnibi.so` 36.9MB + `libc++_shared.so` 1.8MB（arm64 单 ABI）。
 
 ## 为什么不写 Rust 薄层
 

@@ -24,13 +24,18 @@ internal object NibiKernelHostNative {
 
   val isAvailable: Boolean get() = loadError == null
 
-  /** 内核线程回调面；实现方负责把数据交给 JS（本层不持有 JS 引用）。 */
+  /**
+   * 内核线程回调面；实现方负责把数据交给 JS（本层不持有 JS 引用）。
+   *
+   * 入参刻意是 `ByteArray` 而不是 `String`：JNI 层不做 modified-UTF-8 转换（4 字节字符
+   * 与 NUL 会坏），只按 LF 切帧后原样给字节，UTF-8 解码留在 Kotlin。
+   */
   interface Sink {
-    /** 一行完整 JSON（JNI 层已按 LF 切帧；UTF-8 由 Kotlin 解码）。 */
-    fun onLine(line: String)
+    /** 一行完整 JSON 的 UTF-8 字节（JNI 层已按 LF 切帧）。 */
+    fun onLine(bytes: ByteArray)
 
-    /** 内核异步错误（启动失败 / app-server 异常退出）。 */
-    fun onError(message: String)
+    /** 内核异步错误（启动失败 / app-server 异常退出）的 UTF-8 字节。 */
+    fun onError(bytes: ByteArray)
   }
 
   external fun nativeAbiVersion(): Int

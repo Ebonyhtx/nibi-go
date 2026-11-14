@@ -215,6 +215,10 @@ Java_expo_modules_nibikernelhost_NibiKernelHostNative_nativeStart(JNIEnv *env, j
   g_pending_len = 0;
   void *handle = nibi_app_server_start(on_kernel_output, NULL, on_kernel_error, NULL);
   g_kernel = handle;
+  if (handle == NULL) {
+    // 启动失败不要把 Sink 的全局引用留着，否则下一次 start 会重复 NewGlobalRef。
+    release_sink(env);
+  }
   pthread_mutex_unlock(&g_lock);
   return handle != NULL ? JNI_TRUE : JNI_FALSE;
 }
