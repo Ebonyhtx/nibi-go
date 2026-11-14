@@ -1,12 +1,13 @@
-// 首页即会话（D2：会话即首页）的内核侧状态：启动内核、列/建/恢复会话、收发、通知。
+// 首页即会话（D2）：内核会话状态。
 //
-// 只做“把 kernel-session 接到 React 状态”这一层；行模型与协议都在 @nibi-go/kernel-session。
-// dev 下没有真实 Provider 时按本机 mock 模型启动（scripts/dev/mock-openai.mjs）。
+// 数据流对齐 dsh-Go：订阅 V4 会话投影（snapshot + row.delta），行模型由快照派生；
+// 不再轮询 session/messages。dev 下没有真实 Provider 时按本机 mock 模型启动。
 import { Paths } from "expo-file-system";
 import {
   ConversationController,
+  ConversationFeed,
   KernelSessionClient,
-  type ConversationRow,
+  type ChatRow,
   type KernelSessionSummary,
   type KernelWorkspaceRef,
   type TurnState,
@@ -32,7 +33,7 @@ function workspaceRef(): KernelWorkspaceRef {
 }
 
 export interface KernelConversation {
-  rows: readonly ConversationRow[];
+  rows: readonly ChatRow[];
   turn: TurnState;
   status: string;
   ready: boolean;
@@ -45,7 +46,7 @@ export interface KernelConversation {
 }
 
 export function useKernelConversation(): KernelConversation {
-  const [rows, setRows] = useState<readonly ConversationRow[]>([]);
+  const [rows, setRows] = useState<readonly ChatRow[]>([]);
   const [turn, setTurn] = useState<TurnState>("idle");
   const [status, setStatus] = useState("初始化…");
   const [ready, setReady] = useState(false);
@@ -53,23 +54,32 @@ export function useKernelConversation(): KernelConversation {
   const [sessions, setSessions] = useState<readonly KernelSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const clientRef = useRef<KernelSessionClient | null>(null);
+  const feedRef = useRef<ConversationFeed | null>(null);
   const controllerRef = useRef<ConversationController | null>(null);
 
-  const attachController = useCallback((client: KernelSessionClient) => {
-    controllerRef.current?.dispose();
-    const controller = new ConversationController(client);
+  const attach = useCallback(async (client: KernelSessionClient, sessionId: string) => {
+    const previousController = controllerRef.current;
+    const previousFeed = feedRef.current;
+    controllerRef.current = null;
+    feedRef.current = null;
+    previousController?.dispose();
+    await previousFeed?.stop().catch(() => undefined);
+
+    const feed = new ConversationFeed(client);
+    const controller = new ConversationController(feed);
     controller.subscribe(() => {
       setRows([...controller.rows]);
       setTurn(controller.turn);
     });
+    feedRef.current = feed;
     controllerRef.current = controller;
-    return controller;
+    await feed.start(sessionId);
+    setRows([]);
+    setTurn("idle");
   }, []);
 
   const refreshSessions = useCallback(async (client: KernelSessionClient) => {
     try {
-      // 不按 workspace 过滤：内核的 workspaceKey 比较是精确串（目录尾斜杠会不相等），
-      // 单工作区阶段先列全部、客户端按 updatedAt 排序；多工作区时再按规范化路径过滤。
       const list = await client.listSessions();
       const visible = list
         .filter((session) => !session.parentSessionId)
@@ -77,7 +87,6 @@ export function useKernelConversation(): KernelConversation {
       setSessions(visible);
       return visible;
     } catch {
-      // 列表读失败不该打断会话本身。
       return [];
     }
   }, []);
@@ -99,7 +108,7 @@ export function useKernelConversation(): KernelConversation {
 
         const list = await refreshSessions(client);
         if (cancelled) return;
-        // 启动时恢复「最近一条有消息的会话」；全是空会话就停在最新那条，不每次多建。
+        // 启动恢复「最近一条有消息的会话」；全空则停在最新一条，不每次多建。
         let opened = false;
         for (const candidate of list.slice(0, 3)) {
           await client.resumeSession(candidate.sessionId);
@@ -113,11 +122,11 @@ export function useKernelConversation(): KernelConversation {
           if (list.length > 0) await client.resumeSession(list[0]!.sessionId);
           else await client.createSession(workspaceRef());
         }
-        if (cancelled) return;
-        const controller = attachController(client);
-        await controller.refresh();
+        const sessionId = client.currentSessionId;
+        if (cancelled || !sessionId) return;
+        await attach(client, sessionId);
         if (!cancelled) {
-          setActiveSessionId(client.currentSessionId);
+          setActiveSessionId(sessionId);
           setReady(true);
           setStatus("就绪");
         }
@@ -131,10 +140,12 @@ export function useKernelConversation(): KernelConversation {
       cancelled = true;
       controllerRef.current?.dispose();
       controllerRef.current = null;
+      void feedRef.current?.stop().catch(() => undefined);
+      feedRef.current = null;
       clientRef.current?.close();
       clientRef.current = null;
     };
-  }, [attachController, refreshSessions]);
+  }, [attach, refreshSessions]);
 
   const send = useCallback(
     async (text: string) => {
@@ -144,7 +155,6 @@ export function useKernelConversation(): KernelConversation {
       setSending(true);
       try {
         await client.sendPrompt(content);
-        await controllerRef.current?.refresh();
         await refreshSessions(client);
       } catch (error) {
         setStatus(`发送失败：${error instanceof Error ? error.message : String(error)}`);
@@ -159,36 +169,32 @@ export function useKernelConversation(): KernelConversation {
     const client = clientRef.current;
     if (!client) return;
     try {
-      setRows([]);
-      setTurn("idle");
       await client.createSession(workspaceRef());
-      const controller = attachController(client);
-      await controller.refresh();
-      setActiveSessionId(client.currentSessionId);
+      const sessionId = client.currentSessionId;
+      if (!sessionId) return;
+      await attach(client, sessionId);
+      setActiveSessionId(sessionId);
       await refreshSessions(client);
       setStatus("就绪");
     } catch (error) {
       setStatus(`新建失败：${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [attachController, refreshSessions]);
+  }, [attach, refreshSessions]);
 
   const openSession = useCallback(
     async (sessionId: string) => {
       const client = clientRef.current;
       if (!client || sessionId === client.currentSessionId) return;
       try {
-        setRows([]);
-        setTurn("idle");
         await client.resumeSession(sessionId);
-        const controller = attachController(client);
-        await controller.refresh();
+        await attach(client, sessionId);
         setActiveSessionId(sessionId);
         setStatus("就绪");
       } catch (error) {
         setStatus(`打开失败：${error instanceof Error ? error.message : String(error)}`);
       }
     },
-    [attachController],
+    [attach],
   );
 
   return {

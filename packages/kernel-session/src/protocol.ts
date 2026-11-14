@@ -76,5 +76,8 @@ export const KERNEL_METHODS = {
   sessionMessages: "session/messages",
   sessionList: "session/list",
   sessionResume: "session/resume",
+  conversationSubscribe: "v4/conversation/subscribe",
+  conversationUnsubscribe: "v4/conversation/unsubscribe",
+  conversationFrame: "v4/conversation/frame",
   requestRuntimePreferences: "session/requestRuntimePreferences",
 } as const;
