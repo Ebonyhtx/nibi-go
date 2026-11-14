@@ -10,16 +10,18 @@ D2/D4 修订后，NIBI-GO 的 WORK 形态 = WebView 承载同源 web UI，但**�
 需要 web 远程控制编排层允许外部宿主注入一个**已实现的 transport**（替代 web 自建 relay 连接），
 WebView 里的 UI 只消费状态与帧流；不注入时一切照旧。
 
-## 现状证据（2026-11-13 逐条核实）
+## 现状证据（2026-11-14 复核，行号按当日 nibi-client `dev` = `aac474fa`）
 
-- `packages/web/src/main.tsx:30-34`：编排层从 `@nibi/client` 取 `connectViaProtocol` /
-  `connectViaWebSocket` / `createAcknowledgedWebRemoteControlRelayProtocol` 自建连接。
+- `packages/web/src/main.tsx:31-33`：编排层从 `@nibi/client` 取 `connectViaProtocol` /
+  `connectViaWebSocket` / `createAcknowledgedWebRemoteControlRelayProtocol` 自建连接
+  （`packages/client/src/index.ts:2,:8` 确有导出）。
 - `packages/web/src/web-remote-control/contracts/transport.ts`：transport 对外行为面契约清晰——
   状态枚举（idle / connecting / authenticating / waiting / paired / reconnecting / suspended /
   kicked / error）+ `onPayload` / `onStateChange` / `onFailure` / `onDiagnostic` / `reloadPage`
-  等回调；`WebRemoteControlTerminalTransportOptions` 连 `WebSocketCtor` 都已是注入参数（先例）。
-- `packages/web/src/main.tsx:458` `createWebPlatform({ externalWebRemoteControlProxy })`：
-  宿主注入的平台服务接缝已存在，transport 注入是同一范式。
+  等回调；`WebRemoteControlTerminalTransportOptions`（:77）里 `getToken`（:80）与 `WebSocketCtor`
+  （:83）**都已是注入参数**（先例）。
+- `packages/web/src/main.tsx:457-458` `createWebPlatform({ externalWebRemoteControlProxy })`：
+  宿主注入的平台服务接缝已存在，transport 注入是同一范式（另有 :1758、:1884 两个调用点）。
 - `packages/web/src/web-remote-control/contract.test.ts`：transport 契约有测试兜底。
 
 ## 具体改动（参考落点，上游可改造）
@@ -27,8 +29,8 @@ WebView 里的 UI 只消费状态与帧流；不注入时一切照旧。
 1. 编排层（main.tsx 构造 transport 的位置）接受可选的 transport 工厂/实例参数：宿主提供的实现
    满足 web transport 的对外行为面（状态迁移、帧回调、发送、生命周期）；**不提供时行为逐字不变**。
    落点按符号定位（`connectViaProtocol` / `connectViaWebSocket` / `createWebPlatform`），
-   **不要按行号改**——`main.tsx` 正在被日常改动（最近一次 `1ac2598f` 去 zcode 前缀），
-   本票的行号只是 2026-11-13 的快照。
+   **不要按行号改**——`main.tsx` 正在被日常改动（2026-11-14 最近一次 `a734a99e` 删上游
+   账号 OAuth），本票的行号只是当日快照。
 2. 注入实现的语义由宿主负责：连接生命周期、心跳、replay、E2E（NIBI-GO 用其 RelayTransport +
    keyneg 握手）；web 侧只消费回调并走原发送通道。
 3. 状态枚举映射：宿主原生状态（如 `waiting_terminal`）→ web 枚举（`waiting` / `reconnecting` /
@@ -40,7 +42,10 @@ WebView 里的 UI 只消费状态与帧流；不注入时一切照旧。
 
 - **默认路径逐字不变**：不传注入时 PWA 构建行为与当前完全一致（自建连接、明文），
   `contract.test.ts` 与现有 web 测试全绿；
-- 浏览器 PWA 永远不传注入（D9 口径不变）；桌面零改动；服务端零改动；
+- 浏览器 PWA 永远不传注入（D9 口径不变）；桌面零改动；服务端零改动。
+  桌面不经过 `packages/web` 这条链路，源码里的既有断言可直接引用：
+  `packages/desktop/src/main/web-remote-relay/webRemoteControlE2E.ts:11`「PWA 走 packages/web
+  的独立链路，与本模块无关，永远明文」。
 - 纯增量：只加注入参数与相关测试，不改现有 transport 实现内部。
 
 ## 验收
