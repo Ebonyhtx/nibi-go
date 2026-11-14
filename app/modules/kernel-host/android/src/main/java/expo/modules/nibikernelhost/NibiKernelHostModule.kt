@@ -33,9 +33,11 @@ class NibiKernelHostModule : Module() {
       if (NibiKernelHostNative.isAvailable) NibiKernelHostNative.nativeAbiVersion() else -1
     }
 
-    AsyncFunction("start") {
+    // 额外环境变量只给开发期冒烟用（例如把模型指到本机 mock）；产品路径不传。
+    AsyncFunction("start") { extraEnv: Map<String, String>? ->
       requireAvailable()
       prepareEnvironment()
+      extraEnv?.forEach { (name, value) -> setEnv(name, value) }
       NibiKernelHostNative.nativeStart(sink)
     }
 
