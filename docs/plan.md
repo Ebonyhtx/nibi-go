@@ -155,8 +155,13 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   Mozilla 根，`storageState` 走到 `ready`、内核保持运行（D21/D22 见 ADR-INDEX）。
 - **16 KB 页对齐（D22）**：4.1.0 的 `libnibi.so` 实测 4 KB，不满足；上游分支已加
   `-Wl,-z,max-page-size=16384`，GO 的 `fetch.mjs` 与本仓 JNI 薄层同步加断言/链接参数。
-- **未做**：协议初始化帧（等内核带 16 KB 的新包）、前台服务、panic 看门狗、
-  iroh NDK、busybox/git 三件套与会话库。
+- **协议链 + 完整回合已在真机跑通（2026-11-15，本地 mock 模型）**：
+  `session/create`（含内核反向的 `session/requestRuntimePreferences` 往返）→ `session/send`
+  → `model.request_completed` → `turn.terminal status=success`（139ms / 24 tokens）。
+  只用 `NIBI_MODEL_BASE_URL` / `NIBI_API_KEY` / `NIBI_MODEL` 时内核走 **Anthropic 协议**
+  （`POST /v1/messages`），本地假服务在 `scripts/dev/mock-openai.mjs`。
+- **未做**：真实 Provider 凭据与设置页、会话 UI 接 `chat-core`、前台服务、panic 看门狗、
+  D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套。
 
 ---
 
