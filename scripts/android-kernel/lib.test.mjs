@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseElfIdentity, readAndroidAbiLevel, sha256Hex, verifyBuildJson } from "./lib.mjs";
+import {
+  elfLoadAlignment,
+  parseElfIdentity,
+  readAndroidAbiLevel,
+  sha256Hex,
+  verifyBuildJson,
+} from "./lib.mjs";
 
-/** 造一个最小 ELF64 LE + 一个 PT_NOTE（.note.android.ident）的文件。 */
-function buildElf({ apiLevel = 24, type = 3, machine = 183 } = {}) {
+/** 造一个最小 ELF64 LE + PT_LOAD + PT_NOTE（.note.android.ident）的文件。 */
+function buildElf({ apiLevel = 24, type = 3, machine = 183, loadAlign = 0x4000 } = {}) {
   const phoff = 64;
-  const noteOffset = phoff + 56;
+  const phnum = 2;
+  const noteOffset = phoff + phnum * 56;
   const name = Buffer.from("Android\0", "utf8"); // 8 字节
   const desc = Buffer.alloc(4);
   desc.writeUInt32LE(apiLevel, 0);
@@ -27,9 +34,16 @@ function buildElf({ apiLevel = 24, type = 3, machine = 183 } = {}) {
   elf.writeUInt16LE(machine, 18);
   elf.writeBigUInt64LE(BigInt(phoff), 32);
   elf.writeUInt16LE(56, 54);
-  elf.writeUInt16LE(1, 56);
+  elf.writeUInt16LE(phnum, 56);
 
-  const ph = phoff;
+  // 第 1 个程序头：PT_LOAD（只用于页对齐检查）。
+  elf.writeUInt32LE(1, phoff);
+  elf.writeBigUInt64LE(0n, phoff + 8);
+  elf.writeBigUInt64LE(BigInt(total), phoff + 32);
+  elf.writeBigUInt64LE(BigInt(loadAlign), phoff + 48);
+
+  // 第 2 个程序头：PT_NOTE（.note.android.ident）。
+  const ph = phoff + 56;
   elf.writeUInt32LE(4, ph); // PT_NOTE
   elf.writeBigUInt64LE(BigInt(noteOffset), ph + 8);
   elf.writeBigUInt64LE(BigInt(note.length), ph + 32);
@@ -61,6 +75,12 @@ test("readAndroidAbiLevel：从 .note.android.ident 读 API", () => {
   assert.equal(readAndroidAbiLevel(buildElf({ apiLevel: 24 })), 24);
   assert.equal(readAndroidAbiLevel(buildElf({ apiLevel: 21 })), 21);
   assert.equal(readAndroidAbiLevel(Buffer.alloc(128)), null);
+});
+
+test("elfLoadAlignment：读出 PT_LOAD 的最大对齐", () => {
+  assert.equal(elfLoadAlignment(buildElf({ loadAlign: 0x4000 })), 0x4000);
+  assert.equal(elfLoadAlignment(buildElf({ loadAlign: 0x1000 })), 0x1000);
+  assert.equal(elfLoadAlignment(Buffer.alloc(128)), 0);
 });
 
 test("verifyBuildJson：接受三产物 schema", () => {

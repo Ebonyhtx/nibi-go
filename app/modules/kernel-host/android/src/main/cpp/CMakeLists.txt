@@ -16,3 +16,8 @@ get_filename_component(NIBI_PREBUILT_DIR "${NIBI_PREBUILT}" DIRECTORY)
 add_library(nibi_kernel_jni SHARED nibi_kernel_jni.c)
 target_link_directories(nibi_kernel_jni PRIVATE "${NIBI_PREBUILT_DIR}")
 target_link_libraries(nibi_kernel_jni nibi log)
+
+# 16 KB page size（Play 对 targetSdk 35+ 的要求）：NDK r27 的 lld 默认 4 KB，必须显式抬高。
+target_link_options(nibi_kernel_jni PRIVATE
+  "-Wl,-z,max-page-size=16384"
+  "-Wl,-z,common-page-size=16384")

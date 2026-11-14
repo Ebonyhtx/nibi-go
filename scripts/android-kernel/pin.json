@@ -3,5 +3,6 @@
   "version": "4.1.0",
   "target": "aarch64-linux-android",
   "abi": "arm64-v8a",
-  "maxAndroidApiLevel": 24
+  "maxAndroidApiLevel": 24,
+  "minPageAlign": 16384
 }
