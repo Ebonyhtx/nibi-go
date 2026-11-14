@@ -1,9 +1,10 @@
-// C0 冒烟页：验证进程内内核（libnibi.so）能否加载、报 ABI、start/stop。
+// C0 冒烟页：验证进程内内核（libnibi.so）的加载、启动与会话协议。
 // 仅做设备侧事实确认，不是产品界面；Phase C 正式宿主（会话/工具面）另起。
 // 入口：深链 nibigo://kernel-smoke。
 
 import { Paths } from "expo-file-system";
 import { router } from "expo-router";
+import { KernelSessionClient } from "@nibi-go/kernel-session";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,55 +34,49 @@ export default function KernelSmokeScreen() {
   const [started, setStarted] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const requestId = useRef(1);
+  const clientRef = useRef<KernelSessionClient | null>(null);
+  const lineId = useRef(0);
+
+  const append = (kind: Line["kind"], text: string) =>
+    setLines((prev) => [...prev.slice(-199), { id: lineId.current++, kind, text }]);
 
   useEffect(() => {
-    let nextId = 0;
-    const append = (kind: Line["kind"], text: string) =>
-      setLines((prev) => [...prev.slice(-199), { id: nextId++, kind, text }]);
     const offLine = onKernelLine((line) => {
-      // dev 冒烟页：整帧打到 Metro 日志，便于看完整协议（屏幕只显示最后 200 行）。
       console.log("[kernel-frame]", line);
       append("line", line);
-      try {
-        const frame = JSON.parse(line) as {
-          id?: unknown;
-          method?: unknown;
-          result?: { session?: { sessionId?: unknown } };
-        };
-        const createdId = frame.result?.session?.sessionId;
-        if (typeof createdId === "string") setSessionId(createdId);
-        // 内核 → 宿主的请求：建会话时它会问运行期偏好（nibiSessionRuntimePreferencesResultSchema）。
-        // 这里回最小可用集合；正式宿主（C1）按设置页与模型配置填全。
-        if (
-          typeof frame.id === "string" &&
-          frame.method === "session/requestRuntimePreferences"
-        ) {
-          const reply = {
-            id: frame.id,
-            result: { nativeSearchEnhancementsEnabled: false },
-          };
-          const ok = sendKernelLine(JSON.stringify(reply));
-          append("info", `reply ${frame.id} runtimePreferences → ${ok}`);
-        }
-      } catch {
-        // 非 JSON 行（少见）按纯文本显示即可。
-      }
     });
     const offError = onKernelError((message) => append("error", message));
     append("info", "已订阅内核输出；start 后这里会出现协议帧");
     return () => {
       offLine();
       offError();
+      clientRef.current?.close();
+      clientRef.current = null;
       destroyKernelHost();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只挂一次
   }, []);
+
+  const makeClient = (): KernelSessionClient => {
+    clientRef.current?.close();
+    const client = new KernelSessionClient({
+      transport: { sendLine: sendKernelLine, onLine: onKernelLine },
+    });
+    client.onNotification((notification) => {
+      const params = notification.params as { kind?: unknown } | undefined;
+      const kind = typeof params?.kind === "string" ? ` · ${params.kind}` : "";
+      append("info", `通知 ${notification.method}${kind}`);
+    });
+    clientRef.current = client;
+    return client;
+  };
 
   const presses = {
     async start() {
       const ok = await startKernelHost();
       setStarted(ok);
-      setLines((prev) => [...prev, { id: prev.length, kind: "info", text: `start() → ${ok}` }]);
+      if (ok) makeClient();
+      append("info", `start() → ${ok}`);
     },
     async startMock() {
       // 本机假 Provider（scripts/dev/mock-openai.mjs + adb reverse tcp:9099）。
@@ -91,74 +86,68 @@ export default function KernelSmokeScreen() {
         NIBI_MODEL: "mock-model",
       });
       setStarted(ok);
-      setLines((prev) => [...prev, { id: prev.length, kind: "info", text: `start(mock) → ${ok}` }]);
+      if (ok) makeClient();
+      append("info", `start(mock) → ${ok}`);
     },
     stop() {
       const ok = stopKernelHost();
       setStarted(false);
-      setLines((prev) => [...prev, { id: prev.length, kind: "info", text: `stop() → ${ok}` }]);
+      append("info", `stop() → ${ok}`);
     },
     destroy() {
+      clientRef.current?.close();
+      clientRef.current = null;
       destroyKernelHost();
       setStarted(false);
-      setLines((prev) => [...prev, { id: prev.length, kind: "info", text: "destroy() 已调用" }]);
+      setSessionId(null);
+      append("info", "destroy() 已调用");
     },
-    createSession() {
-      // nibiWorkspaceRefSchema = { workspacePath, workspaceKey }（见 @nibi/shared nibi-protocol）。
+    async createSession() {
+      const client = clientRef.current ?? makeClient();
       const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
-      const id = requestId.current++;
-      const frame = {
-        id,
-        method: "session/create",
-        params: { workspace: { workspacePath, workspaceKey: workspacePath } },
-      };
-      const ok = sendKernelLine(JSON.stringify(frame));
-      setLines((prev) => [
-        ...prev,
-        {
-          id: prev.length,
-          kind: "info",
-          text: `send #${id} session/create → ${ok}\n${JSON.stringify(frame)}`,
-        },
-      ]);
+      try {
+        const result = await client.createSession({
+          workspacePath,
+          workspaceKey: workspacePath,
+        });
+        setSessionId(result.sessionId);
+        append("info", `session/create → ${result.sessionId}`);
+      } catch (error) {
+        append("error", `session/create 失败：${error instanceof Error ? error.message : String(error)}`);
+      }
     },
-    readMessages() {
-      if (!sessionId) {
-        setLines((prev) => [...prev, { id: prev.length, kind: "error", text: "先建会话" }]);
+    async sendPrompt() {
+      const client = clientRef.current;
+      if (!client?.currentSessionId) {
+        append("error", "先建会话");
         return;
       }
-      const id = requestId.current++;
-      const frame = {
-        id,
-        method: "session/messages",
-        params: { sessionId },
-      };
-      const ok = sendKernelLine(JSON.stringify(frame));
-      setLines((prev) => [
-        ...prev,
-        { id: prev.length, kind: "info", text: `send #${id} session/messages → ${ok}` },
-      ]);
+      try {
+        const result = await client.sendPrompt("你好，用一句话说明你现在跑在哪里。");
+        append("info", `session/send → accepted=${String(result.accepted)}`);
+      } catch (error) {
+        append("error", `session/send 失败：${error instanceof Error ? error.message : String(error)}`);
+      }
     },
-    sendPrompt() {
-      if (!sessionId) {
-        setLines((prev) => [...prev, { id: prev.length, kind: "error", text: "先建会话" }]);
+    async readMessages() {
+      const client = clientRef.current;
+      if (!client?.currentSessionId) {
+        append("error", "先建会话");
         return;
       }
-      const id = requestId.current++;
-      const frame = {
-        id,
-        method: "session/send",
-        params: { sessionId, content: "你好，用一句话说明你现在跑在哪里。" },
-      };
-      const ok = sendKernelLine(JSON.stringify(frame));
-      setLines((prev) => [
-        ...prev,
-        {
-          id: prev.length,
-          kind: "info",
-          text: `send #${id} session/send → ${ok}\n${JSON.stringify(frame)}`,
-        },
-      ]);
+      try {
+        const messages = await client.readMessages();
+        append("info", `session/messages → ${messages.length} 条`);
+        for (const message of messages) {
+          const text = message.parts
+            .map((part) => (typeof part.text === "string" ? part.text : ""))
+            .join("")
+            .slice(0, 80);
+          append("line", `${message.info.role}: ${text}`);
+        }
+      } catch (error) {
+        append("error", `session/messages 失败：${error instanceof Error ? error.message : String(error)}`);
+      }
     },
   };
 
@@ -174,8 +163,16 @@ export default function KernelSmokeScreen() {
 
       <View style={[styles.card, { backgroundColor: th.card, borderColor: th.hairline }]}>
         <Row label="模块可用" value={available ? "是" : "否"} tone={available ? th.ok : th.red} />
-        <Row label="C ABI 版本" value={abi >= 0 ? `v${abi}` : "不可用"} tone={abi >= 0 ? th.ink : th.red} />
-        <Row label="内核状态" value={started ? "运行中" : "未启动"} tone={started ? th.ok : th.inkSub} />
+        <Row
+          label="C ABI 版本"
+          value={abi >= 0 ? `v${abi}` : "不可用"}
+          tone={abi >= 0 ? th.ink : th.red}
+        />
+        <Row
+          label="内核状态"
+          value={started ? "运行中" : "未启动"}
+          tone={started ? th.ok : th.inkSub}
+        />
         <Row
           label="会话"
           value={sessionId ? `${sessionId.slice(0, 8)}…` : "未创建"}
@@ -224,7 +221,10 @@ export default function KernelSmokeScreen() {
         />
       </View>
 
-      <ScrollView style={[styles.log, { borderColor: th.hairline }]} contentContainerStyle={{ padding: 10 }}>
+      <ScrollView
+        style={[styles.log, { borderColor: th.hairline }]}
+        contentContainerStyle={{ padding: 10 }}
+      >
         {lines.map((line) => (
           <Text
             key={line.id}
