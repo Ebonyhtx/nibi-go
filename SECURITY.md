@@ -87,11 +87,11 @@ The printed `certificate SHA-256 digest` must match the fingerprint above. An AP
 that fails this check, or that is signed with a different certificate, is not an
 official build — do not install it.
 
-The private key is never stored in this repository. It exists as an encrypted
-backup in a separate private repository, together with its passphrase; an
-offline copy of the passphrase is also kept by the maintainer. `scripts/keystore.mjs`
-(public) is the only tool that reads it; it takes the passphrase from an
-environment variable or a local file and never prints it.
+The private key is never stored in this repository. Key material and recovery
+procedures are maintained in the operator's private ops location, outside this
+repository. `scripts/keystore.mjs` (public) is the only tool that reads it; it
+takes the passphrase from an environment variable or a local file and never
+prints it.
 
 
 ## Safe harbor

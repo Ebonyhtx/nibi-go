@@ -2,5 +2,5 @@ packages:
   - packages/*
   - app
   - app/modules/*
-# reference/ 是只读参考仓，刻意不在 workspace 内（AGENTS.md 边界）：
-# 它们各自有自己的 package.json，纳入会被 pnpm 递归安装拖垮。
+# 历史参考仓已移出本工作区（见 docs/workspace-map.md）；保留这条说明，
+# 防止以后把带独立 package.json 的参考检出误纳入 workspace。

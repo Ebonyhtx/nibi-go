@@ -1,5 +1,7 @@
 # 票据 · 发布 `@nibi-studio/cli-android-arm64` 平台包
 
+> 状态（2026-11-14）：**已交付**（`@nibi-studio/cli-android-arm64` 已发布）。本文件保留为票据历史记录。
+>
 > 提交方：NIBI-GO 仓库。随 Phase C 启动信号一起生效，**不催主线排期**——何时做由你定。
 > 期望载体：nibi-client 仓的 `.github/workflows/rust-npm-packages.yml`（一次改动，详见下）。
 
@@ -34,4 +36,4 @@ package-id: android-arm64
 ## 背景
 
 - 用途：Phase C（NIBI-GO 本机内核）以本包为内核分发载体（决策 D17：GO 单向消费 npm 冻结产物，不养 Rust 构建链）。
-- 紧迫性：Phase C 挂起中，无 deadline；但它也是"主线破坏 android 兼容"的持续报警器（进 CI 后每次 kernel commit 都编译 android），早进 CI 早受益。
+- 紧迫性：Phase C 待启动，无 deadline；但它也是"主线破坏 android 兼容"的持续报警器（进 CI 后每次 kernel commit 都编译 android），早进 CI 早受益。

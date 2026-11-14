@@ -2,17 +2,21 @@
 
 [简体中文](README.md) | English
 
-NIBI-GO is the **mobile client** of the NIBI ecosystem. It has two forms:
+NIBI-GO is the **mobile client** of the NIBI ecosystem. NIBI-GO is the default
+app body (an on-device AGENT):
 
-- **NIBI-WORK**: control your desktop from the phone (Relay V2 end-to-end
-  channel with conversation, approval and task projection);
-- **NIBI-GO**: an on-device AGENT (Phase C, paused; its plugin ecosystem is out
-  of scope for this repository).
+- **NIBI-GO (default body)**: on-device AGENT; its plugin ecosystem is separate
+  from the desktop plugin system (D13);
+- **NIBI-WORK (entry)**: desktop remote control entered from the GO body
+  (Relay V2 end-to-end channel with conversation, approval and task
+  projection). It is no longer a parallel primary product.
 
 This repository is the public source of NIBI-GO (Android client, pure-TS
 protocol layers, native modules). The Rust kernel is **not** part of this
 repository — it is consumed as an external npm platform package
-(`@nibi-studio/cli-*`); see rule D17 in [AGENTS.md](AGENTS.md).
+(`@nibi-studio/cli-*`); see rule D17 in [AGENTS.md](AGENTS.md). On-device kernel
+capability lands with Phase C (triggers in
+[ADR-INDEX D12](docs/decisions/ADR-INDEX.md)).
 
 ## Open-source scope
 
@@ -24,7 +28,7 @@ Included:
   APK installer)
 - `packages/relay-client`, `packages/chat-core`, `packages/shared-extract`,
   `packages/phone-tools` — pure-TS protocol layers
-- `docs/` — architecture decisions (D1–D18), design specs, research, checklists
+- `docs/` — architecture decisions (D1–D19), design specs, research, checklists
 - `scripts/` — architecture and public-repository gates
 
 Not included:
@@ -33,8 +37,9 @@ Not included:
 - release signing material, release pipelines and operator services;
 - any private deployment details or credentials (see [SECURITY.md](SECURITY.md)).
 
-`reference/` is an optional, developer-local read-only upstream checkout
-(gitignored; not part of this repository, not part of any build).
+The historical upstream reference archive (read-only nibi-client / dsh-Go
+copies) has been moved out of this repository into the shared NIBI workspace;
+it is not part of any build, and `reference/` no longer exists here.
 
 ## Requirements
 
@@ -78,8 +83,8 @@ Without it, login fails loudly instead of degrading silently.
 | `packages/relay-client` | Relay V2 terminal client: state machine, pairing, workspace bridge, E2E envelope |
 | `packages/chat-core` | Chat state machines: V4 reducer host, replay/gap, approvals, AgentPulse |
 | `packages/shared-extract` | Protocol contracts extracted from nibi-client (source headers, see [NOTICE.md](NOTICE.md)) |
-| `packages/phone-tools` | Phone tool interface (multi-platform adapters; Phase B) |
-| `modules/kernel-host` | Kernel JNI layer (Phase C, skeleton only) |
+| `packages/phone-tools` | Phone tool interface (multi-platform adapters; former B0, now part of the Phase C prerequisite) |
+| `modules/kernel-host` | Kernel JNI layer (Phase C skeleton; triggers in ADR-INDEX D12) |
 | `docs/` | Decision ledger, design specs, research, checklists (entry: [docs/README.md](docs/README.md)) |
 | `scripts/` | Architecture gate, public-repo check, extraction scripts |
 
@@ -109,11 +114,13 @@ See [app/.env.example](app/.env.example).
 
 ## Roadmap
 
-- **Phase A** (current, code-complete): native NIBI-WORK remote-control client.
-  Zero kernel coupling.
-- **Phase C** (paused): on-device kernel. Trigger conditions in
-  [ADR-INDEX D12](docs/decisions/ADR-INDEX.md).
-- **Phase B** (last): phone-control routing for the WORK form (nibi-phone-bridge).
+- **Phase A** (code-complete): NIBI-GO app body and the NIBI-WORK remote-control
+  entry. Zero kernel coupling.
+- **Phase B** (cancelled, D6): phone-control routing for the WORK form
+  (nibi-phone-bridge); the B0 tool surface (`packages/phone-tools`) moved to the
+  Phase C prerequisite.
+- **Phase C** (not started): on-device kernel (`libnibi.so`, in-process, D19).
+  Trigger conditions in [ADR-INDEX D12](docs/decisions/ADR-INDEX.md).
 
 ## Contributing
 

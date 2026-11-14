@@ -1,5 +1,7 @@
 # 票据 · android 平台包补 cdylib 产物 `lib/libnibi.so`（Phase C 进程内内核）
 
+> 状态（2026-11-14）：**已完成**（上游 nibi-client `697f86cf`）。本文件保留为票据历史记录。
+>
 > 提交方：NIBI-GO 仓库。Phase C（本机内核）C0「内核上机」的前置；**不催主线排期**——何时做由你定。
 > 期望载体：nibi-client 仓的内核 crate + `scripts/rust-cli/npm/package.mjs` +
 > `.github/workflows/rust-npm-packages.yml`。**只动平台包 `@nibi-studio/cli-android-arm64`；

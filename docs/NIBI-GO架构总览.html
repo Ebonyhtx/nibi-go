@@ -206,11 +206,11 @@
 
 <header class="hero">
   <h1>NIBI-GO · 架构与决策总览</h1>
-  <p>v9 · 2026-11-11 · 17 项决策定案（D17 内核单向消费+票据制） + 1 项未启动预留 · 基于 nibi-client 全源码调研与 dsh-Go/生态对照</p>
+  <p>v9 · 2026-11-11 · 历史快照（当时 17 项决策定案） · 现行决策台账 D1–D19 见 docs/decisions/ADR-INDEX.md · 基于 nibi-client 全源码调研与 dsh-Go/生态对照</p>
 </header>
 
 <!-- ═══════════ 1. 决策台账 ═══════════ -->
-<h2><span class="no">1</span>决策台账（D1–D16）</h2>
+<h2><span class="no">1</span>决策台账（历史快照；现行 D1–D19 见 ADR-INDEX）</h2>
 <div class="dgrid">
   <div class="dcard"><div class="q"><span class="idx">D1</span>引擎</div><div class="a"><b>自研 Rust 内核</b>（ZCode-rs fork 0.1.67，供应链门禁齐全）。Android 交叉编译无硬阻塞（已逐项核实）。对比 dsh-Go 的 Node+PRoot+1GB rootfs，是代际差。</div></div>
   <div class="dcard"><div class="q"><span class="idx">D2</span>双形态</div><div class="a"><b>NIBI-WORK</b>（远控投影，复用 PWA 形式）+ <b>NIBI-GO</b>（本机 AGENT，UI 独立开发）。App 内切换按钮/窗口。</div></div>
@@ -472,7 +472,7 @@
   </div>
 </div>
 
-<footer>NIBI-GO 架构与决策总览 v8 · 生成于 2026-11-08 · 决策台账 D1–D16 · 支持深浅色跟随系统</footer>
+<footer>NIBI-GO 架构与决策总览 v9 历史快照 · 生成于 2026-11-11 · 现行决策台账 D1–D19 见 docs/decisions/ADR-INDEX.md · 支持深浅色跟随系统</footer>
 
 </div>
 </body>

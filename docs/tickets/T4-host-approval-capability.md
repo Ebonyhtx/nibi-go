@@ -22,7 +22,7 @@
 ## 关联
 
 - GO 侧实现：`packages/chat-core/src/approvals.ts`（两条不变量）+ `app/src/relay/chat.ts`（接线）+ `packages/relay-client/src/bridge.ts`（resolveInteraction 命令）。
-- 协议依据：`reference/nibi-client` 的 `nibi-protocol-v4/snapshot.ts`（pendingInteractionSchema）与 `command.ts`（resolveInteraction）。
+- 协议依据：nibi-client（归档参考）的 `nibi-protocol-v4/snapshot.ts`（pendingInteractionSchema）与 `command.ts`（resolveInteraction）。
 
 
 ---

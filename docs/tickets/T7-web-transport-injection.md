@@ -1,5 +1,7 @@
 # 票据 · web 远程控制 transport 注入口（WORK 原生隧道承载）
 
+> 状态（2026-11-14）：**已完成**（上游 nibi-client `697f86cf`）。本文件保留为票据历史记录。
+>
 > 提交方：NIBI-GO 仓库。D2/D4/D9 修订（2026-11-13）后的上游前置；**不催主线排期**——何时做由你定。
 > 期望载体：nibi-client 仓 `packages/web/src/main.tsx`（编排层）+ `packages/web/src/web-remote-control/`。
 
