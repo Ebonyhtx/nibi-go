@@ -7,6 +7,13 @@ export {
   KernelSessionClient,
   type KernelSessionClientOptions,
 } from "./client";
+export {
+  ConversationController,
+  type ConversationControllerOptions,
+  type KernelSessionSource,
+  type TurnState,
+} from "./controller";
+export { mapKernelMessages, type ConversationRow } from "./rows";
 export { KERNEL_METHODS } from "./protocol";
 export type {
   KernelMessage,
