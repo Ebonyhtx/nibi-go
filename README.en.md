@@ -84,7 +84,7 @@ Without it, login fails loudly instead of degrading silently.
 | `packages/chat-core` | Chat state machines: V4 reducer host, replay/gap, approvals, AgentPulse |
 | `packages/shared-extract` | Protocol contracts extracted from nibi-client (source headers, see [NOTICE.md](NOTICE.md)) |
 | `packages/phone-tools` | Phone tool interface (multi-platform adapters; former B0, now part of the Phase C prerequisite) |
-| `modules/kernel-host` | Kernel JNI layer (Phase C skeleton; triggers in ADR-INDEX D12) |
+| `app/modules/kernel-host` | Kernel JNI layer (Phase C; upstream `4.1.0` ships `libnibi.so`; `scripts/android-kernel/` fetches and verifies `build.json.artifacts`) |
 | `docs/` | Decision ledger, design specs, research, checklists (entry: [docs/README.md](docs/README.md)) |
 | `scripts/` | Architecture gate, public-repo check, extraction scripts |
 

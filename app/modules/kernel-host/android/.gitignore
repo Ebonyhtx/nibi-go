@@ -1,0 +1,6 @@
+# 内核产物由构建期脚本按 build.json.artifacts 校验后落盘，不进公开仓（D17 单向消费）。
+prebuilt/
+
+# Gradle/CMake 构建产物（含本机绝对路径）。
+.cxx/
+build/

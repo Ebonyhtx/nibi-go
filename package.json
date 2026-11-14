@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "gates": "node scripts/check-boundaries.mjs",
-    "test": "pnpm -r --if-present run test",
+    "test": "pnpm -r --if-present run test && node --test scripts/android-kernel/lib.test.mjs",
     "prepare": "husky",
     "check:public-repo": "node scripts/check-public-repo.mjs",
     "release": "node scripts/release.mjs",
