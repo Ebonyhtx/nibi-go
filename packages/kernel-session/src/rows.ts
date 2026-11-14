@@ -12,6 +12,7 @@ import type {
   InteractionAutoResolution,
   PendingInteraction,
   ReasoningRow as ProtocolReasoning,
+  SubagentRow as ProtocolSubagent,
   ToolCallRow as ProtocolToolCall,
   TurnHeaderRow as ProtocolTurnHeader,
   UserInputRow as ProtocolUserInput,
@@ -141,6 +142,16 @@ export type ChatRow =
       options?: Array<{ optionId: string; label: string }>;
       questions?: ChatInteractionQuestion[];
       autoResolution?: ChatAutoResolution;
+    }
+  | {
+      /** 子智能体（内核 subagent 行）：有自己的子会话时可直接下钻。 */
+      kind: "subagent";
+      key: string;
+      subagentType: string;
+      status: string;
+      summary: string;
+      childSessionId?: string;
+      backgrounded?: boolean;
     }
   | {
       /** GO 还不能处理的交互（如 workspaceHookReview）：不静默丢弃。 */
@@ -504,6 +515,20 @@ export function deriveRows(
           const tool = row as ProtocolToolCall;
           const current = groupFor(tool.assistantResponseId, tool);
           current.tools.push(tool);
+          break;
+        }
+        case "subagent": {
+          flush();
+          const subagent = row as ProtocolSubagent;
+          out.push({
+            kind: "subagent",
+            key: `s${subagent.rowId}`,
+            subagentType: subagent.subagentType,
+            status: subagent.status,
+            summary: subagent.summaryText,
+            ...(subagent.childSessionId ? { childSessionId: subagent.childSessionId } : {}),
+            ...(subagent.backgrounded ? { backgrounded: true } : {}),
+          });
           break;
         }
         default:

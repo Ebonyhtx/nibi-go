@@ -182,6 +182,9 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **会话列表分组/搜索（2026-11-15 真机跑通）**：抽屉按 `今天 / 昨天 / 本周 / 更早` 分组
   （周一起算，UTC 固定日轴防 DST）；搜索按标题大小写不敏感、空标题按“新对话”匹配，带清除键。
   纯函数在 `app/src/components/sessionGroups.ts`，6 条单测钉住。
+- **子智能体卡（已映射，等内核产出行）**：`subagent` 行 → 类型/状态/摘要 + 子会话下钻；
+  单测覆盖。真机核对：4.1.0 内核在 Agent 前台与后台调用下都只投影 Agent 工具行 +
+  后台通知回合，**没有 subagent 行**。`artifact` 行内核投影不产生，暂不做。
 - **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
   panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
   Android 上的 shell 执行（T9）。

@@ -15,11 +15,14 @@ export function ConversationList({
   rows,
   onRespond,
   turnChanges,
+  onOpenSession,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
   /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`），值是这一轮的文件改动。 */
   turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
+  /** 子智能体卡的下钻入口（子会话 id）。 */
+  onOpenSession?: (sessionId: string) => void;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -167,6 +170,53 @@ export function ConversationList({
           );
         }
 
+        if (row.kind === "subagent") {
+          const tone =
+            row.status === "failed"
+              ? th.red
+              : row.status === "running"
+                ? th.amber
+                : row.status === "cancelled"
+                  ? th.inkFaint
+                  : th.ok;
+          const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
+          return (
+            <View
+              key={row.key}
+              style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
+            >
+              <View style={styles.toolHead}>
+                <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
+                  子智能体 · {row.subagentType}
+                </Text>
+                <Text style={[styles.toolStatus, { color: tone }]}>{row.status}</Text>
+              </View>
+              {row.summary ? (
+                <Text style={[styles.toolDetail, { color: th.inkSub }]} numberOfLines={3}>
+                  {row.summary}
+                </Text>
+              ) : null}
+              {showFoot ? (
+                <View style={styles.subagentFoot}>
+                  <Text style={[styles.subagentMeta, { color: th.inkFaint }]}>
+                    {row.backgrounded ? "后台运行" : ""}
+                  </Text>
+                  {row.childSessionId && onOpenSession ? (
+                    <Pressable
+                      onPress={() => onOpenSession(row.childSessionId as string)}
+                      accessibilityRole="button"
+                      accessibilityLabel="查看子会话"
+                      hitSlop={6}
+                    >
+                      <Text style={[styles.subagentLink, { color: th.steel }]}>查看子会话 ›</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          );
+        }
+
         if (row.kind === "process") {
           return <TurnProcessCard key={row.key} row={row} />;
         }
@@ -284,6 +334,14 @@ function ProcessChild({ row }: { row: ChatRow }) {
       <Text style={[styles.processTool, { color: th.inkFaint }]}>
         {row.tools.length} 次工具 · {row.tools.slice(0, 4).map((tool) => tool.name || "tool").join(" · ")}
         {row.tools.length > 4 ? " …" : ""}
+      </Text>
+    );
+  }
+  if (row.kind === "subagent") {
+    return (
+      <Text style={[styles.processTool, { color: th.inkFaint }]}>
+        子智能体 · {row.subagentType} · {row.status}
+        {row.summary ? ` · ${row.summary}` : ""}
       </Text>
     );
   }
@@ -410,6 +468,21 @@ const styles = StyleSheet.create({
   toolStatus: { fontSize: 10.5, fontWeight: "600" },
   toolDetail: { fontSize: 11.5, lineHeight: 16 },
   toolOutput: { fontFamily: "monospace", fontSize: 11, lineHeight: 15 },
+  subagent: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+    gap: 4,
+  },
+  subagentFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  subagentMeta: { fontSize: 10.5 },
+  subagentLink: { fontSize: 11.5, fontWeight: "600" },
   changes: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
