@@ -31,11 +31,12 @@ D19（2026-11-12 定案）把 Phase C 的内核运行形态定为**进程内 `li
    （`rust-npm-packages.yml:88`），Phase C 打包时进 jniLibs——包里携带或改静态链，二选一由
    上游定；GO 构建会把包内容整份拷进 jniLibs，不能有漏拷的运行时依赖。
 
-## 现状证据（2026-11-14 复核，行号按当日 nibi-client `dev` = `aac474fa`）
+## 现状证据（2026-11-14 复核，行号按当日 nibi-client `dev` = `aac474fa`；2026-11-15 更新 npm 发布状态）
 
 - 4.0.2 tarball 实测（registry 下载、sha256 `6dad802f…` 对账一致）：只有 `bin/nibi-rs` +
-  `build.json` + `package.json`，无 `.so`。**截至 2026-11-14 npm `latest` 仍是 4.0.2**
-  （仓库根已 `4.1.0`，尚未发版）；本票验收对 4.x / 5.x 同样适用。
+  `build.json` + `package.json`，无 `.so`（历史基线）。**4.1.0 已于 2026-11-15 发布**：
+  四个 `@nibi-studio/cli-*` 平台包与 META 包 `@nibi-studio/cli` 同日上线，npm `latest` = 4.1.0；
+  `@nibi-studio/cli-android-arm64@4.1.0` 已可下载。本票验收对 4.x / 5.x 同样适用。
 - `kernel/crates/cli/Cargo.toml`：`nibi-kernel-cli` 只有 `[[bin]] name = "nibi-rs"`（:16-19），
   无 `[lib]`/crate-type——不产 cdylib；**`kernel/crates/cli/src/` 下也没有 `lib.rs`**，
   cdylib 需要新增 lib 目标（不是改现有文件）。
