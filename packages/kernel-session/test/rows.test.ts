@@ -149,6 +149,19 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);
   });
 
+  it("快照窗口重复 rowId 只派生一次（防止列表撞 key）", () => {
+    const user = {
+      ...base,
+      rowId: 12,
+      kind: "userInput",
+      text: "TOOLTEST",
+      origin: "realUser",
+    };
+    const rows = deriveRows(snapshotWith([user, user]));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "user", key: "r12", text: "TOOLTEST" });
+  });
+
   it("pendingInteractions 派生审批/提问行，排在消息之后、乐观气泡之前", () => {
     const rows = deriveRows(
       snapshotWith(

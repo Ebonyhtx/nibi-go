@@ -354,7 +354,12 @@ export function deriveRows(
       return group;
     };
 
+    // 快照窗口的边缘可能与上一帧重叠（同一 rowId 出现两次）；行身份就是 rowId，
+    // 重复项只派生一次，否则列表会撞 key（真机上表现为 React 的 duplicate key 红条）。
+    const seenRowIds = new Set<number>();
     for (const row of rows) {
+      if (seenRowIds.has(row.rowId)) continue;
+      seenRowIds.add(row.rowId);
       switch (row.kind) {
         case "turnHeader": {
           flush();
