@@ -40,14 +40,17 @@ export default function KernelSmokeScreen() {
     const append = (kind: Line["kind"], text: string) =>
       setLines((prev) => [...prev.slice(-199), { id: nextId++, kind, text }]);
     const offLine = onKernelLine((line) => {
+      // dev 冒烟页：整帧打到 Metro 日志，便于看完整协议（屏幕只显示最后 200 行）。
+      console.log("[kernel-frame]", line);
       append("line", line);
       try {
         const frame = JSON.parse(line) as {
           id?: unknown;
           method?: unknown;
-          result?: { sessionId?: unknown };
+          result?: { session?: { sessionId?: unknown } };
         };
-        if (typeof frame.result?.sessionId === "string") setSessionId(frame.result.sessionId);
+        const createdId = frame.result?.session?.sessionId;
+        if (typeof createdId === "string") setSessionId(createdId);
         // 内核 → 宿主的请求：建会话时它会问运行期偏好（nibiSessionRuntimePreferencesResultSchema）。
         // 这里回最小可用集合；正式宿主（C1）按设置页与模型配置填全。
         if (
@@ -109,6 +112,27 @@ export default function KernelSmokeScreen() {
         },
       ]);
     },
+    sendPrompt() {
+      if (!sessionId) {
+        setLines((prev) => [...prev, { id: prev.length, kind: "error", text: "先建会话" }]);
+        return;
+      }
+      const id = requestId.current++;
+      const frame = {
+        id,
+        method: "session/send",
+        params: { sessionId, content: "你好，用一句话说明你现在跑在哪里。" },
+      };
+      const ok = sendKernelLine(JSON.stringify(frame));
+      setLines((prev) => [
+        ...prev,
+        {
+          id: prev.length,
+          kind: "info",
+          text: `send #${id} session/send → ${ok}\n${JSON.stringify(frame)}`,
+        },
+      ]);
+    },
   };
 
   return (
@@ -147,6 +171,14 @@ export default function KernelSmokeScreen() {
           label="建会话（session/create）"
           onPress={presses.createSession}
           color={th.steel}
+          fg="#fffdf9"
+        />
+      </View>
+      <View style={styles.actions}>
+        <Action
+          label="发提示（session/send）"
+          onPress={presses.sendPrompt}
+          color={th.ok}
           fg="#fffdf9"
         />
       </View>
