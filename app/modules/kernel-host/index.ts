@@ -15,7 +15,7 @@ interface NibiKernelHostNativeModule {
   isAvailable(): boolean;
   loadError(): string | null;
   abiVersion(): number;
-  start(): Promise<boolean>;
+  start(extraEnv?: Record<string, string>): Promise<boolean>;
   send(line: string): boolean;
   stop(): boolean;
   destroy(): void;
@@ -81,11 +81,11 @@ export function kernelHostAbiVersion(): number {
  * 启动内核线程。宿主必须**先**设好进程环境与 cwd（HOME / NIBI_DATA_BASE_DIR /
  * NIBI_SESSION_DB_PATH …），内核在 start 时只读一次。
  */
-export async function startKernelHost(): Promise<boolean> {
+export async function startKernelHost(extraEnv?: Record<string, string>): Promise<boolean> {
   const module = getNative();
   if (!module) return false;
   try {
-    return await module.start();
+    return await module.start(extraEnv);
   } catch {
     return false;
   }

@@ -83,6 +83,16 @@ export default function KernelSmokeScreen() {
       setStarted(ok);
       setLines((prev) => [...prev, { id: prev.length, kind: "info", text: `start() → ${ok}` }]);
     },
+    async startMock() {
+      // 本机假 Provider（scripts/dev/mock-openai.mjs + adb reverse tcp:9099）。
+      const ok = await startKernelHost({
+        NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
+        NIBI_API_KEY: "mock-key",
+        NIBI_MODEL: "mock-model",
+      });
+      setStarted(ok);
+      setLines((prev) => [...prev, { id: prev.length, kind: "info", text: `start(mock) → ${ok}` }]);
+    },
     stop() {
       const ok = stopKernelHost();
       setStarted(false);
@@ -179,6 +189,12 @@ export default function KernelSmokeScreen() {
           label="发提示（session/send）"
           onPress={presses.sendPrompt}
           color={th.ok}
+          fg="#fffdf9"
+        />
+        <Action
+          label="启动（mock 模型）"
+          onPress={presses.startMock}
+          color={th.violet}
           fg="#fffdf9"
         />
       </View>
