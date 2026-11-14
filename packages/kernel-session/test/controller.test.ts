@@ -1,111 +1,81 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { ConversationSnapshot } from "@nibi-go/shared-extract";
 
-import {
-  ConversationController,
-  type KernelMessage,
-  type KernelNotification,
-  type KernelSessionSource,
-} from "../src/index";
+import { ConversationController, type ConversationSource } from "../src/index";
 
-class FakeSource implements KernelSessionSource {
-  readonly calls: Array<{ afterMessageId?: string; limit?: number } | undefined> = [];
-  private readonly listeners = new Set<(notification: KernelNotification) => void>();
-  messages: KernelMessage[] = [];
+class FakeSource implements ConversationSource {
+  private current: ConversationSnapshot | null = null;
+  private readonly listeners = new Set<() => void>();
 
-  get currentSessionId(): string {
-    return "sess_test";
+  get snapshot(): ConversationSnapshot | null {
+    return this.current;
   }
 
-  async readMessages(options?: { afterMessageId?: string; limit?: number }): Promise<KernelMessage[]> {
-    this.calls.push(options);
-    return this.messages;
-  }
-
-  onNotification(listener: (notification: KernelNotification) => void): () => void {
+  subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  notify(notification: KernelNotification): void {
-    for (const listener of this.listeners) listener(notification);
+  set(snapshot: ConversationSnapshot | null): void {
+    this.current = snapshot;
+    for (const listener of this.listeners) listener();
   }
 }
 
-function userMessage(text: string): KernelMessage {
+function streamingSnapshot(): ConversationSnapshot {
   return {
-    info: { messageId: `msg_${text}`, role: "user", time: { created: 1 } },
-    parts: [{ type: "text", text }],
-  };
+    rows: {
+      window: [
+        {
+          rowId: 1,
+          turnId: "turn_1",
+          createdAt: 1,
+          createdAtSeq: 1,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "半句",
+          state: "streaming",
+        },
+      ],
+      totalCount: 1,
+      firstRowId: 1,
+    },
+  } as unknown as ConversationSnapshot;
 }
 
-afterEach(() => {
-  vi.useRealTimers();
-});
-
 describe("ConversationController", () => {
-  it("refresh 读消息并映射成行，通知订阅者", async () => {
+  it("快照变化 → 行与 turn 状态更新，并通知订阅者", () => {
     const source = new FakeSource();
-    source.messages = [userMessage("你好")];
     const controller = new ConversationController(source);
-    const listener = vi.fn();
+    const listener = () => {
+      calls++;
+    };
+    let calls = 0;
     controller.subscribe(listener);
 
-    await controller.refresh();
+    source.set(streamingSnapshot());
 
-    expect(controller.rows).toEqual([{ kind: "user", id: "msg_你好", text: "你好", createdAt: 1 }]);
-    expect(source.calls).toEqual([{ limit: 200 }]);
-    expect(listener).toHaveBeenCalled();
+    expect(controller.rows).toHaveLength(1);
+    expect(controller.rows[0]).toMatchObject({ kind: "assistant", streaming: true });
+    expect(controller.turn).toBe("running");
+    expect(calls).toBe(1);
     controller.dispose();
   });
 
-  it("turn.started / turn.terminal 驱动 turn 状态", () => {
+  it("空快照 → 空行、idle", () => {
     const source = new FakeSource();
     const controller = new ConversationController(source);
-
-    source.notify({ method: "v4/telemetry/event", params: { kind: "turn.started" } });
-    expect(controller.turn).toBe("running");
-
-    source.notify({ method: "v4/telemetry/event", params: { kind: "turn.terminal" } });
+    expect(controller.rows).toEqual([]);
     expect(controller.turn).toBe("idle");
     controller.dispose();
   });
 
-  it("stream.chunk 合并成一次刷新（debounce）", async () => {
-    vi.useFakeTimers();
+  it("dispose 后不再跟随快照", () => {
     const source = new FakeSource();
-    const controller = new ConversationController(source, { refreshDebounceMs: 50 });
-
-    for (let i = 0; i < 5; i++) {
-      source.notify({ method: "v4/telemetry/event", params: { kind: "stream.chunk" } });
-    }
-    await vi.advanceTimersByTimeAsync(60);
-
-    expect(source.calls).toHaveLength(1);
+    const controller = new ConversationController(source);
     controller.dispose();
-  });
-
-  it("无关通知不触发刷新", async () => {
-    vi.useFakeTimers();
-    const source = new FakeSource();
-    const controller = new ConversationController(source, { refreshDebounceMs: 10 });
-
-    source.notify({ method: "process/resourceSample", params: {} });
-    await vi.advanceTimersByTimeAsync(20);
-
-    expect(source.calls).toHaveLength(0);
-    controller.dispose();
-  });
-
-  it("dispose 后不再刷新、不再转发通知", async () => {
-    vi.useFakeTimers();
-    const source = new FakeSource();
-    const controller = new ConversationController(source, { refreshDebounceMs: 10 });
-    controller.dispose();
-
-    source.notify({ method: "v4/telemetry/event", params: { kind: "turn.started" } });
-    await vi.advanceTimersByTimeAsync(20);
-
-    expect(source.calls).toHaveLength(0);
+    source.set(streamingSnapshot());
+    expect(controller.rows).toEqual([]);
     expect(controller.turn).toBe("idle");
   });
 });

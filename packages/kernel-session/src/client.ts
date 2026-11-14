@@ -61,6 +61,7 @@ export class KernelSessionClient {
   private readonly offLine: () => void;
   private nextId = 1;
   private sessionId: string | null = null;
+  private subscribed: { topic: string; connectionId: string } | null = null;
   private closed = false;
 
   constructor(options: KernelSessionClientOptions) {
@@ -167,6 +168,36 @@ export class KernelSessionClient {
     const result = await this.request(KERNEL_METHODS.sessionResume, { sessionId });
     this.sessionId = sessionId;
     return result;
+  }
+
+  /**
+   * 订阅会话的 V4 变更流（`v4/conversation/subscribe`）。
+   * 之后内核会推送 `v4/conversation/frame` 通知：首帧 `{kind:"snapshot"}`，之后 `{kind:"deltas"}`。
+   */
+  async subscribeConversation(
+    sessionId: string,
+    options?: { connectionId?: string; clientMode?: string },
+  ): Promise<{ topic: string; connectionId: string }> {
+    const topic = `conversation/${sessionId}`;
+    const connectionId = options?.connectionId ?? `nibi-go-${Date.now()}`;
+    await this.request(KERNEL_METHODS.conversationSubscribe, {
+      topic,
+      connectionId,
+      clientMode: options?.clientMode ?? "desktop-continuous",
+    });
+    this.subscribed = { topic, connectionId };
+    return { topic, connectionId };
+  }
+
+  /** 取消订阅（同一 connectionId）。 */
+  async unsubscribeConversation(): Promise<void> {
+    const current = this.subscribed;
+    if (!current) return;
+    this.subscribed = null;
+    await this.request(KERNEL_METHODS.conversationUnsubscribe, {
+      topic: current.topic,
+      connectionId: current.connectionId,
+    });
   }
 
   /** 停止监听；未完成的请求一律 reject。 */

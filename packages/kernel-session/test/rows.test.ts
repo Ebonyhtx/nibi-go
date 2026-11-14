@@ -1,54 +1,109 @@
 import { describe, expect, it } from "vitest";
+import type { ConversationSnapshot } from "@nibi-go/shared-extract";
 
-import { mapKernelMessages, type KernelMessage } from "../src/index";
+import { deriveRows } from "../src/index";
 
-function message(partial: Partial<KernelMessage["info"]> & { role: string }, parts: KernelMessage["parts"]): KernelMessage {
+const base = { turnId: "turn_1", createdAt: 1000, createdAtSeq: 1 };
+
+function snapshotWith(window: unknown[]): ConversationSnapshot {
   return {
-    info: { messageId: "msg_1", ...partial } as KernelMessage["info"],
-    parts,
-  };
+    rows: { window, totalCount: window.length, firstRowId: null },
+  } as unknown as ConversationSnapshot;
 }
 
-describe("mapKernelMessages", () => {
-  it("用户/助手/系统消息各自成行，文本 part 拼接", () => {
-    const rows = mapKernelMessages([
-      message({ role: "user", time: { created: 1 } }, [{ type: "text", text: "你好" }]),
-      message({ role: "assistant", time: { created: 2, completed: 3 }, model: { providerId: "anthropic", modelId: "m" } }, [
-        { type: "text", text: "我在" },
-        { type: "text", text: "手机里" },
+describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
+  it("用户 → 助手（正文+推理+模型）→ 工具，同一 response 收成一个助手行", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        { ...base, rowId: 1, kind: "userInput", text: "你好", origin: "realUser" },
+        {
+          ...base,
+          rowId: 2,
+          kind: "reasoning",
+          assistantResponseId: "resp_1",
+          text: "想一下",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 3,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "我在",
+          state: "complete",
+          model: "mock-model",
+        },
+        {
+          ...base,
+          rowId: 4,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "手机里",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 5,
+          kind: "toolCall",
+          assistantResponseId: "resp_1",
+          toolCallId: "call_1",
+          toolName: "bash",
+          status: "success",
+          inputText: '{"command":"ls"}',
+        },
       ]),
-      message({ role: "system" }, [{ type: "text", text: "系统提示" }]),
-    ]);
+    );
 
-    expect(rows).toEqual([
-      { kind: "user", id: "msg_1", text: "你好", createdAt: 1 },
-      {
-        kind: "assistant",
-        id: "msg_1",
-        text: "我在手机里",
-        createdAt: 2,
-        completedAt: 3,
-        model: { providerId: "anthropic", modelId: "m" },
-      },
-      { kind: "system", id: "msg_1", text: "系统提示" },
-    ]);
+    expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "tool"]);
+    expect(rows[0]).toMatchObject({ kind: "user", text: "你好" });
+    expect(rows[1]).toMatchObject({
+      kind: "assistant",
+      text: "我在手机里",
+      reasoning: "想一下",
+      model: "mock-model",
+      streaming: false,
+    });
+    expect(rows[2]).toMatchObject({ kind: "tool", name: "bash", status: "success" });
   });
 
-  it("非文本 part 先丢弃；未知角色跳过；空 messageId 跳过", () => {
-    const rows = mapKernelMessages([
-      message({ role: "assistant" }, [
-        { type: "reasoning", text: "想一想" },
-        { type: "text", text: "答案" },
+  it("streaming 状态跟着 assistantText/reasoning 的 state", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "半句",
+          state: "streaming",
+        },
       ]),
-      message({ role: "tool" }, [{ type: "text", text: "不该出现" }]),
-      { info: { messageId: "", role: "user" }, parts: [{ type: "text", text: "空 id" }] },
-    ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: "assistant", text: "答案" });
+    );
+    expect(rows[0]).toMatchObject({ kind: "assistant", streaming: true, text: "半句" });
   });
 
-  it("没有 model 时不带 model 字段", () => {
-    const rows = mapKernelMessages([message({ role: "assistant" }, [{ type: "text", text: "x" }])]);
-    expect(rows[0]).not.toHaveProperty("model");
+  it("不同 response 的正文不合并；空快照返回空", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "A",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 2,
+          kind: "assistantText",
+          assistantResponseId: "resp_2",
+          text: "B",
+          state: "complete",
+        },
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(deriveRows(null)).toEqual([]);
   });
 });

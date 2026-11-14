@@ -98,11 +98,17 @@ const server = createServer(async (request, response) => {
       index: 0,
       content_block: { type: "text", text: "" },
     });
-    event("content_block_delta", {
-      type: "content_block_delta",
-      index: 0,
-      delta: { type: "text_delta", text },
-    });
+    // 按小块慢慢吐，模拟真实模型流式（默认 250ms 一块），便于观察增量渲染。
+    const chunkMs = Number(process.env.MOCK_OPENAI_CHUNK_MS ?? 250);
+    const pieces = text.match(/[\s\S]{1,6}/gu) ?? [text];
+    for (const piece of pieces) {
+      event("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: piece },
+      });
+      if (chunkMs > 0) await new Promise((resolve) => setTimeout(resolve, chunkMs));
+    }
     event("content_block_stop", { type: "content_block_stop", index: 0 });
     event("message_delta", {
       type: "message_delta",

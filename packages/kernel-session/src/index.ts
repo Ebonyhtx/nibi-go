@@ -9,11 +9,20 @@ export {
 } from "./client";
 export {
   ConversationController,
-  type ConversationControllerOptions,
-  type KernelSessionSource,
+  type ConversationSource,
   type TurnState,
 } from "./controller";
-export { mapKernelMessages, type ConversationRow } from "./rows";
+export {
+  ConversationFeed,
+  applyConversationFrame,
+  type ConversationFeedClient,
+} from "./feed";
+export {
+  deriveRows,
+  mapLegacyMessages,
+  type ChatRow,
+  type LegacyKernelMessage,
+} from "./rows";
 export { KERNEL_METHODS } from "./protocol";
 export type {
   KernelMessage,
