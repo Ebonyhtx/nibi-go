@@ -82,6 +82,79 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(rows[0]).toMatchObject({ kind: "assistant", streaming: true, text: "半句" });
   });
 
+  it("连续 ≥3 次工具调用收成 toolGroup", () => {
+    const tools = [1, 2, 3].map((n) => ({
+      ...base,
+      rowId: 10 + n,
+      kind: "toolCall",
+      assistantResponseId: "resp_9",
+      toolCallId: `call_${n}`,
+      toolName: "bash",
+      status: "success",
+      inputText: "{}",
+    }));
+    const rows = deriveRows(snapshotWith(tools));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "toolGroup" });
+    if (rows[0]?.kind === "toolGroup") expect(rows[0].tools).toHaveLength(3);
+  });
+
+  it("turnHeader 结束时在末尾挂脚注（用时/工具数/token/文件）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "completedSuccess",
+          startedAt: 1000,
+          endedAt: 2500,
+          activeMs: 1200,
+          outputTokens: 24,
+          fileChanges: { additions: 3, deletions: 1, files: 2 },
+        },
+        {
+          ...base,
+          rowId: 2,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "done",
+          state: "complete",
+        },
+      ]),
+    );
+    expect(rows.map((row) => row.kind)).toEqual(["assistant", "turn"]);
+    expect(rows[1]).toMatchObject({
+      kind: "turn",
+      state: "completedSuccess",
+      durationMs: 1200,
+      tokens: 24,
+      files: { additions: 3, deletions: 1, files: 2 },
+    });
+  });
+
+  it("pending 提示追加在末尾", () => {
+    const rows = deriveRows(snapshotWith([]), [{ id: "p1", text: "刚发出的" }]);
+    expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);
+  });
+
+  it("running 的 turnHeader 不出脚注", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "running",
+          startedAt: 1000,
+        },
+      ]),
+    );
+    expect(rows).toEqual([]);
+  });
+
   it("不同 response 的正文不合并；空快照返回空", () => {
     const rows = deriveRows(
       snapshotWith([

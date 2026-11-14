@@ -32,6 +32,22 @@ export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
       }}
     >
       {rows.map((row) => {
+        if (row.kind === "pending") {
+          return (
+            <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
+              <View
+                style={[
+                  styles.bubble,
+                  { backgroundColor: th.brandSoft, borderColor: "transparent", opacity: 0.55 },
+                ]}
+              >
+                <Text style={[styles.text, { color: th.ink }]}>{row.text}</Text>
+                <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
+              </View>
+            </View>
+          );
+        }
+
         if (row.kind === "user") {
           return (
             <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
@@ -78,6 +94,56 @@ export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
           );
         }
 
+        if (row.kind === "toolGroup") {
+          const tone = row.running ? th.amber : th.inkFaint;
+          return (
+            <View
+              key={row.key}
+              style={[styles.tool, { backgroundColor: th.card, borderColor: th.hairline }]}
+            >
+              <View style={styles.toolHead}>
+                <Text style={[styles.toolName, { color: th.ink }]}>
+                  {row.tools.length} 次工具调用
+                </Text>
+                <Text style={[styles.toolStatus, { color: tone }]}>
+                  {row.running ? "进行中" : "已完成"}
+                </Text>
+              </View>
+              <Text style={[styles.toolDetail, { color: th.inkFaint }]} numberOfLines={2}>
+                {row.tools
+                  .slice(0, 4)
+                  .map((tool) => tool.name || "tool")
+                  .join(" · ")}
+                {row.tools.length > 4 ? " …" : ""}
+              </Text>
+            </View>
+          );
+        }
+
+        if (row.kind === "turn") {
+          const parts: string[] = [];
+          if (row.durationMs !== undefined) parts.push(`用时 ${formatDuration(row.durationMs)}`);
+          if (row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
+          if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
+          if (row.files) {
+            parts.push(
+              row.files.reverted
+                ? `${row.files.files} 个文件（已撤销）`
+                : `${row.files.files} 个文件 +${row.files.additions} −${row.files.deletions}`,
+            );
+          }
+          const ok = row.state === "completedSuccess";
+          return (
+            <Text
+              key={row.key}
+              style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}
+            >
+              {ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断"}
+              {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
+            </Text>
+          );
+        }
+
         // assistant
         return (
           <View key={row.key} style={[styles.row, { alignItems: "flex-start" }]}>
@@ -110,6 +176,19 @@ export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
   );
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  return `${(tokens / 1000).toFixed(1)}k`;
+}
+
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingVertical: space(2), gap: space(3) },
@@ -131,6 +210,8 @@ const styles = StyleSheet.create({
   },
   reasoningText: { fontSize: 12, lineHeight: 17 },
   streaming: { fontSize: 14, fontWeight: "700" },
+  pendingHint: { fontSize: 10 },
+  turn: { fontSize: 11, textAlign: "center" },
   tool: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,

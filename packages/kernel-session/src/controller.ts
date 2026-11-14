@@ -5,7 +5,7 @@
 import type { ConversationSnapshot } from "@nibi-go/shared-extract";
 
 import type { ConversationFeed } from "./feed";
-import { deriveRows, type ChatRow } from "./rows";
+import { deriveRows, type ChatRow, type PendingPrompt } from "./rows";
 
 /** 控制器只依赖“有快照、能订阅”这一面；测试里用假实现。 */
 export interface ConversationSource {
@@ -38,6 +38,7 @@ export class ConversationController {
   private readonly offSource: () => void;
   private rowsValue: ChatRow[] = [];
   private turnValue: TurnState = "idle";
+  private pendingValue: PendingPrompt[] = [];
 
   constructor(source: ConversationSource | ConversationFeed) {
     this.source = source;
@@ -47,6 +48,17 @@ export class ConversationController {
 
   get rows(): readonly ChatRow[] {
     return this.rowsValue;
+  }
+
+  /** 当前快照（hook 用它判断乐观气泡是否已被内核回显）。 */
+  get snapshot(): ConversationSnapshot | null {
+    return this.source.snapshot;
+  }
+
+  /** 本机已发出、还没回显的提示（dsh-Go PendingRow）。 */
+  setPending(pending: readonly PendingPrompt[]): void {
+    this.pendingValue = [...pending];
+    this.recompute();
   }
 
   get turn(): TurnState {
@@ -65,7 +77,7 @@ export class ConversationController {
 
   private recompute(): void {
     const snapshot = this.source.snapshot;
-    this.rowsValue = deriveRows(snapshot);
+    this.rowsValue = deriveRows(snapshot, this.pendingValue);
     this.turnValue = snapshotRunning(snapshot) ? "running" : "idle";
     for (const listener of this.listeners) listener();
   }

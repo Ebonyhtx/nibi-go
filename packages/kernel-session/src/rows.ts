@@ -1,7 +1,9 @@
 // 会话行模型：从 V4 投影快照派生，形态对齐 dsh-Go 的 ChatRow
 // （packages/dsh_client transcript + app/lib/ui/chat/chat_rows.dart）：
 //   - 一轮模型回复 = 一个 assistant 行（正文 + 推理 + 流式标记），工具行跟在其后；
-//   - 用户输入单独成行；工具按调用顺序成行（连续 ≥3 个的收组后续再做）；
+//     连续 ≥3 次工具调用收成一组（dsh-Go 的 ToolGroupRow）；
+//   - 用户输入单独成行；本机刚发出、内核还没回显的提示是 pending 行（乐观气泡）；
+//   - 一轮结束（turnHeader 有 endedAt/state）在末尾挂一行脚注（用时/工具数/token/文件）。
 //   - 行主键稳定：`r<rowId>` / `m<assistantResponseId>`，列表 diff 与流式续写都靠它。
 import type {
   AssistantTextRow as ProtocolAssistantText,
@@ -9,8 +11,28 @@ import type {
   ConversationSnapshot,
   ReasoningRow as ProtocolReasoning,
   ToolCallRow as ProtocolToolCall,
+  TurnHeaderRow as ProtocolTurnHeader,
   UserInputRow as ProtocolUserInput,
 } from "@nibi-go/shared-extract";
+
+/** dsh-Go `toolGroupThreshold`：连续 ≥3 次调用折成一组。 */
+export const TOOL_GROUP_THRESHOLD = 3;
+
+export interface ChatToolRow {
+  kind: "tool";
+  key: string;
+  name: string;
+  status: string;
+  /** 参数摘要（折叠态一行）。 */
+  detail?: string;
+  error?: string;
+}
+
+export interface PendingPrompt {
+  /** 本机生成的稳定 id（`p<seq>`）。 */
+  id: string;
+  text: string;
+}
 
 export type ChatRow =
   | {
@@ -29,14 +51,28 @@ export type ChatRow =
       model?: string;
       createdAt?: number;
     }
+  | ChatToolRow
   | {
-      kind: "tool";
+      kind: "toolGroup";
       key: string;
-      name: string;
-      status: string;
-      /** 参数摘要（折叠态一行）。 */
-      detail?: string;
-      error?: string;
+      tools: ChatToolRow[];
+      running: boolean;
+    }
+  | {
+      /** 本机刚发出、内核还没回显。 */
+      kind: "pending";
+      key: string;
+      text: string;
+    }
+  | {
+      /** 轮末脚注：用时 / 工具数 / token / 文件改动。 */
+      kind: "turn";
+      key: string;
+      state: string;
+      durationMs?: number;
+      toolCalls: number;
+      tokens?: number;
+      files?: { additions: number; deletions: number; files: number; reverted?: boolean };
     };
 
 interface AssistantGroup {
@@ -50,11 +86,7 @@ interface AssistantGroup {
   createdAt?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function toolRow(row: ProtocolToolCall): ChatRow {
+function toolRow(row: ProtocolToolCall): ChatToolRow {
   const detail =
     typeof row.inputText === "string" && row.inputText.length > 0
       ? row.inputText.slice(0, 120)
@@ -69,100 +101,174 @@ function toolRow(row: ProtocolToolCall): ChatRow {
   };
 }
 
+/** 把一组工具行按 dsh-Go 规则收组：连续 ≥3 个折成一行，不足的逐条展示。 */
+function pushTools(out: ChatRow[], tools: ChatToolRow[]): void {
+  if (tools.length === 0) return;
+  if (tools.length >= TOOL_GROUP_THRESHOLD) {
+    out.push({
+      kind: "toolGroup",
+      key: `g${tools[0]!.key}`,
+      tools,
+      running: tools.some((tool) =>
+        ["running", "inputStreaming", "pendingApproval"].includes(tool.status),
+      ),
+    });
+    return;
+  }
+  out.push(...tools);
+}
+
+function turnFootnote(turn: ProtocolTurnHeader): ChatRow | null {
+  if (turn.state === "running" || turn.endedAt === undefined) return null;
+  const startedAt = typeof turn.startedAt === "number" ? turn.startedAt : undefined;
+  const endedAt = typeof turn.endedAt === "number" ? turn.endedAt : undefined;
+  const durationMs =
+    typeof turn.activeMs === "number"
+      ? turn.activeMs
+      : startedAt !== undefined && endedAt !== undefined
+        ? endedAt - startedAt
+        : undefined;
+  return {
+    kind: "turn",
+    key: `turn${turn.rowId}`,
+    state: turn.state,
+    ...(durationMs === undefined ? {} : { durationMs }),
+    toolCalls: 0,
+    ...(typeof turn.outputTokens === "number" ? { tokens: turn.outputTokens } : {}),
+    ...(turn.fileChanges
+      ? {
+          files: {
+            additions: turn.fileChanges.additions,
+            deletions: turn.fileChanges.deletions,
+            files: turn.fileChanges.files,
+            ...(turn.fileChanges.state === "reverted" ? { reverted: true } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 /**
  * 把快照的行窗口派生为 UI 行。
  *
  * 同一 `assistantResponseId` 的正文/推理/工具收成一个 assistant 行 + 其后的工具行
  * （与 dsh-Go `_Draft.items()` 的顺序一致）；没有 responseId 的旧行按相邻合并。
  */
-export function deriveRows(snapshot: ConversationSnapshot | null): ChatRow[] {
-  if (!snapshot) return [];
-  const rows = snapshot.rows.window as ProtocolRow[];
+export function deriveRows(
+  snapshot: ConversationSnapshot | null,
+  pending: readonly PendingPrompt[] = [],
+): ChatRow[] {
   const out: ChatRow[] = [];
-  let group: AssistantGroup | null = null;
+  if (snapshot) {
+    const rows = snapshot.rows.window as ProtocolRow[];
+    let group: AssistantGroup | null = null;
+    let currentTurn: ProtocolTurnHeader | null = null;
+    let turnToolCount = 0;
 
-  const flush = () => {
-    if (!group) return;
-    const text = group.text.join("");
-    const reasoning = group.reasoning.join("");
-    if (text.length > 0 || reasoning.length > 0) {
-      out.push({
-        kind: "assistant",
-        key: group.key,
-        text,
-        reasoning,
-        streaming: group.streaming,
-        ...(group.model ? { model: group.model } : {}),
-        ...(group.createdAt === undefined ? {} : { createdAt: group.createdAt }),
-      });
-    }
-    for (const tool of group.tools) {
-      if (tool.kind === "toolCall") out.push(toolRow(tool as ProtocolToolCall));
-    }
-    group = null;
-  };
-
-  const groupFor = (responseId: string | undefined, row: ProtocolRow): AssistantGroup => {
-    if (group && group.responseId === responseId) return group;
-    flush();
-    group = {
-      key: responseId ? `m${responseId}` : `r${row.rowId}`,
-      responseId,
-      text: [],
-      reasoning: [],
-      tools: [],
-      streaming: false,
-      createdAt:
-        typeof row.createdAt === "number" ? (row.createdAt as unknown as number) : undefined,
+    const closeTurn = () => {
+      if (!currentTurn) return;
+      const footnote = turnFootnote(currentTurn);
+      if (footnote) {
+        out.push({ ...footnote, toolCalls: turnToolCount } as ChatRow);
+      }
+      currentTurn = null;
+      turnToolCount = 0;
     };
-    return group;
-  };
 
-  for (const row of rows) {
-    switch (row.kind) {
-      case "userInput": {
-        flush();
-        const user = row as ProtocolUserInput;
+    const flush = () => {
+      if (!group) return;
+      const text = group.text.join("");
+      const reasoning = group.reasoning.join("");
+      if (text.length > 0 || reasoning.length > 0) {
         out.push({
-          kind: "user",
-          key: `r${user.rowId}`,
-          text: user.text,
-          ...(typeof user.createdAt === "number"
-            ? { createdAt: user.createdAt as unknown as number }
-            : {}),
+          kind: "assistant",
+          key: group.key,
+          text,
+          reasoning,
+          streaming: group.streaming,
+          ...(group.model ? { model: group.model } : {}),
+          ...(group.createdAt === undefined ? {} : { createdAt: group.createdAt }),
         });
-        break;
       }
-      case "assistantText": {
-        const text = row as ProtocolAssistantText;
-        const current = groupFor(text.assistantResponseId, text);
-        current.text.push(text.text);
-        current.streaming = text.state === "streaming";
-        if (text.model) current.model = text.model;
-        if (current.createdAt === undefined && typeof text.createdAt === "number") {
-          current.createdAt = text.createdAt as unknown as number;
+      const tools = group.tools.filter((tool) => tool.kind === "toolCall") as ProtocolToolCall[];
+      turnToolCount += tools.length;
+      pushTools(out, tools.map(toolRow));
+      group = null;
+    };
+
+    const groupFor = (responseId: string | undefined, row: ProtocolRow): AssistantGroup => {
+      if (group && group.responseId === responseId) return group;
+      flush();
+      group = {
+        key: responseId ? `m${responseId}` : `r${row.rowId}`,
+        responseId,
+        text: [],
+        reasoning: [],
+        tools: [],
+        streaming: false,
+        createdAt:
+          typeof row.createdAt === "number" ? (row.createdAt as unknown as number) : undefined,
+      };
+      return group;
+    };
+
+    for (const row of rows) {
+      switch (row.kind) {
+        case "turnHeader": {
+          flush();
+          closeTurn();
+          currentTurn = row as ProtocolTurnHeader;
+          break;
         }
-        break;
+        case "userInput": {
+          flush();
+          const user = row as ProtocolUserInput;
+          out.push({
+            kind: "user",
+            key: `r${user.rowId}`,
+            text: user.text,
+            ...(typeof user.createdAt === "number"
+              ? { createdAt: user.createdAt as unknown as number }
+              : {}),
+          });
+          break;
+        }
+        case "assistantText": {
+          const text = row as ProtocolAssistantText;
+          const current = groupFor(text.assistantResponseId, text);
+          current.text.push(text.text);
+          current.streaming = text.state === "streaming";
+          if (text.model) current.model = text.model;
+          if (current.createdAt === undefined && typeof text.createdAt === "number") {
+            current.createdAt = text.createdAt as unknown as number;
+          }
+          break;
+        }
+        case "reasoning": {
+          const reasoning = row as ProtocolReasoning;
+          const current = groupFor(reasoning.assistantResponseId, reasoning);
+          current.reasoning.push(reasoning.text);
+          if (reasoning.state === "streaming") current.streaming = true;
+          break;
+        }
+        case "toolCall": {
+          const tool = row as ProtocolToolCall;
+          const current = groupFor(tool.assistantResponseId, tool);
+          current.tools.push(tool);
+          break;
+        }
+        default:
+          // artifact / file_diff / 交互类行先跳过：UI 还没有对应卡片。
+          break;
       }
-      case "reasoning": {
-        const reasoning = row as ProtocolReasoning;
-        const current = groupFor(reasoning.assistantResponseId, reasoning);
-        current.reasoning.push(reasoning.text);
-        if (reasoning.state === "streaming") current.streaming = true;
-        break;
-      }
-      case "toolCall": {
-        const tool = row as ProtocolToolCall;
-        const current = groupFor(tool.assistantResponseId, tool);
-        current.tools.push(tool);
-        break;
-      }
-      default:
-        // turnHeader / artifact / file_diff / 交互类行先跳过：UI 还没有对应卡片。
-        break;
     }
+    flush();
+    closeTurn();
   }
-  flush();
+
+  for (const prompt of pending) {
+    out.push({ kind: "pending", key: prompt.id, text: prompt.text });
+  }
   return out;
 }
 
@@ -207,5 +313,3 @@ export function mapLegacyMessages(messages: readonly LegacyKernelMessage[]): Cha
   }
   return rows;
 }
-
-export { isRecord };

@@ -56,6 +56,24 @@ export function useKernelConversation(): KernelConversation {
   const clientRef = useRef<KernelSessionClient | null>(null);
   const feedRef = useRef<ConversationFeed | null>(null);
   const controllerRef = useRef<ConversationController | null>(null);
+  // 本机已发出、内核还没回显的提示（dsh-Go PendingRow）。
+  const pendingRef = useRef<Array<{ id: string; text: string; baselineRowId: number }>>([]);
+  const pendingSeq = useRef(1);
+
+  const syncPending = useCallback((controller: ConversationController) => {
+    const snapshot = controller.snapshot;
+    if (!snapshot) return;
+    const remaining = pendingRef.current.filter(
+      (entry) =>
+        !snapshot.rows.window.some(
+          (row) => row.kind === "userInput" && row.text === entry.text && row.rowId > entry.baselineRowId,
+        ),
+    );
+    if (remaining.length !== pendingRef.current.length) {
+      pendingRef.current = remaining;
+      controller.setPending(remaining.map(({ id, text }) => ({ id, text })));
+    }
+  }, []);
 
   const attach = useCallback(async (client: KernelSessionClient, sessionId: string) => {
     const previousController = controllerRef.current;
@@ -70,9 +88,12 @@ export function useKernelConversation(): KernelConversation {
     controller.subscribe(() => {
       setRows([...controller.rows]);
       setTurn(controller.turn);
+      syncPending(controller);
     });
     feedRef.current = feed;
     controllerRef.current = controller;
+    pendingRef.current = [];
+    controller.setPending([]);
     await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
@@ -153,6 +174,18 @@ export function useKernelConversation(): KernelConversation {
       const client = clientRef.current;
       if (!content || !client || client.currentSessionId === null) return;
       setSending(true);
+      const snapshot = controllerRef.current?.snapshot;
+      const baselineRowId = snapshot
+        ? snapshot.rows.window.reduce((max, row) => Math.max(max, row.rowId), 0)
+        : 0;
+      pendingRef.current.push({
+        id: `p${pendingSeq.current++}`,
+        text: content,
+        baselineRowId,
+      });
+      controllerRef.current?.setPending(
+        pendingRef.current.map(({ id, text }) => ({ id, text })),
+      );
       try {
         await client.sendPrompt(content);
         await refreshSessions(client);
