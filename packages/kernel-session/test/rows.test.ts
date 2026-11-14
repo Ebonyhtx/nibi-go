@@ -278,6 +278,34 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(rows[0]).toMatchObject({ kind: "user", key: "r12", text: "TOOLTEST" });
   });
 
+  it("subagent 行映射为子智能体卡（带子会话可下钻）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "subagent",
+          subagentType: "general-purpose",
+          status: "success",
+          summaryText: "查完了",
+          childSessionId: "child_1",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+      ]),
+    );
+    expect(rows).toEqual([
+      {
+        kind: "subagent",
+        key: "s1",
+        subagentType: "general-purpose",
+        status: "success",
+        summary: "查完了",
+        childSessionId: "child_1",
+      },
+    ]);
+  });
+
   it("pendingInteractions 派生审批/提问行，排在消息之后、乐观气泡之前", () => {
     const rows = deriveRows(
       snapshotWith(

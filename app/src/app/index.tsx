@@ -203,6 +203,7 @@ export default function GoHomeScreen() {
                   rows={conversation.rows}
                   onRespond={conversation.respondInteraction}
                   turnChanges={conversation.turnChanges}
+                  onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>

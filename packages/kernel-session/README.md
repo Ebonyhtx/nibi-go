@@ -41,6 +41,13 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 - 答完内核把它从 `pendingInteractions` 移除，卡片随下一帧消失；晚到/已收口回 `noop`，这里当成功。
 - 工具行带 `output.text`（成功/失败都有），UI 在工具卡里显示前几行。
 
+## 子智能体 / 产物
+
+- `subagent` 行 → 子智能体卡（类型 / 状态 / 摘要；有 `childSessionId` 时可下钻子会话）。
+  **当前 4.1.0 内核在 Agent 前台/后台调用下都没有投影出 `subagent` 行**（真机核对，只有
+  Agent 工具行 + 后台通知回合）；映射按 schema 保留，内核产出行时卡片自动生效。
+- `artifact` 行：Rust 内核投影不产生（只有 DWF 的存储产物），GO 暂不做卡片。
+
 ## 轮折叠（dsh-Go foldCompletedTurns）
 
 - 只折 **completedSuccess** 的轮；失败/中断/运行中保持原样——停在哪一步要一眼看得到。
