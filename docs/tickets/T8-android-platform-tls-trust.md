@@ -1,5 +1,9 @@
 # 票据 · Android 进程内内核的 TLS 信任锚初始化
 
+> 状态（2026-11-15）：**S1 已实现并真机验证**（上游分支 `feat/android-kernel`，`2aa2d6d9`：
+> Android 平台根不可用时退内置 Mozilla 根，egress 不再致命）；**S2（attach JVM/Context、
+> 恢复平台根）待做**。正式发版后 GO 切回稳定 pin（D21）。
+>
 > 提交方：NIBI-GO 仓库。Phase C C0「内核上机」真机冒烟时发现；**不催主线排期**——何时做由你定。
 > 期望载体：nibi-client 仓 `kernel/crates/net/`（信任锚构造）+ `kernel/crates/cli/src/android_ffi.rs`（入口面）。
 
