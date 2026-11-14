@@ -199,7 +199,10 @@ export default function GoHomeScreen() {
               ]}
             >
               {conversation.rows.length > 0 ? (
-                <ConversationList rows={conversation.rows} />
+                <ConversationList
+                  rows={conversation.rows}
+                  onRespond={conversation.respondInteraction}
+                />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
                   <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 已就绪</Text>

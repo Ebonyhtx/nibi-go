@@ -5,9 +5,13 @@ import { deriveRows } from "../src/index";
 
 const base = { turnId: "turn_1", createdAt: 1000, createdAtSeq: 1 };
 
-function snapshotWith(window: unknown[]): ConversationSnapshot {
+function snapshotWith(
+  window: unknown[],
+  pendingInteractions: unknown[] = [],
+): ConversationSnapshot {
   return {
     rows: { window, totalCount: window.length, firstRowId: null },
+    pendingInteractions,
   } as unknown as ConversationSnapshot;
 }
 
@@ -50,6 +54,7 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
           toolName: "bash",
           status: "success",
           inputText: '{"command":"ls"}',
+          output: { text: "file-a\nfile-b" },
         },
       ]),
     );
@@ -63,7 +68,12 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
       model: "mock-model",
       streaming: false,
     });
-    expect(rows[2]).toMatchObject({ kind: "tool", name: "bash", status: "success" });
+    expect(rows[2]).toMatchObject({
+      kind: "tool",
+      name: "bash",
+      status: "success",
+      output: "file-a\nfile-b",
+    });
   });
 
   it("streaming 状态跟着 assistantText/reasoning 的 state", () => {
@@ -137,6 +147,128 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
   it("pending 提示追加在末尾", () => {
     const rows = deriveRows(snapshotWith([]), [{ id: "p1", text: "刚发出的" }]);
     expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);
+  });
+
+  it("pendingInteractions 派生审批/提问行，排在消息之后、乐观气泡之前", () => {
+    const rows = deriveRows(
+      snapshotWith(
+        [
+          { ...base, rowId: 1, kind: "userInput", text: "跑一下测试", origin: "realUser" },
+          {
+            ...base,
+            rowId: 2,
+            kind: "toolCall",
+            assistantResponseId: "resp_1",
+            toolCallId: "call_1",
+            toolName: "bash",
+            status: "pendingApproval",
+            inputText: '{"command":"flutter test test/auth"}',
+          },
+        ],
+        [
+          {
+            interactionId: "int_1",
+            kind: "permission",
+            anchorRowId: 2,
+            createdAt: 1000,
+            autoResolution: {
+              state: "visibleCountdown",
+              startedAt: 1000,
+              visibleAt: 1060,
+              deadlineAt: 1300,
+            },
+            payload: {
+              kind: "permission",
+              toolCallId: "call_1",
+              toolName: "bash",
+              summary: "运行登录相关测试",
+              detail: { command: "flutter test test/auth" },
+              freeText: true,
+              options: [
+                { optionId: "allowOnce", label: "允许本次", kind: "allowOnce" },
+                { optionId: "allowAlways", label: "本对话都允许", kind: "allowAlways" },
+                { optionId: "deny", label: "拒绝", kind: "deny" },
+              ],
+              fullAccessOption: {
+                optionId: "fullAccess",
+                label: "完全访问（本会话不再询问）",
+                kind: "custom",
+              },
+            },
+          },
+          {
+            interactionId: "int_2",
+            kind: "userInput",
+            anchorRowId: null,
+            createdAt: 1100,
+            payload: {
+              kind: "userInput",
+              prompt: "选一个方案",
+              freeText: true,
+              questions: [
+                {
+                  question: "用哪个方案？",
+                  header: "方案",
+                  options: [
+                    { value: "a", label: "方案 A", description: "快" },
+                    { value: "b", label: "方案 B" },
+                  ],
+                  multiSelect: false,
+                },
+              ],
+            },
+          },
+          {
+            interactionId: "int_3",
+            kind: "workspaceHookReview",
+            anchorRowId: null,
+            createdAt: 1200,
+            payload: { kind: "workspaceHookReview" },
+          },
+        ],
+      ),
+      [{ id: "p1", text: "刚发出的" }],
+    );
+
+    expect(rows.map((row) => row.kind)).toEqual([
+      "user",
+      "tool",
+      "approval",
+      "question",
+      "notice",
+      "pending",
+    ]);
+    expect(rows[2]).toMatchObject({
+      kind: "approval",
+      interactionId: "int_1",
+      toolName: "bash",
+      summary: "运行登录相关测试",
+      detail: "flutter test test/auth",
+      freeText: true,
+    });
+    if (rows[2]?.kind === "approval") {
+      expect(rows[2].options).toHaveLength(3);
+      expect(rows[2].fullAccess?.optionId).toBe("fullAccess");
+      expect(rows[2].autoResolution?.state).toBe("visibleCountdown");
+    }
+    expect(rows[3]).toMatchObject({
+      kind: "question",
+      interactionId: "int_2",
+      prompt: "选一个方案",
+      freeText: true,
+      questions: [
+        {
+          question: "用哪个方案？",
+          header: "方案",
+          multiSelect: false,
+          options: [
+            { value: "a", label: "方案 A", description: "快" },
+            { value: "b", label: "方案 B" },
+          ],
+        },
+      ],
+    });
+    expect(rows[4]).toMatchObject({ kind: "notice", tone: "warning" });
   });
 
   it("running 的 turnHeader 不出脚注", () => {

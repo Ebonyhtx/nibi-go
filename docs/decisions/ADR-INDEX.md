@@ -76,7 +76,7 @@
 
 | 项 | 方向（已达成共识的部分） | 触发点 / 待定 |
 |---|---|---|
-| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM | T8/S2 后定案；插件运行时最晚 C2 前 |
+| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM。**2026-11-15 真机新增输入**：内核 Bash 工具只认 bash/zsh，Android 只有 `/system/bin/sh`（票据 T9），「随包带 bash」正是本条要评估的方案 | T8/S2 后定案；插件运行时最晚 C2 前 |
 | ⑤ FGS 策略 | `dataSync` 在 targetSdk 35+ 有 6h/24h 上限；长任务走 `specialUse` + Play 声明，或分段续跑 | C0 收口后立项；上架前补声明 |
 | ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
 | 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
@@ -86,7 +86,8 @@
 
 ### 记录位置（压缩会话后按这些找回）
 
-- 决策：本文件 D19–D23 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、`HANDOFF.md`。
+- 决策：本文件 D19–D23 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、
+  `docs/tickets/T9-android-shell-execution.md`、`HANDOFF.md`。
 - 实施状态与真机结果：`docs/plan.md`「C0 进展」。
 - 协议与架构事实：`packages/kernel-session/README.md`。
 - 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{pin.json,fetch.mjs,lib.mjs}`、

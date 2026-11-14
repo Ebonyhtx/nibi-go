@@ -164,8 +164,17 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   （`v4/conversation/subscribe` → snapshot + `row.delta`），行模型对齐 ChatRow
   （用户 / 助手含推理与流式光标 / 工具行 / ≥3 收组 / 轮末脚注 / 乐观 pending）；
   真机验证：正文按 `row.delta` 实时增长、完成后脚注 `✓ 已完成 · 用时 …`。
-- **未做**：真实 Provider 凭据与设置页、审批/提问卡、文件变更卡、前台服务、
-  panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套。
+- **审批 / 提问卡（2026-11-15 真机跑通）**：快照 `pendingInteractions` 派生
+  `approval` / `question` / `notice` 行（dsh-Go ApprovalRow / QuestionRow 的位置：消息后、乐观气泡前）；
+  回答走 `v4/command` 的 `resolveInteraction`（信封必填 `issuedAt`，缺了回 -32602）。
+  真机链路：假模型发 `Write` → 审批卡 → 允许本次 → 文件写入成功（内容与入参一致）→
+  轮末脚注 `1 个文件 +1`。工具行同时补了 `output.text`（失败时就是内核错误正文）。
+- **Bash 工具在 Android 上不可用（2026-11-15 发现）**：内核 shell 发现只认 bash/zsh
+  （`kernel/crates/cli/src/shell.rs`），Android 只有 `/system/bin/sh`；同轮 `Write` 正常。
+  已立票据 **T9**，归入待定项 ④（可执行内容边界）一起定方案。
+- **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
+  panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
+  Android 上的 shell 执行（T9）。
 
 ---
 

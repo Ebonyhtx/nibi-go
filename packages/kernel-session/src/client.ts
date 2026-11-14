@@ -28,6 +28,8 @@ export interface KernelSessionClientOptions {
    * 这里的返回值就是给它的 result。默认最小可用集合；产品侧按设置页填全。
    */
   runtimePreferences?: (scope: string) => Record<string, unknown>;
+  /** 命令信封里的客户端标识；内核按 `(sessionId, commandId)` 去重。 */
+  clientId?: string;
 }
 
 interface IncomingFrame {
@@ -56,10 +58,12 @@ export class KernelSessionClient {
   private readonly transport: KernelTransport;
   private readonly requestTimeoutMs: number;
   private readonly runtimePreferences: (scope: string) => Record<string, unknown>;
+  private readonly clientId: string;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly listeners = new Set<(notification: KernelNotification) => void>();
   private readonly offLine: () => void;
   private nextId = 1;
+  private resolveSeq = 1;
   private sessionId: string | null = null;
   private subscribed: { topic: string; connectionId: string } | null = null;
   private closed = false;
@@ -69,6 +73,7 @@ export class KernelSessionClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.runtimePreferences =
       options.runtimePreferences ?? (() => ({ nativeSearchEnhancementsEnabled: false }));
+    this.clientId = options.clientId ?? "nibi-go";
     this.offLine = this.transport.onLine((line) => this.handleLine(line));
   }
 
@@ -132,6 +137,37 @@ export class KernelSessionClient {
       accepted: result?.accepted === true,
       stateRevision: typeof result?.stateRevision === "number" ? result.stateRevision : undefined,
     };
+  }
+
+  /**
+   * 回答一个待处理交互（`v4/command` 的 `resolveInteraction`）。
+   *
+   * 应答形状由交互类型决定：权限是 `{ optionId, freeText? }`；提问是
+   * `{ action: "accept", content: { answers } }` 或 `{ action: "decline" }`。
+   * 内核按先到先得处理，已收口的晚到应答回 `noop`——这里当成功。
+   */
+  async resolveInteraction(
+    interactionId: string,
+    answer: Record<string, unknown>,
+  ): Promise<void> {
+    const sessionId = this.requireSessionId();
+    const ack = await this.request<{ status?: unknown; reasonCode?: unknown; message?: unknown }>(
+      KERNEL_METHODS.command,
+      {
+        commandId: `resolve-${interactionId}-${this.resolveSeq++}`,
+        clientId: this.clientId,
+        sessionId,
+        type: "resolveInteraction",
+        payload: { interactionId, answer },
+        // commandEnvelopeSchema 的必填字段（真机核对：缺它会回 -32602 "(root): missing"）。
+        issuedAt: Date.now(),
+      },
+    );
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝了这次回答（${status}）`);
+    }
   }
 
   /** 读会话消息（`session/messages`；增量用 `afterMessageId`）。 */

@@ -9,6 +9,12 @@
 //             NIBI_MODEL=mock-model
 //
 // 只实现 `POST /v1/chat/completions`（流式 SSE + 非流式 JSON）和 `GET /v1/models`。
+//
+// 审批卡/工具卡联调：提示里带 `TOOLTEST`（`MOCK_TOOL_TRIGGER` 可改）时回一次工具调用。
+// 默认是 Bash；Android 上内核没有 bash/zsh，验审批请换成 Write：
+//   MOCK_TOOL_NAME=Write \
+//   MOCK_TOOL_INPUT='{"file_path":"/sdcard/Download/nibi-approval-test.txt","content":"nibi approval test"}' \
+//   node scripts/dev/mock-openai.mjs
 
 import { createServer } from "node:http";
 
@@ -21,6 +27,59 @@ function readBody(request) {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
   });
+}
+
+/** 开发期触发器：提示里带这个词就让假模型回一次 Bash 工具调用（用于验审批卡）。 */
+const TOOL_TRIGGER = process.env.MOCK_TOOL_TRIGGER ?? "TOOLTEST";
+const TOOL_NAME = process.env.MOCK_TOOL_NAME ?? "Bash";
+const TOOL_COMMAND = process.env.MOCK_TOOL_COMMAND ?? "echo nibi-mock-tool-ok";
+/** 工具入参：默认按 Bash 的 `{command}`；换别的工具用 MOCK_TOOL_INPUT 传 JSON。 */
+const TOOL_INPUT = (() => {
+  const raw = process.env.MOCK_TOOL_INPUT;
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // 解析失败退回默认入参。
+    }
+  }
+  return { command: TOOL_COMMAND };
+})();
+
+/** 最后一条 user 消息的文本（Anthropic/OpenAI 两种 content 形状都认）。 */
+function lastUserText(body) {
+  try {
+    const parsed = JSON.parse(body);
+    const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== "user") continue;
+      if (typeof message.content === "string") return message.content;
+      if (Array.isArray(message.content)) {
+        return message.content
+          .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+          .join(" ");
+      }
+    }
+  } catch {
+    // 解析失败按无文本处理。
+  }
+  return "";
+}
+
+/** 当前这一轮是否已经带回了工具结果（只看最后一条消息，历史里的旧结果不算）。 */
+function hasToolResult(body) {
+  try {
+    const parsed = JSON.parse(body);
+    const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+    const last = messages.at(-1);
+    return (
+      Array.isArray(last?.content) &&
+      last.content.some((part) => part?.type === "tool_result")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function replyText(body) {
@@ -57,19 +116,48 @@ const server = createServer(async (request, response) => {
     const text = replyText(body);
     const streaming = /"stream"\s*:\s*true/u.test(body);
     const id = "msg_mock";
+    const toolTurn = lastUserText(body).includes(TOOL_TRIGGER) && !hasToolResult(body);
+    try {
+      const toolNames = JSON.parse(body)?.tools
+        ?.map((tool) => tool?.name)
+        .filter((name) => typeof name === "string" && name.length > 0);
+      if (toolNames?.length) console.log(`[mock-openai] tools: ${toolNames.join(", ")}`);
+    } catch {
+      // 工具列表只用于开发期观察。
+    }
     if (!streaming) {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
-        JSON.stringify({
-          id,
-          type: "message",
-          role: "assistant",
-          model: MODEL,
-          content: [{ type: "text", text }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: { input_tokens: 8, output_tokens: 16 },
-        }),
+        JSON.stringify(
+          toolTurn
+            ? {
+                id,
+                type: "message",
+                role: "assistant",
+                model: MODEL,
+                content: [
+                  {
+                    type: "tool_use",
+                    id: "toolu_mock_1",
+                    name: TOOL_NAME,
+                    input: TOOL_INPUT,
+                  },
+                ],
+                stop_reason: "tool_use",
+                stop_sequence: null,
+                usage: { input_tokens: 8, output_tokens: 16 },
+              }
+            : {
+                id,
+                type: "message",
+                role: "assistant",
+                model: MODEL,
+                content: [{ type: "text", text }],
+                stop_reason: "end_turn",
+                stop_sequence: null,
+                usage: { input_tokens: 8, output_tokens: 16 },
+              },
+        ),
       );
       return;
     }
@@ -93,13 +181,40 @@ const server = createServer(async (request, response) => {
         usage: { input_tokens: 8, output_tokens: 0 },
       },
     });
+    // 按小块慢慢吐，模拟真实模型流式（默认 250ms 一块），便于观察增量渲染。
+    const chunkMs = Number(process.env.MOCK_OPENAI_CHUNK_MS ?? 250);
+    if (toolTurn) {
+      // Anthropic 流式工具调用：先用 input_json_delta 把参数吐完，再以 tool_use 收尾。
+      // 内核收到后执行 Bash → 默认权限模式会弹审批（用来验 GO 的审批卡）。
+      event("content_block_start", {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "toolu_mock_1", name: TOOL_NAME, input: {} },
+      });
+      event("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: {
+          type: "input_json_delta",
+          partial_json: JSON.stringify(TOOL_INPUT),
+        },
+      });
+      if (chunkMs > 0) await new Promise((resolve) => setTimeout(resolve, chunkMs));
+      event("content_block_stop", { type: "content_block_stop", index: 0 });
+      event("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: "tool_use", stop_sequence: null },
+        usage: { output_tokens: 16 },
+      });
+      event("message_stop", { type: "message_stop" });
+      response.end();
+      return;
+    }
     event("content_block_start", {
       type: "content_block_start",
       index: 0,
       content_block: { type: "text", text: "" },
     });
-    // 按小块慢慢吐，模拟真实模型流式（默认 250ms 一块），便于观察增量渲染。
-    const chunkMs = Number(process.env.MOCK_OPENAI_CHUNK_MS ?? 250);
     const pieces = text.match(/[\s\S]{1,6}/gu) ?? [text];
     for (const piece of pieces) {
       event("content_block_delta", {

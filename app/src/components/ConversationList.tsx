@@ -8,8 +8,15 @@ import { type ComponentRef, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { radius, space, useNibiTheme } from "../theme";
+import { InteractionCard, type InteractionResponder } from "./InteractionCards";
 
-export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
+export function ConversationList({
+  rows,
+  onRespond,
+}: {
+  rows: readonly ChatRow[];
+  onRespond: InteractionResponder;
+}) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
@@ -85,6 +92,14 @@ export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
                   {row.detail}
                 </Text>
               ) : null}
+              {row.output ? (
+                <Text
+                  style={[styles.toolOutput, { color: row.status === "error" ? th.red : th.inkFaint }]}
+                  numberOfLines={3}
+                >
+                  {row.output}
+                </Text>
+              ) : null}
               {row.error ? (
                 <Text style={[styles.toolDetail, { color: th.red }]} numberOfLines={3}>
                   {row.error}
@@ -140,6 +155,24 @@ export function ConversationList({ rows }: { rows: readonly ChatRow[] }) {
             >
               {ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断"}
               {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
+            </Text>
+          );
+        }
+
+        if (row.kind === "approval" || row.kind === "question") {
+          return <InteractionCard key={row.key} row={row} onRespond={onRespond} />;
+        }
+
+        if (row.kind === "notice") {
+          return (
+            <Text
+              key={row.key}
+              style={[
+                styles.notice,
+                { color: row.tone === "warning" ? th.amber : th.inkFaint },
+              ]}
+            >
+              {row.text}
             </Text>
           );
         }
@@ -212,6 +245,7 @@ const styles = StyleSheet.create({
   streaming: { fontSize: 14, fontWeight: "700" },
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
+  notice: { fontSize: 11.5, textAlign: "center", paddingHorizontal: space(2) },
   tool: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
@@ -223,4 +257,5 @@ const styles = StyleSheet.create({
   toolName: { flex: 1, fontSize: 12.5, fontWeight: "700" },
   toolStatus: { fontSize: 10.5, fontWeight: "600" },
   toolDetail: { fontSize: 11.5, lineHeight: 16 },
+  toolOutput: { fontFamily: "monospace", fontSize: 11, lineHeight: 15 },
 });
