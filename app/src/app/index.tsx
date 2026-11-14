@@ -40,6 +40,9 @@ export default function GoHomeScreen() {
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
   const conversation = useKernelConversation();
   const [draft, setDraft] = useState("");
+  const activeTitle =
+    conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
+      ?.title || "新对话";
   // C0 已就绪：空闲时用 idle，不再一律睡着的鸟（内核能跑，但还没接线到本页的活动）。
   // dev 下点宠物可循环九个状态，用来核对切换与过渡（发布构建不生效）。
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
@@ -110,7 +113,18 @@ export default function GoHomeScreen() {
       />
 
       <View style={styles.shell}>
-        {hasSidebar ? <GoSidebar petState={petState} /> : null}
+        {hasSidebar ? (
+          <GoSidebar
+            petState={petState}
+            sessions={conversation.sessions}
+            activeSessionId={conversation.activeSessionId}
+            onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
+            onNewSession={() => {
+              setDraft("");
+              void conversation.newSession();
+            }}
+          />
+        ) : null}
         {hasRail ? (
           <GoRail
             petState={petState}
@@ -144,7 +158,7 @@ export default function GoHomeScreen() {
                 <View style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
                   <View style={styles.chipBody}>
                     <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
-                      新对话
+                      {activeTitle}
                     </Text>
                     <View style={styles.chipStatus}>
                       <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
@@ -266,7 +280,20 @@ export default function GoHomeScreen() {
         </View>
       </View>
 
-      {!inShell ? <GoDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} petState={petState} /> : null}
+      {!inShell ? (
+        <GoDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          petState={petState}
+          sessions={conversation.sessions}
+          activeSessionId={conversation.activeSessionId}
+          onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
+          onNewSession={() => {
+            setDraft("");
+            void conversation.newSession();
+          }}
+        />
+      ) : null}
     </View>
   );
 }
