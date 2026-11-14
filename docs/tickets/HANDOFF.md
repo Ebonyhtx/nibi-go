@@ -17,7 +17,7 @@
 | T5 | **已实现**（`9d0fc7c0`，2026-11-12）；待真机 | nibi-client 桌面 transport |
 | T6 | **已完成（上游 `697f86cf`）** | android 平台包补 cdylib 产物 `lib/libnibi.so`（Phase C 进程内形态，D19） |
 | T7 | **已完成（上游 `697f86cf`）** | web 远程控制 transport 注入口（WORK 原生隧道承载，D2/D4/D9 修订） |
-| T8 | **待派发**（2026-11-15） | Android 进程内内核的 TLS 信任锚初始化（真机 `rustls-platform-verifier could not load extra certs`） |
+| T8 | **S1 已实现**（上游分支 `feat/android-kernel`，真机验证）；S2 待做 | Android 进程内内核的 TLS 信任锚初始化（真机 `rustls-platform-verifier could not load extra certs`） |
 
 ## 处理方式（三步）
 
