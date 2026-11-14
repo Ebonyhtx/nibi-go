@@ -143,8 +143,16 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 冒烟入口 `nibigo://kernel-smoke`：模块可用性、C ABI 版本、start/stop/destroy 结果与内核输出。
 - 已验证（本机）：arm64 debug APK 打包含 `libnibi.so` / `libc++_shared.so` / `libnibi_kernel_jni.so`，
   模块进入 `ExpoModulesPackageList`；`fetch --check` 可复验落盘产物。
-- **未验证**：真机 dlopen 与内核启动（当前无 arm64 设备）；协议初始化帧、前台服务、panic 看门狗、
-  iroh NDK、busybox/git 三件套与会话库都还没做。
+- **真机冒烟（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）**：
+  - `libnibi.so` / `libnibi_kernel_jni.so` 加载成功，`abiVersion()` = v1，`start() → true`；
+  - 第一帧 `startup/storageState` 已按 LF 切帧送达 JS —— **进程内运行形态与协议面成立**；
+  - 随后内核在 egress 构造处退出：`rustls-platform-verifier could not load extra certs`
+    （Android 平台信任库需要 JVM + Android Context，C ABI 没有初始化入口）→ 已立票据 **T8**。
+- 真机暴露并已修的两个缺陷：JNI 回调签名不匹配（Kotlin Sink 用 `ByteArray` 而非 `String`，
+  原先 `GetMethodID` 抛 `NoSuchMethodError` 导致进程 abort）；`libnibi.so` 无 SONAME 时
+  `DT_NEEDED` 会记成构建机绝对路径（改 `-L` + `-l` 后为 `libnibi.so`）。
+- **未做**：协议初始化帧（等 T8 解除 egress 致命错误后继续）、前台服务、panic 看门狗、
+  iroh NDK、busybox/git 三件套与会话库。
 
 ---
 
