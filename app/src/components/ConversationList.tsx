@@ -3,7 +3,7 @@
 //   助手 = 白卡（推理折叠 + 正文 + 流式光标 + 模型标签）；
 //   工具 = 一行式卡片（名称 + 状态 + 参数摘要）。
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
-import type { ChatRow } from "@nibi-go/kernel-session";
+import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { type ComponentRef, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -13,9 +13,12 @@ import { InteractionCard, type InteractionResponder } from "./InteractionCards";
 export function ConversationList({
   rows,
   onRespond,
+  turnChanges,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
+  /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`），值是这一轮的文件改动。 */
+  turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -148,14 +151,15 @@ export function ConversationList({
             );
           }
           const ok = row.state === "completedSuccess";
+          const files = turnChanges[row.key] ?? [];
           return (
-            <Text
-              key={row.key}
-              style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}
-            >
-              {ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断"}
-              {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
-            </Text>
+            <View key={row.key} style={styles.turnBlock}>
+              <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
+                {ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断"}
+                {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
+              </Text>
+              {files.length > 0 ? <ChangeCard files={files} /> : null}
+            </View>
           );
         }
 
@@ -209,6 +213,54 @@ export function ConversationList({
   );
 }
 
+/** 轮末改动卡（dsh-Go ChangeCard 的信息面）：改了哪些文件、各自 +/−。 */
+function ChangeCard({ files }: { files: readonly ChatFileChange[] }) {
+  const th = useNibiTheme();
+  const added = files.reduce((sum, file) => sum + file.additions, 0);
+  const removed = files.reduce((sum, file) => sum + file.deletions, 0);
+  const shown = files.slice(0, 4);
+  return (
+    <View style={[styles.changes, { backgroundColor: th.card, borderColor: th.hairline }]}>
+      <View style={styles.toolHead}>
+        <Text style={[styles.toolName, { color: th.ink }]}>改动了 {files.length} 个文件</Text>
+        <Text style={[styles.toolStatus, { color: th.inkFaint }]}>
+          +{added} −{removed}
+        </Text>
+      </View>
+      {shown.map((file) => (
+        <View key={file.path} style={styles.fileRow}>
+          <Text style={[styles.fileName, { color: th.ink }]} numberOfLines={1}>
+            {baseName(file.path)}
+          </Text>
+          <Text style={[styles.fileDir, { color: th.inkGhost }]} numberOfLines={1}>
+            {dirName(file.path)}
+          </Text>
+          <Text style={[styles.fileStat, { color: th.inkFaint }]}>
+            {file.additions > 0 ? `+${file.additions}` : ""}
+            {file.additions > 0 && file.deletions > 0 ? " " : ""}
+            {file.deletions > 0 ? `−${file.deletions}` : ""}
+          </Text>
+        </View>
+      ))}
+      {files.length > shown.length ? (
+        <Text style={[styles.fileMore, { color: th.inkFaint }]}>
+          还有 {files.length - shown.length} 个文件
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function baseName(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? path : path.slice(slash + 1);
+}
+
+function dirName(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash <= 0 ? "" : path.slice(0, slash);
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const seconds = ms / 1000;
@@ -245,6 +297,7 @@ const styles = StyleSheet.create({
   streaming: { fontSize: 14, fontWeight: "700" },
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
+  turnBlock: { gap: space(2) },
   notice: { fontSize: 11.5, textAlign: "center", paddingHorizontal: space(2) },
   tool: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -258,4 +311,16 @@ const styles = StyleSheet.create({
   toolStatus: { fontSize: 10.5, fontWeight: "600" },
   toolDetail: { fontSize: 11.5, lineHeight: 16 },
   toolOutput: { fontFamily: "monospace", fontSize: 11, lineHeight: 15 },
+  changes: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+    gap: space(1),
+  },
+  fileRow: { flexDirection: "row", alignItems: "baseline", gap: space(2) },
+  fileName: { fontSize: 12.5, fontWeight: "600", flexShrink: 0, maxWidth: "48%" },
+  fileDir: { flex: 1, fontSize: 11 },
+  fileStat: { fontSize: 11.5, fontWeight: "600" },
+  fileMore: { fontSize: 11, marginTop: 2 },
 });

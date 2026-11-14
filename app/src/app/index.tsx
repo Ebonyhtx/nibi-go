@@ -202,6 +202,7 @@ export default function GoHomeScreen() {
                 <ConversationList
                   rows={conversation.rows}
                   onRespond={conversation.respondInteraction}
+                  turnChanges={conversation.turnChanges}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>

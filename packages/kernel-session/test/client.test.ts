@@ -182,6 +182,52 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).rejects.toThrow("the interaction is no longer pending");
   });
 
+  it("fileChanges：按轮头行取明细，带 target 与快照水位", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_6" } } });
+    await created;
+
+    const pending = client.fileChanges(
+      { rowId: 7, entityId: "turn_7" },
+      { revision: 3, logEpoch: "epoch-1" },
+    );
+    expect(transport.lastFrame()).toEqual({
+      id: 2,
+      method: KERNEL_METHODS.fileChanges,
+      params: {
+        sessionId: "sess_6",
+        target: { rowId: 7, entityId: "turn_7" },
+        baseRevision: 3,
+        baseLogEpoch: "epoch-1",
+      },
+    });
+    transport.receive({
+      id: 2,
+      result: {
+        files: 1,
+        additions: 1,
+        deletions: 0,
+        items: [
+          {
+            path: "/w/a.ts",
+            additions: 1,
+            deletions: 0,
+            writeCount: 1,
+            toolNames: ["Write"],
+            patches: [],
+          },
+        ],
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      files: 1,
+      additions: 1,
+      items: [{ path: "/w/a.ts", additions: 1, deletions: 0 }],
+    });
+  });
+
   it("readMessages：透传 afterMessageId/limit 并返回 messages", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

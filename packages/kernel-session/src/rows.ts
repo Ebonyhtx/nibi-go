@@ -56,6 +56,15 @@ export interface ChatInteractionQuestion {
 /** AUQ 的协议层自动处理状态；卡片只提示，不自己计时。 */
 export type ChatAutoResolution = InteractionAutoResolution;
 
+/** 一轮里被改过的一个文件（多次修改合并；对齐 dsh-Go `FileChange` 的展示面）。 */
+export interface ChatFileChange {
+  path: string;
+  additions: number;
+  deletions: number;
+  /** 成功写入/编辑它的次数。 */
+  edits: number;
+}
+
 export type ChatRow =
   | {
       kind: "user";
