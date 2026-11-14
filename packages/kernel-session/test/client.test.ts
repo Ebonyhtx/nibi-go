@@ -137,6 +137,51 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).resolves.toEqual({ accepted: true, stateRevision: 3 });
   });
 
+  it("resolveInteraction：发 v4/command 信封，noop（已收口）也算成功", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_4" } } });
+    await created;
+
+    const pending = client.resolveInteraction("int_1", { optionId: "allowOnce" });
+    const frame = transport.lastFrame();
+    expect(frame).toMatchObject({
+      method: KERNEL_METHODS.command,
+      params: {
+        clientId: "nibi-go",
+        sessionId: "sess_4",
+        type: "resolveInteraction",
+        payload: { interactionId: "int_1", answer: { optionId: "allowOnce" } },
+      },
+    });
+    expect(String((frame.params as { commandId?: unknown }).commandId)).toMatch(
+      /^resolve-int_1-/u,
+    );
+    expect(typeof (frame.params as { issuedAt?: unknown }).issuedAt).toBe("number");
+    transport.receive({ id: 2, result: { status: "noop", memoryEnabled: false } });
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it("resolveInteraction：rejected/failed 变成带原因的拒绝", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport, { clientId: "nibi-go-test" });
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_5" } } });
+    await created;
+
+    const pending = client.resolveInteraction("int_2", {
+      action: "accept",
+      content: { answers: { "用哪个方案？": "方案 A" } },
+    });
+    expect(transport.lastFrame().params).toMatchObject({ clientId: "nibi-go-test" });
+    transport.receive({
+      id: 2,
+      result: { status: "rejected", message: "the interaction is no longer pending" },
+    });
+    await expect(pending).rejects.toThrow("the interaction is no longer pending");
+  });
+
   it("readMessages：透传 afterMessageId/limit 并返回 messages", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

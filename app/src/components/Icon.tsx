@@ -15,7 +15,9 @@ export type IconName =
   | "sliders"
   | "puzzle"
   | "search"
-  | "pen";
+  | "pen"
+  | "shield"
+  | "question";
 
 export interface IconProps {
   name: IconName;
@@ -74,6 +76,14 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
           <>
             <Circle cx={11} cy={11} r={6.2} {...ring} />
             <Path path="M15.6 15.6L20 20" {...paint} />
+          </>
+        ) : name === "shield" ? (
+          <Path path="M12 3.2L19 6V11.4C19 15.8 16 19 12 20.8C8 19 5 15.8 5 11.4V6Z" {...paint} />
+        ) : name === "question" ? (
+          <>
+            <Circle cx={12} cy={12} r={8.5} {...ring} />
+            <Path path="M9.6 9.3A2.6 2.6 0 0114.7 11.4C14.7 13 12 13 12 14.6" {...paint} />
+            <Circle cx={12} cy={17.4} r={0.9} color={color} />
           </>
         ) : (
           <Path path="M16.8 3.6L20.4 7.2L8.6 19L4 20L5 15.4Z" {...paint} />

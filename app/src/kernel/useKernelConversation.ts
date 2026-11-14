@@ -43,6 +43,8 @@ export interface KernelConversation {
   send: (text: string) => Promise<void>;
   newSession: () => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
+  /** 回答审批/提问（`v4/command` 的 `resolveInteraction`）。 */
+  respondInteraction: (interactionId: string, answer: Record<string, unknown>) => Promise<void>;
 }
 
 export function useKernelConversation(): KernelConversation {
@@ -230,6 +232,20 @@ export function useKernelConversation(): KernelConversation {
     [attach],
   );
 
+  const respondInteraction = useCallback(
+    async (interactionId: string, answer: Record<string, unknown>) => {
+      const client = clientRef.current;
+      if (!client) return;
+      try {
+        await client.resolveInteraction(interactionId, answer);
+      } catch (error) {
+        setStatus(`回答失败：${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
+    },
+    [],
+  );
+
   return {
     rows,
     turn,
@@ -241,5 +257,6 @@ export function useKernelConversation(): KernelConversation {
     send,
     newSession,
     openSession,
+    respondInteraction,
   };
 }

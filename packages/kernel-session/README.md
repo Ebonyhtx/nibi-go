@@ -26,6 +26,21 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 - `session/list` 的 `workspace` 过滤是精确字符串比较（目录尾斜杠不同即不相等）；
   单工作区阶段先列全部、客户端排序。
 
+## 交互（审批 / 提问）
+
+- 快照的 `pendingInteractions` 是唯一状态源：`permission` / `userInput` / `workspaceHookReview`。
+  `rows.ts` 把它们派生为 `approval` / `question` / `notice` 行，放在消息之后、乐观气泡之前（同 dsh-Go）。
+- 回答走 `v4/command` 的 `resolveInteraction`：
+  `{ commandId, clientId, sessionId, type: "resolveInteraction", payload: { interactionId, answer }, issuedAt }`。
+  **`issuedAt` 是必填**：缺了内核回 `-32602 (root): missing`（2026-11-15 真机核对）。
+- answer 形状（内核 `protocol-nibi/src/commands.rs::resolve`）：
+  - 权限：`{ optionId }`。`optionId` 取自 `payload.options`（`allowOnce` / `allowAlways` / `deny` / 自定义），
+    `fullAccess` 来自 `payload.fullAccessOption`；拒绝可带 `freeText`。
+  - 提问：`{ action: "accept", content: { answers: { [question]: text } } }`，或 `{ action: "decline" }`；
+    计划审批是 `{ action: "accept", content: { answer: "approve" } }`。
+- 答完内核把它从 `pendingInteractions` 移除，卡片随下一帧消失；晚到/已收口回 `noop`，这里当成功。
+- 工具行带 `output.text`（成功/失败都有），UI 在工具卡里显示前几行。
+
 ## 开发期假模型
 
 ```bash
@@ -34,6 +49,15 @@ adb reverse tcp:9099 tcp:9099
 ```
 
 `startKernelHost({ NIBI_MODEL_BASE_URL, NIBI_API_KEY, NIBI_MODEL })` 只在 dev 冒烟页使用。
+
+审批/工具卡联调：提示里带 `TOOLTEST` 让假模型回一次工具调用。Android 上内核只认 bash/zsh，
+没有 bash（见 `docs/tickets/T9-android-shell-execution.md`），验审批用 Write：
+
+```bash
+MOCK_TOOL_NAME=Write \
+MOCK_TOOL_INPUT='{"file_path":"/sdcard/Download/nibi-approval-test.txt","content":"nibi approval test"}' \
+node scripts/dev/mock-openai.mjs
+```
 
 ## 测试
 

@@ -80,4 +80,6 @@ export const KERNEL_METHODS = {
   conversationUnsubscribe: "v4/conversation/unsubscribe",
   conversationFrame: "v4/conversation/frame",
   requestRuntimePreferences: "session/requestRuntimePreferences",
+  /** 前向命令面：回答权限/提问等交互（`resolveInteraction`）。 */
+  command: "v4/command",
 } as const;
