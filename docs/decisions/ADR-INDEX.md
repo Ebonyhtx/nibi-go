@@ -29,6 +29,8 @@
 | D21 | C0→C1 期间消费上游预发布 | D17「单向消费 + 票据制」的唯一例外：上游在 `feat/android-kernel` 分支开发 Android 平台面，发 **`4.2.0-android.N` + `android-next` dist-tag**，**永不发 `latest`**；GO 的 pin 记录预发布版本与分支 commit；切片合并（每片过五道门：非 Android 三平台产物逐文件一致 / `cargo test --workspace` / Android leg + 符号校验 / 真机验收 / ABI 文档同步）；需确认内核的自动更新路径不会把预发布当最新；上游正式发版后 GO 切回稳定 pin。D17 的「不 fork、不开长期分支」原则不变 | ✅ |
 | D22 | 16 KB page size 打包契约 | 进 APK 的每个 native 库，ELF `LOAD` 段必须 **2^14 = 16 KB 对齐**（Play 对 targetSdk 35+ 的包有此要求，具体生效日期以官方页为准）。落实：上游 `kernel/.cargo/config.toml` 给 `aarch64-linux-android` 加 `-Wl,-z,max-page-size=16384` / `common-page-size=16384` 并在 release workflow 断言；GO 的 JNI 薄层在 CMake 里加同样的 `target_link_options`；GO `scripts/android-kernel/fetch.mjs` 用 `elfLoadAlignment()` 断言 ≥ 16384（**4.1.0 实测 4 KB，不满足，故不用于发布**）。APK 侧另查 `zipalign -c -P 16`（未压缩 `.so` 的 16 KB 对齐） | ✅ 2026-11-15 |
 | D23 | ABI 版本与内核升级 | **新增可选导出符号不升 `abi_version`**（老宿主照常工作），只有语义破坏才升；宿主启动时校验自己支持的最低版本，能力差异用查询位表达。内核随 App 发版，**不做热更**（政策与 D17 都不允许）；回滚 = App 降级；完整性靠 `build.json.artifacts` 的 sha256（D19）。C0→C1 期间预发布版本按 D21 消费 | ✅ |
+| D24 | 内核 fork 到 GO 自维护 | **Android 内核 fork 进 NIBI-GO 公开仓，自包含、自改造**；上游不再为 GO 发 Android npm 包，GO 不再为内核改动向上游提单。GO 自建 `libnibi.so`（D19/D20/D22 保留），Android 原生适配（SH 方言、hooks、环境提示、原生工具）；上游作为只读源按安全/协议能力合并，Android 分支允许持续分叉；D21 对 Android 失效，D23 转为 GO 自有；fork 代码/二进制随包带上游 NOTICE/许可 | ✅ 2026-11-15 |
+| D25 | Android 原生运行时与 targetSdk 36 兼容层 | 三件套（bash/busybox/git）+ Node/Python 进 jniLibs、SHELL 可见；不做 rootfs/PRoot。targetSdk 36 下用 `nibi-run`、npm/npx/pip 包装、git hooks dispatcher、busybox 函数、内核工具重写吸收「App 数据不可 exec」的摩擦；UI 插件走声明式 slots（插件不改外壳）；手机操控两开关（无障碍 / 高级 shell，Shizuku/无线调试引导）；workspace 先定义。硬边界：App 数据 native ELF 不可执行、原生 addon 需 Android 构建、无 root/无别的 App 数据、同 uid 非硬沙箱。正文 `docs/design/android-native-runtime.md` | ✅ 2026-11-15 |
 
 ## 附：关键修正记录
 
@@ -59,6 +61,7 @@
 - 2026-11-12：**D6 取消（模块 B 不做）**。理由见 D6 行；B0 工具面移交 C 前置，B1 不做；D12 顺序同步改成 A → C。同时新增 D19：Android 内核运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（`lib/libnibi.so` + `build.json`）。
 - 2026-11-13：**D2/D4 修订（运营者指正）**。①形态：默认 GO 主体，WORK 只是其中一个入口，并列双卡作废。②WORK UI：不是「原生重画」模仿，是直接承载同源 web UI——源码实证 `packages/web/src/main.tsx:18` 从 `@nibi/ui` 挂载 `Root`（与桌面同一套外壳），main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」；main.tsx:458 `createWebPlatform({ externalWebRemoteControlProxy })` 是上游预留的原生壳接缝。原生壳 = WebView 载体 + IPlatformService 桥。Phase A 已建的原生远控屏（work/chat/sessions/devices/scan）退役；relay-client/chat-core/KeepAlive/通知资产按 E2E 方案继续复用。**E2E 已拍板（2026-11-13 当日）：案 A 原生隧道**——连接所有权在原生 RelayTransport（E2E 密文 + 后台通知/保活成立），WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文；D9 已补 App 内 WORK 豁免；上游注入口立票据 **T7**（web transport 注入口）。
 - 2026-11-15：**C0 真机冒烟（OnePlus PHK110 / Android 16 / arm64）**——`libnibi.so` + JNI 薄层加载成功，`abiVersion()`=v1，`start()`=true，第一帧 `startup/storageState` 按 LF 切帧送达；随后内核在 egress 构造退出（`rustls-platform-verifier could not load extra certs`），立票据 **T8**。同日上游分支 `feat/android-kernel` 的 S1（Android 平台根不可用时退内置根）真机验证 `storageState` 走到 `ready`、内核保持运行。**D19 的进程内 dlopen 选择被真机证实成立**；据此新增 **D20（承载进程与重启语义）/ D21（预发布消费）/ D22（16 KB 页对齐）/ D23（ABI 与升级）**。实测 4.1.0 的 `libnibi.so` LOAD 段 4 KB，不满足 D22，故不当发布产物用。
+- 2026-11-15：**D24/D25 定案**——Android 内核 fork 进 GO 公开仓自维护（上游不再发 Android npm 包）；Android 原生运行时（jniLibs 三件套 + Node/Python、targetSdk 36 兼容层、声明式 UI slots、双开关手机操控、workspace），不做 rootfs/PRoot。正文 `docs/design/android-native-runtime.md`。
 
 ## 待定决策与推进顺序（2026-11-15 定）
 
@@ -86,8 +89,9 @@
 
 ### 记录位置（压缩会话后按这些找回）
 
-- 决策：本文件 D19–D23 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、
+- 决策：本文件 D19–D25 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、
   `docs/tickets/T9-android-shell-execution.md`、`HANDOFF.md`。
+- Android 原生运行时/fork 方案正文：`docs/design/android-native-runtime.md`（D24/D25）。
 - 实施状态与真机结果：`docs/plan.md`「C0 进展」。
 - 协议与架构事实：`packages/kernel-session/README.md`。
 - 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{pin.json,fetch.mjs,lib.mjs}`、
