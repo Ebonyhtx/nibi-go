@@ -1,8 +1,13 @@
 package expo.modules.nibikernelhost
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.system.Os
@@ -67,6 +72,53 @@ class KernelService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder = binder
+
+  override fun onCreate() {
+    super.onCreate()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val manager = getSystemService(NotificationManager::class.java)
+      manager?.createNotificationChannel(
+        NotificationChannel(CHANNEL_ID, "NIBI 内核", NotificationManager.IMPORTANCE_LOW).apply {
+          description = "本机会话在后台运行"
+          setShowBadge(false)
+        },
+      )
+    }
+  }
+
+  /**
+   * D20.2：启动式服务 + START_STICKY + 前台通知。UI 进程死掉后内核继续跑，
+   * 宿主重新绑定/打开帧通道即可接回（会话状态在内核自己的存储里）。
+   */
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    startForeground(NOTIFICATION_ID, notification())
+    return START_STICKY
+  }
+
+  private fun notification(): Notification {
+    val launch = packageManager.getLaunchIntentForPackage(packageName)
+    val pending = launch?.let {
+      PendingIntent.getActivity(
+        this,
+        0,
+        it,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
+    }
+    val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      Notification.Builder(this, CHANNEL_ID)
+    } else {
+      @Suppress("DEPRECATION")
+      Notification.Builder(this)
+    }
+    return builder
+      .setContentTitle("NIBI 内核运行中")
+      .setContentText("本机会话在后台运行")
+      .setSmallIcon(android.R.drawable.stat_notify_sync)
+      .setOngoing(true)
+      .apply { pending?.let { setContentIntent(it) } }
+      .build()
+  }
 
   override fun onDestroy() {
     kernelStarted = false
@@ -219,6 +271,8 @@ class KernelService : Service() {
       kernelStarted = false
       if (NibiKernelHostNative.isAvailable) NibiKernelHostNative.nativeDestroy()
       closeChannel()
+      stopForeground(STOP_FOREGROUND_REMOVE)
+      stopSelf()
     }
 
     override fun killForTest() {
@@ -232,6 +286,8 @@ class KernelService : Service() {
 
   companion object {
     private const val TAG = "NibiKernelService"
+    private const val CHANNEL_ID = "nibi-kernel"
+    private const val NOTIFICATION_ID = 1
     const val HOST_ERROR_METHOD = "nibi/hostError"
   }
 }

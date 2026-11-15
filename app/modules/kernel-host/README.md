@@ -50,7 +50,8 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 
 ## D20 进程拆分（service 模式）
 
-开关：`EXPO_PUBLIC_NIBI_KERNEL_MODE=service`（默认仍进程内，等 START_STICKY/FGS 补齐后再翻）。
+开关：**默认 `:kernel` 服务模式**；`EXPO_PUBLIC_NIBI_KERNEL_MODE=inprocess` 可强制退回进程内做对照。
+服务启动失败（后台启动限制/机型差异）时首页自动回退进程内，不空屏。
 
 - **进程**：`KernelService` 声明 `android:process=":kernel"`，普通进程（`isolatedProcess`
   没有网络权限，不用）。`.so` 与 JNI 薄层只在 `:kernel` 里加载执行。
@@ -61,17 +62,22 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 - **死亡/重连**：`binder.linkToDeath` → 关通道 → 250/500/1000/2000ms 退避重绑 → 重新
   `openFrames + start`；`onKernelRestart(restarting|ready)` 通知 JS，hook 重建 client/订阅并
   `resumeSession` 当前会话（内核自己落库，watchdog 不重放）。
-- **幂等**：宿主 Activity 重建后可能再次 `start`；Service 记住 `kernelStarted`，已在跑时直接返回 true。
+- **幂等**：宿主 Activity 重建后可能再次 `start`；Service 记住 `kernelStarted`，已在跑时直接返回 true；
+  React context 销毁只解绑（`dispose`），显式 `destroy` 才停内核。
+- **D20.2 保活**：`startForegroundService` + `START_STICKY` + `dataSync` 前台服务
+  （`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC`，通知渠道 `nibi-kernel`）。
 
 真机验证（2026-11-15，PHK110 / Android 16）：
 
 - `ps -A` 同时出现 `top.nibistudio.nibigo` 与 `top.nibistudio.nibigo:kernel`；
 - 会话历史、流式、折叠、改动卡在 service 模式下全部正常；
 - `run-as ... kill -9 <kernel pid>` → logcat `NibiKernelClient: 内核进程 binder death` →
-  新 `:kernel` pid 出现 → UI 恢复「就绪」→ 发 `RECONNECT` 得到完整回合（5.6s / 16 tokens）。
+  新 `:kernel` pid 出现 → UI 恢复「就绪」→ 发 `RECONNECT` 得到完整回合（5.6s / 16 tokens）；
+- **杀 UI 进程**（只 kill 主进程）：`:kernel` pid 不变、`dumpsys activity services` 仍
+  `isForeground=true`；重开 App 接回同一个内核 pid，发 `AFTERUI` 得到完整回合。
 
-当前边界：**只绑定、不 startService**，UI 进程被杀时 `:kernel` 一起走；START_STICKY/FGS
-与后台保活属 D20.2（⑤ FGS 决策）。
+当前边界：`dataSync` 前台服务在 targetSdk 35+ 有 6h/24h 上限（长任务走 `specialUse` 或分段，
+⑤ 立项定）；`POST_NOTIFICATIONS` 尚未运行时请求（通知可能不在通知栏显示，但 FGS 状态成立）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 
@@ -86,7 +92,8 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 
 ## 尚未做（后续切片）
 
-1. D20.2：`START_STICKY`/started service + 前台服务（⑤）+ panic 看门狗；再把默认模式翻到 service。
+1. ⑤ FGS 策略：`dataSync` 的 6h/24h 上限（长任务 `specialUse`/分段）+ `POST_NOTIFICATIONS`
+   运行时请求 + panic 看门狗细化。
 2. iroh NDK 与内核共享底座。
 3. 产物体积治理：`libnibi.so` 36.9MB + `libc++_shared.so` 1.8MB（arm64 单 ABI）。
 

@@ -30,10 +30,11 @@ const DEV_MOCK_ENV = {
 };
 
 /**
- * D20 承载模式：`EXPO_PUBLIC_NIBI_KERNEL_MODE=service` 时内核跑在 `:kernel` 进程；
- * 默认仍是进程内（先保住现有行为，服务模式真机验收后再翻默认）。
+ * D20 承载模式：默认 `:kernel` 进程（前台服务，UI 死掉内核仍在）；
+ * `EXPO_PUBLIC_NIBI_KERNEL_MODE=inprocess` 可强制退回进程内做对照。
+ * 服务启动失败时自动回退进程内，保证首页不空。
  */
-const USE_KERNEL_SERVICE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "service";
+const KERNEL_MODE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "inprocess" ? "inprocess" : "service";
 
 function workspaceRef(): KernelWorkspaceRef {
   const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
@@ -177,9 +178,13 @@ export function useKernelConversation(): KernelConversation {
     let cancelled = false;
     void (async () => {
       try {
-        const started = await startKernelHost(__DEV__ ? DEV_MOCK_ENV : undefined, {
-          useService: USE_KERNEL_SERVICE,
-        });
+        const env = __DEV__ ? DEV_MOCK_ENV : undefined;
+        let started = await startKernelHost(env, { useService: KERNEL_MODE === "service" });
+        if (!started && KERNEL_MODE === "service") {
+          // 前台服务起不来（后台启动限制/机型差异）时回退进程内，首页不能空。
+          console.warn("[nibigo] :kernel 服务启动失败，回退进程内");
+          started = await startKernelHost(env, { useService: false });
+        }
         if (cancelled) return;
         if (!started && !kernelHostAvailable()) {
           setStatus("内核不可用");
@@ -279,7 +284,7 @@ export function useKernelConversation(): KernelConversation {
   }, [attach, refreshSessions]);
 
   useEffect(() => {
-    if (!USE_KERNEL_SERVICE) return;
+    if (KERNEL_MODE !== "service") return;
     return onKernelRestart((event) => {
       if (event.status === "restarting") {
         setStatus("内核重启中…");
