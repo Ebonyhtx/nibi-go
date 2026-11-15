@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：真机验证执行与 Phase C 启动判断。
+> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：D24 Phase 0（fork/CI）启动与 D25 分阶段实施。C0 已完成真机验证。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D25，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -13,7 +13,7 @@ Phase A（已完成）  NIBI-GO 应用主体 + WORK 远控入口    零内核耦
    │
    ├─ Spike 1/2（已完成）：iroh 实测 / RN 后台长连接
    │
-Phase C（待启动）  本机内核                     两个启动信号见 §3
+Phase C（C0 已完成） 本机内核                    D24 fork/Phase 1-6 见 §3
    （信号触发后先跑 Spike 3，再进入实现）
    前置：原 B0 手机工具面（A11y/执行器/确认卡/悬浮条/多任务）
 
@@ -105,7 +105,7 @@ Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 
 
 ---
 
-## 3. Phase C：本机内核（待启动）
+## 3. Phase C：本机内核（C0 已完成；D24 fork 待启动）
 
 ### 前置（原 B0，已并入）
 

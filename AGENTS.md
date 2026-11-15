@@ -1,6 +1,7 @@
 # AGENTS.md — NIBI-GO 开发规则
 
 > **仓库位置**：本仓是独立的公开移动客户端仓库，同时持有 **Android 内核 fork**（`kernel/`，D24）。
+> **2026-11-15 状态**：D24 已定 fork，但 Phase 0 尚未开始，`kernel/` 目录尚不存在；下文的 `kernel/` 指 Phase 0 落地后的目标布局。
 > 内核上游 nibi-client 只作只读合并源，由维护者在本仓之外检出；Android 内核的构建、适配与
 > 缺陷修复归本仓，不再向上游提 Android 需求票据。
 

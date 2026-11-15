@@ -22,4 +22,4 @@ NIBI-WORK 形态的连接地基。桌面 `webRemoteControlTransport.ts`（genera
 
 ## 状态
 
-骨架占位。首个实现提交前先定：relay-client 对 `@nibi/shared` 的引用方式（直接 workspace 链接 vs `packages/shared-extract/` 抽取）——见 AGENTS.md 规则 6。
+已实现（2026-11-15 复核）：transport/pairing/crypto/handshake/bridge/v4Attachment 等已在 `src/` 落地；不再是骨架。首个实现提交前先定：relay-client 对 `@nibi/shared` 的引用方式（直接 workspace 链接 vs `packages/shared-extract/` 抽取）——见 AGENTS.md 规则 6。

@@ -71,7 +71,7 @@ pnpm exec expo run:android    # dev-client 构建并安装到模拟器/真机
 | `packages/chat-core` | 聊天状态机：V4 reducer 宿主、replay/gap、审批状态机、AgentPulse |
 | `packages/shared-extract` | 从 nibi-client 抽取的协议契约（来源标注，见 [NOTICE.md](NOTICE.md)） |
 | `packages/phone-tools` | 手机工具面接口（多平台适配器；原 B0，已并入 Phase C 前置） |
-| `app/modules/kernel-host` | 内核 JNI 薄层（Phase C；上游 `4.1.0` 已提供 `libnibi.so`，`scripts/android-kernel/` 拉取并按 `build.json.artifacts` 校验） |
+| `app/modules/kernel-host` | 内核 JNI 薄层（Phase C；D24 前过渡期仍从上游 `4.1.0` 平台包拉 `libnibi.so`，`scripts/android-kernel/` 按 `build.json.artifacts` 校验；Phase 0 后改由本仓 `kernel/` 自建） |
 | `docs/` | 决策台账、设计规格、调研、清单（入口 [docs/README.md](docs/README.md)） |
 | `scripts/` | 架构门禁、公开仓检查、抽取脚本 |
 
@@ -103,8 +103,9 @@ node scripts/check-public-repo.mjs  # 公开仓策略检查
 - **Phase A**（代码侧完成）：NIBI-GO 应用主体与 NIBI-WORK 远控入口。零内核耦合。
 - **Phase B**（已取消，D6）：原 WORK 形态手机操控路由（nibi-phone-bridge）；
   B0 工具面（`packages/phone-tools`）已移交 Phase C 前置。
-- **Phase C**（待启动）：本机内核（`libnibi.so` 进程内运行，D19）。启动信号见
-  [ADR-INDEX D12](docs/decisions/ADR-INDEX.md)。
+- **Phase C**（C0 已完成，2026-11-15 真机跑通）：本机内核（`libnibi.so` 进程内运行，D19）。
+  D24/D25 已定案：内核 fork 进本仓、Android 原生运行时分阶段实施；见
+  [ADR-INDEX D24/D25](docs/decisions/ADR-INDEX.md) 与 `docs/design/android-native-runtime.md`。
 
 ## 参与贡献
 
