@@ -82,7 +82,7 @@ Without it, login fails loudly instead of degrading silently.
 | `packages/chat-core` | Chat state machines: V4 reducer host, replay/gap, approvals, AgentPulse |
 | `packages/shared-extract` | Protocol contracts extracted from nibi-client (source headers, see [NOTICE.md](NOTICE.md)) |
 | `packages/phone-tools` | Phone tool interface (multi-platform adapters; former B0, now part of the Phase C prerequisite) |
-| `app/modules/kernel-host` | Kernel JNI layer (Phase C; upstream `4.1.0` ships `libnibi.so`; `scripts/android-kernel/` fetches and verifies `build.json.artifacts`) |
+| `app/modules/kernel-host` | Kernel JNI layer (Phase C; before D24 Phase 0 it still fetches upstream `4.1.0` `libnibi.so`; after Phase 0 it uses this repo's `kernel/`) |
 | `docs/` | Decision ledger, design specs, research, checklists (entry: [docs/README.md](docs/README.md)) |
 | `scripts/` | Architecture gate, public-repo check, extraction scripts |
 
@@ -117,7 +117,9 @@ See [app/.env.example](app/.env.example).
 - **Phase B** (cancelled, D6): phone-control routing for the WORK form
   (nibi-phone-bridge); the B0 tool surface (`packages/phone-tools`) moved to the
   Phase C prerequisite.
-- **Phase C** (not started): on-device kernel (`libnibi.so`, in-process, D19).
+- **Phase C** (C0 completed, verified on device 2026-11-15): on-device kernel (`libnibi.so`, in-process, D19).
+  D24/D25 fixed: the kernel is forked into this repo and the Android native runtime is rolled out in phases; see
+  [ADR-INDEX D24/D25](docs/decisions/ADR-INDEX.md) and `docs/design/android-native-runtime.md`.
   Trigger conditions in [ADR-INDEX D12](docs/decisions/ADR-INDEX.md).
 
 ## Contributing

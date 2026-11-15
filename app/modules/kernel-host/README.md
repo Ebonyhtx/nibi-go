@@ -1,4 +1,4 @@
-# app/modules/kernel-host（Phase C · C0 已开工）
+# app/modules/kernel-host（Phase C · C0 已完成）
 
 > 2026-11-14 上游 T6/T7 已交付（nibi-client `697f86cf`），`@nibi-studio/cli-android-arm64@4.1.0`
 > 带 `lib/libnibi.so`（C ABI v1，目标 API 24）与 `build.json.artifacts`。本目录从占位转实现。

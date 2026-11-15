@@ -17,4 +17,4 @@ Node 环境跑（jest/vitest + 事件 fixture）。审批状态机用假事件�
 
 ## 状态
 
-骨架占位。
+已实现（2026-11-15 复核）：reducer/replay/approvals/pulse/interaction-answer 已在 `src/` 落地；不再是骨架。
