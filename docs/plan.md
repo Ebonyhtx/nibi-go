@@ -234,3 +234,61 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 - P2/P3a 选 B：shared 走 `packages/shared-extract/` 抽取件，禁直链 ✅
 - P3b 会话级 K 先行；P3c JSON 文本帧 ✅
 - P4/P5 票据制落地：`docs/tickets/T1`（android 平台包）、`T2`（npm scope 统一）均已交付；后续 T6/T7 也由上游完成（nibi-client `697f86cf`）✅
+
+---
+
+## 7. D24/D25 实施顺序（2026-11-15 定）
+
+> 设计正文 `docs/design/android-native-runtime.md`；每阶段先过门禁再进下一阶段。
+> 顺序按“先让内核和 shell 自主，再上大运行时”，Node/Python 与 UI slots 不阻塞前两阶段。
+
+### Phase 0 · fork 落地 + T8 S2
+
+1. 以 nibi-client `dev` `1369b043` 为基线导入 `kernel/`（快照 + `kernel/UPSTREAM.md` 记录上游
+   commit/合并策略；后续用 upstream remote diff 选择性合并）。
+2. GO 构建链：Rust 1.95 + NDK r27 + cargo lock；CI 产 `libnibi.so`（API 24 / arm64 / 16 KB /
+   符号断言）+ sha256/build manifest；`scripts/android-kernel` 改为消费自建产物。
+3. 许可证/NOTICE 审计（vendored 代码 + Rust 依赖 + 后续二进制）。
+4. T8 S2：`attach(JNIEnv*, Context)` 在 fork 的 JNI/`:kernel` 侧实现，保留退内置根兜底。
+5. 回归：桌面 `cargo test` + 真机启动/会话/流式/审批/改动卡/折叠/`:kernel` 服务。
+   出口：GO 自建 `.so` 替换上游 4.1.0，全回归通过。
+
+### Phase 1 · AndroidSh + hooks
+
+1. `ShellDialect::AndroidSh`：发现顺序 jniLibs bash（若有）→ `/system/bin/sh`；hooks 用同一套
+   发现（不再固定 `/bin/bash`）；prelude/命令规则/错误文案按 sh 方言。
+2. 宿主设 `SHELL`/`NIBI_SHELL`/`PATH`；移除 `bin/bash -> /system/bin/sh` 过渡桥。
+3. 系统提示注入环境事实（Android/workspace/shell/node/python/手机模式）。
+4. 真机：无 bash（sh）与有 bash 两种；管线、审批、hook 全通。
+   出口：没有三件套也能用 sh + hooks。
+
+### Phase 2 · 三件套 + nibi-run
+
+1. 构建/引入 bash/busybox/git（Android/bionic；静态需 TLS 对齐；16 KB；GPL notices）。
+2. jniLibs `lib*.so` + `$NIBI_BIN` symlink；`useLegacyPackaging=true`。
+3. `nibi-run`：shebang、npm `.bin`、pip console、App 数据 ELF 报错；**先做 npm `.bin` spike**
+   （安装后把 `.bin` 改写成 nibi-run symlink，或 PATH 交给 nibi-run）。
+4. git hooks：`filesDir/runtime/hooks` symlink → `libnibi_hook.so`，`core.hooksPath`；
+   50 条命令矩阵 + git commit/hook + `script.sh`。
+   出口：shell/git 接近桌面；CLI 支持边界写进产品文案。
+
+### Phase 3 · Node/Python
+
+1. 先 spike：App 数据 `.node`/C 扩展 `dlopen` 是否可行；Node 22/24、Python 3.12 的 bionic 来源。
+2. jniLibs `libnode.so`/`libpython.so` + wrappers；npm/pip 装到 `filesDir/packages`；
+   `--ignore-scripts` / wheel 策略。
+3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
+   出口：纯语言包可用，原生 addon 边界明确。
+
+### Phase 4–6
+
+4. UI slots：工具卡、`composer.actions`、`panels` 先行；3 个样例插件、版本兼容/降级。
+5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
+6. workspace/策略/指标：配额、路径策略、cwd/env、审批、50 命令矩阵。
+
+### 并行与门禁
+
+- 真实 Provider/设置页不受 fork 阻塞，可并行。
+- ⑤ `specialUse`/分段续跑在发布前定；FGS 6h/24h 已有 `onTimeout` 兜底。
+- 上游安全修复按 `kernel/UPSTREAM.md` 节奏合并；每阶段过 `check-boundaries`、
+  `check-public-repo`、相关测试/typecheck；Android 真机改动必须真机验证。
