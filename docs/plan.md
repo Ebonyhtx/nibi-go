@@ -223,11 +223,12 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **D24/D25 已定案（2026-11-15，设计基线）**：Android 内核 fork 进本仓（基线 nibi-client
   `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
   `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
-  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0 已完成、Phase 1
-  AndroidSh/hooks 已完成并真机验证**（2026-11-15）；当前 Android shell = `/system/bin/sh`
-  （AndroidSh 方言，宿主设 `SHELL`/`NIBI_SHELL`/`$NIBI_BIN`），Phase 2 装三件套后自动切 bash。
+  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0/1 已完成；Phase 2
+  的构建/打包/nibi-run/hooks 已完成，剩 npm `.bin`、HTTPS 与 50 命令矩阵待设备解锁后补**
+  （2026-11-15）；当前 Android shell 在运行时安装后自动切 `$NIBI_BIN/bash`，失败回退
+  `/system/bin/sh`（AndroidSh 方言）。
 - **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、企业 CA 真机用例、
-  D25 Phase 2–6（三件套、Node/Python、UI slots、手机双开关、workspace 策略）、
+  D25 Phase 3–6（Node/Python、UI slots、手机双开关、workspace 策略）、
   `dataSync` 之外的 `specialUse`/分段续跑。
 
 ---
@@ -294,14 +295,27 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    Bash 工具调用经 sh 执行成功并回传结果；审批卡路径不变（build 模式仍需确认）。
    出口：没有三件套也能用 sh + hooks —— **已达成**。
 
-### Phase 2 · 三件套 + nibi-run
+### Phase 2 · 三件套 + nibi-run（1/2 已完成，3/4 部分完成，2026-11-15）
 
-1. 构建/引入 bash/busybox/git（Android/bionic；静态需 TLS 对齐；16 KB；GPL notices）。
-2. jniLibs `lib*.so` + `$NIBI_BIN` symlink；`useLegacyPackaging=true`。
-3. `nibi-run`：shebang、npm `.bin`、pip console、App 数据 ELF 报错；**先做 npm `.bin` spike**
-   （安装后把 `.bin` 改写成 nibi-run symlink，或 PATH 交给 nibi-run）。
-4. git hooks：`filesDir/runtime/hooks` symlink → `libnibi_hook.so`，`core.hooksPath`；
-   50 条命令矩阵 + git commit/hook + `script.sh`。
+1. ✅ 构建链：`scripts/android-runtime/` 固定 bash 5.2.37 / busybox 1.36.1 / git 2.51.0
+   （含 readline 8.2.13、ncurses 6.5、zlib 1.3.1、openssl 3.5.4、curl 8.16.0）的版本、
+   URL、sha256；用 NDK r27b 交叉编译为 **bionic 动态 PIE**（静态 TLS 对齐仍是 8，已弃用），
+   全部 16 KB LOAD 对齐、API 24 符号面零越界（仅 OpenSSL 的 `getentropy`/`memfd_create`
+   弱符号，旧系统可为空）。`build.mjs` 校验 + `.runtime-stamp.json`；CI `android-runtime.yml`。
+   许可与 GPL 对应源码说明进 `NOTICE.md` / `THIRD-PARTY-NOTICES.md`。
+2. ✅ 打包：jniLibs `libbash.so` / `libbusybox.so` / `libgit.so` / `libgit_remote_http.so` /
+   `libnibi_run.so` / `libnibi_hook.so`；`assets/nibi-runtime.zip` 放 git 脚本/templates/
+   `BASH_ENV`/applet 名单；`NibiRuntime.install()` 解包并在 `filesDir/runtime/{bin,git-core,hooks}`
+   建 symlink farm；`withAndroidLegacyPackaging` 把 `expo.useLegacyPackaging` 固定为 true。
+   debug APK 已核对 `extractNativeLibs="true"`，lib/arm64-v8a 与 assets 均含产物。
+3. ◐ `nibi-run` 已完成 shebang 解析、`$NIBI_BIN`/PATH 查找、App 数据 ELF 明确拒绝
+   （rc 126）；真机验证 `#!/bin/bash` 脚本可跑、`#!/usr/bin/env node` 在 Phase 3 前报
+   “node 不可用”（rc 127）。**npm `.bin` 重写 spike 未做**（依赖 Phase 3 的 node）。
+4. ◐ git hooks：`core.hooksPath` 写进 `filesDir/.gitconfig`（仓库级配置优先，husky 不被覆盖），
+   `git` 包装器由 `NIBI_GIT_HOOKS`/dispatcher 执行仓库 `.git/hooks/<name>`。真机 `run-as`
+   验证：`git init/add/commit` 触发 pre-commit、dispatcher 经 nibi-run 跑通。
+   **HTTPS 与 50 命令矩阵未完成**：设备锁屏且后台 app UID 被系统限网，需解锁后补
+   `git clone/ls-remote https://…`、50 条命令矩阵与 `script.sh` 验收。
    出口：shell/git 接近桌面；CLI 支持边界写进产品文案。
 
 ### Phase 3 · Node/Python

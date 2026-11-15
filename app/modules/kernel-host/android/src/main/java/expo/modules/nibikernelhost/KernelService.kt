@@ -285,11 +285,12 @@ class KernelService : Service() {
     override fun start(env: Array<out String>?): Boolean {
       if (!NibiKernelHostNative.isAvailable) return false
       if (kernelStarted) return true
-      prepareEnvironment()
       env?.forEach { entry ->
         val at = entry.indexOf('=')
         if (at > 0) setEnv(entry.substring(0, at), entry.substring(at + 1))
       }
+      // 运行时的 SHELL/PATH/GIT_* 最后落定，调试 env 不能把它们覆盖掉。
+      prepareEnvironment()
       // T8 S2：在 :kernel 进程里把 JVM + Context 交给内核（Binder 线程已附着），再启动内核。
       Log.i(TAG, "start: attach 平台信任")
       val attached = NibiKernelHostNative.nativeAttach(applicationContext)

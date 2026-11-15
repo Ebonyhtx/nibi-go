@@ -32,3 +32,6 @@ packages/*/dist/
 app/.env
 app/.env.*
 !app/.env.example
+
+# Android 运行时构建缓存（源码包/中间产物，见 scripts/android-runtime）
+/build/

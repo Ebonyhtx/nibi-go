@@ -4,3 +4,7 @@ prebuilt/
 # Gradle/CMake 构建产物（含本机绝对路径）。
 .cxx/
 build/
+
+# 运行时资源由 scripts/android-runtime/build.mjs 生成（不入库）。
+src/main/assets/nibi-runtime.zip
+src/main/assets/nibi-runtime.json

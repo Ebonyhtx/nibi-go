@@ -75,6 +75,9 @@ pnpm --filter relay-client test   # 单包
 pnpm --filter chat-core test
 node scripts/check-boundaries.mjs # 架构门禁：层间依赖白名单检查
 node scripts/check-public-repo.mjs # 公开仓门禁：本机路径/凭据/CI 权限检查
+node scripts/android-kernel/build.mjs   # libnibi.so（Rust+NDK，jniLibs）
+node scripts/android-runtime/build.mjs  # bash/busybox/git（Linux/WSL+NDK，jniLibs+assets）
+node scripts/android-runtime/build.mjs --check  # 只校验已落盘运行时产物
 
 # 发布（细节见 docs/checklists/发布检查单.md）
 node scripts/keystore.mjs verify <apk>   # 校验 APK 签名证书与发布密钥一致

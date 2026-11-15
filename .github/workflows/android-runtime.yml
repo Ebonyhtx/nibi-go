@@ -1,0 +1,58 @@
+name: Android runtime
+
+# D25 Phase 2：随包 bash/busybox/git 的 bionic 构建与校验。
+# 与 `Android kernel` 分开：运行时只用 NDK + autotools，不编译 Rust。
+on:
+  push:
+    paths:
+      - "scripts/android-runtime/**"
+      - ".github/workflows/android-runtime.yml"
+  pull_request:
+    paths:
+      - "scripts/android-runtime/**"
+      - ".github/workflows/android-runtime.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: android-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+
+      - name: Install NDK r27b
+        run: |
+          set -euo pipefail
+          NDK_DIR="$RUNNER_TEMP/android-ndk-r27b"
+          if [ ! -d "$NDK_DIR" ]; then
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
+              https://dl.google.com/android/repository/android-ndk-r27b-linux.zip
+            echo "33e16af1a6bbabe12cad54b2117085c07eab7e4fa67cdd831805f0e94fd826c1  $RUNNER_TEMP/ndk.zip" | sha256sum -c -
+            unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
+          fi
+          echo "NDK=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Unit tests (pure helpers)
+        run: node --test scripts/android-runtime/lib.test.mjs
+
+      - name: Build + verify
+        run: node scripts/android-runtime/build.mjs --ndk "$NDK" --jobs 4
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4
+        with:
+          name: android-runtime
+          path: |
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/
+            app/modules/kernel-host/android/prebuilt/.runtime-stamp.json
+            app/modules/kernel-host/android/src/main/assets/nibi-runtime.zip
+            app/modules/kernel-host/android/src/main/assets/nibi-runtime.json
+          if-no-files-found: error
