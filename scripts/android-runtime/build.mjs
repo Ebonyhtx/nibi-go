@@ -228,6 +228,15 @@ function undefinedSymbols(ndk, file) {
   return { missing, weak };
 }
 
+function bashDefinesGetcwd(ndk, file) {
+  const nm = ndkTool(ndk, "llvm-nm");
+  const out = execFileSync(nm, ["-D", file], { encoding: "utf8" });
+  return out
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .some((line) => /^[0-9a-f]+\s+[Tt]\s+getcwd$/u.test(line));
+}
+
 function neededLibraries(ndk, file) {
   const readelf = ndkTool(ndk, "llvm-readelf");
   const out = execFileSync(readelf, ["-d", file], { encoding: "utf8" });
@@ -290,6 +299,12 @@ function verify(args) {
         for (const symbol of missing) {
           if (!stubs.has(symbol)) errors.push(`${name}: 未定义符号 ${symbol} 不在 API ${MIN_API} stub 中`);
         }
+      }
+      if (name === "libbash.so" && bashDefinesGetcwd(ndk, path)) {
+        errors.push(
+          "libbash.so: 链接了 bash 自带的 getcwd 替代实现（交叉编译默认）。" +
+            "configure 需要 bash_cv_getcwd_malloc=yes，否则 Android /data/user/0 上 getcwd 会 EACCES。",
+        );
       }
       if (weak.length > 0) notes.push(`${name}: 弱符号 ${weak.join(", ")}（旧 API 上可为空）`);
     }

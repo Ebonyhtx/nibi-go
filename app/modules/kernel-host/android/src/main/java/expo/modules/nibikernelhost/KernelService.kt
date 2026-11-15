@@ -255,17 +255,14 @@ class KernelService : Service() {
     setEnv("HOME", files)
     setEnv("NIBI_DATA_BASE_DIR", files)
     setEnv("TMPDIR", applicationContext.cacheDir.absolutePath)
-    prepareShell(applicationContext.filesDir)
+    prepareRuntime(applicationContext)
   }
 
-  /** 与 NibiKernelHostModule.prepareShell 同一口径（D25 Phase 1：sh 方言 + `$NIBI_BIN`）。 */
-  private fun prepareShell(files: java.io.File) {
-    val bin = java.io.File(files, "runtime/bin")
-    bin.mkdirs()
-    setEnv("NIBI_BIN", bin.absolutePath)
-    setEnv("SHELL", "/system/bin/sh")
-    setEnv("NIBI_SHELL", "/system/bin/sh")
-    setEnv("PATH", "${bin.absolutePath}:/system/bin:/system/xbin")
+  /** 与 NibiKernelHostModule 同一口径：D25 Phase 2 运行时安装（失败回退 /system/bin/sh）。 */
+  private fun prepareRuntime(context: android.content.Context) {
+    val installed = NibiRuntime.install(context)
+    NibiRuntime.applyEnvironment(context, installed)
+    NibiRuntime.logFailure(installed)
   }
 
   private fun setEnv(name: String, value: String) {

@@ -170,8 +170,13 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   与 `git clone --depth 1 https://github.com/octocat/Hello-World.git` 成功；身份来自受管
   `GIT_CONFIG_GLOBAL`，CA 来自随包 bundle。npm `.bin` 的 symlink→bash 入口可跑，
   `#!/usr/bin/env node` 报 Phase 3 边界。
-- 未完成：`NibiRuntime.install()` 的 App 启动路径还没在解锁的设备上点过（构建/安装/资源已
-  在 APK 里核对）；run-as 已按同一环境变量口径验证二进制与脚本。
+- **App 启动路径已验（2026-11-16）**：`:kernel` 服务启动时 `NibiRuntime` 安装/建链/写受管
+  gitconfig；App 内 mock 模型 → Bash 工具 → 审批 → 真实输出
+  `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release`、
+  `pwd=/data/data/top.nibistudio.nibigo/files`。该轮修掉两个集成问题：`KernelService`
+  漏接 `NibiRuntime`；bash 交叉编译链接了自带的 getcwd 替代实现
+  （`bash_cv_getcwd_malloc=yes` 后改用 libc getcwd）。
+- 未完成：npm `.bin` 重写安装器（随 Phase 3 的 node）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 
