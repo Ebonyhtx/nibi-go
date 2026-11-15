@@ -29,7 +29,7 @@
 | D21 | C0→C1 期间消费上游预发布 | D17「单向消费 + 票据制」的唯一例外：上游在 `feat/android-kernel` 分支开发 Android 平台面，发 **`4.2.0-android.N` + `android-next` dist-tag**，**永不发 `latest`**；GO 的 pin 记录预发布版本与分支 commit；切片合并（每片过五道门：非 Android 三平台产物逐文件一致 / `cargo test --workspace` / Android leg + 符号校验 / 真机验收 / ABI 文档同步）；需确认内核的自动更新路径不会把预发布当最新；上游正式发版后 GO 切回稳定 pin。D17 的「不 fork、不开长期分支」原则不变 | ✅ **历史**；D24 后对 Android 失效（GO 不再消费上游 Android 预发布） |
 | D22 | 16 KB page size 打包契约 | 进 APK 的每个 native 库，ELF `LOAD` 段必须 **2^14 = 16 KB 对齐**（Play 对 targetSdk 35+ 的包有此要求，具体生效日期以官方页为准）。落实：上游 `kernel/.cargo/config.toml` 给 `aarch64-linux-android` 加 `-Wl,-z,max-page-size=16384` / `common-page-size=16384` 并在 release workflow 断言；GO 的 JNI 薄层在 CMake 里加同样的 `target_link_options`；GO `scripts/android-kernel/fetch.mjs` 用 `elfLoadAlignment()` 断言 ≥ 16384（**4.1.0 实测 4 KB，不满足，故不用于发布**）。APK 侧另查 `zipalign -c -P 16`（未压缩 `.so` 的 16 KB 对齐） | ✅ 2026-11-15 |
 | D23 | ABI 版本与内核升级 | **新增可选导出符号不升 `abi_version`**（老宿主照常工作），只有语义破坏才升；宿主启动时校验自己支持的最低版本，能力差异用查询位表达。内核随 App 发版，**不做热更**（政策与 D17 都不允许）；回滚 = App 降级；完整性靠 `build.json.artifacts` 的 sha256（D19）。C0→C1 期间预发布版本按 D21 消费 | ✅；D24 后 ABI/升级由 GO 自有定义，不再与上游共享节奏 |
-| D24 | 内核 fork 到 GO 自维护 | **Android 内核 fork 进 NIBI-GO 公开仓，自包含、自改造**；上游不再为 GO 发 Android npm 包，GO 不再为内核改动向上游提单。GO 自建 `libnibi.so`（D19/D20/D22 保留），Android 原生适配（SH 方言、hooks、环境提示、原生工具）；上游作为只读源按安全/协议能力合并，Android 分支允许持续分叉；D21 对 Android 失效，D23 转为 GO 自有；fork 代码/二进制随包带上游 NOTICE/许可 | ✅ 2026-11-15；**实施基线 = nibi-client `dev` `1369b043`（含 T8 S1/16KB），Phase 0 尚未开始**；构建/CI/上游合并策略见 design §10–§11 |
+| D24 | 内核 fork 到 GO 自维护 | **Android 内核 fork 进 NIBI-GO 公开仓，自包含、自改造**；上游不再为 GO 发 Android npm 包，GO 不再为内核改动向上游提单。GO 自建 `libnibi.so`（D19/D20/D22 保留），Android 原生适配（SH 方言、hooks、环境提示、原生工具）；上游作为只读源按安全/协议能力合并，Android 分支允许持续分叉；D21 对 Android 失效，D23 转为 GO 自有；fork 代码/二进制随包带上游 NOTICE/许可 | ✅ 2026-11-15；**Phase 0.1–0.4 已落地**：`kernel/` 快照（基线 `1369b043`，blob 哈希全等）+ `kernel/UPSTREAM.md` + `scripts/android-kernel/build.mjs`（API 24/16 KB/符号/sha256）+ CI `android-kernel.yml` + T8 S2 attach；真机回归待跑 |
 | D25 | Android 原生运行时与 targetSdk 36 兼容层 | 三件套（bash/busybox/git）+ Node/Python 进 jniLibs、SHELL 可见；不做 rootfs/PRoot。targetSdk 36 下用 `nibi-run`、npm/npx/pip 包装、git hooks dispatcher、busybox 函数、内核工具重写吸收「App 数据不可 exec」的摩擦；UI 插件走声明式 slots（插件不改外壳）；手机操控两开关（无障碍 / 高级 shell，Shizuku/无线调试引导）；workspace 先定义。硬边界：App 数据 native ELF 不可执行、原生 addon 需 Android 构建、无 root/无别的 App 数据、同 uid 非硬沙箱。正文 `docs/design/android-native-runtime.md` | ✅ 2026-11-15；**实施校正（真机）**：jniLibs 只能扁平 `lib*.so`；App 私有目录 symlink → nativeLibraryDir 可 exec（direct+PATH 已验证），hooks/npm `.bin` 修正见 design §13 |
 
 ## 附：关键修正记录
@@ -86,8 +86,8 @@
 | ⑤ FGS 策略 | `dataSync` 在 targetSdk 35+ 有 6h/24h 上限；长任务走 `specialUse` + Play 声明，或分段续跑。**已落（2026-11-15）**：`POST_NOTIFICATIONS` 运行时请求、`KernelService.onTimeout` 超时主动停内核 + stopSelf | 剩 `specialUse` vs 分段（运营者）+ Play 声明；上架前补 |
 | ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
 | 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
-| T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | **D24 后转为 GO 自有**：在 fork 的 JNI/Service 侧实现，不再等上游 |
-| D24/D25 实施 | D20.1+D20.2 已真机跑通（默认 `:kernel`）；D24 fork 基线已定（nibi-client `1369b043`）；D25 的 jniLibs exec + `$NIBI_BIN` symlink 已实测 | Phase 0 fork/CI → Phase 1 AndroidSh → Phase 2 三件套/`nibi-run` → Phase 3 Node/Python；`.bin`/hooks/dlopen 三个 spike 先做 |
+| T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | **已在 GO fork 实现**（`nibi_app_server_attach_android` + JNI/Service 调用，2026-11-15）；真机企业 CA 用例待跑 |
+| D24/D25 实施 | Phase 0.1–0.4 已落地：`kernel/` 快照 + 自建构建链 + CI + T8 S2；D20.1+D20.2 已真机跑通（默认 `:kernel`）；D25 的 jniLibs exec + `$NIBI_BIN` symlink 已实测 | Phase 0 真机回归 → Phase 1 AndroidSh → Phase 2 三件套/`nibi-run` → Phase 3 Node/Python；`.bin`/hooks/dlopen 三个 spike 先做 |
 
 ### 记录位置（压缩会话后按这些找回）
 
@@ -96,5 +96,5 @@
 - Android 原生运行时/fork 方案正文：`../design/android-native-runtime.md`（D24/D25，含 §13 实施校正）。
 - 实施状态与真机结果：`../plan.md`「C0 进展」。
 - 协议与架构事实：`../../packages/kernel-session/README.md`。
-- 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{pin.json,fetch.mjs,lib.mjs}`、
-  `kernel/.cargo/config.toml`（fork 后由 GO 自建）与构建断言。
+- 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{build.mjs,lib.mjs}`、
+  `kernel/.cargo/config.toml`（D24 fork 后由 GO 自建）与构建断言。

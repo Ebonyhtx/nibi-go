@@ -1,7 +1,8 @@
 # AGENTS.md — NIBI-GO 开发规则
 
 > **仓库位置**：本仓是独立的公开移动客户端仓库，同时持有 **Android 内核 fork**（`kernel/`，D24）。
-> **2026-11-15 状态**：D24 已定 fork，但 Phase 0 尚未开始，`kernel/` 目录尚不存在；下文的 `kernel/` 指 Phase 0 落地后的目标布局。
+> **2026-11-15 状态**：`kernel/` 已导入（基线 nibi-client `1369b043`），自建构建链 `scripts/android-kernel/build.mjs`
+> 与 CI `android-kernel.yml` 已落地；上游同步与 GO 专属改动台账见 `kernel/UPSTREAM.md`。
 > 内核上游 nibi-client 只作只读合并源，由维护者在本仓之外检出；Android 内核的构建、适配与
 > 缺陷修复归本仓，不再向上游提 Android 需求票据。
 
@@ -31,9 +32,9 @@ NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGE
 
 ### 内核维护纪律（D24）
 
-1. `kernel/` 是 Android 内核的**唯一真源**；上游 nibi-client 只读，Android 需求不再向上游提票据。fork 基线、合并的上游 commit、Android 分歧都记进 ADR-INDEX/plan。
+1. `kernel/` 是 Android 内核的**唯一真源**；上游 nibi-client 只读，Android 需求不再向上游提票据。fork 基线、合并的上游 commit、Android 分歧都记进 `kernel/UPSTREAM.md`（摘要可同步到 ADR-INDEX/plan）。
 2. 上游合并只取安全修复与协议能力；合并前跑 Android 真机回归（启动/会话/流式/审批/改动卡/折叠/shell）。**不为对齐上游而回退 Android 能力**，也不改桌面/CLI 行为。
-3. 构建可复现：Rust 工具链、NDK、cargo lock 固定；CI 产出 sha256 + `build.json` 等价清单；16 KB 对齐（D22）与 ABI（D23）断言。桌面 target 仍要能 `cargo test`，Android 适配用条件编译隔离。
+3. 构建可复现：Rust 工具链、NDK、cargo lock 固定；`scripts/android-kernel/build.mjs` 产出 sha256 + `.stamp.json`（NDK/rustc/提交）；16 KB 对齐（D22）与 ABI（D23）断言。桌面 target 仍要能 `cargo test`，Android 适配用条件编译隔离。
 
 ### 协议层纪律（D11/D12 反思条款）
 

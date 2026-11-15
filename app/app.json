@@ -35,7 +35,8 @@
       "expo-web-browser",
       "expo-secure-store",
       "./plugins/withCmakeVersion",
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "./plugins/withKernelAndroidTrust"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

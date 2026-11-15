@@ -1,0 +1,36 @@
+[package]
+name = "nibi-kernel-hooks"
+description = "Hook events and executors of nibi-kernel-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+# matcher 是 JS RegExp 语法（`new RegExp(matcher)`），与 platform 一样用 ECMAScript 语义。
+regress.workspace = true
+# 信任 digest 的 JSON 文本按 JS 规则生成（config.md §4.1）。
+nibi-kernel-base.workspace = true
+nibi-kernel-api.workspace = true
+# 项目级配置的解析结果（`ConfigFile`）：发现逻辑下沉到这里后要用。
+nibi-kernel-platform.workspace = true
+nibi-kernel-prompts.workspace = true
+serde_json.workspace = true
+# 项目 hooks 信任的 digest（Node 用 sha256，config.md §4.1）。
+sha2.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nibi-kernel-api = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }

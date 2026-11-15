@@ -1,0 +1,61 @@
+use super::*;
+
+#[test]
+fn the_names_keep_their_values() {
+    // NIBI 品牌化收口：用户根与 Node CLI/App 共用 `~/.nibi`（计划 §4.5）。
+    assert_eq!(DOT_DIR, ".nibi");
+    assert_eq!(crate::dot_dir!(), DOT_DIR);
+    assert_eq!(
+        concat!("~/", crate::dot_dir!(), "/cli/db/db.sqlite"),
+        "~/.nibi/cli/db/db.sqlite"
+    );
+    assert_eq!(RULES_FILE, "AGENTS.md");
+    assert_eq!(LOCAL_RULES_FILE, "AGENTS.local.md");
+    assert_eq!(WORKTREES_DIR, "worktrees");
+    assert_eq!(AGENTS_DIR, "agents");
+    assert_eq!(SCHEDULED_TASKS_FILE, "scheduled_tasks.json");
+    assert_eq!(MCP_CLIENT_NAME, "nibi");
+    assert_eq!(TOKEN_CLIENT_TYPE, "zcode");
+    assert_eq!(OFFICIAL_MARKETPLACE, "nibi-official");
+}
+
+#[test]
+fn the_variable_names_keep_their_spelling() {
+    use super::vars::*;
+    assert_eq!(
+        [
+            NIBI_PLUGIN_ROOT,
+            CLAUDE_PLUGIN_ROOT,
+            NIBI_PROJECT_DIR,
+            CLAUDE_PROJECT_DIR
+        ],
+        [
+            "NIBI_PLUGIN_ROOT",
+            "CLAUDE_PLUGIN_ROOT",
+            "NIBI_PROJECT_DIR",
+            "CLAUDE_PROJECT_DIR"
+        ]
+    );
+    assert_eq!(
+        [NIBI_SESSION_ID, CLAUDE_SESSION_ID, CLAUDE_CODE_SESSION_ID],
+        [
+            "NIBI_SESSION_ID",
+            "CLAUDE_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID"
+        ]
+    );
+    assert_eq!(
+        [NIBI_SKILL_DIR, CLAUDE_SKILL_DIR],
+        ["NIBI_SKILL_DIR", "CLAUDE_SKILL_DIR"]
+    );
+    assert_eq!(placeholder(CLAUDE_PLUGIN_ROOT), "${CLAUDE_PLUGIN_ROOT}");
+}
+
+#[test]
+fn the_managed_directory_follows_the_node_platform_name() {
+    // 必须是本产品的目录：读上游 Nibi 的机器级目录会把别的产品的规则与技能带进 NIBI 会话。
+    assert_eq!(managed_dir("darwin"), "/Library/Application Support/NIBI");
+    assert_eq!(managed_dir("win32"), r"C:\ProgramData\NIBI");
+    assert_eq!(managed_dir("linux"), "/etc/nibi");
+    assert_eq!(managed_dir("freebsd"), "/etc/nibi");
+}

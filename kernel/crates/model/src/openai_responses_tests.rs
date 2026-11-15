@@ -1,0 +1,106 @@
+//! OpenAI Responses 请求体（model.md §10.2）。
+
+use nibi_kernel_api::message::{ContentBlock, ImageSource};
+use nibi_kernel_api::model::{ApiRole, SystemBlock};
+use serde_json::json;
+
+use super::*;
+use crate::anthropic_request::tests::request;
+use crate::openai_lower::tests::{conversation, message, text};
+
+#[test]
+fn a_conversation_encodes_in_the_node_order() {
+    let mut request = request(conversation());
+    request.system = vec![SystemBlock {
+        text: "You are NIBI.".to_owned(),
+        cache_control: None,
+    }];
+    request.tools = vec![ToolDefinition {
+        name: "Read".to_owned(),
+        description: "Read a file".to_owned(),
+        input_schema: json!({"type": "object"}),
+        cache_control: None,
+    }];
+    let body = body("qwen3.8-max", request, &[], None).unwrap();
+    assert_eq!(
+        body,
+        concat!(
+            r#"{"model":"qwen3.8-max","stream":true,"store":false,"include":["reasoning.encrypted_content"],"max_output_tokens":32000,"input":["#,
+            r#"{"role":"system","content":"You are NIBI."},"#,
+            r#"{"role":"user","content":[{"type":"input_text","text":"<system-reminder>ctx</system-reminder>"},{"type":"input_text","text":"read a.png"},{"type":"input_text","text":"<system-reminder>\n# Environment\n</system-reminder>"}]},"#,
+            r#"{"type":"function_call","call_id":"toolu_1","name":"Read","arguments":"{\"file_path\":\"a.png\"}"},"#,
+            r#"{"type":"function_call_output","call_id":"toolu_1","output":"line 1\nline 2"},"#,
+            r#"{"role":"user","content":[{"type":"input_text","text":"<system-reminder>\nlate note\n</system-reminder>"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"},{"type":"input_text","text":"thanks"}]},"#,
+            r#"{"role":"assistant","content":[{"type":"output_text","text":"It is a cat."}]}],"#,
+            r#""tools":[{"type":"function","name":"Read","description":"Read a file","parameters":{"type":"object"},"strict":false}],"tool_choice":"auto"}"#,
+        )
+    );
+}
+
+#[test]
+fn reasoning_models_get_the_developer_role_and_patches_apply() {
+    let mut request = request(vec![message(ApiRole::User, vec![text("hi")])]);
+    request.system = vec![SystemBlock {
+        text: "sys".to_owned(),
+        cache_control: None,
+    }];
+    let patches = [json!({"reasoning": {"effort": "high"}, "max_output_tokens": 64000})];
+    let body = body("gpt-5.4", request.clone(), &patches, None).unwrap();
+    assert_eq!(
+        body,
+        r#"{"model":"gpt-5.4","stream":true,"store":false,"include":["reasoning.encrypted_content"],"max_output_tokens":64000,"input":[{"role":"developer","content":"sys"},{"role":"user","content":[{"type":"input_text","text":"hi"}]}],"reasoning":{"effort":"high"}}"#
+    );
+    assert!(
+        super::body("gpt-5-chat-latest", request, &[], None)
+            .unwrap()
+            .contains(r#"{"role":"system","content":"sys"}"#)
+    );
+}
+
+#[test]
+fn documents_are_input_files_with_the_ai_sdk_name() {
+    let request = request(crate::openai_lower::tests::pdf_result());
+    let body = body("gpt-5.6", request, &[], None).unwrap();
+    assert!(
+        body.contains(r#"{"role":"user","content":[{"type":"input_file","filename":"document.pdf","file_data":"data:application/pdf;base64,JVBERi0="}]}"#),
+        "{body}"
+    );
+}
+
+/// Responses 没有视频片段：AI SDK 的 `input_file` 只放行 PDF，视频在这条协议上报不支持
+/// （Node 同样不会把它发出去——`passThroughUnsupportedFiles` 没有开）。
+#[test]
+fn videos_are_unsupported_by_the_responses_protocol() {
+    let messages = vec![message(
+        ApiRole::User,
+        vec![ContentBlock::Video {
+            source: ImageSource::Base64 {
+                media_type: "video/mp4".to_owned(),
+                data: "AAAAIGZ0eXA=".to_owned(),
+            },
+            name: Some("clip.mp4".to_owned()),
+        }],
+    )];
+    let error = body("gpt-5.6", request(messages), &[], None).unwrap_err();
+    assert!(
+        matches!(&error, ModelError::Unsupported { what } if what.contains("video")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn the_prompt_cache_key_is_sent_only_when_the_profile_asks_for_it() {
+    let with_key = body(
+        "gpt-5.4",
+        request(conversation()),
+        &[],
+        Some("nibi-session_1".to_owned()),
+    )
+    .unwrap();
+    assert!(
+        with_key.contains(r#""prompt_cache_key":"nibi-session_1""#),
+        "{with_key}"
+    );
+    let without = body("gpt-5.4", request(conversation()), &[], None).unwrap();
+    assert!(!without.contains("prompt_cache_key"), "{without}");
+}

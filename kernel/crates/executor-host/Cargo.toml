@@ -1,0 +1,51 @@
+[package]
+name = "nibi-kernel-executor-host"
+description = "Assembly of the zcode executor mode: serves the executor protocol over stdio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+# 文件版账本的回复（编码好的帧）在日志里写成 base64（remote-exec.md §19.7）。
+base64.workspace = true
+bytes.workspace = true
+# 任务经 base 的 TaskScope；账本身份的随机串经 base 的 random。
+nibi-kernel-base.workspace = true
+# 常驻执行器的执行环境（空闲判断要它的 busy()，remote-exec.md §19.5）。
+nibi-kernel-env-local.workspace = true
+nibi-kernel-exec-server.workspace = true
+nibi-kernel-exec-transport.workspace = true
+nibi-kernel-exec-wire.workspace = true
+# 单实例锁、私有目录、账本日志（README §4：本机存储经 fs）。
+nibi-kernel-fs.workspace = true
+nibi-kernel-api.workspace = true
+# 常驻执行器的 socket（README §4：套接字经 net）。
+nibi-kernel-net.workspace = true
+# 执行器目录的位置（remote-exec.md §19.4）。
+nibi-kernel-paths.workspace = true
+# 拉起常驻进程（自成会话，remote-exec.md §19.5）。
+nibi-kernel-proc.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "sync", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# 合同测试：同一套端口测试对本机的 env-local 与“env-remote + 内存 loopback + 同进程 exec-server”各跑一遍
+# （docs/specs/rust-cli/remote-exec.md §18.7）。
+futures-util.workspace = true
+nibi-kernel-env-remote.workspace = true
+nibi-kernel-exec-client.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }

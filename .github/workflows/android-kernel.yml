@@ -1,0 +1,55 @@
+name: Android kernel
+
+# D24 Phase 0：GO 自建 Android 内核的持续门禁。
+# kernel/、构建脚本或本 workflow 变化时交叉编译 `libnibi.so`，并断言
+# ELF 身份 / API 24 / 16 KB LOAD 对齐 / C ABI v1 导出符号 / sha256。
+# 与 ci.yml 分开：普通 TS 改动不必付一次 Rust 全量编译。
+on:
+  push:
+    paths:
+      - "kernel/**"
+      - "scripts/android-kernel/**"
+      - ".github/workflows/android-kernel.yml"
+  pull_request:
+    paths:
+      - "kernel/**"
+      - "scripts/android-kernel/**"
+      - ".github/workflows/android-kernel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # 工具链以 kernel/rust-toolchain.toml 为准（1.95.0）；显式装到同一版本，
+      # 避免依赖 runner 的默认 stable。
+      - name: Install Rust and the Android target
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.95.0 --profile minimal --no-self-update
+          rustup target add --toolchain 1.95.0 aarch64-linux-android
+
+      - name: Build and verify the kernel cdylib
+        run: node scripts/android-kernel/build.mjs
+
+      # 落盘后独立再跑一次 fail-closed 校验（stamp/sha256/ELF/符号），
+      # 确认 `--check` 在 CI 上也成立，而不是只有构建路径能过。
+      - name: Verify staged artifacts
+        run: node scripts/android-kernel/build.mjs --check
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4
+        with:
+          name: android-kernel-${{ github.sha }}
+          path: |
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libnibi.so
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libc++_shared.so
+            app/modules/kernel-host/android/prebuilt/.stamp.json
+          if-no-files-found: error
+          retention-days: 14

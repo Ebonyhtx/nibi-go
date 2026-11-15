@@ -1,0 +1,22 @@
+[package]
+name = "nibi-kernel-memory"
+description = "Project memory directory and MEMORY.md truncation of nibi-kernel-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+nibi-kernel-api.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+nibi-kernel-api = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

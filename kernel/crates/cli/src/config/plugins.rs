@@ -1,0 +1,237 @@
+//! `plugins` 段、插件存储根与插件候选（docs/specs/rust-cli/config.md §2.1、ext.md §4.1）。
+//!
+//! 合并按 Node `config-merger.ts`：`enabled` 按键覆盖，`dirs` 拼接去重，`enabledPlugins` 按 id 覆盖，
+//! `suppressedBuiltins` 由最后写它的层整体替换；`extraKnownMarketplaces`、`options` 不读。候选目录在同一次
+//! 组装里从本机存储的插件清单得出（platform `plugin_inventory`）。
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use nibi_kernel_ext::plugins::{PluginCandidate, PluginOrigin, PluginSources};
+use nibi_kernel_api::env::EnvPath;
+use nibi_kernel_paths::StoragePath;
+use nibi_kernel_platform::plugin_inventory::{
+    installed_plugins, installed_root, official_plugin_roots,
+};
+use serde_json::Value;
+
+use super::merge::Layer;
+
+/// Node `NIBI_INLINE_PLUGIN_MARKETPLACE` 与 `NIBI_OFFICIAL_PLUGIN_MARKETPLACE`（都在 base 里定义）。
+const INLINE: &str = nibi_kernel_base::names::INLINE_MARKETPLACE;
+const OFFICIAL: &str = nibi_kernel_base::names::OFFICIAL_MARKETPLACE;
+
+/// 合并后的 `plugins` 段。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PluginSection {
+    pub(crate) enabled: bool,
+    pub(crate) dirs: Vec<String>,
+    pub(crate) enabled_plugins: BTreeMap<String, bool>,
+    pub(crate) suppressed_builtins: Vec<String>,
+    /// `plugins.options`（插件 id → 选项键 → 标量）：合并按 Node `mergePluginOptions`，同键后者覆盖。
+    pub(crate) options: BTreeMap<String, BTreeMap<String, Value>>,
+}
+
+/// 非空字符串数组里的合格项；坏项记警告（D1）。
+fn strings(
+    path: &str,
+    key: &str,
+    value: &Value,
+    warnings: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    let Some(items) = value.as_array() else {
+        warnings.push(format!("{path}: plugins.{key} must be an array of strings"));
+        return None;
+    };
+    let mut found = Vec::new();
+    for item in items {
+        match item.as_str().filter(|text| !text.is_empty()) {
+            Some(text) => found.push(text.to_owned()),
+            None => warnings.push(format!("{path}: plugins.{key} skips {item}")),
+        }
+    }
+    Some(found)
+}
+
+pub(crate) fn merge(layers: &[Layer<'_>], warnings: &mut Vec<String>) -> PluginSection {
+    let mut merged = PluginSection {
+        enabled: true,
+        dirs: Vec::new(),
+        enabled_plugins: BTreeMap::new(),
+        suppressed_builtins: Vec::new(),
+        options: BTreeMap::new(),
+    };
+    for layer in layers {
+        let Some(section) = layer.object.get("plugins") else {
+            continue;
+        };
+        let Some(section) = section.as_object() else {
+            warnings.push(format!("{}: plugins must be an object", layer.path));
+            continue;
+        };
+        if let Some(value) = section.get("enabled") {
+            match value.as_bool() {
+                Some(enabled) => merged.enabled = enabled,
+                None => warnings.push(format!("{}: plugins.enabled must be a boolean", layer.path)),
+            }
+        }
+        if let Some(dirs) = section
+            .get("dirs")
+            .and_then(|value| strings(layer.path, "dirs", value, warnings))
+        {
+            for dir in dirs {
+                if !merged.dirs.contains(&dir) {
+                    merged.dirs.push(dir);
+                }
+            }
+        }
+        match section.get("enabledPlugins").map(Value::as_object) {
+            Some(Some(table)) => {
+                for (id, on) in table {
+                    match on.as_bool() {
+                        Some(on) => {
+                            merged.enabled_plugins.insert(id.clone(), on);
+                        }
+                        None => warnings.push(format!(
+                            "{}: plugins.enabledPlugins.{id} must be a boolean",
+                            layer.path
+                        )),
+                    }
+                }
+            }
+            Some(None) => warnings.push(format!(
+                "{}: plugins.enabledPlugins must be an object",
+                layer.path
+            )),
+            None => {}
+        }
+        if let Some(suppressed) = section
+            .get("suppressedBuiltins")
+            .and_then(|value| strings(layer.path, "suppressedBuiltins", value, warnings))
+        {
+            merged.suppressed_builtins = suppressed;
+        }
+        match section.get("options").map(Value::as_object) {
+            Some(Some(table)) => {
+                for (id, values) in table {
+                    let Some(values) = values.as_object() else {
+                        warnings.push(format!(
+                            "{}: plugins.options.{id} must be an object",
+                            layer.path
+                        ));
+                        continue;
+                    };
+                    let entry = merged.options.entry(id.clone()).or_default();
+                    for (key, value) in values {
+                        // 选项值只认标量（Node `PluginOptionValues`）；对象/数组留给插件自己读 manifest，
+                        // 模板里的 `${user_config.<key>}` 不会用它。
+                        if matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_)) {
+                            entry.insert(key.clone(), value.clone());
+                        } else {
+                            warnings.push(format!(
+                                "{}: plugins.options.{id}.{key} must be a string, number or boolean",
+                                layer.path
+                            ));
+                        }
+                    }
+                }
+            }
+            Some(None) => warnings.push(format!(
+                "{}: plugins.options must be an object",
+                layer.path
+            )),
+            None => {}
+        }
+    }
+    merged
+}
+
+/// 配置目录的位置（Node `resolve(rootPath)`）：绝对路径原样，相对路径相对工作区根；`.` 与 `..` 按字面
+/// 化简，不展开 `~`。
+///
+/// 化简用 base 的 `path::normalize`（F58：以前这里自己写了一份）。
+pub(crate) fn resolve_dir(root: &str, dir: &str) -> String {
+    nibi_kernel_base::path::normalize(&Path::new(root).join(dir))
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// 插件候选（ext.md §4.1 的来源 2–4，按 Node `resolveCandidates` 的顺序）。插件目录在本机存储里，路径直接用作
+/// `EnvPath`：ext 经本机的 `Files` 读它们（runtime 从注册表的 `local_machine()` 取，不跟着工具调用的机器走，
+/// remote-exec.md §3、§15.8.1）。
+pub(crate) async fn sources(
+    section: PluginSection,
+    root: &str,
+    storage: &StoragePath,
+    paid_license: Option<nibi_kernel_ext::plugins::PaidLicense>,
+    process_env: &[(String, String)],
+) -> PluginSources {
+    let mut candidates = Vec::new();
+    let mut paid_installed_ids = Vec::new();
+    let data_root = storage.join("data").as_path().to_string_lossy().into_owned();
+    if section.enabled {
+        let candidate = |dir: String, marketplace: &str, origin, paid| PluginCandidate {
+            dir: EnvPath::new(dir),
+            marketplace: marketplace.to_owned(),
+            origin,
+            paid,
+        };
+        for dir in &section.dirs {
+            candidates.push(candidate(
+                resolve_dir(root, dir),
+                INLINE,
+                PluginOrigin::ConfigDir,
+                false,
+            ));
+        }
+        for dir in official_plugin_roots(storage).await {
+            let dir = dir.to_string_lossy().into_owned();
+            candidates.push(candidate(dir, OFFICIAL, PluginOrigin::Official, false));
+        }
+        let installed = installed_plugins(storage).await;
+        paid_installed_ids = installed
+            .iter()
+            .filter(|plugin| plugin.paid)
+            .map(|plugin| plugin.id.clone())
+            .collect();
+        for plugin in installed {
+            let dir = installed_root(storage, &plugin)
+                .to_string_lossy()
+                .into_owned();
+            candidates.push(candidate(
+                dir,
+                &plugin.marketplace,
+                PluginOrigin::Installed,
+                plugin.paid,
+            ));
+        }
+    }
+    PluginSources {
+        candidates,
+        enabled_plugins: section.enabled_plugins,
+        suppressed_builtins: section.suppressed_builtins,
+        paid_installed_ids,
+        paid_license,
+        host_node_repl: host_flag("NIBI_HOST_NODE_REPL"),
+        host_browser_broker: host_flag("NIBI_HOST_BROWSER_BROKER"),
+        // 商店目录的展示投影：Composer 的 `@` 插件面板与推荐插件解析都要（含未安装的条目）。
+        listings: nibi_kernel_platform::plugin_marketplace::listings(storage).await,
+        // 插件清单模板 `${NIBI_PLUGIN_DATA}` 的数据根与 `${user_config.*}` 的配置值。
+        data_root: Some(data_root),
+        options: section.options,
+        env: process_env.iter().cloned().collect(),
+    }
+}
+
+/// Host 声明「由它提供 node_repl 执行面」的开关。只认 `1`：空值、其它值都按未提供处理（fail-closed）。
+#[expect(
+    clippy::disallowed_methods,
+    reason = "entry crate: the Host's node_repl capability flags (§4)"
+)]
+fn host_flag(name: &str) -> bool {
+    matches!(std::env::var(name).as_deref(), Ok("1"))
+}
+
+#[cfg(test)]
+#[path = "plugins_tests.rs"]
+mod tests;

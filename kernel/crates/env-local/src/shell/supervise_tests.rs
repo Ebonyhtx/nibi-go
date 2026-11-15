@@ -1,0 +1,176 @@
+//! 后台命令输出文件末尾的终态行（shell-permissions.md §2.2）：`mark_exit` 返回时已经在文件里；
+//! Windows 上 cwd 文件的 Git Bash 写法（§2.1，工作线 F57）。
+#![allow(clippy::disallowed_methods, reason = "测试准备输出文件并同步读回")]
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use nibi_kernel_api::env::Outcome;
+use nibi_kernel_api::env_files::PathStyle;
+
+use super::*;
+
+fn plan(dir: &Path) -> Plan {
+    Plan {
+        dir: dir.to_path_buf(),
+        output: dir.join("b1.output"),
+        errors: None,
+        events: None,
+        cwd_file: dir.join("b1.cwd"),
+        cwd: dir.to_path_buf(),
+        origin: dir.to_path_buf(),
+        bash: PathBuf::from("/bin/bash"),
+        dialect: nibi_kernel_api::session_prefs::ShellDialect::GitBash,
+        env: BTreeMap::new(),
+        prelude: None,
+    }
+}
+
+/// 修复线 F35：tokio 的 `File::write_all` 只把数据交给后台线程就返回，原来没有 flush，`mark_exit` 返回时这一行多半
+/// 还没写进文件（插桩：约 98% 的调用），终态先发出，读输出的一方偶发看不到 `[killed]` / `[exited with code N]`。
+/// 每次返回后立即同步读文件；修前 200 次运行全部失败（多在第一次就缺这一行）。
+#[tokio::test]
+async fn the_exit_line_is_on_disk_when_mark_exit_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan(dir.path());
+    let cases = [
+        (Outcome::Completed, Some(0), "\n[exited with code 0]\n"),
+        (Outcome::Cancelled, Some(137), "\n[killed]\n"),
+    ];
+    for round in 0..10 {
+        for (outcome, exit, line) in &cases {
+            let before = format!("output {round}\n");
+            std::fs::write(&plan.output, &before).unwrap();
+            mark_exit(&plan, outcome, *exit).await;
+            let written = std::fs::read_to_string(&plan.output).unwrap();
+            assert_eq!(written, format!("{before}{line}"), "round {round}");
+        }
+    }
+}
+
+/// 工作线 F57：Windows 上写进脚本的 cwd 文件路径换成 Git Bash 写法（Node `cwd-capture.ts` 的
+/// `windowsPathToGitBashPath`），POSIX 原样。以前写 `C:\…` 原样。
+#[test]
+fn the_cwd_file_is_spelled_for_git_bash_on_windows() {
+    let file = Path::new(r"C:\Users\dev\AppData\Local\Temp\zcode\s1\tasks\b1.cwd");
+    assert_eq!(
+        cwd_file_spelling(file, PathStyle::Windows),
+        "/c/Users/dev/AppData/Local/Temp/zcode/s1/tasks/b1.cwd"
+    );
+    assert_eq!(
+        cwd_file_spelling(Path::new(r"\\server\share\b1.cwd"), PathStyle::Windows),
+        "//server/share/b1.cwd"
+    );
+    assert_eq!(
+        cwd_file_spelling(Path::new("/t/b1.cwd"), PathStyle::Posix),
+        "/t/b1.cwd"
+    );
+}
+
+/// 工作线 F57：读回的 `pwd -P` 照 Node `gitBashPathToWindowsPath`（`contracts/src/path/git-bash.ts`）换回；
+/// 期望值是用 Node 的这段函数实测的。以前只认 `/c/…`，`/cygdrive/c/…` 与 `//server/…` 原样当路径。
+#[test]
+fn git_bash_cwds_are_read_back_like_node() {
+    for (text, expected) in [
+        ("/c/Users/dev", r"C:\Users\dev"),
+        ("/c", r"C:\"),
+        ("/c/", r"C:\"),
+        ("/c//x", r"C:\x"),
+        ("/D/work//x", r"D:\work\\x"),
+        ("//server/share/x", r"\\server\share\x"),
+        ("/cygdrive/c/x", r"C:\x"),
+        ("/cygdrive/d", r"D:\"),
+        ("/usr/bin", r"\usr\bin"),
+        ("/cd/x", r"\cd\x"),
+        ("relative/x", r"relative\x"),
+    ] {
+        assert_eq!(
+            native_cwd(text, PathStyle::Windows),
+            PathBuf::from(expected),
+            "{text}"
+        );
+    }
+    // POSIX 原样。
+    assert_eq!(
+        native_cwd("/c/Users/dev", PathStyle::Posix),
+        PathBuf::from("/c/Users/dev")
+    );
+}
+
+/// cmd 的脚本（Node `createWindowsCmdCwdCaptureCommand` 同形）：多行用 `&` 串成一行，成功时
+/// 把 cwd 写进文件，`exit /b` 保留退出码。
+#[test]
+fn cmd_scripts_join_newlines_and_capture_the_cwd() {
+    let script = cmd_script("echo one\necho two", Some(Path::new(r"C:\tmp\b1.cwd")));
+    assert_eq!(
+        script,
+        r#"@echo off & echo one & echo two & if not errorlevel 1 cd > "C:\tmp\b1.cwd" & exit /b"#
+    );
+    assert_eq!(
+        cmd_script("dir", None),
+        "@echo off & dir & exit /b"
+    );
+}
+
+/// 会话的执行偏好按会话存、可继承、关闭并 forget 时清掉。
+#[test]
+fn session_execution_preferences_are_per_session_and_inherited() {
+    use nibi_kernel_api::ids::SessionId;
+    use nibi_kernel_api::session_prefs::{
+        AppToolSearchMode, IntegratedShell, SessionExecutionPreferences, ShellDialect,
+    };
+
+    use super::super::{ShellConfig, Shells};
+
+    let dir = tempfile::tempdir().unwrap();
+    let shells = Shells::new(ShellConfig {
+        scratch: dir.path().join("scratch"),
+        ledger: dir.path().join("ledger"),
+        bash: Some(PathBuf::from("/bin/bash")),
+        ..ShellConfig::default()
+    });
+    let parent = SessionId::new("s1");
+    let child = SessionId::new("s2");
+    let preferences = SessionExecutionPreferences {
+        tool_search: Some(AppToolSearchMode::Off),
+        native_search_enhancements: Some(false),
+        integrated_shell: Some(IntegratedShell {
+            dialect: ShellDialect::Cmd,
+            path: r"C:\Windows\System32\cmd.exe".to_owned(),
+        }),
+    };
+    shells.set_session_execution_preferences(&parent, preferences.clone());
+    assert_eq!(
+        shells.session_execution_preferences(&parent),
+        Some(preferences.clone())
+    );
+    shells.inherit_session_execution_preferences(&parent, &child);
+    assert_eq!(shells.session_execution_preferences(&child), Some(preferences));
+    shells.close_session(&child, true);
+    assert_eq!(shells.session_execution_preferences(&child), None);
+}
+
+/// 设置页「自动选择」：Windows 上没有 Git Bash 时回退 ComSpec，而不是让 Bash 工具直接不可用。
+#[test]
+fn the_default_shell_falls_back_to_comspec_on_windows() {
+    use super::super::{default_shell, ShellConfig};
+
+    #[cfg(windows)]
+    {
+        let config = ShellConfig {
+            env: vec![(
+                "ComSpec".to_owned(),
+                r"C:\Windows\System32\cmd.exe".to_owned(),
+            )]
+            .into(),
+            ..ShellConfig::default()
+        };
+        let (path, dialect) = default_shell(&config).unwrap();
+        assert_eq!(dialect, nibi_kernel_api::session_prefs::ShellDialect::Cmd);
+        assert_eq!(path, PathBuf::from(r"C:\Windows\System32\cmd.exe"));
+    }
+    #[cfg(unix)]
+    {
+        assert!(default_shell(&ShellConfig::default()).is_err());
+    }
+}

@@ -11,7 +11,7 @@ NIBI-GO/
 ├── package.json            # pnpm workspace 根（gates/test 脚本）
 ├── pnpm-workspace.yaml     # workspace = packages/* + app + app/modules/*
 ├── .gitignore
-├── kernel/                 # Android 内核 fork（D24；Phase 0 后创建，当前尚不存在）
+├── kernel/                 # Android 内核 fork（D24；基线 nibi-client 1369b043，同步台账 UPSTREAM.md）
 ├── app/                    # RN/Expo 壳（应用主体；WORK 为入口）
 │   └── modules/kernel-host/ # 内核宿主（JNI 薄层 + :kernel Service，D19/D20）
 ├── packages/               # 纯 TS 协议层 + 平台接口（各自 README 有职责与禁止事项）

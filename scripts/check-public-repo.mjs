@@ -64,6 +64,9 @@ const ALLOWED_SNIPPETS = [
   "C:/nibigo-cxx",
   // 文档中"不要提交这种路径"的示例本身（CONTRIBUTING 规则 3）
   "/Users/<name>/",
+  // 上游 kernel 测试夹具里的合成工作区路径（kernel/crates/cli/tests/fixtures/，
+  // 随快照导入；不是任何人的真实主目录）。
+  "/Users/dev/repo",
 ];
 
 const RULES = [

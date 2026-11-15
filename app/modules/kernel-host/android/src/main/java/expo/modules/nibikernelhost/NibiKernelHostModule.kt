@@ -48,6 +48,11 @@ class NibiKernelHostModule : Module() {
         requireAvailable()
         prepareEnvironment()
         extraEnv?.forEach { (name, value) -> setEnv(name, value) }
+        // T8 S2：必须在 nativeStart 前把 JVM + Context 交给内核；失败只降级内置根，不阻塞启动。
+        val context = appContext.reactContext ?: throw IllegalStateException("缺少 Android Context")
+        if (!NibiKernelHostNative.nativeAttach(context.applicationContext)) {
+          android.util.Log.w("NibiKernelHost", "平台信任库未就绪，回退内置 Mozilla 根")
+        }
         NibiKernelHostNative.nativeStart(sink).also { startedInProcess = it }
       }
     }

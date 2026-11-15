@@ -1,8 +1,8 @@
 // NIBI-GO Phase C：进程内内核（libnibi.so）的 JS 绑定。
 //
-// 内核本体不随 App 源码入库：构建期 `scripts/android-kernel/fetch.mjs` 从
-// `@nibi-studio/cli-android-arm64` 取 `lib/libnibi.so` + `lib/libc++_shared.so`，
-// 按 `build.json.artifacts` 校验 sha256 后落到 android/prebuilt/jniLibs/（gitignore）。
+// 内核本体在仓库 `kernel/`（D24 fork）；构建期 `scripts/android-kernel/build.mjs` 交叉编译出
+// `libnibi.so` + `libc++_shared.so`，校验 ELF/API/16 KB/导出符号后落到
+// android/prebuilt/jniLibs/（gitignore）。
 //
 // 可用性：只有 arm64-v8a 产物。x86_64 模拟器 / Expo Go 里没有这个原生模块或加载失败，
 // 所有入口都静默降级（返回 null/false），不炸 import —— 与 nibi-keepalive 同一套写法。

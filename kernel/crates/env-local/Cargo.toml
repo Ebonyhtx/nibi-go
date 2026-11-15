@@ -1,0 +1,50 @@
+[package]
+name = "nibi-kernel-env-local"
+description = "Local execution environment: workspace files, search, processes, Git"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+grep-matcher.workspace = true
+grep-regex.workspace = true
+grep-searcher.workspace = true
+ignore.workspace = true
+# 持久定时任务文件的监听（cron_watch.rs）。
+notify.workspace = true
+nibi-kernel-base.workspace = true
+# 定时任务文件的原子写、锁文件里 PID 的存活判断（cron_store.rs、cron_lock.rs）。
+nibi-kernel-fs.workspace = true
+nibi-kernel-api.workspace = true
+# http hook 的出口（hook_http.rs）。
+nibi-kernel-net.workspace = true
+nibi-kernel-proc.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "sync", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+# MCP SSE 传输：`endpoint` 事件的相对地址按 SSE URL 解析（mcp/http.rs）。
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# 本进程的累计 CPU 与常驻内存（process_metrics.rs，141 审计 F3）。
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# 同上：GetProcessTimes / GetProcessMemoryInfo / GlobalMemoryStatusEx。
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# net：测试夹具的本地 HTTP 服务（套接字只在测试里，README §4）。
+tokio = { workspace = true, features = ["macros", "net", "rt"] }

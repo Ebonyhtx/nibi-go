@@ -1,0 +1,31 @@
+[package]
+name = "nibi-kernel-context"
+description = "System prompt sections, instruction files and attachments of nibi-kernel-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+# 产品目录与文件的名字（`.nibi`、`AGENTS.md`，README §4.1，F55）。
+nibi-kernel-base.workspace = true
+# 规则文件的 frontmatter、@include 与条件规则的 glob（context.md §11）。
+regex.workspace = true
+nibi-kernel-api.workspace = true
+nibi-kernel-memory.workspace = true
+nibi-kernel-prompts.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nibi-kernel-api = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

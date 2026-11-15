@@ -1,6 +1,6 @@
 # NIBI-GO 开发计划
 
-> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：D24 Phase 0（fork/CI）启动与 D25 分阶段实施。C0 已完成真机验证。
+> 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：D24 Phase 0 真机回归与 D25 分阶段实施。C0 已完成真机验证。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D25，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -134,15 +134,16 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 
 **C0 进展（2026-11-15）**
 
-- 产物消费链：`scripts/android-kernel/fetch.mjs` 按 `pin.json`（当前 `4.1.0`）从 npm 平台包拉取，
-  逐项校验 `build.json.artifacts` 的 sha256、ELF64/AArch64/shared object、`.note.android.ident`
-  的 API ≤ minSdk(24)，fail-closed；落盘到 `app/modules/kernel-host/android/prebuilt/`（gitignore）。
+- 产物消费链（Phase C 历史）：`scripts/android-kernel/fetch.mjs` 曾按 `pin.json`（`4.1.0`）从
+  npm 平台包拉取并校验 `build.json.artifacts`；**2026-11-15 D24 Phase 0 已切换为自建**——
+  `kernel/` 快照（`1369b043`）+ `scripts/android-kernel/build.mjs` 交叉编译/校验/落盘，
+  旧的 `fetch.mjs`/`pin.json` 已删除。
 - JNI 薄层：`app/modules/kernel-host`（Expo 本地模块 + C shim + CMake），暴露
   `abiVersion/start/send/stop/destroy`；输出在内核线程回调、按 LF 切帧后转 UTF-8 行；
   `start` 前由模块 `setenv`（HOME / NIBI_DATA_BASE_DIR / TMPDIR → App 私有目录）。
 - 冒烟入口 `nibigo://kernel-smoke`：模块可用性、C ABI 版本、start/stop/destroy 结果与内核输出。
 - 已验证（本机）：arm64 debug APK 打包含 `libnibi.so` / `libc++_shared.so` / `libnibi_kernel_jni.so`，
-  模块进入 `ExpoModulesPackageList`；`fetch --check` 可复验落盘产物。
+  模块进入 `ExpoModulesPackageList`；`build.mjs --check` 可复验落盘产物。
 - **真机冒烟（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）**：
   - `libnibi.so` / `libnibi_kernel_jni.so` 加载成功，`abiVersion()` = v1，`start() → true`；
   - 第一帧 `startup/storageState` 已按 LF 切帧送达 JS —— **进程内运行形态与协议面成立**；
@@ -153,8 +154,17 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `DT_NEEDED` 会记成构建机绝对路径（改 `-L` + `-l` 后为 `libnibi.so`）。
 - **T8 的 S1 已在真机验证**（上游 `feat/android-kernel`）：Android 平台根不可用时退内置
   Mozilla 根，`storageState` 走到 `ready`、内核保持运行（D21/D22 见 ADR-INDEX）。
-- **16 KB 页对齐（D22）**：4.1.0 的 `libnibi.so` 实测 4 KB，不满足；上游分支已加
-  `-Wl,-z,max-page-size=16384`，GO 的 `fetch.mjs` 与本仓 JNI 薄层同步加断言/链接参数。
+- **T8 S2 已在 GO fork 实现（2026-11-15）**：`nibi_app_server_attach_android(JNIEnv*, Context)`
+  在 `nibi_app_server_start` 前由进程内模块/`:kernel` 服务调用，成功后平台校验器可用；
+  失败/未调用仍走 S1 内置根兜底。`build.mjs` 把该符号列为必需导出。企业 CA 真机用例待跑。
+- **D24 Phase 0.1–0.4 已落地（2026-11-15）**：`kernel/` 快照（`1369b043`，2870 文件 blob 哈希
+  全等）+ `kernel/UPSTREAM.md`；`scripts/android-kernel/build.mjs` 取代 `fetch.mjs`（API 24 /
+  16 KB / ELF / 6 个符号 / sha256 + `.stamp.json`）；CI `android-kernel.yml`；
+  `cargo deny --offline check licenses` 通过；许可声明见根 `NOTICE.md` / `THIRD-PARTY-NOTICES.md`。
+  桌面 `cargo test -p nibi-kernel-net` 39+11 通过；真机全回归待跑。
+- **16 KB 页对齐（D22）**：4.1.0 的 `libnibi.so` 实测 4 KB，不满足；fork 基线
+  （`1369b043`）的 `kernel/.cargo/config.toml` 已带 `-Wl,-z,max-page-size=16384` /
+  `common-page-size=16384`，GO 的 `build.mjs` 与 JNI 薄层都做断言/链接参数。
 - **协议链 + 完整回合已在真机跑通（2026-11-15，本地 mock 模型）**：
   `session/create`（含内核反向的 `session/requestRuntimePreferences` 往返）→ `session/send`
   → `model.request_completed` → `turn.terminal status=success`（139ms / 24 tokens）。
@@ -200,9 +210,10 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **D24/D25 已定案（2026-11-15，设计基线）**：Android 内核 fork 进本仓（基线 nibi-client
   `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
   `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
-  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0（fork）尚未开始**；
+  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0.1–0.4 已落地**
+  （快照/构建链/CI/T8 S2，2026-11-15），真机回归待跑；
   当前 Android shell 用 `bin/bash -> /system/bin/sh` 过渡，正式 shell 面随 Phase 1/2 落地。
-- **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、D24 fork（Phase 0）、
+- **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、Phase 0 真机回归、
   D25 Phase 1–6（AndroidSh/hooks、三件套、Node/Python、UI slots、手机双开关、workspace 策略）、
   `dataSync` 之外的 `specialUse`/分段续跑。
 
@@ -242,15 +253,15 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 > 设计正文 `docs/design/android-native-runtime.md`；每阶段先过门禁再进下一阶段。
 > 顺序按“先让内核和 shell 自主，再上大运行时”，Node/Python 与 UI slots 不阻塞前两阶段。
 
-### Phase 0 · fork 落地 + T8 S2
+### Phase 0 · fork 落地 + T8 S2（1–4 已落地，2026-11-15；5 待真机）
 
-1. 以 nibi-client `dev` `1369b043` 为基线导入 `kernel/`（快照 + `kernel/UPSTREAM.md` 记录上游
-   commit/合并策略；后续用 upstream remote diff 选择性合并）。
-2. GO 构建链：Rust 1.95 + NDK r27 + cargo lock；CI 产 `libnibi.so`（API 24 / arm64 / 16 KB /
-   符号断言）+ sha256/build manifest；`scripts/android-kernel` 改为消费自建产物。
-3. 许可证/NOTICE 审计（vendored 代码 + Rust 依赖 + 后续二进制）。
-4. T8 S2：`attach(JNIEnv*, Context)` 在 fork 的 JNI/`:kernel` 侧实现，保留退内置根兜底。
-5. 回归：桌面 `cargo test` + 真机启动/会话/流式/审批/改动卡/折叠/`:kernel` 服务。
+1. ✅ 以 nibi-client `dev` `1369b043` 为基线导入 `kernel/`（快照 + `kernel/UPSTREAM.md`）。
+2. ✅ GO 构建链：Rust 1.95 + NDK r27 + cargo lock；`scripts/android-kernel/build.mjs` 产
+   `libnibi.so`（API 24 / arm64 / 16 KB / 符号断言）+ sha256/stamp；CI `android-kernel.yml`。
+3. ✅ 许可证/NOTICE 审计（`kernel/LICENSE` + vendored notices + 根 `NOTICE.md` /
+   `THIRD-PARTY-NOTICES.md`；`cargo deny check licenses` 通过）。
+4. ✅ T8 S2：`nibi_app_server_attach_android` + JNI/`:kernel` 调用；失败退内置根。
+5. ⏳ 回归：桌面 `cargo test` + 真机启动/会话/流式/审批/改动卡/折叠/`:kernel` 服务。
    出口：GO 自建 `.so` 替换上游 4.1.0，全回归通过。
 
 ### Phase 1 · AndroidSh + hooks

@@ -6,6 +6,12 @@ plugins {
 group = 'expo.modules.nibikernelhost'
 version = '0.1.0'
 
+dependencies {
+  // T8 S2：版本必须与 kernel/Cargo.lock 的 rustls-platform-verifier-android 一致；
+  // scripts/android-kernel/build.mjs 会核对。仓库声明在 app/android/build.gradle 的 allprojects。
+  implementation "org.rustls:rustls-platform-verifier:0.2.0"
+}
+
 android {
   namespace "expo.modules.nibikernelhost"
 
@@ -32,7 +38,7 @@ android {
 
   sourceSets {
     main {
-      // 由 scripts/android-kernel/fetch.mjs 按 build.json.artifacts 校验后落盘（不入库）。
+      // 由 scripts/android-kernel/build.mjs 从 kernel/ 交叉编译并校验后落盘（不入库）。
       jniLibs.srcDirs += ["$projectDir/prebuilt/jniLibs"]
     }
   }
