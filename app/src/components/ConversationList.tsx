@@ -321,13 +321,22 @@ function ProcessChild({ row }: { row: ChatRow }) {
   }
   if (row.kind === "tool") {
     return (
-      <Text
-        style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkFaint }]}
-      >
-        {row.name || "tool"} · {row.status}
-        {row.detail ? ` · ${row.detail}` : ""}
-        {row.output ? ` · ${row.output.split("\n")[0]}` : ""}
-      </Text>
+      <View style={styles.processBlock}>
+        <Text
+          style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkFaint }]}
+        >
+          {row.name || "tool"} · {row.status}
+          {row.detail ? ` · ${row.detail}` : ""}
+        </Text>
+        {row.output ? (
+          <Text
+            style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkSub }]}
+            numberOfLines={6}
+          >
+            {row.output}
+          </Text>
+        ) : null}
+      </View>
     );
   }
   if (row.kind === "toolGroup") {
