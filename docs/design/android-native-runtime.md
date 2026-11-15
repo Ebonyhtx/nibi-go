@@ -396,6 +396,19 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
     - npm `.bin`：nibi-run 已解析 `$NIBI_PACKAGES/npm/node_modules/.bin/<name>`
       （以及 `pip/bin`），并跳过 `$NIBI_BIN/<name> -> nibi-run` 自身；安装器把 `.bin`
       重写成 nibi-run shim 的步骤随 Phase 3 的 node 一起做。
+16. **App 启动路径验收抓到的两件事（2026-11-16）**：
+    - `KernelService`（默认 `:kernel` 服务模式）仍留在 Phase 1 的 `prepareShell`，没有调用
+      `NibiRuntime`；只有进程内路径接了。真机表现是 `:kernel` 起来了但 `files/runtime` 仍为空。
+      修法：service 与 module 共用 `NibiRuntime.install/applyEnvironment`。
+    - bash 交叉编译时 `configure` 无法运行 `getcwd` 的探测，`bash_cv_getcwd_malloc` 默认 no，
+      于是链接了 **bash 自带的 getcwd 替代实现**（opendir/lstat `..`），在
+      `/data/user/0/...` 上 EACCES，表现为每次 Bash 工具都打印
+      `shell-init: error retrieving current directory` 且 `pwd` 失败。bionic 的
+      `getcwd(NULL,0)` 是支持的，显式 `bash_cv_getcwd_malloc=yes` 后 bash 用 libc getcwd；
+      真机 `pwd` 返回 `/data/data/.../files`。
+    - 验收证据：App 内 mock 模型 → Bash 工具 → 审批 → 输出
+      `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release`，
+      并写出 `pwd-proof.txt`（`/data/data/top.nibistudio.nibigo/files`）。
 
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 

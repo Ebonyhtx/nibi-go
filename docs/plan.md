@@ -224,9 +224,10 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
   `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
   App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0/1 已完成；Phase 2
-  的三件套/打包/nibi-run/hooks/50 命令矩阵/HTTPS 已完成并真机验证（run-as），剩 npm `.bin`
-  重写（随 Phase 3 的 node）与 App 启动路径点验**（2026-11-16）；当前 Android shell 在运行时
-  安装后自动切 `$NIBI_BIN/bash`，失败回退 `/system/bin/sh`（AndroidSh 方言）。
+  的三件套/打包/nibi-run/hooks/50 命令矩阵/HTTPS 已完成并真机验证（run-as + App 启动路径），
+  剩 npm `.bin` 重写（随 Phase 3 的 node）**（2026-11-16）；App 内 mock Bash 工具已实测输出
+  `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release` 且 `pwd` 正常；当前 Android
+  shell 在运行时安装后自动切 `$NIBI_BIN/bash`，失败回退 `/system/bin/sh`（AndroidSh 方言）。
 - **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、企业 CA 真机用例、
   D25 Phase 3–6（Node/Python、UI slots、手机双开关、workspace 策略）、
   `dataSync` 之外的 `specialUse`/分段续跑。
@@ -325,6 +326,11 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    `git ls-remote https://gitee.com/mirrors/git.git` 与
    `git clone --depth 1 https://github.com/octocat/Hello-World.git` 真机成功。
    系统 CA 目录在 OpenSSL 3.5 下不可用，bundle 是固定口径。
+   **App 启动路径已验（2026-11-16）**：`:kernel` 服务启动时 `NibiRuntime` 安装/建链/写
+   受管 gitconfig；App 内 mock 模型 → Bash 工具 → 审批 → 真实输出
+   `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release`、`pwd=/data/data/.../files`。
+   该轮抓到并修掉：service 模式漏接 `NibiRuntime`；bash 交叉编译用了自带 getcwd 替代实现
+   （`bash_cv_getcwd_malloc=yes`）。
    出口：shell/git 接近桌面；CLI 支持边界写进产品文案。
 
 ### Phase 3 · Node/Python
