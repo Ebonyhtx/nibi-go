@@ -375,6 +375,11 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 13. **legacy packaging 是必需的**：`expo.useLegacyPackaging=true` → APK
     `extractNativeLibs="true"`，libs 才会解压到 `nativeLibraryDir`；否则 symlink 目标不存在。
     该值由 `app/plugins/withAndroidLegacyPackaging.js` 在 prebuild 时固定。
+14. **BusyBox 的 `BB_GLOBAL_CONST` 在 clang 18 下会误编译**：`ptr_to_globals` 的 store
+    与 `G` 的读取被重排，`awk` 启动时写 `NULL+4`（真机 tombstone `awk_main+0x40`）。
+    构建加 `CONFIG_EXTRA_CFLAGS="-DBB_GLOBAL_CONST="`（上游 `libbb.h` 注释给出的开关）；
+    50 命令矩阵里的 `awk` 用例作为回归。同类使用 `ptr_to_globals` 的 applet（ash/vi/diff）
+    一并受益。
 
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 
