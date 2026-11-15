@@ -67,6 +67,7 @@ Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定�
 | curl | 8.16.0 | curl | git http/https 传输（静态链接进 remote helper） |
 | OpenSSL | 3.5.4 | Apache-2.0 | curl 的 TLS 后端（静态链接） |
 | zlib | 1.3.1 | Zlib | curl/git 的压缩后端（静态链接） |
+| Mozilla CA 证书包（curl 分发） | 2026-11-05 | MPL-2.0 | git https 的信任根（`assets/cacert.pem`，sha256 固定） |
 
 GPL 对应源码：上表各组件的完整源码即对应版本的官方 tarball（URL 与 sha256 见
 `scripts/android-runtime/sources.json`），加上本仓公开的

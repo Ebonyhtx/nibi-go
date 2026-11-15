@@ -136,7 +136,9 @@ static char *search_bin(const char *name) {
   const char *bin = bin_dir();
   if (!bin || !*bin) return NULL;
   char *cand = join2(bin, name);
-  if (cand && executable(cand)) return cand;
+  /* npm .bin 的常见装法是 $NIBI_BIN/<name> -> nibi-run；跳过自身，
+   * 继续去 $NIBI_PACKAGES 找真正的包入口。 */
+  if (cand && executable(cand) && !is_self(cand)) return cand;
   free(cand);
   return NULL;
 }
@@ -203,6 +205,23 @@ static void prepend_git_scripts_to_path(void) {
   }
   free(scripts);
   free(core);
+}
+
+/* npm/pip 安装的 CLI：.bin 里的条目通常是指向 JS/py 的 symlink，目标没有 X_OK，
+ * 但 nibi-run 会读 shebang 再 exec 解释器，所以只要求文件存在。 */
+static char *search_packages(const char *name) {
+  const char *pkgs = getenv("NIBI_PACKAGES");
+  if (!pkgs || !*pkgs) return NULL;
+  const char *subdirs[] = {"npm/node_modules/.bin", "pip/bin", NULL};
+  for (int i = 0; subdirs[i]; i++) {
+    char *dir = join2(pkgs, subdirs[i]);
+    if (!dir) continue;
+    char *cand = join2(dir, name);
+    free(dir);
+    if (cand && file_exists(cand)) return cand;
+    free(cand);
+  }
+  return NULL;
 }
 
 static char *map_interp(const char *interp) {
@@ -391,10 +410,13 @@ int main(int argc, char **argv) {
      * 再查 PATH（search_path 也会跳过自身）。 */
     path = search_bin(cmd);
     if (!path) path = search_git_scripts(cmd);
+    if (!path) path = search_packages(cmd);
     if (!path) path = search_path(cmd);
   }
   if (!path || !file_exists(path)) {
-    fprintf(stderr, "nibi-run: 找不到命令 `%s`（查找范围：$NIBI_BIN、PATH、git-scripts）。\n", cmd);
+    fprintf(stderr,
+            "nibi-run: 找不到命令 `%s`（查找范围：$NIBI_BIN、git-scripts、$NIBI_PACKAGES、PATH）。\n",
+            cmd);
     return 127;
   }
   trace("cmd %s -> %s", cmd, path);

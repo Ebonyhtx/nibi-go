@@ -120,10 +120,10 @@ jniLibs 里的固定可执行文件，解析并执行：
 - `npm run` 的脚本 shell 设为 jniLibs 的 bash，并加载 `BASH_ENV`，让脚本里的
   `command_not_found_handle` 生效。
 
-> **未解（Phase 2 前必须验证）**：npm 会把 `node_modules/.bin` 前置到脚本 PATH；里面的入口是
-> app 数据文件/symlink，**存在但 exec 被拒**，`command_not_found_handle` 不会触发。候选做法：
-> 安装后把 `.bin/*` 重写成指向 `nibi-run` 的 symlink；或脚本 shell 不把 `.bin` 放进 PATH，
-> 由 `nibi-run` 解析包 bin。`npx` 同理。这里解决前，“npm 安装的 CLI 可跑”不能算验收通过。
+> **Phase 2 更新（2026-11-16）**：npm `.bin` 的**解析**已在 `nibi-run` 实现并真机验证
+> （`$NIBI_PACKAGES/npm/node_modules/.bin/<name>`，包括 symlink→JS 的 shebang 映射）；
+> 安装后把 `.bin/*` 重写成 `$NIBI_BIN/<name> -> nibi-run` 的安装器步骤随 Phase 3 的 node
+> 一起落地。当前 `nibi-run` 已跳过指向自身的 `$NIBI_BIN` shim，避免自递归。
 
 ### 4.3 busybox
 
@@ -380,6 +380,19 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
     构建加 `CONFIG_EXTRA_CFLAGS="-DBB_GLOBAL_CONST="`（上游 `libbb.h` 注释给出的开关）；
     50 命令矩阵里的 `awk` 用例作为回归。同类使用 `ptr_to_globals` 的 applet（ash/vi/diff）
     一并受益。
+15. **Android 的 git 身份与 HTTPS 信任根**：
+    - bionic 对 app uid 的 `getpwuid()` 可能返回 `pw_gecos`/`pw_name` 为空的结构，git
+      `ident_default_name` 会 `strlen(NULL)`。构建加 `NO_GECOS_IN_PWENT=1`，并 patch
+      `xgetpwuid_self` 在字段为空时走 fallback；运行时用受管 `GIT_CONFIG_GLOBAL`
+      （`runtime/etc/gitconfig`）提供默认身份 `NIBI-GO <nibi-go@localhost>`，并 include
+      用户的 `~/.gitconfig`（用户/仓库级可覆盖，hooksPath 仍由受管配置兜底）。
+    - OpenSSL 3.5 + curl 的 `--with-ca-path=/system/etc/security/cacerts` 在真机不生效
+      （GitHub/GitLab/Gitee 都报 unable to get local issuer）。改为随包
+      `assets/cacert.pem`（Mozilla 根，2026-11-05，sha256 固定），运行时设
+      `GIT_SSL_CAINFO` / `CURL_CA_BUNDLE` / `SSL_CERT_FILE`；企业 CA 可覆盖这些变量。
+    - npm `.bin`：nibi-run 已解析 `$NIBI_PACKAGES/npm/node_modules/.bin/<name>`
+      （以及 `pip/bin`），并跳过 `$NIBI_BIN/<name> -> nibi-run` 自身；安装器把 `.bin`
+      重写成 nibi-run shim 的步骤随 Phase 3 的 node 一起做。
 
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 
