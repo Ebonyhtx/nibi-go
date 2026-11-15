@@ -185,6 +185,12 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **子智能体卡（已映射，等内核产出行）**：`subagent` 行 → 类型/状态/摘要 + 子会话下钻；
   单测覆盖。真机核对：4.1.0 内核在 Agent 前台与后台调用下都只投影 Agent 工具行 +
   后台通知回合，**没有 subagent 行**。`artifact` 行内核投影不产生，暂不做。
+- **D20 进程拆分第一片（2026-11-15 真机跑通）**：`KernelService` 跑在
+  `android:process=":kernel"`，控制面 Binder（AIDL）、帧流 socketpair；
+  binder death 后 250–2000ms 退避重绑，hook 重建 client 并 resume 当前会话。
+  真机：`ps` 同时有两个进程；`run-as kill -9` 杀掉 :kernel → logcat binder death →
+  新 pid → 发 RECONNECT 得到完整回合。开关 `EXPO_PUBLIC_NIBI_KERNEL_MODE=service`，
+  **默认仍进程内**，等 D20.2（START_STICKY/FGS/看门狗，⑤）再翻默认。
 - **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
   panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
   Android 上的 shell 执行（T9）。

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   kernelHostAvailable,
   onKernelLine,
+  onKernelRestart,
   sendKernelLine,
   startKernelHost,
 } from "nibi-kernel-host";
@@ -27,6 +28,12 @@ const DEV_MOCK_ENV = {
   NIBI_API_KEY: "mock-key",
   NIBI_MODEL: "mock-model",
 };
+
+/**
+ * D20 承载模式：`EXPO_PUBLIC_NIBI_KERNEL_MODE=service` 时内核跑在 `:kernel` 进程；
+ * 默认仍是进程内（先保住现有行为，服务模式真机验收后再翻默认）。
+ */
+const USE_KERNEL_SERVICE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "service";
 
 function workspaceRef(): KernelWorkspaceRef {
   const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
@@ -64,6 +71,8 @@ export function useKernelConversation(): KernelConversation {
   const clientRef = useRef<KernelSessionClient | null>(null);
   const feedRef = useRef<ConversationFeed | null>(null);
   const controllerRef = useRef<ConversationController | null>(null);
+  // 重启重连时用来恢复「当前这条会话」（state 在回调里会过期）。
+  const activeSessionIdRef = useRef<string | null>(null);
   // 本机已发出、内核还没回显的提示（dsh-Go PendingRow）。
   const pendingRef = useRef<Array<{ id: string; text: string; baselineRowId: number }>>([]);
   const pendingSeq = useRef(1);
@@ -168,7 +177,9 @@ export function useKernelConversation(): KernelConversation {
     let cancelled = false;
     void (async () => {
       try {
-        const started = await startKernelHost(__DEV__ ? DEV_MOCK_ENV : undefined);
+        const started = await startKernelHost(__DEV__ ? DEV_MOCK_ENV : undefined, {
+          useService: USE_KERNEL_SERVICE,
+        });
         if (cancelled) return;
         if (!started && !kernelHostAvailable()) {
           setStatus("内核不可用");
@@ -199,6 +210,7 @@ export function useKernelConversation(): KernelConversation {
         if (cancelled || !sessionId) return;
         await attach(client, sessionId);
         if (!cancelled) {
+          activeSessionIdRef.current = sessionId;
           setActiveSessionId(sessionId);
           setReady(true);
           setStatus("就绪");
@@ -219,6 +231,73 @@ export function useKernelConversation(): KernelConversation {
       clientRef.current = null;
     };
   }, [attach, refreshSessions]);
+
+  // D20：`:kernel` 进程重启后重建 client/订阅并恢复当前会话。
+  // 恢复口径 = 内核自己逐条落库 + 宿主重连后 resume，watchdog 不重放。
+  const reconnect = useCallback(async () => {
+    const previousController = controllerRef.current;
+    const previousFeed = feedRef.current;
+    const previousClient = clientRef.current;
+    controllerRef.current = null;
+    feedRef.current = null;
+    clientRef.current = null;
+    previousController?.dispose();
+    await previousFeed?.stop().catch(() => undefined);
+    previousClient?.close();
+
+    const client = new KernelSessionClient({
+      transport: { sendLine: sendKernelLine, onLine: onKernelLine },
+    });
+    clientRef.current = client;
+    try {
+      let sessionId: string | null = null;
+      const preferred = activeSessionIdRef.current;
+      if (preferred) {
+        await client.resumeSession(preferred);
+        sessionId = client.currentSessionId;
+      }
+      if (!sessionId) {
+        const list = await refreshSessions(client);
+        if (list.length > 0) {
+          await client.resumeSession(list[0]!.sessionId);
+          sessionId = client.currentSessionId;
+        } else {
+          await client.createSession(workspaceRef());
+          sessionId = client.currentSessionId;
+        }
+      }
+      if (!sessionId) throw new Error("没有可用会话");
+      await attach(client, sessionId);
+      activeSessionIdRef.current = sessionId;
+      setActiveSessionId(sessionId);
+      await refreshSessions(client);
+      setReady(true);
+      setStatus("就绪");
+    } catch (error) {
+      setStatus(`内核重连失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [attach, refreshSessions]);
+
+  useEffect(() => {
+    if (!USE_KERNEL_SERVICE) return;
+    return onKernelRestart((event) => {
+      if (event.status === "restarting") {
+        setStatus("内核重启中…");
+        setReady(false);
+        // 旧内核的请求全部作废：先收掉旧 client/订阅，等 ready 再重建。
+        clientRef.current?.close();
+        clientRef.current = null;
+        controllerRef.current?.dispose();
+        controllerRef.current = null;
+        void feedRef.current?.stop().catch(() => undefined);
+        feedRef.current = null;
+        setRows([]);
+        setTurn("idle");
+        return;
+      }
+      void reconnect();
+    });
+  }, [reconnect]);
 
   const send = useCallback(
     async (text: string) => {
@@ -258,6 +337,7 @@ export function useKernelConversation(): KernelConversation {
       const sessionId = client.currentSessionId;
       if (!sessionId) return;
       await attach(client, sessionId);
+      activeSessionIdRef.current = sessionId;
       setActiveSessionId(sessionId);
       await refreshSessions(client);
       setStatus("就绪");
@@ -273,6 +353,7 @@ export function useKernelConversation(): KernelConversation {
       try {
         await client.resumeSession(sessionId);
         await attach(client, sessionId);
+        activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
         setStatus("就绪");
       } catch (error) {

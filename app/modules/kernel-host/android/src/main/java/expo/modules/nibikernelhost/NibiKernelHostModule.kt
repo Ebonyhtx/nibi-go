@@ -4,13 +4,15 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 /**
- * Expo 模块 `NibiKernelHost`：把进程内内核的 C ABI 暴露给 JS。
+ * Expo 模块 `NibiKernelHost`：把内核的 C ABI 暴露给 JS。
  *
- * 语义（对应 nibi-client `docs/android-cdylib-abi.md`）：
- * - `start()` 起内核线程；输出按 LF 切成行后经 `onKernelLine` 事件送出；
- * - `send(line)` 送入 Host → kernel 的 JSON 帧（缺 LF 由内核补）；
- * - `stop()` 取消内核循环，`destroy()` 等待线程退出并释放；
- * - 一个进程只允许一个实例。
+ * 两种承载模式（D19/D20）：
+ * - 默认（进程内）：在 UI 进程 dlopen `libnibi.so`，内核线程与 App 同生共死；
+ * - `start(env, useService = true)`：绑定 `KernelService`（`android:process=":kernel"`），
+ *   控制面走 Binder，帧流走 socketpair；UI 进程只做桥接，不跑内核。
+ *
+ * JS 面保持同一套语义：`start/send/stop/destroy` + `onKernelLine/onKernelError`；
+ * 服务模式下另有 `onKernelRestart`（binder death 后的退避重连状态）。
  */
 class NibiKernelHostModule : Module() {
   private val sink = object : NibiKernelHostNative.Sink {
@@ -23,9 +25,12 @@ class NibiKernelHostModule : Module() {
     }
   }
 
+  private var serviceClient: KernelServiceClient? = null
+  private var startedInProcess = false
+
   override fun definition() = ModuleDefinition {
     Name("NibiKernelHost")
-    Events("onKernelLine", "onKernelError")
+    Events("onKernelLine", "onKernelError", "onKernelRestart")
 
     Function("isAvailable") { NibiKernelHostNative.isAvailable }
     Function("loadError") { NibiKernelHostNative.loadError }
@@ -34,33 +39,77 @@ class NibiKernelHostModule : Module() {
     }
 
     // 额外环境变量只给开发期冒烟用（例如把模型指到本机 mock）；产品路径不传。
-    AsyncFunction("start") { extraEnv: Map<String, String>? ->
-      requireAvailable()
-      prepareEnvironment()
-      extraEnv?.forEach { (name, value) -> setEnv(name, value) }
-      NibiKernelHostNative.nativeStart(sink)
+    // useService=true 时内核跑在 :kernel 进程（D20）。
+    AsyncFunction("start") { extraEnv: Map<String, String>?, useService: Boolean? ->
+      if (useService == true) {
+        startService(extraEnv ?: emptyMap())
+      } else {
+        requireAvailable()
+        prepareEnvironment()
+        extraEnv?.forEach { (name, value) -> setEnv(name, value) }
+        NibiKernelHostNative.nativeStart(sink).also { startedInProcess = it }
+      }
     }
 
     Function("send") { line: String ->
-      requireAvailable()
-      NibiKernelHostNative.nativeSend(line.toByteArray(Charsets.UTF_8))
+      serviceClient?.send(line) ?: run {
+        requireAvailable()
+        NibiKernelHostNative.nativeSend(line.toByteArray(Charsets.UTF_8))
+      }
     }
 
     Function("stop") {
-      if (!NibiKernelHostNative.isAvailable) return@Function false
-      NibiKernelHostNative.nativeStop()
+      serviceClient?.stop() ?: run {
+        if (!NibiKernelHostNative.isAvailable) return@Function false
+        NibiKernelHostNative.nativeStop()
+      }
     }
 
     Function("destroy") {
-      if (NibiKernelHostNative.isAvailable) NibiKernelHostNative.nativeDestroy()
+      serviceClient?.destroy()
+      serviceClient = null
+      if (startedInProcess && NibiKernelHostNative.isAvailable) {
+        NibiKernelHostNative.nativeDestroy()
+      }
+      startedInProcess = false
+    }
+
+    /** 调试：杀 :kernel 进程，验证 binder death / 重连。 */
+    Function("killKernelForTest") {
+      serviceClient?.killForTest()
     }
 
     OnDestroy {
-      if (NibiKernelHostNative.isAvailable) {
+      serviceClient?.destroy()
+      serviceClient = null
+      if (startedInProcess && NibiKernelHostNative.isAvailable) {
         NibiKernelHostNative.nativeStop()
         NibiKernelHostNative.nativeDestroy()
       }
+      startedInProcess = false
     }
+  }
+
+  private fun startService(env: Map<String, String>): Boolean {
+    val context = appContext.reactContext ?: throw IllegalStateException("缺少 Android Context")
+    val previous = serviceClient
+    serviceClient = null
+    previous?.destroy()
+    val client = KernelServiceClient(
+      context = context.applicationContext,
+      onLine = { bytes -> sendEvent("onKernelLine", mapOf("line" to String(bytes, Charsets.UTF_8))) },
+      onError = { message -> sendEvent("onKernelError", mapOf("message" to message)) },
+      onRestart = { status, attempt ->
+        sendEvent("onKernelRestart", mapOf("status" to status, "attempt" to attempt))
+      },
+    )
+    serviceClient = client
+    val started = client.start(env)
+    if (!started) {
+      client.destroy()
+      serviceClient = null
+    }
+    return started
   }
 
   private fun requireAvailable() {
