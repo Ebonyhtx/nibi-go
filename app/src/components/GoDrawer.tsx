@@ -34,6 +34,7 @@ import { PET_STATE } from "./petStates";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 import { radius, space, useNibiTheme } from "../theme";
 import { filterSessionsByTitle, groupSessionsByDay } from "./sessionGroups";
+import { formatBytes } from "../kernel/sessionArchive";
 
 export interface NavProps {
   /** 底栏展示的本机状态（挂起期固定 sleeping）。 */
@@ -53,8 +54,13 @@ export interface NavProps {
   onNewSession?: () => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
+  onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
+  onDeleteAllArchived?: () => Promise<{
+    succeeded: number;
+    failed: number;
+    kept: number;
+    bytes: number;
+  }>;
 }
 
 function sessionTime(ms: number | undefined): string {
@@ -126,14 +132,24 @@ export function GoNavContent({
 
   const confirmDelete = (session: KernelSessionSummary) => {
     Alert.alert(
-      "删除这个归档会话？",
-      `“${session.title || "新对话"}”删除后无法在应用中恢复。`,
+      "彻底删除这个会话？",
+      `“${session.title || "新对话"}”的会话记录、附件与轨迹文件会一起删除，无法恢复。`,
       [
         { text: "取消", style: "cancel" },
         {
-          text: "删除",
+          text: "彻底删除",
           style: "destructive",
-          onPress: () => run(() => onDeleteSession?.(session.sessionId), "删除失败"),
+          onPress: () => {
+            void Promise.resolve(onDeleteSession?.(session.sessionId))
+              .then((bytes) => {
+                if (typeof bytes === "number" && bytes > 0) {
+                  Alert.alert("已删除", `释放了 ${formatBytes(bytes)}。`);
+                }
+              })
+              .catch((error: unknown) => {
+                Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
+              });
+          },
         },
       ],
     );
@@ -142,8 +158,8 @@ export function GoNavContent({
   const confirmDeleteAll = () => {
     if (archivedSessions.length === 0) return;
     Alert.alert(
-      `删除这 ${archivedSessions.length} 个归档会话？`,
-      "只删除当前确认范围内的会话。删除后无法在应用中恢复。",
+      `彻底删除这 ${archivedSessions.length} 个归档会话？`,
+      "会话记录、附件与轨迹文件会一起删除，无法恢复。运行中或被引用的会话会保留。",
       [
         { text: "取消", style: "cancel" },
         {
@@ -152,12 +168,14 @@ export function GoNavContent({
           onPress: () => {
             void onDeleteAllArchived?.()
               .then((result) => {
-                if (result.failed > 0) {
-                  Alert.alert(
-                    "部分删除失败",
-                    `成功 ${result.succeeded} 项，失败 ${result.failed} 项。`,
-                  );
-                }
+                const lines = [`成功 ${result.succeeded} 项`];
+                if (result.bytes > 0) lines.push(`释放 ${formatBytes(result.bytes)}`);
+                if (result.kept > 0) lines.push(`保留 ${result.kept} 项（运行中/被引用）`);
+                if (result.failed > 0) lines.push(`失败 ${result.failed} 项`);
+                Alert.alert(
+                  result.failed > 0 ? "部分删除失败" : "删除完成",
+                  `${lines.join("，")}。`,
+                );
               })
               .catch((error: unknown) => {
                 Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
@@ -419,8 +437,13 @@ export function GoDrawer({
   onNewSession?: () => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
+  onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
+  onDeleteAllArchived?: () => Promise<{
+    succeeded: number;
+    failed: number;
+    kept: number;
+    bytes: number;
+  }>;
 }) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
@@ -502,8 +525,13 @@ export function GoSidebar({
   onNewSession?: () => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteSession?: (sessionId: string) => void | Promise<void>;
-  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
+  onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
+  onDeleteAllArchived?: () => Promise<{
+    succeeded: number;
+    failed: number;
+    kept: number;
+    bytes: number;
+  }>;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();

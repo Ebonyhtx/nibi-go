@@ -32,6 +32,7 @@ export type {
   KernelMessagePart,
   KernelNotification,
   KernelSessionCreateResult,
+  KernelSessionDataPurge,
   KernelSessionSummary,
   KernelTransport,
   KernelWorkspaceRef,

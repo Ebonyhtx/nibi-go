@@ -78,10 +78,15 @@ export interface KernelConversation {
   archiveSession: (sessionId: string) => Promise<void>;
   /** 取消归档。 */
   unarchiveSession: (sessionId: string) => Promise<void>;
-  /** 删除一条会话（`v4/command deleteSession`，内核软删除）；删当前会话会切到最近一条。 */
-  deleteSession: (sessionId: string) => Promise<void>;
-  /** 删除全部已归档会话；返回成功/失败数。 */
-  deleteAllArchived: () => Promise<{ succeeded: number; failed: number }>;
+  /** 删除一条会话（`deleteSession` 关闭 + `sessionData/purge` 彻底删行与文件）；返回释放的文件字节。 */
+  deleteSession: (sessionId: string) => Promise<number>;
+  /** 彻底删除全部已归档会话；返回成功/失败/保留数与释放字节。 */
+  deleteAllArchived: () => Promise<{
+    succeeded: number;
+    failed: number;
+    kept: number;
+    bytes: number;
+  }>;
   /** 回答审批/提问（`v4/command` 的 `resolveInteraction`）。 */
   respondInteraction: (interactionId: string, answer: Record<string, unknown>) => Promise<void>;
   /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`）。 */
@@ -440,48 +445,74 @@ export function useKernelConversation(): KernelConversation {
     [persistArchived],
   );
 
+  /** 切到最近一条可见会话（排除 excluded），没有就新建；删除当前会话前先让开。 */
+  const openFallback = useCallback(
+    async (client: KernelSessionClient, excluded?: string) => {
+      const visible = (await refreshSessions(client)).filter(
+        (session) => session.sessionId !== excluded,
+      );
+      if (visible.length > 0) await client.resumeSession(visible[0]!.sessionId);
+      else await client.createSession(workspaceRef());
+      const nextId = client.currentSessionId;
+      if (!nextId) throw new Error("没有可用会话");
+      await attach(client, nextId);
+      activeSessionIdRef.current = nextId;
+      setActiveSessionId(nextId);
+      setReady(true);
+      setStatus("就绪");
+    },
+    [attach, refreshSessions],
+  );
+
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const client = clientRef.current;
       if (!client) throw new Error("内核会话客户端不可用");
+      // purge 会整棵保留「运行中」的会话；当前会话先让开。
+      if (activeSessionIdRef.current === sessionId) {
+        try {
+          await openFallback(client, sessionId);
+        } catch (error) {
+          throw new Error(
+            `切换会话失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      // 先软删（中断并关闭内核里打开着的会话），再彻底删行与文件。
       await client.deleteSession(sessionId);
+      const purged = await client.purgeSessionData([sessionId]);
+      const failure = purged.failed.find((item) => item.sessionId === sessionId);
+      if (failure) throw new Error(`删除失败（${failure.code}）`);
+      if (purged.kept.some((item) => item.sessionId === sessionId)) {
+        throw new Error("会话正在运行或被引用，暂时不能删除");
+      }
       if (archivedIdsRef.current.has(sessionId)) {
         const next = new Set(archivedIdsRef.current);
         next.delete(sessionId);
         await persistArchived(next);
       }
-      const visible = await refreshSessions(client);
-      if (activeSessionIdRef.current !== sessionId) return;
-      // 删的是当前会话：切到最近一条可见会话；一条都没有就新建（首页不能空）。
-      try {
-        if (visible.length > 0) await client.resumeSession(visible[0]!.sessionId);
-        else await client.createSession(workspaceRef());
-        const nextId = client.currentSessionId;
-        if (!nextId) return;
-        await attach(client, nextId);
-        activeSessionIdRef.current = nextId;
-        setActiveSessionId(nextId);
-        setReady(true);
-        setStatus("就绪");
-      } catch (error) {
-        setStatus(`切换会话失败：${error instanceof Error ? error.message : String(error)}`);
-      }
+      await refreshSessions(client);
+      return purged.deleted.find((item) => item.sessionId === sessionId)?.bytes ?? 0;
     },
-    [attach, persistArchived, refreshSessions],
+    [openFallback, persistArchived, refreshSessions],
   );
 
   const deleteAllArchived = useCallback(async () => {
     let succeeded = 0;
     let failed = 0;
+    let kept = 0;
+    let bytes = 0;
     for (const sessionId of [...archivedIdsRef.current]) {
       try {
-        await deleteSession(sessionId);
+        bytes += await deleteSession(sessionId);
         succeeded += 1;
-      } catch {
-        failed += 1;
+      } catch (error) {
+        // 「运行中/被引用」不算失败：内核整棵保留，归档状态也保留。
+        if (error instanceof Error && error.message.includes("被引用")) kept += 1;
+        else failed += 1;
       }
     }
-    return { succeeded, failed };
+    return { succeeded, failed, kept, bytes };
   }, [deleteSession]);
 
   const respondInteraction = useCallback(

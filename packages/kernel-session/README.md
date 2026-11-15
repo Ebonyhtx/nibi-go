@@ -43,15 +43,20 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 
 ## 会话管理（归档 / 删除）
 
-- **内核只有删除，没有归档**：`session/list` 的返回没有 archived 字段（Rust 会话表已不列
-  `time_archived`）。归档是 App 本地状态（`filesDir/nibi-archived-sessions.json`），主列表
-  按集合过滤；内核不感知。
-- 删除走 `v4/command`：`{ commandId, clientId, sessionId, type: "deleteSession", payload: {}, issuedAt }`。
-  内核先中断/关闭打开着的会话，再软删（`time_deleted`）；**成功的 ACK 没有 result**
-  （Node 同形，别按 `{type:"deleteSession"}` 解析）。`kernel-session` 封装为
-  `deleteSession(sessionId)`，拒绝/失败抛可读消息。
+- **内核只有删除，没有归档**：`session/list` 的返回没有 archived 字段。归档是 App 本地状态
+  （`filesDir/nibi-archived-sessions.json`），主列表按集合过滤；内核不感知。
+- **软删除**：`v4/command` 的 `{ type: "deleteSession", payload: {} }`（envelope 带
+  `sessionId`）。内核先中断/关闭打开着的会话，再软删（`time_deleted`）；**成功的 ACK 没有
+  result**。`kernel-session` 封装为 `deleteSession(sessionId)`。
+- **彻底删除 / 释放空间**：`v4/storage/sessionData/purge`（NIBI 客户端「清理数据」用的同一
+  能力）：`{ sessionIds, directories }` → `{ deleted: [{sessionId, bytes}], kept, failed,
+  memory }`。删除会话行（级联消息/part/待办/输入账本）与 `artifacts|exec|agents|sessions`
+  目录、`model-io-<sid>.jsonl`，`bytes` 只算实际删除的文件（数据库行不计入、SQLite 文件不
+  收缩，但空闲页会被后续会话复用）。运行中 / 分享钉住 / 工作流引用 / 附件被别的会话引用的
+  整棵保留（`kept[].reason`）。`kernel-session` 封装为 `purgeSessionData()`。
 - 删当前会话后宿主要自己切到最近一条可见会话（没有就新建）；归档/恢复/全部删除的 UI 在
-  `app/src/components/GoDrawer.tsx`。
+  `app/src/components/GoDrawer.tsx`。删除流程 = 先 `deleteSession` 关闭，再 `purgeSessionData`
+  硬删。
 
 ## 子智能体 / 产物
 

@@ -25,3 +25,17 @@ export function splitSessions(
   }
   return { visible, archived };
 }
+
+/** 人类可读的字节数（删除结果里的「释放了 …」）。 */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}

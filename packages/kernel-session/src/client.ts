@@ -3,6 +3,7 @@ import {
   type KernelMessage,
   type KernelNotification,
   type KernelSessionCreateResult,
+  type KernelSessionDataPurge,
   type KernelSessionSummary,
   type KernelTransport,
   type KernelWorkspaceRef,
@@ -211,6 +212,24 @@ export class KernelSessionClient {
       const message = typeof ack?.message === "string" ? ack.message : "";
       throw new Error(message.length > 0 ? message : `内核拒绝删除会话（${status}）`);
     }
+  }
+
+  /**
+   * 彻底删除会话数据（`v4/storage/sessionData/purge`）：删除会话行（级联消息/part/待办/输入账本）
+   * 与附件/轨迹文件目录，返回实际释放的文件字节。运行中、被分享/工作流引用、附件被别的会话引用
+   * 的会话整棵保留（`kept` 说明原因）；逐项失败在 `failed`。
+   *
+   * 与 `deleteSession`（软删除）不同：这是不可恢复的硬删除，也是 NIBI 客户端「清理数据」用的
+   * 同一个内核能力。数据库行删除不计入 `bytes`（SQLite 文件不收缩，但空闲页会被后续会话复用）。
+   */
+  async purgeSessionData(
+    sessionIds: readonly string[],
+    directories: readonly { workspacePath: string; workspaceIdentity?: string }[] = [],
+  ): Promise<KernelSessionDataPurge> {
+    return this.request<KernelSessionDataPurge>(KERNEL_METHODS.sessionDataPurge, {
+      sessionIds,
+      directories,
+    });
   }
 
   /**

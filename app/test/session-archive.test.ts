@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 
-import { splitSessions } from "../src/kernel/sessionArchive";
+import { splitSessions, formatBytes } from "../src/kernel/sessionArchive";
 
 function session(id: string, title = id): KernelSessionSummary {
   return { sessionId: id, title } as KernelSessionSummary;
@@ -27,5 +27,15 @@ describe("splitSessions", () => {
     const split = splitSessions([session("a")], new Set(["gone"]));
     expect(split.visible.map((s) => s.sessionId)).toEqual(["a"]);
     expect(split.archived).toHaveLength(0);
+  });
+});
+
+describe("formatBytes", () => {
+  it("按 1024 进位并保留一位小数", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(999)).toBe("999 B");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(12 * 1024 * 1024)).toBe("12 MB");
+    expect(formatBytes(3.5 * 1024 * 1024 * 1024)).toBe("3.5 GB");
   });
 });
