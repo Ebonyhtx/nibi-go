@@ -35,5 +35,6 @@ package-id: android-arm64
 
 ## 背景
 
-- 用途：Phase C（NIBI-GO 本机内核）以本包为内核分发载体（决策 D17：GO 单向消费 npm 冻结产物，不养 Rust 构建链）。
+- 用途（历史）：Phase C（NIBI-GO 本机内核）曾以本包为内核分发载体（D17：GO 单向消费 npm 冻结产物）。
+  **D24 后 Android 内核改为 GO 自建，本包不再是 GO 的分发载体**。
 - 紧迫性：Phase C 待启动，无 deadline；但它也是"主线破坏 android 兼容"的持续报警器（进 CI 后每次 kernel commit 都编译 android），早进 CI 早受益。

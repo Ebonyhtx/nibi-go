@@ -117,6 +117,6 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 
 ## 为什么不写 Rust 薄层
 
-JNI 薄层用 C + NDK CMake：Android 构建链里本来就有 NDK/CMake，C 侧只做函数指针桥接与
-字节搬运；再引 Rust 就得加 cargo-ndk 工具链，与本仓「不养 Rust 构建链」的边界冲突
-（AGENTS.md）。内核变更仍走 nibi-client 票据。
+JNI 薄层继续用 C + NDK CMake：Android 构建链里本来就有 NDK/CMake，C 侧只做函数指针桥接与
+字节搬运；不为了一个薄层再加 cargo-ndk 目标。D24 后内核 Rust 构建链已在 `kernel/`，
+JNI 薄层仍保持 C，与内核构建解耦。

@@ -59,13 +59,13 @@ rustls-platform-verifier could not load extra certs
 
 两种都要：**非 Android 平台行为逐字不变**（桌面/CLI 仍用平台校验器 + 内置根）。
 
-## 边界承诺（对 GO 侧）
+## 边界承诺（D24 前历史）
 
-- GO 不 fork 内核、不加本地补丁（D17）；本票只描述消费诉求与实测现象。
-- 入口命名、传参形态（JNI 直传还是泛化的 `void *env, void *context`）、初始化时机都由上游定；
-  GO 的 JNI 薄层照实现包一层即可。
-- 若上游选备选方案，GO 侧不额外做事（只要 egress 构造不再 fatal）；若选首选方案，GO 在
-  `start` 前调用一次 attach。
+- D24 前：GO 不 fork 内核、不加本地补丁（D17）；本票只描述消费诉求与实测现象。
+  **D24 后此条失效**：S2 由 GO 在 fork 内实现。
+- 入口命名/传参形态/初始化时机原由上游定；D24 后由 GO 定（JNIEnv* + Context 直传，
+  `start` 前 attach），JNI 薄层自己包一层。
+- D24 后直接实现首选方案（attach JVM/Context），同时保留「平台根不可用退内置根」的兜底。
 
 ## 验收
 
