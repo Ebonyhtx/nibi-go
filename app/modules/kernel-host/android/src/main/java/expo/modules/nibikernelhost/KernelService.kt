@@ -95,6 +95,27 @@ class KernelService : Service() {
     return START_STICKY
   }
 
+  /**
+   * Android 15+ 对 `dataSync` 有 6h/24h 上限：超时会回调这里，必须在几秒内收尾，
+   * 否则系统会判 ANR。这里主动停内核与服务；UI 还活着时 binder death 会触发重连，
+   * App 在后台时则等用户下次打开再起（长任务分段/`specialUse` 属 ⑤ 的待定项）。
+   */
+  @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+  override fun onTimeout(startId: Int, fgsType: Int) {
+    Log.w(TAG, "前台服务超时（type=$fgsType）：停止内核服务")
+    kernelStarted = false
+    reading = false
+    reader?.interrupt()
+    reader = null
+    if (NibiKernelHostNative.isAvailable) {
+      NibiKernelHostNative.nativeStop()
+      NibiKernelHostNative.nativeDestroy()
+    }
+    closeChannel()
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf(startId)
+  }
+
   private fun notification(): Notification {
     val launch = packageManager.getLaunchIntentForPackage(packageName)
     val pending = launch?.let {

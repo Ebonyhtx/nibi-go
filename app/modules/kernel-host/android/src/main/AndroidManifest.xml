@@ -6,6 +6,8 @@
   <!-- D20.2：内核进程以后台前台服务承载（dataSync；6h/24h 上限见 ⑤）。 -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <!-- Android 13+：前台服务通知要用户授权才显示；没有授权服务状态仍成立。 -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <application>
     <service

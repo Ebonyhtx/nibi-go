@@ -14,6 +14,7 @@ import {
   type TurnState,
 } from "@nibi-go/kernel-session";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PermissionsAndroid, Platform } from "react-native";
 
 import {
   kernelHostAvailable,
@@ -39,6 +40,21 @@ const KERNEL_MODE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "inprocess" ? "
 function workspaceRef(): KernelWorkspaceRef {
   const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
   return { workspacePath, workspaceKey: workspacePath };
+}
+
+/** Android 13+ 前台服务通知需要运行时授权；拒绝不影响内核，只是通知不显示。 */
+async function ensureNotificationPermission(): Promise<void> {
+  if (Platform.OS !== "android" || Number(Platform.Version) < 33) return;
+  try {
+    const granted = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    );
+    if (!granted) {
+      await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+    }
+  } catch {
+    // 权限 API 不可用时忽略。
+  }
 }
 
 export interface KernelConversation {
@@ -178,6 +194,7 @@ export function useKernelConversation(): KernelConversation {
     let cancelled = false;
     void (async () => {
       try {
+        if (KERNEL_MODE === "service") void ensureNotificationPermission();
         const env = __DEV__ ? DEV_MOCK_ENV : undefined;
         let started = await startKernelHost(env, { useService: KERNEL_MODE === "service" });
         if (!started && KERNEL_MODE === "service") {

@@ -191,7 +191,8 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `startForegroundService` + `START_STICKY` + `dataSync` 前台服务：**只杀 UI 进程时 :kernel pid
   不变、前台状态仍在**，重开 App 接回同一个内核并得到完整回合。默认已切 service
   （`EXPO_PUBLIC_NIBI_KERNEL_MODE=inprocess` 可强制回退，服务失败也自动回退）；
-  `dataSync` 的 6h/24h 上限与 `specialUse` 归 ⑤。
+  `dataSync` 的 6h/24h 上限与 `specialUse` 归 ⑤。⑤ 已落：`POST_NOTIFICATIONS` 运行时请求、
+  `onTimeout` 主动停内核避免 ANR；剩 `specialUse`/分段续跑（运营者决策）与看门狗细化。
 - **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
   panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
   Android 上的 shell 执行（T9）。
