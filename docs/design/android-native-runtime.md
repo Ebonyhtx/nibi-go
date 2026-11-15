@@ -347,8 +347,11 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 5. **`./script.sh` 直接执行**：app 数据脚本文件存在时 shell 会直接 exec（被拒），
    `command_not_found_handle` 不会触发；内核 exec 工具必须改写为 `nibi-run script`，
    交互 shell 里应提示用 `bash script`。
-6. **Node/Python 的 dlopen**：App 数据 `.node`/C 扩展能否 `dlopen` 未验证（可能在 SELinux
-   execute 处被拒）；Phase 3 前验证，否则 native addon 只能预置 jniLibs。
+6. **Node/Python 的 dlopen（已真机验证，2026-11-16）**：用 NDK 编的探针（临时
+   `libnibi_dlprobe.so`，未入库）在 app 进程 `dlopen` App 数据里的 `libprobe_plugin.so`
+   与改名后的 `plugin.node`，两者都返回 `dlopen-ok value=42`。结论：**App 数据不可
+   execve，但可以 dlopen**；npm/pip 的 native addon 可以装在 `filesDir/packages`，
+   不需要预置 jniLibs。可执行入口仍必须走 jniLibs/nibi-run。
 7. **fork 治理**：D24 改变了 D17 的「不 fork/不养 Rust 构建链」；AGENTS、CI、许可证审计
    必须同步（见 §2.3/§11）。fork 基线建议 nibi-client `dev` `1369b043`。
 
