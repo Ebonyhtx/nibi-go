@@ -20,13 +20,16 @@ pub enum AppToolSearchMode {
     Auto,
 }
 
-/// 设置页「集成终端 Shell」的方言（Windows 只有这两种）。
+/// 设置页「集成终端 Shell」的方言（Windows 只有前两种；Android 是 POSIX sh）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellDialect {
     Cmd,
     /// Git Bash（POSIX 语法；Rust 的 Bash 工具本来就要求它）。
     GitBash,
+    /// Android 的 `/system/bin/sh`（mksh）：POSIX 语法，但没有 bash/zsh 的扩展。
+    /// 宿主不显式选择它；内核在 Android 上发现不到 bash/zsh 时用（D25 Phase 1）。
+    AndroidSh,
 }
 
 /// 用户显式选择的 shell。

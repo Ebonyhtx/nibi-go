@@ -39,12 +39,44 @@ pub(crate) trait Host {
 }
 
 fn supported(shell: &str) -> bool {
+    if cfg!(target_os = "android") {
+        // Android 只有 mksh 的 /system/bin/sh；Phase 2 的 jniLibs bash 也走这一支。
+        return shell.contains("bash")
+            || shell.contains("zsh")
+            || shell.contains("mksh")
+            || shell.ends_with("/sh")
+            || shell == "sh";
+    }
     shell.contains("bash") || shell.contains("zsh")
 }
 
 /// 找 shell：`NIBI_SHELL`
 /// 是能执行的 bash / zsh 时用它；否则按候选表取第一个能执行的。`shell` 是 `SHELL`（Windows 上是 Git Bash）。
 async fn find(overridden: Option<&str>, shell: Option<&str>, host: &impl Host) -> Option<String> {
+    // Android：NIBI_SHELL → SHELL → PATH 里的 bash/zsh/sh → /system/bin/sh。没有真正的
+    // bash/zsh 时也返回 mksh（`/system/bin/sh`），Bash 工具按 `AndroidSh` 方言执行。
+    if cfg!(target_os = "android") {
+        for candidate in [overridden, shell].into_iter().flatten() {
+            if supported(candidate) && host.executable(candidate).await {
+                return Some(candidate.to_owned());
+            }
+        }
+        for name in ["bash", "zsh", "sh"] {
+            if let Some(path) = host.which(name)
+                && supported(&path)
+                && host.executable(&path).await
+            {
+                return Some(path);
+            }
+        }
+        for candidate in ["/system/bin/sh", "/system/xbin/sh"] {
+            if host.executable(candidate).await {
+                return Some(candidate.to_owned());
+            }
+        }
+        tracing::warn!("no suitable shell found on Android (no sh in PATH); Bash commands will fail");
+        return None;
+    }
     if let Some(chosen) = overridden {
         if supported(chosen) && host.executable(chosen).await {
             tracing::debug!(shell = chosen, "using shell override NIBI_SHELL");

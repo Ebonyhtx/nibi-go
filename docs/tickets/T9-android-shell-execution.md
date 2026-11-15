@@ -1,9 +1,13 @@
 # 票据 · Android 进程内内核没有可用的 POSIX shell（Bash 工具）
 
-> 状态（2026-11-15）：发现并真机复现；GO 临时桥（`bin/bash -> /system/bin/sh`）已真机跑通
-> `echo ... | tr ...`。**D24/D25 已定案**：Android 内核 fork 进本仓，正式方案 = Phase 1
-> `ShellDialect::AndroidSh` + hooks 同源发现，Phase 2 随包 bash/busybox/git（jniLibs + `nibi-run`）。
-> 本票据保留现象/证据/临时桥/三件套实测，实施不再依赖上游。
+> 状态（2026-11-15）：**已由 D25 Phase 1 解决**——GO fork 新增 `ShellDialect::AndroidSh`，
+> Android 发现 `/system/bin/sh`（NIBI_SHELL → SHELL → PATH → `/system/bin/sh`），hook 用同一个
+> shell；宿主不再建临时 `bin/bash` 符号链接。真机验证：UserPromptSubmit hook 与 Bash 工具都经 sh
+> 执行成功（`$SHELL=/system/bin/sh`）。Phase 2 装上 jniLibs bash 后路径含 `bash` 会自动切回
+> `GitBash` 方言。本票据保留现象/证据/三件套实测，作为历史记录。
+>
+> 历史：曾用 GO 临时桥（`bin/bash -> /system/bin/sh`）真机跑通 `echo ... | tr ...`；正式方案见
+> `docs/plan.md` §7 Phase 1 与 `app/modules/kernel-host/README.md`「Android shell」。
 >
 > 历史期望载体：nibi-client `kernel/crates/cli/src/shell.rs` + `env-local/src/shell.rs`；
 > D24 后对应代码在 GO `kernel/` fork 内。

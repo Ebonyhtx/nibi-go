@@ -258,22 +258,13 @@ class KernelService : Service() {
     prepareShell(applicationContext.filesDir)
   }
 
-  /** 与 NibiKernelHostModule.prepareShell 同一口径（T9 的临时桥，不是真 bash）。 */
+  /** 与 NibiKernelHostModule.prepareShell 同一口径（D25 Phase 1：sh 方言 + `$NIBI_BIN`）。 */
   private fun prepareShell(files: java.io.File) {
-    val bin = java.io.File(files, "bin")
+    val bin = java.io.File(files, "runtime/bin")
     bin.mkdirs()
-    val bash = java.io.File(bin, "bash")
-    if (!bash.exists()) {
-      try {
-        Os.symlink("/system/bin/sh", bash.absolutePath)
-      } catch (error: Throwable) {
-        Log.w(TAG, "创建 bash 符号链接失败", error)
-      }
-    }
-    if (bash.exists()) {
-      setEnv("SHELL", bash.absolutePath)
-      setEnv("NIBI_SHELL", bash.absolutePath)
-    }
+    setEnv("NIBI_BIN", bin.absolutePath)
+    setEnv("SHELL", "/system/bin/sh")
+    setEnv("NIBI_SHELL", "/system/bin/sh")
     setEnv("PATH", "${bin.absolutePath}:/system/bin:/system/xbin")
   }
 
