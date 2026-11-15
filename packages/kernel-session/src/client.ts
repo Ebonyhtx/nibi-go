@@ -189,6 +189,31 @@ export class KernelSessionClient {
   }
 
   /**
+   * 删除会话（`v4/command` 的 `deleteSession`，内核侧软删除）。
+   *
+   * 可以删当前没打开的会话（归档管理）；删除正在打开的会话时内核会先中断当前回合并关闭它。
+   * 内核的 ACK 成功时没有 result（Node 同形）；拒绝/失败抛出可读原因。
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    const ack = await this.request<{ status?: unknown; reasonCode?: unknown; message?: unknown }>(
+      KERNEL_METHODS.command,
+      {
+        commandId: `delete-${sessionId}-${this.resolveSeq++}`,
+        clientId: this.clientId,
+        sessionId,
+        type: "deleteSession",
+        payload: {},
+        issuedAt: Date.now(),
+      },
+    );
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝删除会话（${status}）`);
+    }
+  }
+
+  /**
    * 读一轮的文件改动明细（`v4/conversation/fileChanges`）。
    *
    * `target` 必须是轮头行（`rowId` + `entityId`）；`baseRevision` / `baseLogEpoch` 取自

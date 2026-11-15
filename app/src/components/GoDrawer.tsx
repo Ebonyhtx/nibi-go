@@ -14,6 +14,7 @@
 // 底栏不重复"本机"（状态卡已说），改为版本标识。
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Easing,
   Pressable,
@@ -45,9 +46,15 @@ export interface NavProps {
   onlineDevices?: number;
   /** 本机会话列表（session/list）；空数组显示空态。 */
   sessions?: readonly KernelSessionSummary[];
+  /** 已归档会话（本地归档状态；内核不存归档）。 */
+  archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
   onOpenSession?: (sessionId: string) => void;
   onNewSession?: () => void;
+  onArchiveSession?: (sessionId: string) => void | Promise<void>;
+  onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
 }
 
 function sessionTime(ms: number | undefined): string {
@@ -78,18 +85,88 @@ export function GoNavContent({
   onNavigate,
   onlineDevices = 0,
   sessions = [],
+  archivedSessions = [],
   activeSessionId = null,
   onOpenSession,
   onNewSession,
+  onArchiveSession,
+  onUnarchiveSession,
+  onDeleteSession,
+  onDeleteAllArchived,
 }: NavProps) {
   const t = useNibiTheme();
   const router = useRouter();
   const suspended = petState === PET_STATE.sleeping;
   const [search, setSearch] = useState("");
+  // 会话列表 / 归档管理（NIBI 客户端的「归档任务 → 归档管理里删除」同一套流程）。
+  const [view, setView] = useState<"sessions" | "archived">("sessions");
   const groups = useMemo(
     () => groupSessionsByDay(filterSessionsByTitle(sessions, search)),
     [sessions, search],
   );
+  const archivedRows = useMemo(
+    () => filterSessionsByTitle(archivedSessions, search),
+    [archivedSessions, search],
+  );
+
+  const run = (action: (() => void | Promise<void>) | undefined, message: string) => {
+    if (!action) return;
+    void Promise.resolve(action()).catch((error: unknown) => {
+      Alert.alert(message, error instanceof Error ? error.message : String(error));
+    });
+  };
+
+  /** 活动列表的行菜单：归档任务（删除只在归档管理里，避免误删）。 */
+  const openRowMenu = (session: KernelSessionSummary) => {
+    Alert.alert(session.title || "新对话", "归档后可在「已归档」里恢复或删除。", [
+      { text: "取消", style: "cancel" },
+      { text: "归档任务", onPress: () => run(() => onArchiveSession?.(session.sessionId), "归档失败") },
+    ]);
+  };
+
+  const confirmDelete = (session: KernelSessionSummary) => {
+    Alert.alert(
+      "删除这个归档会话？",
+      `“${session.title || "新对话"}”删除后无法在应用中恢复。`,
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () => run(() => onDeleteSession?.(session.sessionId), "删除失败"),
+        },
+      ],
+    );
+  };
+
+  const confirmDeleteAll = () => {
+    if (archivedSessions.length === 0) return;
+    Alert.alert(
+      `删除这 ${archivedSessions.length} 个归档会话？`,
+      "只删除当前确认范围内的会话。删除后无法在应用中恢复。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "全部删除",
+          style: "destructive",
+          onPress: () => {
+            void onDeleteAllArchived?.()
+              .then((result) => {
+                if (result.failed > 0) {
+                  Alert.alert(
+                    "部分删除失败",
+                    `成功 ${result.succeeded} 项，失败 ${result.failed} 项。`,
+                  );
+                }
+              })
+              .catch((error: unknown) => {
+                Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
+              });
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <>
@@ -140,33 +217,117 @@ export function GoNavContent({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {sessions.length === 0 ? (
-          <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-            {suspended
-              ? "还没有对话。本机内核 Phase C 挂起中。"
-              : "还没有对话。点右上角铅笔开始新对话。"}
-          </Text>
-        ) : groups.length === 0 ? (
-          <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
+        {view === "sessions" ? (
+          <>
+            {archivedSessions.length > 0 ? (
+              <Pressable
+                style={[styles.archiveEntry, { backgroundColor: t.panel }]}
+                onPress={() => setView("archived")}
+                accessibilityRole="button"
+                accessibilityLabel={`已归档 ${archivedSessions.length} 个会话`}
+              >
+                <Icon name="archive" size={13} color={t.inkSub} />
+                <Text style={[styles.archiveEntryText, { color: t.inkSub }]}>
+                  已归档 · {archivedSessions.length}
+                </Text>
+                <Icon name="chevron-right" size={12} color={t.inkFaint} />
+              </Pressable>
+            ) : null}
+            {sessions.length === 0 ? (
+              <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                {suspended
+                  ? "还没有对话。本机内核 Phase C 挂起中。"
+                  : "还没有对话。点右上角铅笔开始新对话。"}
+              </Text>
+            ) : groups.length === 0 ? (
+              <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
+            ) : (
+              groups.map((group) => (
+                <View key={group.day}>
+                  <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
+                  {group.items.map((session) => {
+                    const active = session.sessionId === activeSessionId;
+                    return (
+                      <Pressable
+                        key={session.sessionId}
+                        onPress={() => {
+                          onOpenSession?.(session.sessionId);
+                          onNavigate?.();
+                        }}
+                        onLongPress={() => openRowMenu(session)}
+                        delayLongPress={400}
+                        style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
+                        accessibilityRole="button"
+                        accessibilityHint="长按归档这条会话"
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
+                        >
+                          {session.title || "新对话"}
+                        </Text>
+                        <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
+                          {sessionTime(session.updatedAt ?? session.createdAt)}
+                        </Text>
+                        <Pressable
+                          onPress={() => openRowMenu(session)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${session.title || "新对话"} 的会话操作`}
+                        >
+                          <Icon name="ellipsis" size={14} color={t.inkFaint} />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))
+            )}
+          </>
         ) : (
-          groups.map((group) => (
-            <View key={group.day}>
-              <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
-              {group.items.map((session) => {
-                const active = session.sessionId === activeSessionId;
-                return (
+          <>
+            <View style={styles.archiveHead}>
+              <Pressable
+                onPress={() => setView("sessions")}
+                style={styles.archiveBack}
+                accessibilityRole="button"
+                accessibilityLabel="返回会话列表"
+              >
+                <Icon name="chevron-left" size={13} color={t.inkSub} />
+                <Text style={[styles.archiveBackText, { color: t.inkSub }]}>会话</Text>
+              </Pressable>
+              <Text style={[styles.archiveTitle, { color: t.ink }]}>已归档的会话</Text>
+              {archivedSessions.length > 0 ? (
+                <Pressable
+                  onPress={confirmDeleteAll}
+                  accessibilityRole="button"
+                  accessibilityLabel="删除所有归档会话"
+                  hitSlop={6}
+                >
+                  <Text style={styles.archiveDeleteAll}>全部删除</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {archivedRows.length === 0 ? (
+              <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                {archivedSessions.length === 0 ? "暂无已归档会话" : "没有匹配的归档会话"}
+              </Text>
+            ) : (
+              archivedRows.map((session) => (
+                <View key={session.sessionId} style={styles.sessionRow}>
                   <Pressable
-                    key={session.sessionId}
+                    style={styles.archivedBody}
                     onPress={() => {
+                      run(() => onUnarchiveSession?.(session.sessionId), "恢复失败");
                       onOpenSession?.(session.sessionId);
                       onNavigate?.();
                     }}
-                    style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
                     accessibilityRole="button"
+                    accessibilityHint="打开并取消归档"
                   >
                     <Text
                       numberOfLines={1}
-                      style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
+                      style={[styles.sessionTitle, { color: t.inkSub }]}
                     >
                       {session.title || "新对话"}
                     </Text>
@@ -174,10 +335,26 @@ export function GoNavContent({
                       {sessionTime(session.updatedAt ?? session.createdAt)}
                     </Text>
                   </Pressable>
-                );
-              })}
-            </View>
-          ))
+                  <Pressable
+                    onPress={() => run(() => onUnarchiveSession?.(session.sessionId), "恢复失败")}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`取消归档 ${session.title || "新对话"}`}
+                  >
+                    <Text style={[styles.restoreText, { color: t.inkSub }]}>恢复</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => confirmDelete(session)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`删除 ${session.title || "新对话"}`}
+                  >
+                    <Icon name="trash" size={15} color="#b3261e" />
+                  </Pressable>
+                </View>
+              ))
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -222,18 +399,28 @@ export function GoDrawer({
   petState,
   onlineDevices,
   sessions,
+  archivedSessions,
   activeSessionId,
   onOpenSession,
   onNewSession,
+  onArchiveSession,
+  onUnarchiveSession,
+  onDeleteSession,
+  onDeleteAllArchived,
 }: {
   open: boolean;
   onClose: () => void;
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
+  archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
   onOpenSession?: (sessionId: string) => void;
   onNewSession?: () => void;
+  onArchiveSession?: (sessionId: string) => void | Promise<void>;
+  onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
 }) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
@@ -278,9 +465,14 @@ export function GoDrawer({
           onNavigate={onClose}
           onlineDevices={onlineDevices}
           sessions={sessions}
+          archivedSessions={archivedSessions}
           activeSessionId={activeSessionId}
           onOpenSession={onOpenSession}
           onNewSession={onNewSession}
+          onArchiveSession={onArchiveSession}
+          onUnarchiveSession={onUnarchiveSession}
+          onDeleteSession={onDeleteSession}
+          onDeleteAllArchived={onDeleteAllArchived}
         />
       </Animated.View>
     </View>
@@ -292,16 +484,26 @@ export function GoSidebar({
   petState,
   onlineDevices,
   sessions,
+  archivedSessions,
   activeSessionId,
   onOpenSession,
   onNewSession,
+  onArchiveSession,
+  onUnarchiveSession,
+  onDeleteSession,
+  onDeleteAllArchived,
 }: {
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
+  archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
   onOpenSession?: (sessionId: string) => void;
   onNewSession?: () => void;
+  onArchiveSession?: (sessionId: string) => void | Promise<void>;
+  onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteAllArchived?: () => Promise<{ succeeded: number; failed: number }>;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -318,9 +520,14 @@ export function GoSidebar({
         insetBottom={insets.bottom + space(2)}
         onlineDevices={onlineDevices}
         sessions={sessions}
+        archivedSessions={archivedSessions}
         activeSessionId={activeSessionId}
         onOpenSession={onOpenSession}
         onNewSession={onNewSession}
+        onArchiveSession={onArchiveSession}
+        onUnarchiveSession={onUnarchiveSession}
+        onDeleteSession={onDeleteSession}
+        onDeleteAllArchived={onDeleteAllArchived}
       />
     </View>
   );
@@ -434,6 +641,29 @@ const styles = StyleSheet.create({
   },
   sessionTitle: { flex: 1, fontSize: 12.5, fontWeight: "600" },
   sessionTime: { fontSize: 10.5 },
+  archiveEntry: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+    borderRadius: radius.control,
+    marginBottom: space(2),
+  },
+  archiveEntryText: { flex: 1, fontSize: 11.5, fontWeight: "600" },
+  archiveHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    paddingHorizontal: space(2.5),
+    paddingBottom: space(2),
+  },
+  archiveBack: { flexDirection: "row", alignItems: "center", gap: 2 },
+  archiveBackText: { fontSize: 11.5, fontWeight: "600" },
+  archiveTitle: { flex: 1, fontSize: 12.5, fontWeight: "700" },
+  archiveDeleteAll: { fontSize: 11.5, fontWeight: "700", color: "#b3261e" },
+  archivedBody: { flex: 1, minWidth: 0 },
+  restoreText: { fontSize: 11.5, fontWeight: "600" },
   foot: {
     flexDirection: "row",
     alignItems: "center",

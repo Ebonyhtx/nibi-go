@@ -41,6 +41,18 @@ KernelTransport（nibi-kernel-host 提供的 sendLine/onLine）
 - 答完内核把它从 `pendingInteractions` 移除，卡片随下一帧消失；晚到/已收口回 `noop`，这里当成功。
 - 工具行带 `output.text`（成功/失败都有），UI 在工具卡里显示前几行。
 
+## 会话管理（归档 / 删除）
+
+- **内核只有删除，没有归档**：`session/list` 的返回没有 archived 字段（Rust 会话表已不列
+  `time_archived`）。归档是 App 本地状态（`filesDir/nibi-archived-sessions.json`），主列表
+  按集合过滤；内核不感知。
+- 删除走 `v4/command`：`{ commandId, clientId, sessionId, type: "deleteSession", payload: {}, issuedAt }`。
+  内核先中断/关闭打开着的会话，再软删（`time_deleted`）；**成功的 ACK 没有 result**
+  （Node 同形，别按 `{type:"deleteSession"}` 解析）。`kernel-session` 封装为
+  `deleteSession(sessionId)`，拒绝/失败抛可读消息。
+- 删当前会话后宿主要自己切到最近一条可见会话（没有就新建）；归档/恢复/全部删除的 UI 在
+  `app/src/components/GoDrawer.tsx`。
+
 ## 子智能体 / 产物
 
 - `subagent` 行 → 子智能体卡（类型 / 状态 / 摘要；有 `childSessionId` 时可下钻子会话）。
