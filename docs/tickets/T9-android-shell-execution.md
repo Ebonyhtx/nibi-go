@@ -89,3 +89,38 @@ NIBI-SHELL-OK
 「静态 bash + busybox + git ~10-12MB」，`docs/plan.md` 的 C0 里程碑也列了「busybox/git 三件套」。
 它被放在 C0「未做」里一直没有接线，协议/传输优先推进时没有把 Bash 能力当成 C0 的验收项；
 真机第一次 Bash 工具调用才暴露（本票据）。临时桥先补上可用性，正式方案按上面 A/B 走。
+
+## dsh-Go 的实现与三件套的可行性实测（2026-11-15）
+
+**dsh-Go**（本地参考归档的 dsh-Go 源码）：
+
+- `app/android/app/build.gradle.kts:51` **`targetSdk = 28`**，注释写明 “not a Play build”；
+  README 也写「当前 Android 构建以 APK 侧载为目标，不是 Google Play 发布配置」。
+- APK 内置**完整 Ubuntu 24.04 rootfs**（`runtime/build-runtime.sh`：Ubuntu base + Node 24 + pnpm +
+  Python 3.12 + git/ca-certificates），用 Termux **PRoot 5.1.107.98**（`libproot.so` /
+  `libproot-loader.so` / libtalloc / libandroid-shmem 放 jniLibs）跑 `dsh web`；
+  `useLegacyPackaging = true` + `extractNativeLibs="true"`，所以包内二进制能 exec。
+- 因此它的 Bash 工具看到的是**真 Ubuntu**：bash/coreutils/git/apt/node/python 都在；代价是
+  targetSdk 28（上不了 Play）、rootfs+运行时体积、PRoot 的 ptrace 开销。
+- 手机操控是另一条链（`phone/shell/ShellShizukuBackend`、`ShellAdbBackend`），走 Shizuku/无线调试，
+  不需要 root；与内核 Bash 工具不是同一件事。
+
+**GO 在 targetSdk 36 上的实测**（探针二进制，验证后已撤掉，不入库）：
+
+- `expo.useLegacyPackaging=true`（= `extractNativeLibs=true`）后，jniLibs 里的可执行 ELF 被解到
+  `nativeLibraryDir/arm64`，权限 `0755`；
+- 从 **App 自己的进程**（`:kernel`）用内核 Bash 工具直接 exec 该文件成功：
+  `exec-ok-from-nativeLibraryDir`（不用 root、不用 PRoot、不用 targetSdk 28）。
+- 注意：**静态**探针被 bionic 拒绝（`TLS segment ... alignment is 8, needs 64`）；动态 PIE 正常。
+  所以三件套若走静态链接，必须按 Android/bionic 目标构建并处理 TLS 对齐；16 KB 对齐仍按 D22 要求。
+
+结论：**三件套在 Play 兼容的 targetSdk 36 上技术上可行**，路径是 jniLibs + legacy packaging +
+Android/bionic 构建的 bash/busybox/git。剩下的是成本与政策，而不是 Android 限制：
+
+- 体积：三件套 ~10–12MB，且 `extractNativeLibs` 会让安装后磁盘再留一份；
+- 许可：bash GPLv3、busybox/git GPLv2——分发二进制要带许可证/源码获取方式，需法务口径；
+- Play：包内可执行文件本身允许（不是运行时下载），但「agent 可执行任意命令」可能触发政策审查，
+  需要 ④ 明确边界（是否内置、是否允许模型生成命令、如何披露）；
+- 能力：只有 shell 工具集，没有 apt/node/python；文件访问仍在 App 沙箱（/sdcard 受分区存储限制）；
+- 安全：无 root，仍是 app uid；风险是模型/提示注入在可访问数据内执行破坏性命令，靠审批策略与
+  命令规则，不是 OS 级沙箱（Android 上没有 bubblewrap 等价物）。
