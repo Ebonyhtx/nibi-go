@@ -409,6 +409,21 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
     - 验收证据：App 内 mock 模型 → Bash 工具 → 审批 → 输出
       `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release`，
       并写出 `pwd-proof.txt`（`/data/data/top.nibistudio.nibigo/files`）。
+17. **Phase 3 来源 spike（2026-11-16，Termux 预编译）**：
+    - `nodejs 26.13.1`（aarch64）：单 PIE 49MB，NEEDED 12 个库（zlib/c-ares/sqlite/
+      libffi/openssl3/ICU 79/libc++）；NDK 视角 LOAD 0x4000、`.note.android.ident`
+      **API 30**。依赖闭包解压约 95MB（其中 `libicudata` 33MB、OpenSSL 5MB、ICU 其他
+      5.3MB）。把库放 `filesDir/node-libs`、`LD_LIBRARY_PATH` 指向它、node 本体放
+      jniLibs（`libnode_probe.so` 临时探针）后，真机 **node 26.13.1 / npm 12.2.2 可运行**：
+      `npm install lodash`（npmmirror + 随包 CA）与 `nibi-run cowsay`（`.bin` symlink →
+      `#!/usr/bin/env node`）都成功。
+    - `python 3.14.10`：`bin/python3.14` 是 4.6KB 启动器 + `libpython3.14.so`；Depends
+      14 个包（gdbm/openssl/readline/ncurses/sqlite/…），未做真机运行。
+    - 接入约束：库若放 app data，**不能全局设 `LD_LIBRARY_PATH`**（会把 `libc++_shared`
+      换成 Termux 版本，影响 `:kernel` 的 `libnibi.so`）；需要一个小 launcher
+      （jniLibs）只为 node 进程设置 `LD_LIBRARY_PATH` 并 exec node，npm 子进程继承。
+      Node 26 的 API 30 意味着 Android 7–10 只能降级；APK 体积/是否随包需要运营者定
+      （§11.9 本来就开放）。
 
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 

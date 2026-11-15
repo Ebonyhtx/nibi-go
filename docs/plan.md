@@ -335,10 +335,14 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 
 ### Phase 3 · Node/Python
 
-1. ✅/◐ spike：**App 数据里的 `.so`/`.node` 可 `dlopen`**（2026-11-16 真机探针，app 进程
-   返回 `dlopen-ok value=42`；execve 仍被拒）——native addon 可装在 `filesDir/packages`，
-   不必预置 jniLibs。Node 22/24 与 Python 3.12 的 bionic 来源仍待选型（Termux 预编译 vs
-   源码交叉编译；需处理前缀/ICU/动态库与 16 KB）。
+1. ✅ spike 完成（2026-11-16）：
+   - App 数据里的 `.so`/`.node` 可 `dlopen`（app 进程探针 `dlopen-ok value=42`；
+     execve 仍被拒）——native addon 可装 `filesDir/packages`，不必预置 jniLibs。
+   - Termux `nodejs 26.13.1`（49MB 单 PIE + 46MB 依赖，API 30）+ `npm 12.2.2`（18MB）
+     在真机跑通：`npm install lodash`、`nibi-run cowsay`（`.bin` → `env node`）。
+   - Termux `python 3.14.10` 依赖 14 个包，未跑；`nodejs-mobile` 最新只有 Node 18.20.4。
+   - 待运营者定：APK 体积/随包 vs 按需运行时包；Node 26/API 30 与计划 Node 22/24 的偏差；
+     接入需要 launcher 隔离 node 的 `LD_LIBRARY_PATH`（不能污染 `:kernel` 的 libc++）。
 2. jniLibs `libnode.so`/`libpython.so` + wrappers；npm/pip 装到 `filesDir/packages`；
    `--ignore-scripts` / wheel 策略。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
