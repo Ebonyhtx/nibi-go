@@ -109,18 +109,24 @@ JVM 侧还需要 crate 的 Kotlin 组件（JNI 桥，`org.rustls.platformverifie
 - Android 15+ `dataSync` 有 6h/24h 上限：`KernelService.onTimeout` 主动停内核 + `stopSelf`，
   避免系统判 ANR；长任务要走 `specialUse` 声明或分段续跑（⑤ 待运营者定）。
 
-## Android shell 桥（T9 临时方案）
+## Android shell（D25 Phase 1，2026-11-15）
 
-内核的 shell 发现只认路径里含 `bash`/`zsh` 的可执行文件，Android 只有 `/system/bin/sh`（mksh）。
-宿主在 App 私有目录建 `bin/bash -> /system/bin/sh`，并设 `SHELL` / `NIBI_SHELL` /
-`PATH=<files>/bin:/system/bin:/system/xbin`（进程内模块与 `:kernel` Service 的
-`prepareEnvironment` 都做）。不随包带可执行文件。
+内核在 Android 上发现 `/system/bin/sh`（mksh）并以下述方言执行：
 
-- 已验证：`echo nibi-shell-ok | tr a-z A-Z` → `NIBI-SHELL-OK`，Bash 工具 `success`。
-- 局限：语义是 mksh 不是 bash（bashism/`[[ ]]`/数组等可能失败）；hook 固定 `/bin/bash` 仍不可用。
-- **D24/D25 后**：正式方案 = 内核 fork 的 `ShellDialect::AndroidSh` + 随包三件套
-  （jniLibs + `$NIBI_BIN` symlink，见 `docs/design/android-native-runtime.md`）。本桥是
-  Phase 1/2 前的过渡，落地后移除；T9 保留为证据记录。
+- `ShellDialect::AndroidSh`（`crates/kernel-api`）：POSIX 启动形态，无 bash/zsh 扩展；
+  Phase 2 装了 jniLibs bash 后路径含 `bash` → 自动切回 `GitBash` 方言；
+- 发现顺序（`crates/cli/src/shell.rs`）：`NIBI_SHELL` → `SHELL` → PATH 里的 bash/zsh/sh →
+  `/system/bin/sh`；hook 命令用同一个 shell（不再固定 `/bin/bash`）；
+- 宿主只设环境：`SHELL` / `NIBI_SHELL` = `/system/bin/sh`，`PATH` 含
+  `$NIBI_BIN`（`filesDir/runtime/bin`，Phase 2 三件套的固定入口）与 `/system/bin`；
+  不再创建 `bin/bash -> /system/bin/sh` 过渡符号链接；
+- 系统提示的环境段显示 `Platform: android` / `Shell: sh`（`describe_shell`）。
+
+真机验证（2026-11-15，PHK110 / Android 16）：
+
+- UserPromptSubmit hook 经 sh 执行：`$SHELL` = `/system/bin/sh`，写出证明文件；
+- mock 模型的 Bash 工具调用经 sh 执行成功（`echo nibi-bash-sh-ok > $HOME/...`），
+  工具结果回到模型并完成回合；审批卡路径不变（build 模式仍需确认，yolo 只用于测试）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

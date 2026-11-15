@@ -95,6 +95,8 @@ pub fn parse_execution_shell(value: &Value) -> Option<IntegratedShell> {
     let dialect = match selection.get("dialect").and_then(Value::as_str)? {
         "cmd" => ShellDialect::Cmd,
         "git-bash" => ShellDialect::GitBash,
+        // Android 的 sh 由内核自己发现，宿主不下发；接受它是为了协议向前兼容。
+        "android_sh" | "android-sh" => ShellDialect::AndroidSh,
         _ => return None,
     };
     let path = selection

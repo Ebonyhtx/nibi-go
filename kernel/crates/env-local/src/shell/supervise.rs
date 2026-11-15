@@ -214,7 +214,9 @@ pub(crate) async fn spawn(
                 mounts: None,
             }
         }
-        ShellDialect::GitBash => {
+        // Android 的 /system/bin/sh（mksh）与 Git Bash 同一套 POSIX 启动形态；沙箱在 Android 上
+        // 没有 bwrap，`sandbox::launch` 按「没有后端」处理（required 时拒绝，否则直接启动）。
+        ShellDialect::GitBash | ShellDialect::AndroidSh => {
             let text = script(
                 &request.command,
                 cwd_file,

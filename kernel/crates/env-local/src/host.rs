@@ -10,8 +10,9 @@ use nibi_kernel_api::env_git::marks_git_root;
 /// Node `process.platform` 的写法（定义在 base，F55）。
 pub(crate) use nibi_kernel_base::js::node_platform as platform;
 
-/// shell 名：`$SHELL` 含 zsh 为 `zsh`，含 bash 为 `bash`，否则原样，没有为 `unknown`；
-/// Windows 上没有 Git Bash（Bash 工具不可用）时为 `PowerShell`。
+/// shell 名：`$SHELL` 含 zsh 为 `zsh`，含 bash 为 `bash`，Android 的 `/system/bin/sh`（mksh）
+/// 为 `sh`，否则原样，没有为 `unknown`；Windows 上没有 Git Bash（Bash 工具不可用）时为
+/// `PowerShell`。
 pub(crate) fn describe_shell(shell: Option<&str>, bash: bool) -> String {
     let shell = shell.filter(|value| !value.is_empty()).unwrap_or("unknown");
     if cfg!(windows) && !bash {
@@ -21,6 +22,8 @@ pub(crate) fn describe_shell(shell: Option<&str>, bash: bool) -> String {
         "zsh".to_owned()
     } else if shell.contains("bash") {
         "bash".to_owned()
+    } else if cfg!(target_os = "android") && (shell.contains("mksh") || shell.ends_with("/sh")) {
+        "sh".to_owned()
     } else {
         shell.to_owned()
     }

@@ -87,7 +87,7 @@
 | ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
 | 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
 | T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | **已实现并真机跑通启动链**（2026-11-15）：attach + 自建 `MergeVerifier` + rustls AAR；企业 CA 信任用例待手工安装验证 |
-| D24/D25 实施 | Phase 0 已完成：快照 + 自建构建链 + CI + T8 S2；桌面 4672 测试 + 真机启动/会话/流式/重连全通；D25 的 jniLibs exec + `$NIBI_BIN` symlink 已实测 | Phase 1 AndroidSh → Phase 2 三件套/`nibi-run` → Phase 3 Node/Python；`.bin`/hooks/dlopen 三个 spike 先做 |
+| D24/D25 实施 | Phase 0 已完成；Phase 1 的 AndroidSh/hooks 已完成并真机验证（Bash 工具与 hook 都经 `/system/bin/sh`），宿主不再建临时 bash 桥；Desktop 4672 测试通过 | Phase 1 剩余：Node/Python/手机模式的环境事实（等 Phase 3/5）→ Phase 2 三件套/`nibi-run` → Phase 3 Node/Python；`.bin`/hooks/dlopen 三个 spike 先做 |
 
 ### 记录位置（压缩会话后按这些找回）
 

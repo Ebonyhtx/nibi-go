@@ -215,11 +215,11 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **D24/D25 已定案（2026-11-15，设计基线）**：Android 内核 fork 进本仓（基线 nibi-client
   `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
   `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
-  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0.1–0.4 已落地**
-  （快照/构建链/CI/T8 S2，2026-11-15），真机回归待跑；
-  当前 Android shell 用 `bin/bash -> /system/bin/sh` 过渡，正式 shell 面随 Phase 1/2 落地。
-- **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、Phase 0 真机回归、
-  D25 Phase 1–6（AndroidSh/hooks、三件套、Node/Python、UI slots、手机双开关、workspace 策略）、
+  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0 已完成、Phase 1
+  AndroidSh/hooks 已完成并真机验证**（2026-11-15）；当前 Android shell = `/system/bin/sh`
+  （AndroidSh 方言，宿主设 `SHELL`/`NIBI_SHELL`/`$NIBI_BIN`），Phase 2 装三件套后自动切 bash。
+- **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、企业 CA 真机用例、
+  D25 Phase 2–6（三件套、Node/Python、UI slots、手机双开关、workspace 策略）、
   `dataSync` 之外的 `specialUse`/分段续跑。
 
 ---
@@ -273,14 +273,18 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    （5.7s）全通，binder death → 新 pid → 自动重连。
    出口：GO 自建 `.so` 已替换上游 4.1.0。剩：企业/用户 CA 的信任用例（需手工装 CA）。
 
-### Phase 1 · AndroidSh + hooks
+### Phase 1 · AndroidSh + hooks（1/2/4 已完成，2026-11-15；3 部分完成）
 
-1. `ShellDialect::AndroidSh`：发现顺序 jniLibs bash（若有）→ `/system/bin/sh`；hooks 用同一套
-   发现（不再固定 `/bin/bash`）；prelude/命令规则/错误文案按 sh 方言。
-2. 宿主设 `SHELL`/`NIBI_SHELL`/`PATH`；移除 `bin/bash -> /system/bin/sh` 过渡桥。
-3. 系统提示注入环境事实（Android/workspace/shell/node/python/手机模式）。
-4. 真机：无 bash（sh）与有 bash 两种；管线、审批、hook 全通。
-   出口：没有三件套也能用 sh + hooks。
+1. ✅ `ShellDialect::AndroidSh`：发现顺序 `NIBI_SHELL` → `SHELL` → PATH 的 bash/zsh/sh →
+   `/system/bin/sh`；hooks 用同一套发现（不再固定 `/bin/bash`）。Phase 2 装了 jniLibs bash 后
+   路径含 `bash` 自动切 `GitBash`。
+2. ✅ 宿主设 `SHELL`/`NIBI_SHELL`=`/system/bin/sh`、`PATH` 含 `$NIBI_BIN`（`filesDir/runtime/bin`）；
+   移除 `bin/bash -> /system/bin/sh` 过渡桥。
+3. ◐ 环境段已有 `Platform: android` / `Shell: sh`（`describe_shell`）；Node/Python 版本与手机模式
+   要等 Phase 3/5 有可用事实后再注入（现在注入「没有」会误导）。
+4. ✅ 真机（无三件套）：UserPromptSubmit hook 经 sh 执行（`$SHELL=/system/bin/sh`）；mock 的
+   Bash 工具调用经 sh 执行成功并回传结果；审批卡路径不变（build 模式仍需确认）。
+   出口：没有三件套也能用 sh + hooks —— **已达成**。
 
 ### Phase 2 · 三件套 + nibi-run
 

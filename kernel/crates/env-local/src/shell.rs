@@ -77,12 +77,27 @@ fn no_shell() -> EnvError {
     }
 }
 
+/// 由 shell 路径判断方言：Android 上的 `/system/bin/sh`（mksh）是 `AndroidSh`；真 bash/zsh
+/// （Phase 2 的 jniLibs 三件套）仍按 POSIX 走 `GitBash`；其它 Unix / Windows 的既有行为不变。
+fn shell_dialect(shell: &std::path::Path) -> ShellDialect {
+    if cfg!(target_os = "android") {
+        let name = shell.to_string_lossy();
+        if name.contains("bash") || name.contains("zsh") {
+            ShellDialect::GitBash
+        } else {
+            ShellDialect::AndroidSh
+        }
+    } else {
+        ShellDialect::GitBash
+    }
+}
+
 /// 没有会话选择时的 shell。Windows 上入口找不到 Git Bash 时回退 `ComSpec` / `cmd.exe`（NIBI 设置页
 /// 「集成终端 Shell = 自动选择：优先 Git Bash，找不到回退 cmd.exe」与 Node 同语义）；Unix 上仍要求
 /// POSIX shell。
 fn default_shell(config: &ShellConfig) -> Result<(PathBuf, ShellDialect), EnvError> {
     if let Some(bash) = &config.bash {
-        return Ok((bash.clone(), ShellDialect::GitBash));
+        return Ok((bash.clone(), shell_dialect(bash)));
     }
     if cfg!(windows) {
         let comspec = nibi_kernel_base::secret::env_var(&config.env, "ComSpec")
@@ -94,14 +109,28 @@ fn default_shell(config: &ShellConfig) -> Result<(PathBuf, ShellDialect), EnvErr
     Err(no_shell())
 }
 
-/// hook 命令用的 shell：Unix 上固定 `/bin/bash`，不随 Bash 工具找到的 shell（hooks.md D4）；
-/// Windows 上是 Git Bash（入口找到的就是它）。没有 Git Bash 时 hooks 不可用（会话选择的 cmd 也不能
-/// 跑 POSIX hook 脚本）。
-fn hook_shell(config: &ShellConfig) -> Result<PathBuf, EnvError> {
-    if cfg!(windows) {
-        return config.bash.clone().ok_or_else(no_shell);
+/// hook 命令用的 shell：Android 上用发现的 POSIX sh（jniLibs 的 bash 或 `/system/bin/sh`）；
+/// 其它 Unix 上固定 `/bin/bash`，不随 Bash 工具找到的 shell（hooks.md D4）；Windows 上是 Git Bash
+/// （入口找到的就是它）。没有 Git Bash 时 hooks 不可用（会话选择的 cmd 也不能跑 POSIX hook 脚本）。
+fn hook_shell(config: &ShellConfig) -> Result<(PathBuf, ShellDialect), EnvError> {
+    if cfg!(target_os = "android") {
+        return config
+            .bash
+            .clone()
+            .map(|shell| {
+                let dialect = shell_dialect(&shell);
+                (shell, dialect)
+            })
+            .ok_or_else(no_shell);
     }
-    Ok(PathBuf::from("/bin/bash"))
+    if cfg!(windows) {
+        return config
+            .bash
+            .clone()
+            .map(|shell| (shell, ShellDialect::GitBash))
+            .ok_or_else(no_shell);
+    }
+    Ok((PathBuf::from("/bin/bash"), ShellDialect::GitBash))
 }
 
 /// Monitor 的后台命令（工作线 F83）。
@@ -366,7 +395,7 @@ impl Shells {
         let (bash, dialect) = if request.socket.is_some() {
             (PathBuf::new(), ShellDialect::GitBash)
         } else if request.hook.is_some() {
-            (hook_shell(&self.config)?, ShellDialect::GitBash)
+            hook_shell(&self.config)?
         } else if let Some(shell) = execution
             .as_ref()
             .and_then(|preferences| preferences.integrated_shell.as_ref())

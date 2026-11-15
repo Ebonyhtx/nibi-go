@@ -55,6 +55,11 @@ git diff <当前基线>..FETCH_HEAD -- kernel/          # 先看上游改了什�
 | 2026-11-15 | `crates/cli/src/android_ffi.rs` | 导出 `nibi_app_server_attach_android(env, context)`（仅 Android；返回 0/1） | T8 S2 C ABI | 同上 |
 | 2026-11-15 | `crates/net/src/android_trust.rs` | `android_tls_config`：平台 `Verifier::new` + 内置根 `WebPkiServerVerifier` 的合并校验器（reqwest 的 `tls_certs_merge` 在 Android 上不可用，平台后端也没有 `new_with_extra_roots`） | T8 S2 信任合并 | 同上 |
 | 2026-11-15 | `crates/net/src/egress.rs` | Android 的 `Anchors::Merge` 走 `use_preconfigured_tls(ClientConfig)`；桌面路径不变 | T8 S2 | 同上 |
+| 2026-11-15 | `crates/kernel-api/src/session_prefs.rs` | 新增 `ShellDialect::AndroidSh`（serde `android_sh`） | D25 Phase 1 | `docs/tickets/T9-android-shell-execution.md` |
+| 2026-11-15 | `crates/env-local/src/shell.rs` | Android 的 `default_shell`/`hook_shell` 用发现的 POSIX sh 并返回 `AndroidSh`；其它平台不变 | D25 Phase 1 | 同上 |
+| 2026-11-15 | `crates/env-local/src/shell/supervise.rs` | `AndroidSh` 复用 GitBash 的 POSIX 启动形态 | D25 Phase 1 | 同上 |
+| 2026-11-15 | `crates/cli/src/shell.rs` | Android 发现顺序 `NIBI_SHELL` → `SHELL` → PATH 的 bash/zsh/sh → `/system/bin/sh` | D25 Phase 1 | 同上 |
+| 2026-11-15 | `crates/env-local/src/host.rs` | `describe_shell` 把 Android 的 `/system/bin/sh` 显示为 `sh` | D25 Phase 1 | 同上 |
 | 2026-11-15 | `app/modules/kernel-host/android/build.gradle`（仓外配套） | 引入 `org.rustls:rustls-platform-verifier:0.2.0` AAR；版本由 `build.mjs` 与 `Cargo.lock` 核对 | T8 S2 JVM 组件 | 同上 |
 
 ## 5. 合并记录
