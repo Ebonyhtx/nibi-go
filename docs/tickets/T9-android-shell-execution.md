@@ -1,6 +1,7 @@
 # 票据 · Android 进程内内核没有可用的 POSIX shell（Bash 工具）
 
-> 状态（2026-11-15）：**发现并真机复现**，未排期。归入 ADR-INDEX 待定项 ④（可执行内容边界），
+> 状态（2026-11-15）：**发现并真机复现**；GO 侧临时桥已实现并真机验证（见文末），
+> 正式方案（上游 sh 方言或随包 bash+busybox）仍未排期。归入 ADR-INDEX 待定项 ④，
 > 触发点：C0 收口 / ④ 定案时一起决定。
 >
 > 提交方：NIBI-GO 仓库。期望载体：nibi-client 仓 `kernel/crates/cli/src/shell.rs`（shell 发现）+
@@ -58,3 +59,33 @@ node scripts/dev/mock-openai.mjs
 ```
 
 手机输入 `TOOLTEST` → 审批卡 → 允许 → 工具行 `success` 且输出 `nibi-mock-tool-ok`。
+
+## GO 侧临时桥（2026-11-15 已真机验证）
+
+在 App 私有目录建 `bin/bash -> /system/bin/sh`（mksh），并把 `SHELL` / `NIBI_SHELL` / `PATH`
+指过去。内核的 `find()` 只看路径里有没有 `bash`/`zsh`，因此接受这个别名；不随包带任何
+可执行文件，④ 的边界不破。宿主两处都要建：进程内模块与 `:kernel` Service 的
+`prepareEnvironment`（同一 App uid / filesDir）。
+
+真机结果：
+
+```
+Bash · success · {"command":"echo nibi-shell-ok | tr a-z A-Z"}
+NIBI-SHELL-OK
+```
+
+管线与 `/system/bin` 的 toybox 工具都可用，说明路径、cwd、权限链都通。
+
+**局限（这是临时桥，不是正式方案）**：
+
+- 语义是 **mksh**，不是 bash：`[[ ]]`、数组、部分 `bashism`、`set -o pipefail` 之外的
+  bash 扩展可能失败；模型看到报错可自行换写法。
+- hook 命令在 Unix 上固定 `/bin/bash`，这个桥救不了 hooks。
+- 正式方案仍是 B（上游接受 Android `sh` 方言）或 A（随包带静态 bash + busybox + git，
+  即架构总览里的「shell 三件套」，需过 ④ 的 Play 政策评估）。
+
+**历史定案回顾**：shell 类工具原本就按「三件套」设计——`docs/research/NIBI-GO深度调研报告.md`
+明确写「Android 是 mksh/toybox，Bash 工具要配 busybox」，`docs/NIBI-GO架构总览.html` 写
+「静态 bash + busybox + git ~10-12MB」，`docs/plan.md` 的 C0 里程碑也列了「busybox/git 三件套」。
+它被放在 C0「未做」里一直没有接线，协议/传输优先推进时没有把 Bash 能力当成 C0 的验收项；
+真机第一次 Bash 工具调用才暴露（本票据）。临时桥先补上可用性，正式方案按上面 A/B 走。

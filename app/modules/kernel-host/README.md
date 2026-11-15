@@ -84,6 +84,17 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 - Android 15+ `dataSync` 有 6h/24h 上限：`KernelService.onTimeout` 主动停内核 + `stopSelf`，
   避免系统判 ANR；长任务要走 `specialUse` 声明或分段续跑（⑤ 待运营者定）。
 
+## Android shell 桥（T9 临时方案）
+
+内核的 shell 发现只认路径里含 `bash`/`zsh` 的可执行文件，Android 只有 `/system/bin/sh`（mksh）。
+宿主在 App 私有目录建 `bin/bash -> /system/bin/sh`，并设 `SHELL` / `NIBI_SHELL` /
+`PATH=<files>/bin:/system/bin:/system/xbin`（进程内模块与 `:kernel` Service 的
+`prepareEnvironment` 都做）。不随包带可执行文件。
+
+- 已验证：`echo nibi-shell-ok | tr a-z A-Z` → `NIBI-SHELL-OK`，Bash 工具 `success`。
+- 局限：语义是 mksh 不是 bash（bashism/`[[ ]]`/数组等可能失败）；hook 固定 `/bin/bash` 仍不可用。
+- 正式方案：上游接受 Android `sh` 方言，或随包带静态 bash+busybox+git（T9 / ④）。
+
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 
 - `libnibi.so` / `libnibi_kernel_jni.so` 加载成功；`abiVersion()` = v1；`start() → true`。

@@ -254,6 +254,26 @@ class KernelService : Service() {
     setEnv("HOME", files)
     setEnv("NIBI_DATA_BASE_DIR", files)
     setEnv("TMPDIR", applicationContext.cacheDir.absolutePath)
+    prepareShell(applicationContext.filesDir)
+  }
+
+  /** 与 NibiKernelHostModule.prepareShell 同一口径（T9 的临时桥，不是真 bash）。 */
+  private fun prepareShell(files: java.io.File) {
+    val bin = java.io.File(files, "bin")
+    bin.mkdirs()
+    val bash = java.io.File(bin, "bash")
+    if (!bash.exists()) {
+      try {
+        Os.symlink("/system/bin/sh", bash.absolutePath)
+      } catch (error: Throwable) {
+        Log.w(TAG, "创建 bash 符号链接失败", error)
+      }
+    }
+    if (bash.exists()) {
+      setEnv("SHELL", bash.absolutePath)
+      setEnv("NIBI_SHELL", bash.absolutePath)
+    }
+    setEnv("PATH", "${bin.absolutePath}:/system/bin:/system/xbin")
   }
 
   private fun setEnv(name: String, value: String) {
