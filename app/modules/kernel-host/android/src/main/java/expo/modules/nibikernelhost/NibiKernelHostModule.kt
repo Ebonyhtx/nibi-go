@@ -2,6 +2,7 @@ package expo.modules.nibikernelhost
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.File
 
 /**
  * Expo 模块 `NibiKernelHost`：把内核的 C ABI 暴露给 JS。
@@ -133,6 +134,33 @@ class NibiKernelHostModule : Module() {
     setEnv("HOME", files)
     setEnv("NIBI_DATA_BASE_DIR", files)
     setEnv("TMPDIR", context.cacheDir.absolutePath)
+    prepareShell(context.filesDir)
+  }
+
+  /**
+   * 临时 shell 桥（T9）：内核的 shell 发现只认路径里含 bash/zsh 的可执行文件，Android 只有
+   * `/system/bin/sh`（mksh）。这里在 App 私有目录建 `bin/bash -> /system/bin/sh` 的符号链接，
+   * 并把 SHELL / NIBI_SHELL / PATH 指过去——不随包带可执行文件（④ 的边界不破）。
+   *
+   * 语义仍是 mksh，不是真 bash；hook 固定找 `/bin/bash` 仍不可用。正式方案等 T9/④ 定
+   * （上游接受 sh 方言，或随包带静态 bash + busybox）。
+   */
+  private fun prepareShell(files: File) {
+    val bin = File(files, "bin")
+    bin.mkdirs()
+    val bash = File(bin, "bash")
+    if (!bash.exists()) {
+      try {
+        android.system.Os.symlink("/system/bin/sh", bash.absolutePath)
+      } catch (t: Throwable) {
+        android.util.Log.w("NibiKernelHost", "创建 bash 符号链接失败", t)
+      }
+    }
+    if (bash.exists()) {
+      setEnv("SHELL", bash.absolutePath)
+      setEnv("NIBI_SHELL", bash.absolutePath)
+    }
+    setEnv("PATH", "${bin.absolutePath}:/system/bin:/system/xbin")
   }
 
   private fun setEnv(name: String, value: String) {

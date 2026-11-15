@@ -326,6 +326,7 @@ function ProcessChild({ row }: { row: ChatRow }) {
       >
         {row.name || "tool"} · {row.status}
         {row.detail ? ` · ${row.detail}` : ""}
+        {row.output ? ` · ${row.output.split("\n")[0]}` : ""}
       </Text>
     );
   }
