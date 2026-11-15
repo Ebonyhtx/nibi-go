@@ -156,7 +156,13 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
 - `git init/add/commit` 触发 pre-commit → dispatcher → `nibi-run` → 仓库 hook 成功；
 - `#!/bin/bash` 脚本经 `nibi-run` 执行成功；`#!/usr/bin/env node` 在 Phase 3 前报
   “node 不可用”（rc 127）；App 数据 ELF 被拒并给出原因（rc 126）。
-- 未完成：HTTPS（设备锁屏 + 后台 app UID 被系统限网）与 50 命令矩阵，解锁后补。
+- **50 命令矩阵通过（2026-11-16）**：shell 基础/管道/重定向/数组/正则/here-string、
+  busybox（grep/sed/awk/find/xargs/tar/gzip/diff/cmp/stat/df…）、git
+  init/add/commit/log/branch/merge/tag/diff/show/ls-files/remote、本地 clone、
+  `git submodule`/`filter-branch` 脚本命令、`script.sh`、两类边界。矩阵抓到并修复了
+  `busybox awk` 的 clang 18 `BB_GLOBAL_CONST` 误编译（`build.sh` 的
+  `CONFIG_EXTRA_CFLAGS="-DBB_GLOBAL_CONST="`）。
+- 未完成：HTTPS（设备锁屏 + 后台 app UID 被系统限网），解锁后补 `git clone/ls-remote https://…`。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

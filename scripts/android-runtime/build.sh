@@ -135,9 +135,13 @@ log "busybox 1.36.1"
   done
   make ARCH=arm64 CROSS_COMPILE= HOSTCC=gcc CC="$CC" oldconfig </dev/null >/dev/null
   bb_make() {
+    # BusyBox 的 BB_GLOBAL_CONST 是给 gcc 的优化技巧；clang 18 会把
+    # `ptr_to_globals` 的 store 与后续 G 的读取重排，awk 启动即写 NULL+4。
+    # 上游 libbb.h 注释给的官方开关就是把它定义为空。
     make ARCH=arm64 CROSS_COMPILE= HOSTCC=gcc CC="$CC" \
       AR="$AR" NM="$NM" STRIP="$STRIP_BIN" OBJCOPY="$OBJCOPY" \
-      LDFLAGS="$LDFLAGS_TARGET" LDLIBS="m" "$@"
+      LDFLAGS="$LDFLAGS_TARGET" LDLIBS="m" \
+      CONFIG_EXTRA_CFLAGS="-DBB_GLOBAL_CONST=" "$@"
   }
   bb_make -j"$JOBS" >/dev/null
   rm -rf "$WORK/busybox-root"

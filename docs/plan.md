@@ -314,8 +314,13 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 4. ◐ git hooks：`core.hooksPath` 写进 `filesDir/.gitconfig`（仓库级配置优先，husky 不被覆盖），
    `git` 包装器由 `NIBI_GIT_HOOKS`/dispatcher 执行仓库 `.git/hooks/<name>`。真机 `run-as`
    验证：`git init/add/commit` 触发 pre-commit、dispatcher 经 nibi-run 跑通。
-   **HTTPS 与 50 命令矩阵未完成**：设备锁屏且后台 app UID 被系统限网，需解锁后补
-   `git clone/ls-remote https://…`、50 条命令矩阵与 `script.sh` 验收。
+   **50 命令矩阵已过（2026-11-16）**：shell 基础/管道/重定向/数组/正则/here-string、
+   busybox（grep/sed/awk/find/xargs/tar/gzip/diff/cmp/stat/df…）、git
+   init/add/commit/log/status/branch/checkout/merge/tag/diff/show/ls-files/remote/
+   本地 clone、`git submodule`/`filter-branch` 脚本命令、`script.sh`、node/ELF 边界；
+   矩阵还抓到并修复了 `busybox awk` 在 clang 18 下的 `BB_GLOBAL_CONST` 误编译。
+   **只剩 HTTPS**：设备锁屏且后台 app UID 被系统限网，需解锁后补
+   `git clone/ls-remote https://…`。
    出口：shell/git 接近桌面；CLI 支持边界写进产品文案。
 
 ### Phase 3 · Node/Python
