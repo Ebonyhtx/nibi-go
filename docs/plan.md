@@ -329,7 +329,10 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 
 ### Phase 3 · Node/Python
 
-1. 先 spike：App 数据 `.node`/C 扩展 `dlopen` 是否可行；Node 22/24、Python 3.12 的 bionic 来源。
+1. ✅/◐ spike：**App 数据里的 `.so`/`.node` 可 `dlopen`**（2026-11-16 真机探针，app 进程
+   返回 `dlopen-ok value=42`；execve 仍被拒）——native addon 可装在 `filesDir/packages`，
+   不必预置 jniLibs。Node 22/24 与 Python 3.12 的 bionic 来源仍待选型（Termux 预编译 vs
+   源码交叉编译；需处理前缀/ICU/动态库与 16 KB）。
 2. jniLibs `libnode.so`/`libpython.so` + wrappers；npm/pip 装到 `filesDir/packages`；
    `--ignore-scripts` / wheel 策略。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
