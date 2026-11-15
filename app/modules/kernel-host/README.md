@@ -57,6 +57,9 @@ JNI 薄层自己的 `libnibi_kernel_jni.so` 仍由 CMake `target_link_options` �
 - 调用时机：**`nativeStart` 之前**；进程内模块与 `:kernel` 服务的 `start()` 都先调
   `NibiKernelHostNative.nativeAttach(applicationContext)`，失败只记日志、继续启动；
 - 失败/未调用时走 S1 兜底：只用内置 Mozilla 根，公开 HTTPS 正常，用户安装的 CA 不生效；
+- 内核侧 **不能用 reqwest 的 `tls_certs_merge`**（Android 上直接返回错误，且平台后端没有
+  `new_with_extra_roots`）：`net` 自己构造预配置 rustls 配置（平台 `Verifier::new` + 内置根
+  `WebPkiServerVerifier` 合并，任一通过），经 `use_preconfigured_tls` 交给 reqwest；
 - 构建链断言 `nibi_app_server_attach_android` 必须存在（`scripts/android-kernel/build.mjs`）。
 
 JVM 侧还需要 crate 的 Kotlin 组件（JNI 桥，`org.rustls.platformverifier.CertificateVerifier`）：

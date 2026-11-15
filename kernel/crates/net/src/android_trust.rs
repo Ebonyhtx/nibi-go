@@ -79,6 +79,93 @@ pub fn attach_android_jvm(raw_env: *mut c_void, raw_context: *mut c_void) -> Res
     }
 }
 
+/// Android 的 `Anchors::Merge`：平台校验器 + 内置根 webpki，任一通过即可。
+///
+/// reqwest 的 `tls_certs_merge` 在 Android 上不可用（`client.rs` 直接返回
+/// `rustls-platform-verifier could not load extra certs`），而
+/// `rustls_platform_verifier` 的 Android 后端也没有 `new_with_extra_roots`
+/// （只有 `new(provider)`）。所以在 net 里自己组合一份预配置的 rustls 配置，
+/// 语义与桌面平台上的 Merge 一致。
+#[cfg(target_os = "android")]
+pub fn android_tls_config(extra_roots: &[Vec<u8>]) -> Result<rustls::ClientConfig, String> {
+    use std::sync::Arc;
+
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let platform = rustls_platform_verifier::Verifier::new(provider.clone())
+        .map_err(|error| format!("平台校验器：{error}"))?;
+
+    let mut roots = rustls::RootCertStore::empty();
+    for der in extra_roots {
+        roots
+            .add(rustls::pki_types::CertificateDer::from(der.clone()))
+            .map_err(|error| format!("内置根证书：{error}"))?;
+    }
+    let webpki = rustls::client::WebPkiServerVerifier::builder_with_provider(
+        Arc::new(roots),
+        provider.clone(),
+    )
+    .build()
+    .map_err(|error| format!("内置根校验器：{error}"))?;
+
+    let verifier = MergeVerifier { platform, webpki };
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|error| format!("TLS 协议版本：{error}"))?
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(verifier))
+        .with_no_client_auth();
+    Ok(config)
+}
+
+#[cfg(target_os = "android")]
+#[derive(Debug)]
+struct MergeVerifier {
+    platform: rustls_platform_verifier::Verifier,
+    webpki: std::sync::Arc<rustls::client::WebPkiServerVerifier>,
+}
+
+#[cfg(target_os = "android")]
+impl rustls::client::danger::ServerCertVerifier for MergeVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        server_name: &rustls::pki_types::ServerName<'_>,
+        ocsp_response: &[u8],
+        now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        self.platform
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+            .or_else(|platform_error| {
+                self.webpki
+                    .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+                    .map_err(|_| platform_error)
+            })
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.platform.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.platform.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.platform.supported_verify_schemes()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
