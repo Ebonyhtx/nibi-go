@@ -1,6 +1,6 @@
 # 架构决策记录（ADR）索引
 
-> 决策编号 D1–D19 源自 2026-11-07/08、2026-11-11 及后续架构讨论（D18/D19 为后续追加；对话台账完整版在会话记忆；本文是仓内权威索引）。
+> 决策编号 D1–D25 源自 2026-11-07/08、2026-11-11 及后续架构讨论（D18/D19、D20–D25 为后续追加；对话台账完整版在会话记忆；本文是仓内权威索引）。
 > 状态图例：✅ 定案 · 📋 预案（未启动） · ⏸ 待启动（等信号）
 
 | # | 决策 | 结论 | 状态 |
@@ -21,16 +21,16 @@
 | D14 | 桌宠（预案） | 状态指示器非养成；消费 AgentPulse 投影（A 阶段定义协议）；挂 GO 形态 | 📋 |
 | D15 | 伴侣（预案） | 轻量=内核 headless 会话；完整=伴侣 preset 插件；状态存会话库；人设单源 @nibi/shared | 📋 |
 | D16 | 付费插件层 | **不启动收费**。4 项无感预留：manifest 占位（拒绝式）/ deviceId（D8 顺路）/ JWT 复用 / market schema 占位。内核门禁主线已建成（PaidPluginGate，2026-11-10）；GO 侧届时补 nibi-platform 的 license 实现。凭据纪律：token 不进插件目录/备份 | ✅ 预留 / 📋 启动 |
-| D17 | 内核同步策略 | **单向消费 + 票据制**（替代分支方案）：GO 锁冻结 npm 产物（@nibi-studio/cli-android-arm64，待发布）；缺能力开票据，主线按自身节奏处理；紧急才第 3 级分支过渡（git 依赖锁 commit）。主线永远不等 GO | ✅ |
+| D17 | 内核同步策略 | **单向消费 + 票据制**（替代分支方案）：GO 锁冻结 npm 产物（@nibi-studio/cli-android-arm64，待发布）；缺能力开票据，主线按自身节奏处理；紧急才第 3 级分支过渡（git 依赖锁 commit）。主线永远不等 GO | ✅；**Android 内核部分由 D24 取代（2026-11-15）**，shared 抽取/协议层仍然有效 |
 | D18 | 手机工具面多任务化 | 参考 dsh-Go v1.0.14（121 phone commits）：PhoneToolsAdapter 接口带 taskId 维度（多任务并行各自批准/暂停/停止）；新增 observe（实时后台屏 ≤5fps 只读）、按截图坐标操作（30s 有效+首应用许可）、learn-skill（成功轨迹脱敏→技能）；ML Kit OCR 列可选能力（需披露 SDK 统计收集） | ✅ 设计修订 |
 | D15a | 伴侣素材授权 | 先例：dsh-Go v1.0.14 经模型作者授权随 App 分发；第三方模型"AI 辅助适配"只传参数名单不发模型文件（隐私设计，照抄进 D15） | 📋 |
 | D19 | Android 内核的运行形态与分发载体 | **运行形态 = 进程内 `libnibi.so`（cdylib）**：不 exec 自带的二进制，绕开 targetSdk 36 的 W^X/exec 限制；代价是内核 panic 会带走 App，必须 `panic=abort` + 全局兜底，并新做 JNI host 接口与进程内 transport。**分发载体仍是 npm 平台包**：`@nibi-studio/cli-android-arm64` 的内容从 `bin/nibi-rs` 扩展为 `lib/libnibi.so` + `build.json`（version/target/sha256/ABI 口径不变），GO 构建时拷进 jniLibs；桌面远端执行器继续用同一包里的 `bin/nibi-rs`。子进程形态只作为开发机验证，不进产品路径 | ✅ |
 | D20 | 内核的承载进程与重启语义 | **`android:process=":kernel"` 的普通进程 Service**（**不用 `isolatedProcess`**：隔离进程没有网络权限，内核出不了网）。`.so` 与 JNI 薄层都在 `:kernel` 里加载；**控制面走 Binder（AIDL）**，**帧流不走 Binder**（1 MB 事务上限，内核输出是长 JSON 行），用 `socketpair`/`LocalSocket`，fd 经 Binder 的 `ParcelFileDescriptor` 传递。必须定义：Service 的 `START_STICKY`/绑定关系、Binder 死亡回调、重启退避上限、UI 的「内核重启中」状态；恢复口径 = 内核逐条落库 + 宿主重连后请求状态（watchdog 不负责重放）。**实施前提**：协议握手先在单进程跑通，避免同时 debug IPC 与协议。D19 的「不 exec、dlopen 包内 `.so`」不变。这是**新增一个 IPC 契约**，不是顺手改 | ✅ 2026-11-15；**第一片 D20.1 已真机跑通（2026-11-15）**：`:kernel` 普通进程 + Binder 控制面 + `createSocketPair` 帧流 + binder death 退避重连（JS 自动 resume 会话）；**D20.2 也已真机跑通**（`startForegroundService` + `START_STICKY` + `dataSync` 前台服务；只杀 UI 进程时 `:kernel` pid 不变、重开接回同一 pid），默认已切 service；`dataSync` 的 6h/24h 上限与 `specialUse` 归 ⑤ |
-| D21 | C0→C1 期间消费上游预发布 | D17「单向消费 + 票据制」的唯一例外：上游在 `feat/android-kernel` 分支开发 Android 平台面，发 **`4.2.0-android.N` + `android-next` dist-tag**，**永不发 `latest`**；GO 的 pin 记录预发布版本与分支 commit；切片合并（每片过五道门：非 Android 三平台产物逐文件一致 / `cargo test --workspace` / Android leg + 符号校验 / 真机验收 / ABI 文档同步）；需确认内核的自动更新路径不会把预发布当最新；上游正式发版后 GO 切回稳定 pin。D17 的「不 fork、不开长期分支」原则不变 | ✅ |
+| D21 | C0→C1 期间消费上游预发布 | D17「单向消费 + 票据制」的唯一例外：上游在 `feat/android-kernel` 分支开发 Android 平台面，发 **`4.2.0-android.N` + `android-next` dist-tag**，**永不发 `latest`**；GO 的 pin 记录预发布版本与分支 commit；切片合并（每片过五道门：非 Android 三平台产物逐文件一致 / `cargo test --workspace` / Android leg + 符号校验 / 真机验收 / ABI 文档同步）；需确认内核的自动更新路径不会把预发布当最新；上游正式发版后 GO 切回稳定 pin。D17 的「不 fork、不开长期分支」原则不变 | ✅ **历史**；D24 后对 Android 失效（GO 不再消费上游 Android 预发布） |
 | D22 | 16 KB page size 打包契约 | 进 APK 的每个 native 库，ELF `LOAD` 段必须 **2^14 = 16 KB 对齐**（Play 对 targetSdk 35+ 的包有此要求，具体生效日期以官方页为准）。落实：上游 `kernel/.cargo/config.toml` 给 `aarch64-linux-android` 加 `-Wl,-z,max-page-size=16384` / `common-page-size=16384` 并在 release workflow 断言；GO 的 JNI 薄层在 CMake 里加同样的 `target_link_options`；GO `scripts/android-kernel/fetch.mjs` 用 `elfLoadAlignment()` 断言 ≥ 16384（**4.1.0 实测 4 KB，不满足，故不用于发布**）。APK 侧另查 `zipalign -c -P 16`（未压缩 `.so` 的 16 KB 对齐） | ✅ 2026-11-15 |
-| D23 | ABI 版本与内核升级 | **新增可选导出符号不升 `abi_version`**（老宿主照常工作），只有语义破坏才升；宿主启动时校验自己支持的最低版本，能力差异用查询位表达。内核随 App 发版，**不做热更**（政策与 D17 都不允许）；回滚 = App 降级；完整性靠 `build.json.artifacts` 的 sha256（D19）。C0→C1 期间预发布版本按 D21 消费 | ✅ |
-| D24 | 内核 fork 到 GO 自维护 | **Android 内核 fork 进 NIBI-GO 公开仓，自包含、自改造**；上游不再为 GO 发 Android npm 包，GO 不再为内核改动向上游提单。GO 自建 `libnibi.so`（D19/D20/D22 保留），Android 原生适配（SH 方言、hooks、环境提示、原生工具）；上游作为只读源按安全/协议能力合并，Android 分支允许持续分叉；D21 对 Android 失效，D23 转为 GO 自有；fork 代码/二进制随包带上游 NOTICE/许可 | ✅ 2026-11-15 |
-| D25 | Android 原生运行时与 targetSdk 36 兼容层 | 三件套（bash/busybox/git）+ Node/Python 进 jniLibs、SHELL 可见；不做 rootfs/PRoot。targetSdk 36 下用 `nibi-run`、npm/npx/pip 包装、git hooks dispatcher、busybox 函数、内核工具重写吸收「App 数据不可 exec」的摩擦；UI 插件走声明式 slots（插件不改外壳）；手机操控两开关（无障碍 / 高级 shell，Shizuku/无线调试引导）；workspace 先定义。硬边界：App 数据 native ELF 不可执行、原生 addon 需 Android 构建、无 root/无别的 App 数据、同 uid 非硬沙箱。正文 `docs/design/android-native-runtime.md` | ✅ 2026-11-15 |
+| D23 | ABI 版本与内核升级 | **新增可选导出符号不升 `abi_version`**（老宿主照常工作），只有语义破坏才升；宿主启动时校验自己支持的最低版本，能力差异用查询位表达。内核随 App 发版，**不做热更**（政策与 D17 都不允许）；回滚 = App 降级；完整性靠 `build.json.artifacts` 的 sha256（D19）。C0→C1 期间预发布版本按 D21 消费 | ✅；D24 后 ABI/升级由 GO 自有定义，不再与上游共享节奏 |
+| D24 | 内核 fork 到 GO 自维护 | **Android 内核 fork 进 NIBI-GO 公开仓，自包含、自改造**；上游不再为 GO 发 Android npm 包，GO 不再为内核改动向上游提单。GO 自建 `libnibi.so`（D19/D20/D22 保留），Android 原生适配（SH 方言、hooks、环境提示、原生工具）；上游作为只读源按安全/协议能力合并，Android 分支允许持续分叉；D21 对 Android 失效，D23 转为 GO 自有；fork 代码/二进制随包带上游 NOTICE/许可 | ✅ 2026-11-15；**实施基线 = nibi-client `dev` `1369b043`（含 T8 S1/16KB），Phase 0 尚未开始**；构建/CI/上游合并策略见 design §10–§11 |
+| D25 | Android 原生运行时与 targetSdk 36 兼容层 | 三件套（bash/busybox/git）+ Node/Python 进 jniLibs、SHELL 可见；不做 rootfs/PRoot。targetSdk 36 下用 `nibi-run`、npm/npx/pip 包装、git hooks dispatcher、busybox 函数、内核工具重写吸收「App 数据不可 exec」的摩擦；UI 插件走声明式 slots（插件不改外壳）；手机操控两开关（无障碍 / 高级 shell，Shizuku/无线调试引导）；workspace 先定义。硬边界：App 数据 native ELF 不可执行、原生 addon 需 Android 构建、无 root/无别的 App 数据、同 uid 非硬沙箱。正文 `docs/design/android-native-runtime.md` | ✅ 2026-11-15；**实施校正（真机）**：jniLibs 只能扁平 `lib*.so`；App 私有目录 symlink → nativeLibraryDir 可 exec（direct+PATH 已验证），hooks/npm `.bin` 修正见 design §13 |
 
 ## 附：关键修正记录
 
@@ -69,30 +69,32 @@
 
 ### 推进顺序
 
-1. **第一批 · 现在（不依赖上游）**：D22 16 KB（已完成：内核 + shim 链接参数、fetch 断言、真机复验）；
-   D20–D23 四张 ADR（已完成）。
-2. **第二批 · T8/S2 之后**：④ 可执行内容/工具链边界（那时才知道进程内能力边界）、⑤ FGS 立项。
-3. **第三批 · C2 之前**：④ 的插件运行时定案（决定 C2 是否推倒重来，最晚卡这里）。
-4. **第四批 · 发布前**：⑧ 体积/ABI 预算、国内 App 备案、Play FGS 声明。
+> D24/D25 定案后，Android 内核与运行时不再等上游；下列顺序按 D25 的 Phase 走。
+
+1. **第一批 · 已完成**：C0 协议/会话/审批/改动卡/折叠、D20 `:kernel`、D22 16 KB、D20–D23 ADR。
+2. **第二批 · 现在**：D24 fork（基线 nibi-client `1369b043`）+ D25 Phase 1 Android SH 方言/hooks；
+   ④ 的可执行内容口径随 fork 一起定（D25 已选随包三件套 + Node/Python）。
+3. **第三批 · C2 之前**：D25 Phase 2 三件套/`nibi-run`、Phase 3 Node/Python、④ 的插件运行时。
+4. **第四批 · 发布前**：Phase 4 UI slots、Phase 5 手机操控、Phase 6 workspace/策略；
+   ⑧ 体积/ABI 预算、国内 App 备案、Play FGS 声明。
 
 ### 待定项
 
 | 项 | 方向（已达成共识的部分） | 触发点 / 待定 |
 |---|---|---|
-| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM。**2026-11-15 真机新增输入**：内核 Bash 工具只认 bash/zsh，Android 只有 `/system/bin/sh`（票据 T9）；GO 已用 `bin/bash -> /system/bin/sh` 临时桥真机跑通管线（不随包带可执行文件），但 bash 语义与 hook 仍需正式方案；**targetSdk 36 可行性已实测**：`useLegacyPackaging=true` 后 jniLibs 可执行 ELF 从 App 进程 exec 成功（无需 targetSdk 28/PRoot），三件套剩体积/许可/Play 审查三项成本；「随包带 bash」正是本条要评估的方案 | T8/S2 后定案；插件运行时最晚 C2 前 |
+| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM。**2026-11-15 真机新增输入**：内核 Bash 工具只认 bash/zsh，Android 只有 `/system/bin/sh`（票据 T9）；GO 已用 `bin/bash -> /system/bin/sh` 临时桥真机跑通管线（不随包带可执行文件），但 bash 语义与 hook 仍需正式方案；**targetSdk 36 可行性已实测**：`useLegacyPackaging=true` 后 jniLibs 可执行 ELF 从 App 进程 exec 成功（无需 targetSdk 28/PRoot），三件套剩体积/许可/Play 审查三项成本；「随包带 bash」正是本条要评估的方案。**D25 已选随包三件套 + Node/Python（jniLibs）**，④ 只剩 Play 政策/许可口径要收 | 与 D25 Phase 2/3 同步定案；插件运行时最晚 C2 前 |
 | ⑤ FGS 策略 | `dataSync` 在 targetSdk 35+ 有 6h/24h 上限；长任务走 `specialUse` + Play 声明，或分段续跑。**已落（2026-11-15）**：`POST_NOTIFICATIONS` 运行时请求、`KernelService.onTimeout` 超时主动停内核 + stopSelf | 剩 `specialUse` vs 分段（运营者）+ Play 声明；上架前补 |
 | ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
 | 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
-| T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | 上游排期 |
-| D20 进程拆分实施 | **D20.1 + D20.2 均已真机跑通**（Binder + socketpair + 退避重连 + START_STICKY/dataSync FGS；杀 UI 进程内核存活）；**默认已切 service**，`inprocess` 可强制回退 | 剩 ⑤：`dataSync` 6h/24h 后的 `specialUse`/分段、`POST_NOTIFICATIONS`、panic 看门狗细化 |
-| 预发布节奏 | S1 现在发 `4.2.0-android.1`，还是等 S2 一起发 `.2` | 运营者决定（占 5 个 npm 版本/次） |
+| T8 S2 | **attach(JNIEnv*, Context) 后恢复平台根**（企业/用户 CA 在真实环境会碰到）；S1 的内置根只是过渡 | **D24 后转为 GO 自有**：在 fork 的 JNI/Service 侧实现，不再等上游 |
+| D24/D25 实施 | D20.1+D20.2 已真机跑通（默认 `:kernel`）；D24 fork 基线已定（nibi-client `1369b043`）；D25 的 jniLibs exec + `$NIBI_BIN` symlink 已实测 | Phase 0 fork/CI → Phase 1 AndroidSh → Phase 2 三件套/`nibi-run` → Phase 3 Node/Python；`.bin`/hooks/dlopen 三个 spike 先做 |
 
 ### 记录位置（压缩会话后按这些找回）
 
-- 决策：本文件 D19–D25 + 本节；票据 `docs/tickets/T8-android-platform-tls-trust.md`、
-  `docs/tickets/T9-android-shell-execution.md`、`HANDOFF.md`。
-- Android 原生运行时/fork 方案正文：`docs/design/android-native-runtime.md`（D24/D25）。
-- 实施状态与真机结果：`docs/plan.md`「C0 进展」。
-- 协议与架构事实：`packages/kernel-session/README.md`。
+- 决策：本文件 D19–D25 + 本节；票据 `../tickets/T8-android-platform-tls-trust.md`、
+  `../tickets/T9-android-shell-execution.md`、`../tickets/HANDOFF.md`。
+- Android 原生运行时/fork 方案正文：`../design/android-native-runtime.md`（D24/D25，含 §13 实施校正）。
+- 实施状态与真机结果：`../plan.md`「C0 进展」。
+- 协议与架构事实：`../../packages/kernel-session/README.md`。
 - 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{pin.json,fetch.mjs,lib.mjs}`、
-  上游 `kernel/.cargo/config.toml` 与 `rust-npm-packages.yml` 断言。
+  `kernel/.cargo/config.toml`（fork 后由 GO 自建）与构建断言。

@@ -1,7 +1,7 @@
 # NIBI-GO 开发计划
 
 > 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：真机验证执行与 Phase C 启动判断。
-> 依据：`docs/decisions/ADR-INDEX.md`（D1–D19，权威索引）
+> 依据：`docs/decisions/ADR-INDEX.md`（D1–D25，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
 ---
@@ -20,7 +20,7 @@ Phase C（待启动）  本机内核                     两个启动信号见 �
 Phase B（已取消）  WORK 形态手机操控路由        见 D6；仅保留 share-sheet 类窄需求预案
 ```
 
-**为什么这样排**：A 与主线 kernel 迭代完全解耦（D17 单向消费 / A 零内核耦合），已先行完成；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）此前还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑。**B 已取消（D6，2026-11-12）**：手机自动化归 C，B0 工具面并入 C 前置，B1 的桥与市场件不做。
+**为什么这样排**：A 与主线 kernel 迭代完全解耦（A 零内核耦合），已先行完成；C 依赖的稳定面（会话库语义 / ext 付费门禁 / android 平台包）此前还在主线高速对齐期（一晚 31 commits/14.7k 行），过早进入只会追着变化跑。**B 已取消（D6，2026-11-12）**：手机自动化归 C，B0 工具面并入 C 前置，B1 的桥与市场件不做。**D24（2026-11-15）后**：Android 内核改为本仓 fork 自建，C 不再受主线内核节奏约束，后续按 §4 的上游合并策略走。
 
 ---
 
@@ -128,7 +128,7 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 
 | 里程碑 | 内容 |
 |---|---|
-| C0 内核上机 | android target + busybox/git 三件套 + **JNI host（进程内 transport）** + 会话库；子进程 `app-server --stdio` 仅作开发机对照 |
+| C0 内核上机 | android target + **JNI host（进程内 transport）** + 会话库；shell/Node/Python 运行时按 D25 Phase 2/3（fork 后自建），子进程 `app-server --stdio` 仅作开发机对照 |
 | C1 GO 形态 UI | 独立 UI（非 PWA）：会话/聊天/设置接进程内内核 |
 | C2 GO 插件生态 | nibi-go-market 仓 + plugin-kit（SDK 四件套）+ Node Plugin Runtime + native-ui v1 + 用户自开发链路 |
 
@@ -197,22 +197,24 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   （`EXPO_PUBLIC_NIBI_KERNEL_MODE=inprocess` 可强制回退，服务失败也自动回退）；
   `dataSync` 的 6h/24h 上限与 `specialUse` 归 ⑤。⑤ 已落：`POST_NOTIFICATIONS` 运行时请求、
   `onTimeout` 主动停内核避免 ANR；剩 `specialUse`/分段续跑（运营者决策）与看门狗细化。
-- **未做**：真实 Provider 凭据与设置页、文件变更卡、前台服务、
-  panic 看门狗、D20 的 `:kernel` 进程拆分、iroh NDK、busybox/git 三件套、
-  Android 上的 shell 执行（T9）。
+- **D24/D25 已定案（2026-11-15，设计基线）**：Android 内核 fork 进本仓（基线 nibi-client
+  `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
+  `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
+  App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0（fork）尚未开始**；
+  当前 Android shell 用 `bin/bash -> /system/bin/sh` 过渡，正式 shell 面随 Phase 1/2 落地。
+- **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、D24 fork（Phase 0）、
+  D25 Phase 1–6（AndroidSh/hooks、三件套、Node/Python、UI slots、手机双开关、workspace 策略）、
+  `dataSync` 之外的 `specialUse`/分段续跑。
 
 ---
 
-## 4. 与主线的同步协议（D17 执行细则）
+## 4. 与主线的同步协议（D24 后）
 
-| 事件 | 动作 | 谁负责 |
-|---|---|---|
-| 桌面发新 npm 平台包 | GO 评估是否升级：看 changelog → android 冒烟 → bump lockfile | 你定升级时机；GO 侧验证可委托 |
-| GO 需要内核新能力 | 开 issue 票据（复现/期望/优先级） | 你按主线节奏实现 |
-| 紧急且票据来不及 | 第 3 级：GO 仓 git 依赖锁 kernel-go 分支 commit，台账记录 | 你批准分支存在 |
-| 主线破坏 android 兼容 | 不会静默发生——android target 进 CI matrix 后每 commit 编译 | 你（一次性决定） |
-
-**同步成本预算**：Phase A 期间 ≈ 0；Phase C 启动后 = 每次内核升级一次 android 冒烟（~半小时）+ 偶发票据评审。
+Android 内核不再走 npm 平台包/票据制：`kernel/` 是 GO 自有 fork，构建/适配/修复都在本仓。
+上游 nibi-client 只读，按安全修复/协议能力**选择性合并**（记录合并的 commit 与 Android 分歧）；
+合并后必须跑桌面 target 的 `cargo test` + Android 真机回归，不能为对齐上游回退 Android 能力。
+shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）。上游 Android npm 包与
+`rust-npm-packages.yml` android leg 的退场由 D24 Phase 0 一并处理。
 
 ---
 
@@ -221,7 +223,7 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - relay-client / chat-core：Node 可测（fake-relay-v2 + golden fixture），每 commit 跑
 - 门禁：check-boundaries.mjs 每 commit 跑
 - **编译验证（2026-11-11 修正）**：expo-router（SDK 58）懒路由——屏代码不在入口 bundle，验证必须按路由 chunk 请求（`/<appDir>/src/app/<route>.bundle?platform=android`），只验入口 bundle 会漏掉全部屏代码
-- 真机验证标注：无障碍、jniLibs spawn、iroh 迁移、PackageInstaller——每提交说明"已验证/未验证"
+- 真机验证标注：无障碍、jniLibs/`:kernel`/symlink exec、shell/Node/Python、iroh 迁移、PackageInstaller——每提交说明"已验证/未验证"
 - golden 对齐：chat-core 的 reducer 输出与桌面 V4 行为逐条对照（dsh-Go 的 parity 测试范式）
 
 ---

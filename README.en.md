@@ -12,11 +12,10 @@ app body (an on-device AGENT):
   projection). It is no longer a parallel primary product.
 
 This repository is the public source of NIBI-GO (Android client, pure-TS
-protocol layers, native modules). The Rust kernel is **not** part of this
-repository — it is consumed as an external npm platform package
-(`@nibi-studio/cli-*`); see rule D17 in [AGENTS.md](AGENTS.md). On-device kernel
-capability lands with Phase C (triggers in
-[ADR-INDEX D12](docs/decisions/ADR-INDEX.md)).
+protocol layers, native modules, Android kernel adaptation). The on-device
+kernel and Android native runtime ship with the app and are built in this
+repository; see [`docs/`](docs/README.md) for architecture decisions and
+implementation status.
 
 ## Open-source scope
 
@@ -24,22 +23,21 @@ Included:
 
 - `app/` — Expo / React Native application (login, QR pairing, connection
   status, chat, approvals, notifications, keep-alive, in-app updates)
-- `app/modules/` — local Expo native modules (foreground KeepAlive service,
-  APK installer)
-- `packages/relay-client`, `packages/chat-core`, `packages/shared-extract`,
-  `packages/phone-tools` — pure-TS protocol layers
-- `docs/` — architecture decisions (D1–D19), design specs, research, checklists
+- `app/modules/` — local Expo native modules (kernel host, foreground KeepAlive
+  service, APK installer)
+- `kernel/` — Android kernel adaptation (ships with the app)
+- `packages/kernel-session`, `packages/relay-client`, `packages/chat-core`,
+  `packages/shared-extract`, `packages/phone-tools` — pure-TS protocol layers
+- `docs/` — architecture decisions (D1–D25), design specs, research, checklists
 - `scripts/` — architecture and public-repository gates
 
 Not included:
 
-- the Rust kernel (separate project in `nibi-client`, consumed as npm packages);
 - release signing material, release pipelines and operator services;
 - any private deployment details or credentials (see [SECURITY.md](SECURITY.md)).
 
-The historical upstream reference archive (read-only nibi-client / dsh-Go
-copies) has been moved out of this repository into the shared NIBI workspace;
-it is not part of any build, and `reference/` no longer exists here.
+The historical reference archive has been moved out of this repository; it is
+not part of any build, and `reference/` no longer exists here.
 
 ## Requirements
 

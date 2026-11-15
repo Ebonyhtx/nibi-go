@@ -1,11 +1,12 @@
 # 票据 · Android 进程内内核没有可用的 POSIX shell（Bash 工具）
 
-> 状态（2026-11-15）：**发现并真机复现**；GO 侧临时桥已实现并真机验证（见文末），
-> 正式方案（上游 sh 方言或随包 bash+busybox）仍未排期。归入 ADR-INDEX 待定项 ④，
-> 触发点：C0 收口 / ④ 定案时一起决定。
+> 状态（2026-11-15）：发现并真机复现；GO 临时桥（`bin/bash -> /system/bin/sh`）已真机跑通
+> `echo ... | tr ...`。**D24/D25 已定案**：Android 内核 fork 进本仓，正式方案 = Phase 1
+> `ShellDialect::AndroidSh` + hooks 同源发现，Phase 2 随包 bash/busybox/git（jniLibs + `nibi-run`）。
+> 本票据保留现象/证据/临时桥/三件套实测，实施不再依赖上游。
 >
-> 提交方：NIBI-GO 仓库。期望载体：nibi-client 仓 `kernel/crates/cli/src/shell.rs`（shell 发现）+
-> `kernel/crates/env-local/src/shell.rs`（执行）+ 可能需要新的 `ShellDialect`。
+> 历史期望载体：nibi-client `kernel/crates/cli/src/shell.rs` + `env-local/src/shell.rs`；
+> D24 后对应代码在 GO `kernel/` fork 内。
 
 ## 现象（2026-11-15 真机实测）
 

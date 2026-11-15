@@ -72,15 +72,17 @@ GO 走**自有内核（fork）+ 自有 Android 原生用户态 + 声明式 UI �
 ## 3. 运行时布局
 
 ```
-nativeLibraryDir/                 # 可 exec（Android 36 已验证）
-  bash / busybox / git
-  node / python
-  nibi-run                        # 兼容执行器（关键）
-  hooks/pre-commit …              # git hook dispatcher（固定可执行）
-  npm / npx / pip / python3 …     # 薄包装器
+nativeLibraryDir/arm64/           # 只能扁平 lib*.so；可 exec（Android 36 已验证）
+  libbash.so  libbusybox.so  libgit.so
+  libnode.so  libpython.so
+  libnibi_run.so                  # 兼容执行器（关键）
+  libnibi_hook.so                 # git hook dispatcher
 
+filesDir/runtime/bin/             # symlink farm -> nativeLibraryDir/lib*.so（已实测可 exec）
+  bash / busybox / git / node / python / python3 / nibi-run
+filesDir/runtime/hooks/           # symlink farm -> libnibi_hook.so（core.hooksPath 指这里）
+  pre-commit / commit-msg / …
 filesDir/
-  runtime/bin/                    # 包装器/注册表（不可 exec，由 nibi-run 解析）
   workspaces/<sessionId>/         # 默认工作区
   packages/npm/                   # npm 包（库）
   packages/pip/                   # pip 包（库）
@@ -88,8 +90,10 @@ filesDir/
   cache/                          # 临时文件
 ```
 
-PATH 顺序：`nativeLibraryDir` → `$NIBI_BIN` → `/system/bin`。  
+`$NIBI_BIN` = `filesDir/runtime/bin`。PATH 顺序：`$NIBI_BIN` → `/system/bin`。
 Bash 通过 `BASH_ENV` 加载兼容函数；`sh` 通过 `ENV` 加载同一套。
+**注意**：jniLibs 里只能有 `lib*.so` 文件名，不能有 `bash`/`node`/`hooks/` 这些名字；
+用户可见名字全部由 `$NIBI_BIN`/`runtime/hooks` 的 symlink 提供（真机已验证 symlink 目标可 exec）。
 
 ## 4. targetSdk 36 兼容层（把摩擦吸收在工具层）
 
@@ -116,19 +120,26 @@ jniLibs 里的固定可执行文件，解析并执行：
 - `npm run` 的脚本 shell 设为 jniLibs 的 bash，并加载 `BASH_ENV`，让脚本里的
   `command_not_found_handle` 生效。
 
+> **未解（Phase 2 前必须验证）**：npm 会把 `node_modules/.bin` 前置到脚本 PATH；里面的入口是
+> app 数据文件/symlink，**存在但 exec 被拒**，`command_not_found_handle` 不会触发。候选做法：
+> 安装后把 `.bin/*` 重写成指向 `nibi-run` 的 symlink；或脚本 shell 不把 `.bin` 放进 PATH，
+> 由 `nibi-run` 解析包 bin。`npx` 同理。这里解决前，“npm 安装的 CLI 可跑”不能算验收通过。
+
 ### 4.3 busybox
 
-- 不在 App 数据创建 symlink farm（不可 exec）；
-- `busybox` 本身在 jniLibs；常用 applet 由 `BASH_ENV` 定义 shell function
+- `busybox` 本身在 jniLibs（`libbusybox.so`）；常用 applet 由 `BASH_ENV` 定义 shell function
   （`grep() { busybox grep "$@"; }` 等），或统一 `busybox <applet>`。
+- 需要独立名字时用 `$NIBI_BIN` 的 symlink → `libbusybox.so`（symlink 目标 exec 已真机验证）；
+  不把 applet 复制成 app 数据 ELF。
 
 ### 4.4 git hooks
 
 Git 会直接 `execve` hook。做法：
 
-- jniLibs 放一组固定 hook dispatcher（`pre-commit`、`commit-msg` 等）；
-- `git` 包装器设置 `core.hooksPath=<nativeLibraryDir>/hooks`（或通过 `GIT_CONFIG_*` env）；
-- dispatcher 被 git 正常执行，再读取仓库 `.git/hooks/<name>`，用 `bash`/`nibi-run` 执行；
+- jniLibs 只放一个 `libnibi_hook.so`（不能放 `pre-commit` 这种文件名，也没有子目录）；
+- `filesDir/runtime/hooks/` 放 `pre-commit`、`commit-msg` 等 symlink → `libnibi_hook.so`
+  （symlink 目标 exec 已真机验证）；`git` 包装器设置 `core.hooksPath=$NIBI_HOME/runtime/hooks`；
+- dispatcher 通过 `argv[0]` 识别 hook 名，再读取仓库 `.git/hooks/<name>`，用 `bash`/`nibi-run` 执行；
 - hook 内调用 app 数据 CLI 也走 `nibi-run`。
 
 ### 4.5 内核工具层
@@ -298,9 +309,11 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
    jniLibs 或放弃。
 3. **nested spawn**：Node `child_process` / Python `subprocess` 调 app 数据 CLI 的
    失败边界；是否需要在 SDK/提示里要求用 `nibi-run`/`process.execPath`/`sys.executable`。
-4. **git hooks dispatcher** 对 `core.hooksPath`、worktree、bare repo 的兼容性。
-5. **包管理器**：npm/pip 安装到 App 目录的路径/环境变量/权限；`--ignore-scripts` 与
-   需要构建脚本的包如何取舍。
+4. **git hooks dispatcher**：`core.hooksPath=filesDir/runtime/hooks`（symlink → `libnibi_hook.so`）
+   对 worktree/bare repo 的兼容性；symlink exec 已验证，git 侧待真机。
+5. **包管理器**：npm/pip 安装到 App 目录的路径/环境变量/权限；`--ignore-scripts` 与需要构建
+   脚本的取舍；**npm `.bin` 存在但 exec 被拒** 的拦截方案（§4.2/§13）。
+11. **静态二进制 TLS 对齐**：静态 bash/busybox/git 必须按 bionic 要求构建（§13.3）。
 6. **公开仓许可**：fork 代码与运行时二进制的 NOTICE/源码获取方式；公开仓文档口径。
 7. **targetSdk 36 的共享存储**：SAF vs All files access 的产品选择；手机操控包可见性。
 8. **FGS 6h/24h**：长任务 checkpoint/续跑策略；与 `:kernel` 生命周期。
@@ -319,6 +332,25 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 
 这套方案买到的是：**现代 targetSdk 36 + 自包含 Android 原生用户态 + 内核级工具安全**；
 代价是：**App 数据里的 native ELF 不能执行、原生包覆盖有限、fork 维护和公开仓合规**。
+
+## 13. 实施校正（2026-11-15 review，含真机实测）
+
+1. **jniLibs 只能扁平 `lib*.so`**：`bash`/`node`/`python`/`nibi-run` 在 APK 里必须是
+   `libbash.so` 等；用户可见名字由 `$NIBI_BIN` 的 symlink 提供。§3 已按此修正。
+   `nativeLibraryDir/hooks/` 这种子目录不存在。
+2. **symlink exec 已真机验证**：App 私有目录 `bin/node -> nativeLibraryDir/libnibi_probe.so`，
+   直接从 App 进程执行、以及走 PATH 执行都成功（`exec-ok-from-nativeLibraryDir`）。
+   这是 npm `.bin`、`env node`、git hooks 三条链的共同基础。
+3. **静态二进制要过 bionic TLS 对齐**：静态探针被拒（`TLS segment ... alignment is 8, needs 64`），
+   动态 PIE 正常。三件套若静态构建，必须按 Android/bionic 目标处理；16 KB 对齐仍按 D22。
+4. **npm `.bin` 仍未解**：见 §4.2 的提示；Phase 2 验收前必须先做这个 spike。
+5. **`./script.sh` 直接执行**：app 数据脚本文件存在时 shell 会直接 exec（被拒），
+   `command_not_found_handle` 不会触发；内核 exec 工具必须改写为 `nibi-run script`，
+   交互 shell 里应提示用 `bash script`。
+6. **Node/Python 的 dlopen**：App 数据 `.node`/C 扩展能否 `dlopen` 未验证（可能在 SELinux
+   execute 处被拒）；Phase 3 前验证，否则 native addon 只能预置 jniLibs。
+7. **fork 治理**：D24 改变了 D17 的「不 fork/不养 Rust 构建链」；AGENTS、CI、许可证审计
+   必须同步（见 §2.3/§11）。fork 基线建议 nibi-client `dev` `1369b043`。
 
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 
