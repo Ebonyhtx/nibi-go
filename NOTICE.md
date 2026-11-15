@@ -15,9 +15,13 @@ Copyright 2026 NIBI Studio
 2. **上游沿革**：nibi-client 基于 ZCode v3.16.2（Apache License 2.0）独立演进；
    其上游版权与第三方组件声明见 nibi-client 仓库的 `NOTICE.md` 与
    `THIRD-PARTY-NOTICES.md`。
-3. **不在本仓库中的组件**：NIBI 内核（Rust）为独立项目，经 npm 平台包
-   （`@nibi-studio/cli-*`）单向消费，不随本仓库分发；发布签名材料、发布流水线
-   与运营侧服务均不在公开范围内。
+3. **内核 fork**：`kernel/` 是 NIBI-GO 自有的 Android 内核 fork（D24），快照自
+   [nibi-client](https://github.com/Ebonyhtx/nibi-client) `dev` `1369b043`
+   （Apache License 2.0），后者派生自 ZCode-rs 0.1.67（Apache License 2.0）。
+   `kernel/LICENSE` 与 `kernel/vendor/THIRD-PARTY-NOTICES.txt` 随快照保留；
+   同步与合并记录见 `kernel/UPSTREAM.md`，NIBI 时期的 fork 台账见
+   `kernel/CHANGELOG-FORK.md`。
+4. **不在本仓库中的组件**：发布签名材料、发布流水线与运营侧服务均不在公开范围内。
 
 ## 第三方组件
 

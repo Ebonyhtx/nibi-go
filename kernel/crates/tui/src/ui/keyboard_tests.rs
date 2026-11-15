@@ -1,0 +1,174 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+use super::{Releases, Typing};
+use crate::os::{Os, WindowsRelease};
+
+const WINDOWS: Os = Os::Windows(Some(WindowsRelease {
+    major: 10,
+    build: 22631,
+}));
+const CTRL_ALT: KeyModifiers = KeyModifiers::CONTROL.union(KeyModifiers::ALT);
+
+fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent::new(code, modifiers)
+}
+
+fn up(c: char, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent::new_with_kind(KeyCode::Char(c), modifiers, KeyEventKind::Release)
+}
+
+/// T2：Windows 把 AltGr 报成 Ctrl+Alt（德语键盘的 `@`、`{`，波兰语的 `ł`）。Windows 上它们是文字，ctrl 与 alt 都不算；
+/// 其他平台照旧是 ctrl 组合。
+#[test]
+fn altgr_characters_are_text_only_on_windows() {
+    let windows = Typing::new(WINDOWS);
+    let unix = Typing::new(Os::Unix);
+    for c in ['@', '{', '\\', '€', 'ł'] {
+        let altgr = key(KeyCode::Char(c), CTRL_ALT);
+        assert!(windows.is_text(&altgr), "{c}");
+        assert!(windows.is_plain_text(&altgr), "{c}");
+        assert!(!windows.ctrl(&altgr) && !windows.alt(&altgr), "{c}");
+        assert!(!unix.is_text(&altgr), "{c}");
+        assert!(unix.ctrl(&altgr) && unix.alt(&altgr), "{c}");
+    }
+    // 读不到系统版本也是 Windows。
+    assert!(Typing::new(Os::Windows(None)).is_text(&key(KeyCode::Char('@'), CTRL_ALT)));
+}
+
+/// 只有 Ctrl+Alt 加可打印字符算 AltGr：单独的 ctrl、单独的 alt、Ctrl+Alt 加方向键照旧。
+#[test]
+fn other_modifiers_keep_their_meaning_on_windows() {
+    let windows = Typing::new(WINDOWS);
+    let ctrl_c = key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert!(!windows.is_text(&ctrl_c) && windows.ctrl(&ctrl_c));
+    let alt_b = key(KeyCode::Char('b'), KeyModifiers::ALT);
+    assert!(windows.is_text(&alt_b) && !windows.is_plain_text(&alt_b));
+    assert!(windows.alt(&alt_b));
+    let left = key(KeyCode::Left, CTRL_ALT);
+    assert!(!windows.is_text(&left));
+    assert!(windows.ctrl(&left) && windows.alt(&left));
+    let shifted = key(KeyCode::Char('A'), KeyModifiers::SHIFT);
+    assert!(windows.is_plain_text(&shifted));
+    let control = key(KeyCode::Char('\u{1}'), CTRL_ALT);
+    assert!(!windows.is_text(&control));
+}
+
+/// T3：Windows 上每个键都有按下与松开；配对的松开丢掉。alt+小键盘码的字符只在 **Alt 的松开**事件里，
+/// 没有配对、修饰键里还有 Alt：当作这个字符的按下（不带修饰键）。
+#[test]
+fn alt_codes_come_through_and_paired_releases_are_dropped() {
+    let mut releases = Releases::new(WINDOWS);
+    let a = key(KeyCode::Char('a'), KeyModifiers::NONE);
+    assert_eq!(releases.admit(a), Some(a));
+    assert_eq!(releases.admit(up('a', KeyModifiers::NONE)), None);
+    assert_eq!(
+        releases.admit(up('ä', KeyModifiers::ALT)),
+        Some(key(KeyCode::Char('ä'), KeyModifiers::NONE))
+    );
+    // 非字符键的松开照样丢掉。
+    let enter = KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Release);
+    assert_eq!(releases.admit(enter), None);
+}
+
+/// 没有配对、也没有 Alt 的松开不是文字：输入法把按下吃掉、控制台只送抬起（全角符号的抬起带的是半角字符）。
+/// 以前按 alt 码处理，于是每打一个全角符号多一个半角符号。
+#[test]
+fn an_unpaired_release_without_alt_is_not_a_character() {
+    let mut releases = Releases::new(WINDOWS);
+    releases.admit(key(KeyCode::Enter, KeyModifiers::NONE));
+    for c in ['?', '.', '/', '!', '1'] {
+        assert_eq!(releases.admit(up(c, KeyModifiers::NONE)), None, "{c}");
+    }
+    // 带 Alt 的还是 alt 码。
+    assert_eq!(
+        releases.admit(up('ä', KeyModifiers::ALT)),
+        Some(key(KeyCode::Char('ä'), KeyModifiers::NONE))
+    );
+}
+
+/// 按下与松开的字符不同时也配对：shift 先松开（`A` / `a`）、AltGr 先松开（`@` / `q`）、两个键交错、按住重复。
+#[test]
+fn releases_pair_with_presses_whose_character_changed() {
+    let mut releases = Releases::new(WINDOWS);
+    releases.admit(key(KeyCode::Char('A'), KeyModifiers::SHIFT));
+    assert_eq!(releases.admit(up('a', KeyModifiers::NONE)), None);
+    releases.admit(key(KeyCode::Char('@'), CTRL_ALT));
+    assert_eq!(releases.admit(up('q', KeyModifiers::NONE)), None);
+    releases.admit(key(KeyCode::Char('x'), KeyModifiers::NONE));
+    releases.admit(key(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert_eq!(releases.admit(up('x', KeyModifiers::NONE)), None);
+    assert_eq!(releases.admit(up('y', KeyModifiers::NONE)), None);
+    for _ in 0..3 {
+        releases.admit(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    }
+    assert_eq!(releases.admit(up('z', KeyModifiers::NONE)), None);
+    // 都配对完了：下一个没有配对的是 alt 码（Alt 还在修饰键里）。
+    assert!(releases.admit(up('ñ', KeyModifiers::ALT)).is_some());
+}
+
+/// 启动与焦点变化之后、按下任何键之前，没有配对的松开是在别处按下的键（例如 Win+数字切过来时数字键的松开、启动前
+/// 选择屏里按的数字），不是 alt 码。焦点变化也清掉在窗口外松开的键。
+#[test]
+fn stray_releases_after_start_or_focus_are_dropped() {
+    let mut releases = Releases::new(WINDOWS);
+    assert_eq!(releases.admit(up('1', KeyModifiers::NONE)), None);
+    releases.admit(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(releases.admit(up('ä', KeyModifiers::ALT)).is_some());
+    releases.admit(key(KeyCode::Char('k'), KeyModifiers::NONE));
+    releases.focus_changed();
+    assert_eq!(releases.admit(up('2', KeyModifiers::NONE)), None);
+    releases.admit(key(KeyCode::Char('b'), KeyModifiers::NONE));
+    assert_eq!(releases.admit(up('b', KeyModifiers::NONE)), None);
+    assert!(releases.admit(up('ö', KeyModifiers::ALT)).is_some());
+}
+
+/// 其他平台的松开事件一律丢掉（不变）。
+#[test]
+fn releases_are_dropped_elsewhere() {
+    let mut releases = Releases::new(Os::Unix);
+    releases.admit(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(releases.admit(up('ä', KeyModifiers::NONE)), None);
+    let a = key(KeyCode::Char('a'), KeyModifiers::NONE);
+    assert_eq!(releases.admit(a), Some(a));
+}
+
+/// 输入法确认候选的空格：按下被输入法吃掉，控制台只把松开送进来。它不是 alt 码（alt 码是键盘上打不出来的
+/// 可打印字符），丢掉；否则中文每选一次词就多一个空格。真正的空格有配对的按下，照常键入。
+#[test]
+fn an_unpaired_space_release_is_not_typed() {
+    let mut releases = Releases::new(WINDOWS);
+    let typed = key(KeyCode::Char('中'), KeyModifiers::NONE);
+    assert_eq!(releases.admit(typed), Some(typed));
+    // 输入法提交的文字没有松开；选词的空格只有松开。
+    assert_eq!(releases.admit(up(' ', KeyModifiers::NONE)), None);
+    assert_eq!(releases.admit(up('\u{3000}', KeyModifiers::NONE)), None);
+    // 用户真的敲空格：按下照常，松开配对掉。
+    let space = key(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(releases.admit(space), Some(space));
+    assert_eq!(releases.admit(up(' ', KeyModifiers::NONE)), None);
+}
+
+/// 等不到松开的按下有上限：输入法提交的文字可能只来按下，别让它们越积越多。
+#[test]
+fn held_presses_are_capped() {
+    let mut releases = Releases::new(WINDOWS);
+    for c in ['中', '文', '输', '入', '法', '提', '交', '的', '文', '字'] {
+        releases.admit(key(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    // 上限内只留最近按下的几个。
+    assert_eq!(releases.held.len(), 8);
+    // 还有没配对的按下时，没有配对的可打印松开按配对处理（不当作 alt 码）。
+    assert!(releases.admit(up('ä', KeyModifiers::ALT)).is_none());
+}
+
+/// 没有配对的**可打印**字符松开、且 Alt 还在时仍是 alt 码（T3 的能力不许回退）。
+#[test]
+fn unpaired_releases_of_printable_characters_stay_alt_codes() {
+    let mut releases = Releases::new(WINDOWS);
+    releases.admit(key(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert_eq!(releases.admit(up('a', KeyModifiers::NONE)), None);
+    assert_eq!(
+        releases.admit(up('ä', KeyModifiers::ALT)),
+        Some(key(KeyCode::Char('ä'), KeyModifiers::NONE))
+    );
+}

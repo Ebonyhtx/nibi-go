@@ -1,0 +1,222 @@
+//! 上下文用量（`/context`，docs/specs/rust-cli/context-usage.md）：前端的查询与内核给出的结构化结果，以及
+//! 数字的写法（`-p` 的 markdown 与 TUI 的方格图共用）。
+
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+
+use crate::env::WorkspaceRef;
+use crate::ids::SessionId;
+use crate::model::ModelSelection;
+use crate::permission::PermissionMode;
+use crate::session_api::KernelError;
+
+/// `Kernel::context_usage` 的参数。没有会话时按新会话的模型与模式算（不建会话）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextUsageQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionId>,
+    pub workspace: WorkspaceRef,
+    pub selection: ModelSelection,
+    pub mode: PermissionMode,
+}
+
+/// 类别的种类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CategoryKind {
+    Used,
+    Free,
+    Buffer,
+    /// 只按名字列出、不占上下文的延迟工具。
+    Deferred,
+}
+
+/// 一个类别（名字是固定的英文，例如 `System prompt`、`Free space`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageCategory {
+    pub name: String,
+    pub tokens: u64,
+    pub kind: CategoryKind,
+}
+
+/// 上下文分项（NIBI contextUsage 面板的 `contextWindow.breakdown`）：`source` 是 UI 的固定来源名，
+/// `chars` 是该项的字符量。内核的 `/context` 只按 token 估算，这里按 4 字符/token 折算；UI 只用它算
+/// 各项占比，不展示绝对字符数。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextBreakdownItem {
+    pub source: String,
+    pub chars: u64,
+}
+
+/// 按 `UsageCategory` 的固定名字换成 UI 的分项来源。延迟工具、空闲空间与缓冲不是「已用上下文」，
+/// 不放进分项（否则占比会被空闲空间稀释）。
+pub fn breakdown(categories: &[UsageCategory]) -> Vec<ContextBreakdownItem> {
+    let mut out = Vec::new();
+    for category in categories {
+        let source = match category.name.as_str() {
+            "Messages" => "messages",
+            "System prompt" => "system_prompt",
+            "System tools" => "system_tool_schemas",
+            "MCP tools" | "MCP server instructions" => "mcp_tool_schemas",
+            "Skills" => "skills",
+            "Memory files" => "meta_user_context",
+            // 自定义 agent 的定义属于「meta user context」那一类（Node 的其它），不是系统提示词。
+            "Custom agents" => "meta_user_context",
+            _ => continue,
+        };
+        if category.tokens == 0 {
+            continue;
+        }
+        out.push(ContextBreakdownItem {
+            source: source.to_owned(),
+            chars: category.tokens.saturating_mul(4),
+        });
+    }
+    out
+}
+
+/// 会话 actor 每轮结束后算一次分项（`/context` 的同一个分析器）；没有实现时保持旧行为。
+#[async_trait]
+pub trait ContextUsageSource: Send + Sync {
+    async fn analyze(
+        &self,
+        query: ContextUsageQuery,
+        history: &[crate::message::Message],
+    ) -> Result<ContextUsage, KernelError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpToolUsage {
+    pub name: String,
+    pub server: String,
+    pub tokens: u64,
+}
+
+/// 规则文件（memory files）。`kind` 是 `User`、`Project` 等。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryFileUsage {
+    pub path: String,
+    pub kind: String,
+    pub tokens: u64,
+}
+
+/// 自定义 agent；`source` 是显示名（`User`、`Project`、`Plugin`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentUsage {
+    pub agent_type: String,
+    pub source: String,
+    pub tokens: u64,
+}
+
+/// 一个 skill 的清单行估算；`source` 是显示名（`Built-in`、`User`、`Project`、`Managed`、`Plugin`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillUsage {
+    pub name: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    pub tokens: u64,
+}
+
+/// 窗口从哪里来（compact.md §2）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowSource {
+    Env,
+    ModelDefault,
+    UnknownModel,
+    Auto,
+}
+
+/// 一次 `/context` 的结果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextUsage {
+    pub model: String,
+    pub total_tokens: u64,
+    /// 窗口。
+    pub raw_max_tokens: u64,
+    pub percentage: u64,
+    pub window_source: WindowSource,
+    pub auto_compact: bool,
+    /// 顺序：使用中的类别、缓冲、`Free space`。
+    pub categories: Vec<UsageCategory>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_tools: Vec<McpToolUsage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memory_files: Vec<MemoryFileUsage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<AgentUsage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<SkillUsage>,
+}
+
+impl ContextUsage {
+    /// 超限说明；没有超出窗口时为 None。
+    pub fn over_limit(&self) -> Option<String> {
+        if self.total_tokens <= self.raw_max_tokens {
+            return None;
+        }
+        let over = format_tokens(self.total_tokens - self.raw_max_tokens);
+        let window = format_tokens(self.raw_max_tokens);
+        Some(if self.window_source == WindowSource::Auto {
+            let run = if self.auto_compact {
+                "/compact or /clear"
+            } else {
+                "/clear"
+            };
+            format!(
+                "Context exceeds the {window}-token limit by {over} tokens \u{2014} run {run} to continue."
+            )
+        } else {
+            let run = if self.auto_compact {
+                "/compact"
+            } else {
+                "/clear"
+            };
+            format!(
+                "Context is {over} tokens past the {window}-token compaction window \u{2014} run {run} to reduce usage."
+            )
+        })
+    }
+}
+
+/// token 数的简写：小于 1000 时最多一位小数；否则 Intl 的 compact 写法（一位小数，
+/// `k` / `m` / `b` / `t` 小写），再去掉第一个 `.0`。
+pub fn format_tokens(value: u64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    let mut scaled = value as f64;
+    let suffixes = ["", "k", "m", "b", "t"];
+    let mut unit = 0;
+    while scaled >= 1000.0 && unit + 1 < suffixes.len() {
+        scaled /= 1000.0;
+        unit += 1;
+    }
+    // Intl 的 halfExpand 舍入；进位到 1000 时换下一个单位。
+    let mut rounded = (scaled * 10.0).round() / 10.0;
+    if unit > 0 && rounded >= 1000.0 && unit + 1 < suffixes.len() {
+        rounded = ((rounded / 1000.0) * 10.0).round() / 10.0;
+        unit += 1;
+    }
+    let text = if unit == 0 {
+        if rounded.fract() == 0.0 {
+            format!("{rounded:.0}")
+        } else {
+            format!("{rounded:.1}")
+        }
+    } else {
+        format!("{rounded:.1}{}", suffixes[unit])
+    };
+    text.replacen(".0", "", 1)
+}
+
+/// token 估计值的写法：小于 20 为 `< 20`，否则 `~` 加按 10 取整的数字。
+pub fn format_estimate(tokens: u64) -> String {
+    if tokens < 20 {
+        return "< 20".to_owned();
+    }
+    format!("~{}", format_tokens((tokens + 5) / 10 * 10))
+}
+
+#[cfg(test)]
+#[path = "context_usage_tests.rs"]
+mod tests;

@@ -298,6 +298,10 @@ class KernelService : Service() {
         val at = entry.indexOf('=')
         if (at > 0) setEnv(entry.substring(0, at), entry.substring(at + 1))
       }
+      // T8 S2：在 :kernel 进程里把 JVM + Context 交给内核（Binder 线程已附着），再启动内核。
+      if (!NibiKernelHostNative.nativeAttach(applicationContext)) {
+        Log.w(TAG, "平台信任库未就绪，回退内置 Mozilla 根")
+      }
       return NibiKernelHostNative.nativeStart(sink).also { kernelStarted = it }
     }
 

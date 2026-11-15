@@ -1,4 +1,4 @@
-# 内核产物由构建期脚本按 build.json.artifacts 校验后落盘，不进公开仓（D17 单向消费）。
+# 内核产物由 scripts/android-kernel/build.mjs 从 kernel/ 构建、校验后落盘，不进公开仓（D24）。
 prebuilt/
 
 # Gradle/CMake 构建产物（含本机绝对路径）。

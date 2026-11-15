@@ -1,0 +1,353 @@
+//! MCP 工具的包装（docs/specs/rust-cli/ext.md §3.4）：名字
+//! `mcp__<server>__<tool>`、描述截断、只读标记、权限交给判决链、调用与结果转换。
+
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use nibi_kernel_api::mcp::McpToolInfo;
+use nibi_kernel_api::message::ToolResultContent;
+use nibi_kernel_api::permission::PermissionDecision;
+use nibi_kernel_api::tool::{
+    PromptContext, Tool, ToolError, ToolOutput, ToolProgress, ToolUseContext,
+};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
+
+use super::config::tool_name;
+use super::connection::truncate_description;
+use super::manager::Inner;
+use super::result;
+use super::rpc::RpcError;
+
+/// 结果的字符上限。
+const MAX_RESULT_CHARS: usize = 100_000;
+
+/// 发给模型的工具名最长 128 个 UTF-16 码元：API 拒绝更长的名字，整个请求失败（ext.md §3.4）。
+pub(crate) const MAX_TOOL_NAME_UNITS: usize = 128;
+/// 名字太长的工具每个名字只记一次日志，最多记这么多个名字。
+const NOTED_NAMES: usize = 256;
+
+/// 这个工具不发给模型：名字超过 [`MAX_TOOL_NAME_UNITS`]。
+///
+/// 修复线 F67：以前只把名字规范化、不看长度，服务器列出一个名字太长的工具，之后每个请求都被 API 拒绝。
+pub(crate) fn name_too_long(name: &str) -> bool {
+    name.encode_utf16().count() > MAX_TOOL_NAME_UNITS
+}
+
+/// 服务器列出的工具里名字太长的，各记一次 warn（`noted` 是管理器里记过的名字）。
+pub(crate) fn note_long_names(
+    server: &str,
+    tools: &[Arc<dyn Tool>],
+    noted: &Mutex<HashSet<String>>,
+) {
+    let mut noted = noted.lock().unwrap_or_else(PoisonError::into_inner);
+    for tool in tools.iter().filter(|tool| name_too_long(tool.name())) {
+        let name = tool.name();
+        if noted.len() >= NOTED_NAMES || !noted.insert(name.to_owned()) {
+            continue;
+        }
+        let length = name.encode_utf16().count();
+        tracing::warn!(
+            event = "mcp.tool.skipped",
+            server,
+            tool = name,
+            length,
+            "Tool \"{name}\" is not sent to the model: its name has {length} characters and the API accepts at most {MAX_TOOL_NAME_UNITS}"
+        );
+    }
+}
+
+pub(crate) struct McpTool {
+    name: String,
+    info: McpToolInfo,
+    description: String,
+    schema: Value,
+    read_only: bool,
+    /// 工具的 `_meta.ui`（MCP App）：宿主据此渲染面板，Node `createMcpToolDisplay` 的输入。
+    ui: Option<Value>,
+    manager: Weak<Inner>,
+    /// 这个服务器所属的插件（插件加载时登记；配置/会话自己的服务器为 None）。
+    paid_plugin: Option<String>,
+    /// 付费插件执行期门禁；非付费服务器为 None。
+    paid_gate: Option<Arc<dyn nibi_kernel_api::paid_plugin::PaidPluginGate>>,
+}
+
+/// 工具自己的不延迟标记：`_meta` 里这两个键任一为 `true`（ext.md §3.1、D35）。第一个是本工程的键；第二个是旧键，
+/// Node 与已有的 MCP 服务器用它，照样认（工作线 F77）。
+const ALWAYS_LOAD_KEYS: [&str; 2] = ["zcode/alwaysLoad", "anthropic/alwaysLoad"];
+
+/// `tools/list` 里的 `_meta.ui`：只留下宿主渲染需要且协议 `mcpToolDisplayUi` 认的键。
+fn ui_descriptor(listed: &Value) -> Option<Value> {
+    let ui = listed.pointer("/_meta/ui")?.as_object()?;
+    let resource = ui.get("resourceUri")?.as_str()?;
+    let mut descriptor = serde_json::Map::new();
+    descriptor.insert("resourceUri".to_owned(), json!(resource));
+    for key in ["surface", "preferredDisplayMode", "prefersBorder", "csp"] {
+        if let Some(value) = ui.get(key) {
+            descriptor.insert(key.to_owned(), value.clone());
+        }
+    }
+    Some(Value::Object(descriptor))
+}
+
+impl McpTool {
+    /// `tools/list` 的一项；没有名字的项为 None。不延迟：服务器配置的 `alwaysLoad`（`server_always_load`）
+    /// 或工具的 `_meta` 标记（[`ALWAYS_LOAD_KEYS`]）。
+    pub(crate) fn from_listed(
+        server: &str,
+        listed: &Value,
+        server_always_load: bool,
+        manager: Weak<Inner>,
+        paid_plugin: Option<String>,
+        paid_gate: Option<Arc<dyn nibi_kernel_api::paid_plugin::PaidPluginGate>>,
+    ) -> Option<Self> {
+        let original = listed.get("name").and_then(Value::as_str)?.to_owned();
+        let meta = listed.get("_meta");
+        let always_load = server_always_load
+            || ALWAYS_LOAD_KEYS.iter().any(|key| {
+                meta.and_then(|meta| meta.get(*key))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            });
+        Some(Self {
+            name: tool_name(server, &original),
+            description: listed
+                .get("description")
+                .and_then(Value::as_str)
+                .map(truncate_description)
+                .unwrap_or_default(),
+            ui: ui_descriptor(listed),
+            schema: listed
+                .get("inputSchema")
+                .cloned()
+                .unwrap_or_else(|| json!({"type": "object"})),
+            read_only: listed
+                .pointer("/annotations/readOnlyHint")
+                .and_then(Value::as_bool)
+                == Some(true),
+            info: McpToolInfo {
+                server: server.to_owned(),
+                tool: original,
+                always_load,
+            },
+            manager,
+            paid_plugin,
+            paid_gate,
+        })
+    }
+}
+
+fn failed(message: String) -> ToolError {
+    ToolError::Failed { message }
+}
+
+impl McpTool {
+    /// Node `createMcpToolDisplay`：MCP App 的 `_meta.ui` + 本次结果里的 `structuredContent` /
+    /// `_meta` 投影成 v4 row 的 `display`。UI 的 `readPluginUiPresentation` 靠它找到面板。
+    fn display(&self, value: &Value, is_error: bool) -> Value {
+        let Some(ui) = &self.ui else {
+            return Value::Null;
+        };
+        let mut ui_value = ui.as_object().cloned().unwrap_or_default();
+        // pluginId 是插件名（Node `mcpPresentation.pluginId`）；非插件服务器用服务器名顶替。
+        ui_value.insert(
+            "pluginId".to_owned(),
+            json!(
+                self.paid_plugin
+                    .as_deref()
+                    .unwrap_or(self.info.server.as_str())
+            ),
+        );
+        if let Some(structured) = value.get("structuredContent") {
+            ui_value.insert(
+                "structuredContent".to_owned(),
+                json!(serde_json::to_string(structured).unwrap_or_default()),
+            );
+        }
+        if let Some(meta) = value.get("_meta") {
+            ui_value.insert(
+                "widgetMeta".to_owned(),
+                json!(serde_json::to_string(meta).unwrap_or_default()),
+            );
+        }
+        if is_error {
+            ui_value.insert("isError".to_owned(), json!(true));
+        }
+        let mut display = json!({
+            "kind": "mcp_tool",
+            "serverName": self.info.server,
+            "toolName": self.info.tool,
+            "ui": Value::Object(ui_value),
+        });
+        if !self.description.is_empty() {
+            display["description"] = json!(self.description);
+        }
+        display
+    }
+}
+
+#[async_trait]
+impl Tool for McpTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn input_schema(&self) -> Value {
+        self.schema.clone()
+    }
+
+    fn description(&self, _context: &PromptContext) -> String {
+        self.description.clone()
+    }
+
+    fn is_read_only(&self, _input: &Value) -> bool {
+        self.read_only
+    }
+
+    fn is_concurrency_safe(&self, _input: &Value) -> bool {
+        self.read_only
+    }
+
+    fn max_result_size_chars(&self) -> Option<usize> {
+        Some(MAX_RESULT_CHARS)
+    }
+
+    fn mcp_info(&self) -> Option<McpToolInfo> {
+        Some(self.info.clone())
+    }
+
+    /// MCP 工具除 `alwaysLoad` 外一律延迟（tools-more.md §3.1）。
+    fn is_mcp(&self) -> bool {
+        true
+    }
+
+    /// 与 `mcp_info().always_load` 同源（服务器的 `alwaysLoad` 或工具的 `_meta` 标记，[`ALWAYS_LOAD_KEYS`]）。
+    fn always_load(&self) -> bool {
+        self.info.always_load
+    }
+
+    /// 交给判决链（返回 `passthrough`，询问文本由判决链生成；建议的整个工具名规则只用于
+    /// 界面，`Passthrough` 不带建议）。
+    async fn check_permissions(
+        &self,
+        _input: &Value,
+        _context: &ToolUseContext,
+    ) -> PermissionDecision {
+        PermissionDecision::Passthrough
+    }
+
+    async fn call(
+        &self,
+        input: Value,
+        context: ToolUseContext,
+        _progress: mpsc::Sender<ToolProgress>,
+    ) -> Result<ToolOutput, ToolError> {
+        // 工具表冻结，执行时复核：到期/撤销/换账号只让这次调用失败；续费后同一次会话的下一次
+        // 调用直接通过，不需要增删工具。错误作为工具结果回到模型（追加在尾部，不影响前缀缓存）。
+        if let (Some(plugin), Some(gate)) = (&self.paid_plugin, &self.paid_gate)
+            && let Err(message) = gate.check(plugin)
+        {
+            return Err(failed(message));
+        }
+        let manager = self
+            .manager
+            .upgrade()
+            .ok_or_else(|| failed("MCP is shut down".to_owned()))?;
+        let server = &self.info.server;
+        // 服务器在这次调用里发起的 `elicitation/create` 归到本会话（Node 的 activeCallTraces）。
+        // 作用域在返回/失败/取消的任何路径上撤下。
+        let _elicitation = manager.enter_elicitation(
+            server,
+            context.interactions.clone(),
+            context.session.clone(),
+            context.tool_use.clone(),
+            context.cancel.clone(),
+        );
+        let settings = manager.settings();
+        // 这个服务器的 `timeoutMs`，没有时 `MCP_TOOL_TIMEOUT`（ext.md §3.1）。
+        let timeout_ms = settings.tool_timeout_for(manager.options(server));
+        // node_repl 的 browser/CUA bridge **只**认 `_meta["com.nibistudio.nibi/request-context"]` 里的
+        // `session_id` / `runtime_scope`（`node-repl-host/src/server.ts#buildRequestMeta`）：
+        // 缺 `session_id` 时 Browser Use 第一步就报 "node_repl browser request is missing
+        // session_id metadata"，整个浏览器/可视化面板链路废掉。Node 侧所有 MCP 调用都由
+        // `mcpRequestMeta` 统一下发这一组平铺键 + 同名嵌套副本；Rust 以前只带 toolUseId。
+        // 嵌套键名是上游插件协议（`com.nibistudio.nibi/request-context`），插件按它读，不能品牌化改名。
+        let runtime_scope = if context.agent.is_some() { "subagent" } else { "main" };
+        let workspace_path = context.workspace.root.as_str();
+        let request_context = json!({
+            "session_id": context.session,
+            "turn_id": context.run,
+            "runtime_scope": runtime_scope,
+            "workspace_path": workspace_path,
+            "workspace_key": workspace_path,
+        });
+        let mut meta = serde_json::Map::new();
+        meta.insert("nibi/toolUseId".to_owned(), json!(context.tool_use));
+        if let Some(fields) = request_context.as_object() {
+            for (key, value) in fields {
+                meta.insert(key.clone(), value.clone());
+            }
+        }
+        meta.insert("com.nibistudio.nibi/request-context".to_owned(), request_context);
+        let params = json!({
+            "name": self.info.tool,
+            "arguments": input,
+            "_meta": Value::Object(meta),
+        });
+        let timeout = Duration::from_millis(timeout_ms);
+        let mut retried = false;
+        let value = loop {
+            // `-p` 里断开、等下次调用的服务器在这里再连（ext.md §3.3.3）。
+            let client = match manager.client(server) {
+                Some(client) => Some(client),
+                None => manager.reconnect_dormant(server).await,
+            }
+            .ok_or_else(|| failed(format!("MCP server \"{server}\" is not connected")))?;
+            match client
+                .request("tools/call", params.clone(), timeout, &context.cancel)
+                .await
+            {
+                Ok(value) => break value,
+                Err(RpcError::Cancelled) => return Err(ToolError::Cancelled),
+                Err(RpcError::TimedOut) => {
+                    return Err(failed(format!(
+                        "MCP server \"{server}\" tool \"{}\" timed out after {}s",
+                        self.info.tool,
+                        timeout_ms / 1000
+                    )));
+                }
+                // 会话过期（HTTP 404）：等连接任务重连后重试一次。
+                Err(RpcError::Closed(_)) if !retried && manager.expired(server) => {
+                    retried = true;
+                    manager.wait_reconnected(server, &client).await;
+                }
+                Err(error) => return Err(failed(error.to_string())),
+            }
+        };
+        // 服务器报告的错误（`isError`）：结果是原文、标记为错误，不加 `<tool_use_error>`。
+        if let Some(message) = result::error_text(&value) {
+            return Ok(ToolOutput {
+                content: vec![ToolResultContent::Text { text: message }],
+                is_error: true,
+                display: self.display(&value, true),
+            });
+        }
+        let content = result::transform(&value, server).ok_or_else(|| {
+            failed(format!(
+                "MCP server \"{server}\" tool \"{}\": unexpected response format",
+                self.info.tool
+            ))
+        })?;
+        Ok(ToolOutput {
+            content: result::truncate(content, settings.max_output_tokens),
+            is_error: false,
+            display: self.display(&value, false),
+        })
+    }
+}
+
+#[cfg(test)]
+#[path = "tool_tests.rs"]
+mod tests;

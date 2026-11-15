@@ -1,7 +1,8 @@
 # app/modules/kernel-host（Phase C · C0 已完成）
 
-> 2026-11-14 上游 T6/T7 已交付（nibi-client `697f86cf`），`@nibi-studio/cli-android-arm64@4.1.0`
-> 带 `lib/libnibi.so`（C ABI v1，目标 API 24）与 `build.json.artifacts`。本目录从占位转实现。
+> 2026-11-14 上游 T6/T7 交付（nibi-client `697f86cf`），`@nibi-studio/cli-android-arm64@4.1.0`
+> 带 `lib/libnibi.so`（C ABI v1，目标 API 24）；**D24 后 GO 不再消费该包**，内核改由本仓
+> `kernel/` 自建（见下文构建）。
 
 ## 结构
 
@@ -16,27 +17,27 @@
 | `android/src/main/cpp/CMakeLists.txt` | 链接预编译 `libnibi.so`（`IMPORTED` 目标） |
 | `android/prebuilt/jniLibs/<abi>/` | 构建期落盘的内核产物（**gitignore，不入库**） |
 
-内核本体不在这里：D17 单向消费，`.so` 来自 npm 平台包；版本由 `scripts/android-kernel/pin.json` 锁定。
+内核本体不在这里：D24 后内核 fork 在本仓 `kernel/`，由构建链交叉编译出 `.so`（见 `kernel/UPSTREAM.md`）。
 
 ## 构建
 
 ```bash
-node scripts/android-kernel/fetch.mjs          # 按 pin 拉包 + 校验 sha256/ELF/API，落盘 jniLibs
-node scripts/android-kernel/fetch.mjs --check  # 只校验已落盘产物（CI/构建前）
+node scripts/android-kernel/build.mjs          # 从 kernel/ 交叉编译 + 落盘 + 校验
+node scripts/android-kernel/build.mjs --check  # 只校验已落盘产物（CI/构建前）
 cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v8a
 ```
 
-校验是 fail-closed：`build.json.artifacts` 逐项 sha256、ELF64/AArch64/shared object、
-`.note.android.ident` 的 API level ≤ App minSdk（24）、**ELF `LOAD` 段 16 KB 对齐**
-（`0x4000`，否则 16 KB 页设备装不上；D22），任何一项不过就不落盘。
+需要 NDK r27+（`ANDROID_NDK_HOME`，或 `ANDROID_HOME/ndk/27.x`）与 Rust 1.95
+（`kernel/rust-toolchain.toml` 钉住）。
 
-> 4.1.0 的 `libnibi.so` 实测是 4 KB 对齐，**不满足 D22**；在上游发 16 KB 的预发布/正式包之前，
-> `fetch.mjs` 会拒绝它。JNI 薄层自己的 `libnibi_kernel_jni.so` 由 CMake
-> `target_link_options` 对齐到 16 KB。
+校验是 fail-closed：ELF64/AArch64/shared object、`.note.android.ident` 的 API level ≤ App
+minSdk（24）、**ELF `LOAD` 段 16 KB 对齐**（`0x4000`，否则 16 KB 页设备装不上；D22）、
+C ABI v1 的五个导出符号、sha256 与 `.stamp.json`（记录 NDK/rustc/提交）。任何一项不过就不落盘。
+JNI 薄层自己的 `libnibi_kernel_jni.so` 仍由 CMake `target_link_options` 对齐到 16 KB。
 
 > 注意：AGP 打包时会 strip `.so`，所以**APK 里的 libnibi.so 与落盘文件 sha256 不同**（实测
-> `956a865b…` → `0896c9c9…`）。校验只对「落盘前的包内原件」有意义，别拿 APK 内容去对
-> `build.json`。
+> `956a865b…` → `0896c9c9…`）。校验只对「落盘前的产物」有意义，别拿 APK 内容去对
+> `.stamp.json`。
 
 ## 运行契约（来自 nibi-client `docs/android-cdylib-abi.md`）
 
@@ -47,6 +48,27 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
   再转成 UTF-8 字符串交给 JS（JSON 行内不会出现裸 LF）。
 - 一个进程只允许一个实例；`destroy()` 等待内核线程退出，`OnDestroy` 里兜底调用。
 - 内核 panic 会带走 App 进程（`panic=abort`）——看门狗/前台服务待后续切片。
+
+## TLS 平台信任（T8 S2，2026-11-15）
+
+内核在 Android 上要读系统信任库（用户/企业 CA），`rustls-platform-verifier` 需要 JVM +
+`android.content.Context`。内核为此导出 `nibi_app_server_attach_android(JNIEnv*, jobject)`：
+
+- 调用时机：**`nativeStart` 之前**；进程内模块与 `:kernel` 服务的 `start()` 都先调
+  `NibiKernelHostNative.nativeAttach(applicationContext)`，失败只记日志、继续启动；
+- 失败/未调用时走 S1 兜底：只用内置 Mozilla 根，公开 HTTPS 正常，用户安装的 CA 不生效；
+- 构建链断言 `nibi_app_server_attach_android` 必须存在（`scripts/android-kernel/build.mjs`）。
+
+JVM 侧还需要 crate 的 Kotlin 组件（JNI 桥，`org.rustls.platformverifier.CertificateVerifier`）：
+
+- 依赖：`org.rustls:rustls-platform-verifier:0.2.0`，仓库声明与 debug/proguard 覆盖都由
+  `app/plugins/withKernelAndroidTrust.js` 在 prebuild 时注入（`app/android/` 是生成目录，不手改）。
+  版本必须与 `kernel/Cargo.lock` 的 `rustls-platform-verifier-android` 一致，`build.mjs` 会核对；
+- 该 AAR 自带 `networkSecurityConfig`（base 禁明文 + HTTP CRL 白名单）。插件给 debug 变体写
+  `src/debug/res/xml/network_security_config.xml` 整体覆盖（允许 Metro 明文 + 信任用户 CA），
+  发布变体保留 AAR 的配置；
+- R8：插件给 `proguard-rules.pro` 追加 `org.rustls.platformverifier.**` 的 keep（JNI 反射调用，
+  R8 看不到引用）。
 
 ## D20 进程拆分（service 模式）
 

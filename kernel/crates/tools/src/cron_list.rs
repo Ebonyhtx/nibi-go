@@ -1,0 +1,236 @@
+//! CronList（docs/specs/rust-cli/tools-more.md §10.2、§16.6）。
+//!
+//! 先列文件里的全部持久任务（不分创建者），再列本会话的会话任务（含 ScheduleWakeup 的
+//! 唤醒）；只有会话任务带 ` [session-only]`。
+
+use async_trait::async_trait;
+use nibi_kernel_api::permission::PermissionDecision;
+use nibi_kernel_api::tool::{
+    PromptContext, Tool, ToolError, ToolOutput, ToolProgress, ToolUseContext,
+};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
+use unicode_width::UnicodeWidthStr;
+
+use crate::cron_expr;
+use crate::cron_rule;
+use crate::cron_tools::{LIST, Shared, human_at, output, owner, shared_tool_methods};
+use nibi_kernel_api::automation::AutomationRecord;
+use nibi_kernel_api::cron_store::CronScheduleRule;
+
+/// Host 模式的列表：automation 记录由 Host 持有，展示字段与 Node 的 `toModelAutomation` 同源。
+pub(crate) fn host_output(automations: &[AutomationRecord]) -> ToolOutput {
+    let lines: Vec<String> = automations
+        .iter()
+        .map(|automation| {
+            let human = match automation.schedule_rule.as_ref() {
+                Some(rule) => cron_rule::human(rule),
+                None => cron_expr::human(&automation.cron_expr),
+            };
+            let kind = if let Some(max_runs) = automation.max_runs {
+                format!(" ({max_runs} runs)")
+            } else if automation.recurring {
+                " (recurring)".to_owned()
+            } else {
+                " (one-shot)".to_owned()
+            };
+            let status = if automation.enabled {
+                automation.lifecycle_status.as_str()
+            } else {
+                "paused"
+            };
+            let title = if automation.title.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{} — ", automation.title.trim())
+            };
+            format!(
+                "{} — {title}{human}{kind} [{status}]: {}",
+                automation.automation_id,
+                truncate_display(&automation.prompt, 80)
+            )
+        })
+        .collect();
+    let text = if lines.is_empty() {
+        "No scheduled jobs.".to_owned()
+    } else {
+        lines.join(
+            "
+",
+        )
+    };
+    output(text, json!({"automations": automations}))
+}
+
+pub struct CronListTool(pub(crate) Shared);
+
+/// 列表里的一行：持久任务的 `durable` 不写（`durable === false` 才标 session-only）。
+struct Row {
+    id: String,
+    cron: String,
+    prompt: String,
+    title: Option<String>,
+    recurring: bool,
+    max_runs: Option<u32>,
+    schedule_rule: Option<CronScheduleRule>,
+    fire_at: Option<u64>,
+    session_only: bool,
+}
+
+#[async_trait]
+impl Tool for CronListTool {
+    fn name(&self) -> &str {
+        LIST
+    }
+
+    shared_tool_methods!();
+
+    fn is_read_only(&self, _input: &Value) -> bool {
+        true
+    }
+
+    fn is_concurrency_safe(&self, _input: &Value) -> bool {
+        true
+    }
+
+    async fn check_permissions(
+        &self,
+        _input: &Value,
+        _context: &ToolUseContext,
+    ) -> PermissionDecision {
+        PermissionDecision::Allow {
+            updated_input: None,
+        }
+    }
+
+    async fn call(
+        &self,
+        _input: Value,
+        context: ToolUseContext,
+        _progress: mpsc::Sender<ToolProgress>,
+    ) -> Result<ToolOutput, ToolError> {
+        if let Some(port) = self.0.host() {
+            let automations = port.list().await.map_err(|error| ToolError::Failed {
+                message: error.message,
+            })?;
+            return Ok(host_output(&automations));
+        }
+        let board = &self.0.board;
+        let offset = board.offset();
+        let durable = board.read_durable().await.into_iter().map(|task| Row {
+            id: task.id,
+            cron: task.cron,
+            prompt: task.prompt,
+            title: task.title,
+            recurring: task.recurring,
+            max_runs: task.max_runs,
+            schedule_rule: task.schedule_rule,
+            fire_at: task.fire_at,
+            session_only: false,
+        });
+        let session = board
+            .session_jobs(&owner(&context).await)
+            .into_iter()
+            .map(|job| Row {
+                id: job.id,
+                cron: job.cron,
+                prompt: job.prompt,
+                title: job.title,
+                recurring: job.recurring,
+                max_runs: job.max_runs,
+                schedule_rule: job.schedule_rule,
+                fire_at: job.fire_at,
+                session_only: true,
+            });
+        let rows: Vec<Row> = durable.chain(session).collect();
+        let lines: Vec<String> = rows
+            .iter()
+            .map(|row| {
+                let kind = if let Some(max_runs) = row.max_runs {
+                    format!(" ({max_runs} runs)")
+                } else if row.recurring {
+                    " (recurring)".to_owned()
+                } else {
+                    " (one-shot)".to_owned()
+                };
+                let only = if row.session_only {
+                    " [session-only]"
+                } else {
+                    ""
+                };
+                let human = match (&row.schedule_rule, row.fire_at) {
+                    (Some(rule), _) => cron_rule::human(rule),
+                    (None, Some(at)) => human_at(at, &offset),
+                    (None, None) => cron_expr::human(&row.cron),
+                };
+                let title = row
+                    .title
+                    .as_deref()
+                    .map(|title| format!(" {title} —"))
+                    .unwrap_or_default();
+                let prompt = truncate_display(&row.prompt, 80);
+                format!("{} —{title} {human}{kind}{only}: {prompt}", row.id)
+            })
+            .collect();
+        let text = if lines.is_empty() {
+            "No scheduled jobs.".to_owned()
+        } else {
+            lines.join("\n")
+        };
+        let display = json!({"jobs": rows.iter().map(|row| {
+            let human = match (&row.schedule_rule, row.fire_at) {
+                (Some(rule), _) => cron_rule::human(rule),
+                (None, Some(at)) => human_at(at, &offset),
+                (None, None) => cron_expr::human(&row.cron),
+            };
+            json!({
+                "id": row.id,
+                "cron": row.cron,
+                "title": row.title,
+                "humanSchedule": human,
+                "prompt": row.prompt,
+                "recurring": row.recurring,
+                "maxRuns": row.max_runs,
+                "scheduleRule": row.schedule_rule,
+                "fireAt": row.fire_at,
+                "durable": !row.session_only,
+            })
+        }).collect::<Vec<_>>()});
+        Ok(output(text, display))
+    }
+}
+
+/// 按显示宽度截断（只取首行，有后续行时加 `…`；按字符近似字素）。
+pub(crate) fn truncate_display(text: &str, columns: usize) -> String {
+    if let Some((first, _)) = text.split_once('\n') {
+        if first.width() + 1 > columns {
+            return truncate_width(&format!("{first}\u{2026}"), columns);
+        }
+        return format!("{first}\u{2026}");
+    }
+    if text.width() <= columns {
+        return text.to_owned();
+    }
+    truncate_width(text, columns)
+}
+
+/// 按显示宽度截断：留一列给 `…`。
+fn truncate_width(text: &str, columns: usize) -> String {
+    if text.width() <= columns {
+        return text.to_owned();
+    }
+    if columns <= 1 {
+        return "\u{2026}".to_owned();
+    }
+    let mut used = 0;
+    let mut kept = String::new();
+    for character in text.chars() {
+        let width = unicode_width::UnicodeWidthChar::width(character).unwrap_or(0);
+        if used + width > columns - 1 {
+            break;
+        }
+        kept.push(character);
+        used += width;
+    }
+    kept + "\u{2026}"
+}

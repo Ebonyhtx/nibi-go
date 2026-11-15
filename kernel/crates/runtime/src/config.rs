@@ -1,0 +1,34 @@
+//! 入口层组装的配置快照交给内核（docs/specs/rust-cli/config.md §3）：整份替换，内核不读文件。
+
+use nibi_kernel_hooks::HooksConfig;
+use nibi_kernel_api::permission::PermissionRules;
+use nibi_kernel_session::TitleModel;
+
+use crate::LocalKernel;
+
+impl LocalKernel {
+    /// 打开会话标题的生成（TUI；`-p` 不生成，Node 相同，docs/specs/rust-cli/titles.md §2）。在建会话之前
+    /// 调用：之后开的会话 actor 才带上它。
+    #[must_use]
+    pub fn with_titles(mut self, titles: TitleModel) -> Self {
+        // `ListModels` 与作者工具在建内核之后才拿得到目录：槽是它们与入口之间唯一的一跳。
+        if let Some(directory) = titles.directory.clone() {
+            *self
+                .model_directory_slot
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(directory);
+        }
+        self.titles = Some(titles);
+        self
+    }
+
+    /// 换上入口层从配置文件组装的 hooks 快照（hooks.md §2.2）；正在运行的事件用旧快照。
+    pub fn replace_hooks(&self, config: HooksConfig) {
+        self.hooks.replace(config);
+    }
+
+    /// 换上入口层从命令行与配置组装的权限规则快照（shell-permissions.md §5）；之后的判决用新快照。
+    pub fn replace_permission_rules(&self, rules: PermissionRules) {
+        self.gate.replace_rules(rules);
+    }
+}

@@ -1,8 +1,10 @@
 # 票据 · Android 进程内内核的 TLS 信任锚初始化
 
 > 状态（2026-11-15）：S1 已真机验证（上游 `feat/android-kernel`，`2aa2d6d9`：平台根不可用时
-> 退内置 Mozilla 根），已并入 GO fork 基线 `1369b043`；**S2（attach JVM/Context、恢复平台根）
-> 转 GO 自有**——D24 后 Android 内核 fork 进本仓，在 `kernel/` + JNI/`:kernel` 侧实现，不再等上游。
+> 退内置 Mozilla 根），已并入 GO fork 基线 `1369b043`；**S2 已在 GO fork 实现**——
+> `nibi_app_server_attach_android(JNIEnv*, Context)`（`kernel/crates/net/src/android_trust.rs`
+> + `kernel/crates/cli/src/android_ffi.rs`）由 `:kernel` 服务/进程内模块在 start 前调用；
+> 构建断言要求该符号存在。企业 CA 真机用例待跑（Phase 0 回归）。
 >
 > 历史：Phase C C0 真机冒烟时发现；原期望载体是 nibi-client `kernel/crates/net/` +
 > `kernel/crates/cli/src/android_ffi.rs`。S1 的实现与真机证据保留在本票据下方。

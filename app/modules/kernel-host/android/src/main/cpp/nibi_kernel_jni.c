@@ -1,13 +1,14 @@
 // NIBI-GO Phase C：nibi 内核 C ABI 的 JNI 薄层。
 //
-// 这里只做四件事，不碰内核实现（内核以 npm 平台包的 libnibi.so 消费，D17/D19）：
+// 这里只做四件事，不碰内核实现（内核在仓库 kernel/ 自建，D24）：
 //   1. 把 Java 的 Sink 对象转成 C 回调（输出/错误）；
 //   2. 把内核线程的输出按 LF 切成完整行（JSON 行内不会出现裸 LF）；
 //   3. 每一行立刻复制成 byte[]（ABI 约定 data 只在回调内有效）；
 //   4. 句柄生命周期加锁，send/stop/destroy 不互相踩。
 //
 // 协议与语义见 nibi-client `docs/android-cdylib-abi.md`；ABI 版本用
-// nibi_app_server_abi_version() 校验，v1 的符号布局与下面的声明一一对应。
+// nibi_app_server_abi_version() 校验，v1 的符号布局与下面的声明一一对应；
+// T8 S2 的 nibi_app_server_attach_android 是 v1 的向后兼容新增符号。
 
 #include <android/log.h>
 #include <jni.h>
@@ -30,6 +31,9 @@ extern void *nibi_app_server_start(nibi_output_cb output, void *output_user_data
 extern int32_t nibi_app_server_send(void *handle, const uint8_t *data, size_t len);
 extern int32_t nibi_app_server_stop(void *handle);
 extern void nibi_app_server_destroy(void *handle);
+// T8 S2：把 JNIEnv + android.content.Context 交给内核，必须在 nativeStart 之前调用。
+// 返回 0 = 平台信任库就绪；非 0 = 未就绪（内核回退内置 Mozilla 根）。
+extern int32_t nibi_app_server_attach_android(void *env, void *context);
 
 // 行缓冲上限：正常 JSON 行远小于此；超过视为异常并丢弃，避免无限增长。
 #define NIBI_MAX_PENDING_LINE (8u * 1024u * 1024u)
@@ -178,6 +182,16 @@ Java_expo_modules_nibikernelhost_NibiKernelHostNative_nativeAbiVersion(JNIEnv *e
   (void)env;
   (void)thiz;
   return (jint)nibi_app_server_abi_version();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_expo_modules_nibikernelhost_NibiKernelHostNative_nativeAttach(JNIEnv *env, jobject thiz,
+                                                                  jobject context) {
+  (void)thiz;
+  if (context == NULL) {
+    return JNI_FALSE;
+  }
+  return nibi_app_server_attach_android(env, context) == 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

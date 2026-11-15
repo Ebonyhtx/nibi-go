@@ -33,6 +33,24 @@ NIBI-GO 的运行时与开发依赖以宽松许可（MIT / Apache-2.0 / BSD / IS
 | zod | 已修复 | `packages/shared-extract`（运行时） | 4.6.5 → **4.6.6**（GHSA 内存耗尽，HIGH）。 |
 | tinypool / vitest / @vitest/mocker | 已修复 | devDependencies（测试） | vitest 3.2.7 → **5.1.0**（tinypool 移出依赖树，critical 清零）。 |
 
+## 内核 fork（`kernel/`）
+
+`kernel/` 是 D24 的 Android 内核 fork：快照自 nibi-client `dev` `1369b043`
+（Apache License 2.0），再上游为 ZCode-rs 0.1.67（Apache License 2.0）。
+`kernel/LICENSE`、`kernel/NOTICE.md` 与 `kernel/vendor/THIRD-PARTY-NOTICES.txt`
+随快照保留；完整第三方声明以它们为准。
+
+| 组件 | 版本 | 许可 | 用途 |
+|---|---|---|---|
+| ripgrep（vendored） | 15.2.0 | MIT OR Unlicense | 内嵌的 `rg` 搜索 |
+| bfs + oniguruma | 4.1.4 / 6.9.10 | 0BSD / BSD-2-Clause | 内嵌的 `bfs` 查找 |
+| ugrep + PCRE2 + brotli | 7.8.4 / 10.46 / 1.2.1 | BSD-3-Clause（PCRE2 exception）/ BSD-3-Clause / MIT | 内嵌的 `ugrep` |
+| NDK `libc++_shared.so` | NDK r27 | Apache-2.0 WITH LLVM-exception | Android 内核的 C++ 运行时 |
+| org.rustls:rustls-platform-verifier（AAR） | 0.2.0 | MIT OR Apache-2.0 | Android 系统信任库的 JVM 组件（T8 S2） |
+
+Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定宽松许可白名单，
+每次重 pin 后跑 `cargo deny check` / `cargo audit`（记录见 `kernel/CHANGELOG-FORK.md`）。
+
 ## 抽取件的上游
 
 `packages/shared-extract/` 中的协议契约代码来自 nibi-client（Apache-2.0，
