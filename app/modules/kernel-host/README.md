@@ -76,8 +76,13 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 - **杀 UI 进程**（只 kill 主进程）：`:kernel` pid 不变、`dumpsys activity services` 仍
   `isForeground=true`；重开 App 接回同一个内核 pid，发 `AFTERUI` 得到完整回合。
 
-当前边界：`dataSync` 前台服务在 targetSdk 35+ 有 6h/24h 上限（长任务走 `specialUse` 或分段，
-⑤ 立项定）；`POST_NOTIFICATIONS` 尚未运行时请求（通知可能不在通知栏显示，但 FGS 状态成立）。
+当前边界（⑤）：
+
+- `POST_NOTIFICATIONS`（Android 13+）在服务启动前用 `PermissionsAndroid` 运行时请求；拒绝只影响
+  通知栏显示，FGS 状态仍成立（`dumpsys activity services` 可见 `isForeground=true`）。
+  本机测试时该权限此前被设成 `USER_FIXED` 拒绝，弹窗路径未在设备上复验。
+- Android 15+ `dataSync` 有 6h/24h 上限：`KernelService.onTimeout` 主动停内核 + `stopSelf`，
+  避免系统判 ANR；长任务要走 `specialUse` 声明或分段续跑（⑤ 待运营者定）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 
