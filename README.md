@@ -8,29 +8,27 @@ NIBI-GO 是 NIBI 生态的**移动客户端**，默认主体即 NIBI-GO（本机
 - **NIBI-WORK（入口）**：从 GO 主体内进入的手机远控桌面（Relay V2 端到端通道 +
   会话/审批/任务投影），不再是与 GO 并列的主产品。
 
-本仓库是 NIBI-GO 的公开源码（Android 客户端 + 纯 TS 协议层 + 原生模块）。
-Rust 内核不在此仓库——它以独立 npm 平台包（`@nibi-studio/cli-*`）单向消费，
-详见 [AGENTS.md](AGENTS.md) 的 D17 纪律；本机内核能力随 Phase C 落地
-（启动信号见 [ADR-INDEX D12](docs/decisions/ADR-INDEX.md)）。
+本仓库是 NIBI-GO 的公开源码（Android 客户端 + 纯 TS 协议层 + 原生模块 + Android 内核适配）。
+本机内核与 Android 原生运行时随 App 交付，构建与适配都在本仓库完成；架构决策与实施状态见
+[`docs/`](docs/README.md)。
 
 ## 开源范围
 
 本仓库包含：
 
 - `app/`：Expo / React Native 应用（登录、扫码配对、连接状态、聊天、审批、通知、保活、应用内更新）
-- `app/modules/`：本地 Expo 原生模块（KeepAlive 前台服务、APK 安装器）
-- `packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`：纯 TS 协议层
-- `docs/`：架构决策（D1–D19）、设计规格、调研与验证清单
+- `app/modules/`：本地 Expo 原生模块（内核宿主、KeepAlive 前台服务、APK 安装器）
+- `kernel/`：Android 内核适配（本机内核与运行时随 App 交付）
+- `packages/kernel-session`、`packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`：纯 TS 协议层
+- `docs/`：架构决策（D1–D25）、设计规格、调研与验证清单
 - `scripts/`：架构门禁与公开仓检查
 
 以下内容**不在**本仓库中：
 
-- Rust 内核（`nibi-client` 仓库的独立项目，经 npm 平台包消费）；
 - 发布签名材料（keystore）、发布流水线与运营侧服务；
 - 任何私有部署细节或凭据（见 [SECURITY.md](SECURITY.md)）。
 
-历史上游参考存档（nibi-client / dsh-Go 的只读副本）已移出本仓库，由 NIBI 工作区
-统一保管，不参与构建；本仓不再包含 `reference/`。
+历史参考存档已移出本仓库，不参与构建；本仓不再包含 `reference/`。
 
 ## 环境要求
 

@@ -1,7 +1,7 @@
 # relay-client 接口草案 v0（已评审通过，实现中）
 
 > 状态：**A1-1 已实现 transport + pairing**（packages/relay-client，Node 契约测试全绿）；crypto/handshake 按 plan.md 排 A3，gate.ts 后置 A2 前。App 配对 UI（A1 后半）待做。
-> 依据：D8（持久配对）/ D9（E2E 藏握手）/ D10（四态选路）/ D17（内核单向消费）；Relay V2 契约（nibi-client `docs/web-remote-control/relay-v2-pairing.md`）。
+> 依据：D8（持久配对）/ D9（E2E 藏握手）/ D10（四态选路）/ D17（shared 抽取与协议层；内核分发部分已由 D24 取代）；Relay V2 契约（nibi-client `docs/web-remote-control/relay-v2-pairing.md`）。
 > 实现要点对上游的落地差异见 `packages/relay-client/src/transport.ts` 文件头注释（terminal 无重注册/AUTH_FAILED=device-not-owned/移动退避参数）。
 
 ## 导出面

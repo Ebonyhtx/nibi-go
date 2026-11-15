@@ -7,7 +7,7 @@
 | [design/](design/) | 设计规格：[Android 原生内核与运行时（fork 方案）](design/android-native-runtime.md)、[relay-client 接口草案](design/relay-client-interface-draft.md)、[E2E 信封与握手 v1](design/e2e-envelope-v1.md) |
 | [research/](research/) | 调研与实测：深度调研报告、dsh-Go 调研、同类项目、Spike 2（后台长连接实测） |
 | [checklists/](checklists/) | 可执行清单：[真机验证清单](checklists/真机验证清单.md)、[发布检查单](checklists/发布检查单.md) |
-| [tickets/](tickets/) | 上游协作票据与交接记录（T1/T2 已落地；T3/T4 已结案；T6/T7 上游已完成，`697f86cf`；T5 待真机） |
+| [tickets/](tickets/) | 票据与交接：T1–T7 历史记录；T8/T9 已转 GO 自有（D24），`HANDOFF.md` 说明 fork 后的上游边界 |
 | [workspace-map.md](workspace-map.md) | 仓库/工作区结构说明 |
 | [NIBI-GO架构总览.html](NIBI-GO架构总览.html) | 架构可视化历史快照（浏览器打开；现行决策见 ADR-INDEX） |
 

@@ -93,7 +93,9 @@ cd app/android && ./gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v
 
 - 已验证：`echo nibi-shell-ok | tr a-z A-Z` → `NIBI-SHELL-OK`，Bash 工具 `success`。
 - 局限：语义是 mksh 不是 bash（bashism/`[[ ]]`/数组等可能失败）；hook 固定 `/bin/bash` 仍不可用。
-- 正式方案：上游接受 Android `sh` 方言，或随包带静态 bash+busybox+git（T9 / ④）。
+- **D24/D25 后**：正式方案 = 内核 fork 的 `ShellDialect::AndroidSh` + 随包三件套
+  （jniLibs + `$NIBI_BIN` symlink，见 `docs/design/android-native-runtime.md`）。本桥是
+  Phase 1/2 前的过渡，落地后移除；T9 保留为证据记录。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

@@ -11,24 +11,26 @@ NIBI-GO/
 ├── package.json            # pnpm workspace 根（gates/test 脚本）
 ├── pnpm-workspace.yaml     # workspace = packages/* + app + app/modules/*
 ├── .gitignore
+├── kernel/                 # Android 内核 fork（D24；Rust workspace + Android 适配）
 ├── app/                    # RN/Expo 壳（应用主体；WORK 为入口）
-│   └── modules/kernel-host/ # Phase C 内核绑定（JNI 薄层 + 构建期产物校验）
+│   └── modules/kernel-host/ # 内核宿主（JNI 薄层 + :kernel Service，D19/D20）
 ├── packages/               # 纯 TS 协议层 + 平台接口（各自 README 有职责与禁止事项）
 │   ├── relay-client/
 │   ├── chat-core/
+│   ├── kernel-session/     # 内核会话协议层（V4 投影/行模型）
 │   ├── phone-tools/
 │   └── shared-extract/     # @nibi/shared 抽取件
 ├── scripts/                # check-boundaries / check-public-repo / android-kernel 等门禁
 ├── docs/
-│   ├── decisions/          # ADR-INDEX.md（D1–D19 决策台账，权威索引）
-│   ├── design/             # 设计规格（relay-client 接口草案、E2E 信封 v1）
+│   ├── decisions/          # ADR-INDEX.md（D1–D25 决策台账，权威索引）
+│   ├── design/             # 设计规格（Android 原生运行时 D24/D25、relay-client、E2E 信封）
 │   ├── research/           # 调研与实测底稿
 │   └── NIBI-GO架构总览.html # 可视化历史快照（浏览器打开；现行决策见 ADR-INDEX）
 └── （reference/ 不在本仓：见下方参考说明）
 ```
 
-> `reference/` 不在本仓：上游 nibi-client（内核真源）与 dsh-Go 参考由维护者在仓库之外另行
-> 检出，只读、不参与构建、不进 workspace；本仓不保存副本。
+> `reference/` 不在本仓：上游 nibi-client（只读合并源，Android 内核 fork 在 `kernel/`）与
+> dsh-Go 参考由维护者在仓库之外另行检出，只读、不参与构建、不进 workspace；本仓不保存副本。
 > 归档时的历史 pin：nibi-client `ff1c5f4f`（dev）、dsh-Go `8f31b2ed`（main，v1.0.15），
 > 仅作历史记录，不再更新。
 
@@ -46,4 +48,5 @@ NIBI-GO/
 
 - 决策变更：新写一条追加到 ADR-INDEX 的"关键修正记录"，不覆写历史结论。
 - 上游参考仅用于历史对照（dsh-Go 的设计范式 / nibi-client 的实现细节），任何"我们要抄它的什么"都应在 docs/design/ 落成设计文档而不是直接搬代码。
-- 上游 npm 包（`@nibi-studio/cli-*`）升级 = 显式提交 + ADR-INDEX 登记（D17 规则 1）。
+- Android 内核在 `kernel/` 自建自维护（D24）；上游只读合并安全/协议修复。`shared-extract`
+  仍按 D17 抽取件流程（来源 commit + 契约测试）。
