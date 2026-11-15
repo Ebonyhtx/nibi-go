@@ -182,6 +182,29 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).rejects.toThrow("the interaction is no longer pending");
   });
 
+  it("purgeSessionData：发 v4/storage/sessionData/purge，返回释放字节", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const pending = client.purgeSessionData(["sess_a"], []);
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionDataPurge,
+      params: { sessionIds: ["sess_a"], directories: [] },
+    });
+    transport.receive({
+      id: 1,
+      result: {
+        deleted: [{ sessionId: "sess_a", bytes: 2048 }],
+        kept: [],
+        failed: [],
+        memory: [],
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      deleted: [{ sessionId: "sess_a", bytes: 2048 }],
+    });
+  });
+
   it("fileChanges：按轮头行取明细，带 target 与快照水位", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

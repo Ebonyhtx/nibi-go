@@ -70,6 +70,18 @@ export interface KernelSessionSummary {
   [key: string]: unknown;
 }
 
+/** `v4/storage/sessionData/purge` 的结果（内核 `SessionDataPurge`）。 */
+export interface KernelSessionDataPurge {
+  /** 已彻底删除的会话（`bytes` 是实际删掉的磁盘文件字节；数据库行不计入）。 */
+  deleted: { sessionId: string; bytes: number }[];
+  /** 运行中/被引用的会话，整棵保留。 */
+  kept: { sessionId: string; reason: "running" | "referenced" }[];
+  /** 逐项失败（`sessionId` 或 `workspacePath` + 错误码）。 */
+  failed: { sessionId?: string; workspacePath?: string; code: string }[];
+  /** 目录项目记忆的字节数（本次不传目录时为空）。 */
+  memory: { workspacePath: string; bytes: number }[];
+}
+
 export const KERNEL_METHODS = {
   sessionCreate: "session/create",
   sessionSend: "session/send",
@@ -84,4 +96,7 @@ export const KERNEL_METHODS = {
   command: "v4/command",
   /** 一轮的文件改动明细（按轮头行取）。 */
   fileChanges: "v4/conversation/fileChanges",
+  /** 会话数据的彻底删除（行 + 附件/轨迹文件；`measure` 是它的只读体量查询）。 */
+  sessionDataMeasure: "v4/storage/sessionData/measure",
+  sessionDataPurge: "v4/storage/sessionData/purge",
 } as const;

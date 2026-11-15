@@ -201,12 +201,14 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - **会话列表分组/搜索（2026-11-15 真机跑通）**：抽屉按 `今天 / 昨天 / 本周 / 更早` 分组
   （周一起算，UTC 固定日轴防 DST）；搜索按标题大小写不敏感、空标题按“新对话”匹配，带清除键。
   纯函数在 `app/src/components/sessionGroups.ts`，6 条单测钉住。
-- **会话管理：归档 + 归档里删除（2026-11-15 真机跑通）**：参照 NIBI 客户端——
+- **会话管理：归档 + 归档里彻底删除（2026-11-15 真机跑通）**：参照 NIBI 客户端——
   活动列表每行 `⋯`（或长按）→「归档任务」；抽屉出现「已归档 · N」入口，归档管理里每条可
-  「恢复」或垃圾桶删除，顶部「全部删除」（带确认）。归档是 GO 本地状态（内核只有
-  `deleteSession` 软删除，没有归档字段），集合存 `filesDir/nibi-archived-sessions.json`；
-  删除走 `v4/command deleteSession`，删当前会话会自动切到最近一条/新建。真机清掉了 25 条
-  测试会话，空列表与恢复路径都验过。纯函数 `app/src/kernel/sessionArchive.ts` 有单测。
+  「恢复」或垃圾桶删除，顶部「全部删除」（带确认）。归档是 GO 本地状态（内核没有归档字段），
+  集合存 `filesDir/nibi-archived-sessions.json`；删除先 `deleteSession` 关闭，再走
+  `v4/storage/sessionData/purge` **彻底删行与附件/轨迹文件**（NIBI 客户端「清理数据」的同一
+  内核能力），返回实际释放字节；运行中/被引用会保留。真机清掉 25 条测试会话并做过一次离线
+  DB 清理：DB 5.0MB+WAL 4.3MB → 426KB，`files/.nibi/cli` 476KB。纯函数
+  `app/src/kernel/sessionArchive.ts` 有单测。
 - **子智能体卡（已映射，等内核产出行）**：`subagent` 行 → 类型/状态/摘要 + 子会话下钻；
   单测覆盖。真机核对：4.1.0 内核在 Agent 前台与后台调用下都只投影 Agent 工具行 +
   后台通知回合，**没有 subagent 行**。`artifact` 行内核投影不产生，暂不做。
