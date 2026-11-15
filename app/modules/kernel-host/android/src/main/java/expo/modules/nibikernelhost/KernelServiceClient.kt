@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -62,6 +63,7 @@ internal class KernelServiceClient(
   fun start(environment: Map<String, String>): Boolean {
     env = environment
     attempt = 0
+    ensureServiceStarted()
     val latch = CountDownLatch(1)
     var ok = false
     main.post {
@@ -119,6 +121,7 @@ internal class KernelServiceClient(
     }
   }
 
+  /** 显式销毁内核（JS destroyKernelHost）：内核线程停、前台服务退出。 */
   fun destroy() {
     destroyed = true
     reading = false
@@ -131,6 +134,34 @@ internal class KernelServiceClient(
     releaseBinder()
     closeChannel()
     unbind()
+  }
+
+  /**
+   * 只解绑（React context 销毁/Activity 重建）：内核进程与前台服务继续活着，
+   * 下次绑定用 openFrames + start（幂等）接回。
+   */
+  fun dispose() {
+    destroyed = true
+    reading = false
+    reader?.interrupt()
+    reader = null
+    releaseBinder()
+    closeChannel()
+    unbind()
+  }
+
+  private fun ensureServiceStarted() {
+    val intent = Intent(context, KernelService::class.java)
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(intent)
+      } else {
+        context.startService(intent)
+      }
+    } catch (error: Throwable) {
+      // 后台启动前台服务受限（Android 12+）时退化为 bind-only；绑定仍会创建服务。
+      Log.w(TAG, "startForegroundService 失败，退化为绑定启动", error)
+    }
   }
 
   fun killForTest() {
@@ -150,6 +181,7 @@ internal class KernelServiceClient(
     }
     if (binding) return false
     binding = true
+    ensureServiceStarted()
     val connection = object : ServiceConnection {
       override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
         binding = false

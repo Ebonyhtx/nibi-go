@@ -80,7 +80,8 @@ class NibiKernelHostModule : Module() {
     }
 
     OnDestroy {
-      serviceClient?.destroy()
+      // React context 销毁只解绑：内核进程 + 前台服务继续跑（D20.2），下次绑定接回。
+      serviceClient?.dispose()
       serviceClient = null
       if (startedInProcess && NibiKernelHostNative.isAvailable) {
         NibiKernelHostNative.nativeStop()
@@ -94,7 +95,8 @@ class NibiKernelHostModule : Module() {
     val context = appContext.reactContext ?: throw IllegalStateException("缺少 Android Context")
     val previous = serviceClient
     serviceClient = null
-    previous?.destroy()
+    // Activity 重建会再次 start：旧客户端只解绑，不能把还在跑的内核一起销毁。
+    previous?.dispose()
     val client = KernelServiceClient(
       context = context.applicationContext,
       onLine = { bytes -> sendEvent("onKernelLine", mapOf("line" to String(bytes, Charsets.UTF_8))) },
