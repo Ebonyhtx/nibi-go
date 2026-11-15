@@ -319,3 +319,94 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 
 这套方案买到的是：**现代 targetSdk 36 + 自包含 Android 原生用户态 + 内核级工具安全**；
 代价是：**App 数据里的 native ELF 不能执行、原生包覆盖有限、fork 维护和公开仓合规**。
+
+## 附录 A：dsh-Go 插件同类映射与可移植性
+
+### A.1 结论
+
+- **dsh-Go 的插件原包不能直接装到 GO**：它们是 DSH/cordis 插件，依赖 `ctx.dshGo`、
+  DSH 引擎 API、Flutter 原生插槽和 dsh-Go 的 view schema；GO 的插件宿主、manifest、
+  slot 协议都不同。
+- **同类插件大部分能做**：把逻辑改写成 GO 的 Node/Python 子进程插件 + 声明式 slots，
+  UI 用 JSON 视图/Web Island 重建。
+- **少数做不了**：依赖 apt/Ubuntu、依赖下载的 native ELF、依赖 Flutter 原生 UI 或
+  DSH 引擎内部 API 的插件。
+
+### A.2 dsh-Go 的插件清单（按形态）
+
+- **市场**：`dsh-media`（生图/生视频）、`modlens`、`modsearch`、`dsh-im`、`dsh-context`。
+- **官方示例**：天气（工具卡）、用量（状态条+面板）、快捷（胶囊+消息菜单）、
+  朗读（TTS+字幕）、工具箱、文件、相册、样式、工作台。
+- **官方组件**：命令、技能、设置表单、dsh-ui 卡（不用写 App 代码就原生显示）。
+- **Web 插件**：通过 Web Island/网页版承载的面板、对话视图。
+
+### A.3 同类插件在 GO 下的可行性
+
+| dsh-Go 插件/类别 | GO 同类能做到吗 | 需要的 GO 能力 | 可行性 |
+|---|---|---|---|
+| 天气（工具卡） | 是 | 网络 egress + 工具卡 view | **高** |
+| 用量（状态条+面板） | 是 | 内核 usage 数据 + `composer.strip`/`panels` | **高** |
+| 快捷（输入胶囊/消息菜单） | 是 | `composer.actions`/`message.actions` + 效果 | **高** |
+| 上下文（context） | 是 | 内核会话/上下文 API + 面板 | **高** |
+| 样式（styles） | 是（只限插件自己的视图） | view v2 样式/颜色/字号边界 | **高** |
+| 工作台/仪表盘 | 是 | `panels` + 多组件视图 | **高** |
+| 文件（files） | 是（workspace/SAF 范围） | 内核文件工具 + 文件面板 | **中高** |
+| 相册（album） | 是 | 媒体选择/SAF + 图片视图 | **中** |
+| 朗读（readaloud） | 是 | Android TTS 桥 + 字幕/浮动层 slot | **中** |
+| 工具箱（toolbox） | 部分 | 纯 JS/Python 工具可以；native 二进制不行 | **中** |
+| modsearch（搜索） | 是 | 网络/搜索 API + 工具卡 | **高** |
+| modlens（图像理解/搜索） | 是 | 相机/图片桥 + 视觉 API | **中高** |
+| dsh-media（生图/生视频） | 是（生成/展示/保存） | 媒体 API + 图片/视频视图 + 保存/分享桥 | **中高** |
+| dsh-im（消息集成） | 是 | 第三方 API/凭据 + 通知桥 | **中** |
+| Web 插件/网页面板 | 是 | Web Island（WebView + 路由守卫 + 预算） | **中** |
+| 依赖 apt/Ubuntu 的插件 | **否** | 无 rootfs/PRoot | **低** |
+| 依赖下载 native ELF 的插件 | **否** | targetSdk 36 不能 exec App 数据 ELF | **低** |
+| 依赖 Flutter 原生 UI 的插件 | **否（需重写）** | 只能改成 slots/JSON 视图/Web Island | **低** |
+| 深度耦合 DSH/cordis 内部 API 的插件 | **低** | 需改写成 GO 插件 SDK | **低** |
+
+### A.4 为什么原包不能直接用
+
+1. **宿主不同**：dsh-Go 插件跑在 DSH 引擎里，用 `ctx.dshGo` 注册 slot、push 数据、
+   invoke 动作；GO 的插件跑在 GO 的 Node/Python 子进程里，用 GO 的插件 SDK/内核工具。
+2. **UI 协议不同**：dsh-Go 有自己的 `dshGo` manifest、view schema、组件目录、slot 名称；
+   GO 要定义自己的 manifest/slot/view schema（可以照着设计，但不是同一个）。
+3. **原生桥不同**：dsh-Go 的 Flutter 侧有 native settings、web islands、overlays、
+   voice/capabilities；GO 是 RN + WebView，需要自己的桥。
+4. **依赖不同**：dsh-Go 插件可能依赖 Ubuntu/PRoot 或 DSH 的 npm 树；
+   GO 是 Android 原生运行时。
+
+所以“用”只能是**移植/重写**，不是 `npm install` 原包。
+
+### A.5 GO 要先补哪些能力
+
+1. **插件 manifest + slot 协议**：工具卡、composer actions、message actions、strip、
+   panels、composer tools、session actions、turn note、Web Island。
+2. **声明式 view schema**：组件目录、文本/颜色/尺寸预算、数据绑定、动作/效果、
+   错误隔离、版本兼容（`caps`/`minApp`）。
+3. **GO 插件 SDK**：Node/Python 侧的 `ctx.nibiGo` 等价物；注册 slot、push 数据、invoke、
+   设置 schema、日志/诊断。
+4. **内核数据/工具 API**：会话、usage、context、workspace、文件、手机、TTS、媒体、通知、分享。
+5. **原生桥**：媒体选择/保存、TTS、通知、剪贴板、相机、录屏、分享；Web Island 路由守卫。
+6. **插件市场/签名**：GO manifest、Ed25519/revision、依赖目录隔离。
+
+### A.6 推荐的落地顺序（用同类插件验证）
+
+1. **天气**：验证工具卡 + 网络 + 错误展示（最简单）。
+2. **用量**：验证 `composer.strip` + `panels` + 内核数据推送。
+3. **快捷**：验证 `composer.actions`/`message.actions` + 效果/回调。
+4. **文件/相册**：验证 workspace/SAF + 媒体桥。
+5. **朗读**：验证 TTS 桥 + 字幕/浮动层（如果 GO 要做 overlay slot）。
+6. **modsearch/modlens/dsh-media**：验证外部 API、媒体展示/保存/分享。
+7. **Web 插件**：验证 Web Island 的守卫、预算、降级。
+
+### A.7 明确不建议/不能做的
+
+- 依赖 apt/Ubuntu/PRoot 的插件（需要 `apt install`、系统库、glibc 预编译二进制）。
+- 依赖下载 native ELF 的插件（esbuild、playwright 浏览器、自解压工具）——
+  targetSdk 36 不能 exec App 数据 ELF。
+- 依赖 Flutter 原生 UI 或 DSH 引擎内部 API 的插件——要改写成 GO slots/SDK。
+- 想改 GO 外壳/导航/主题的插件——和 dsh-Go 一样不允许。
+
+一句话：**dsh-Go 的插件生态在 GO 下不是“兼容层”，而是“同类重建”**；纯 UI/数据/网络类
+（天气、用量、快捷、context、搜索、媒体）大多能做，文件和媒体类要补原生桥，
+shell/native 类受 targetSdk 36 限制，DSH 内部/Flutter UI 类要重写。
