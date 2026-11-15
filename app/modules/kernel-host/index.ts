@@ -10,15 +10,22 @@ import { requireNativeModule } from "expo-modules-core";
 
 type KernelLineEvent = { line: string };
 type KernelErrorEvent = { message: string };
+export type KernelRestartEvent = {
+  /** restarting = binder death 后正在退避重连；ready = 新内核已起、帧通道已通。 */
+  status: "restarting" | "ready";
+  /** 本轮重连的尝试序号（ready 时为成功那次的序号）。 */
+  attempt: number;
+};
 
 interface NibiKernelHostNativeModule {
   isAvailable(): boolean;
   loadError(): string | null;
   abiVersion(): number;
-  start(extraEnv?: Record<string, string>): Promise<boolean>;
+  start(extraEnv?: Record<string, string>, useService?: boolean): Promise<boolean>;
   send(line: string): boolean;
   stop(): boolean;
   destroy(): void;
+  killKernelForTest(): void;
   addListener(
     event: "onKernelLine",
     listener: (payload: KernelLineEvent) => void,
@@ -26,6 +33,10 @@ interface NibiKernelHostNativeModule {
   addListener(
     event: "onKernelError",
     listener: (payload: KernelErrorEvent) => void,
+  ): { remove(): void };
+  addListener(
+    event: "onKernelRestart",
+    listener: (payload: KernelRestartEvent) => void,
   ): { remove(): void };
 }
 
@@ -81,11 +92,14 @@ export function kernelHostAbiVersion(): number {
  * 启动内核线程。宿主必须**先**设好进程环境与 cwd（HOME / NIBI_DATA_BASE_DIR /
  * NIBI_SESSION_DB_PATH …），内核在 start 时只读一次。
  */
-export async function startKernelHost(extraEnv?: Record<string, string>): Promise<boolean> {
+export async function startKernelHost(
+  extraEnv?: Record<string, string>,
+  options?: { useService?: boolean },
+): Promise<boolean> {
   const module = getNative();
   if (!module) return false;
   try {
-    return await module.start(extraEnv);
+    return await module.start(extraEnv, options?.useService === true);
   } catch {
     return false;
   }
@@ -138,4 +152,26 @@ export function onKernelError(listener: (message: string) => void): () => void {
   if (!module) return () => {};
   const subscription = module.addListener("onKernelError", (event) => listener(event.message));
   return () => subscription.remove();
+}
+
+/**
+ * 订阅 `:kernel` 进程的重启状态（仅服务模式）。binder death 后宿主会退避重绑，
+ * `ready` 表示新内核已起、帧通道可用；调用方应重新 resume 会话并重订阅。
+ */
+export function onKernelRestart(listener: (event: KernelRestartEvent) => void): () => void {
+  const module = getNative();
+  if (!module) return () => {};
+  const subscription = module.addListener("onKernelRestart", listener);
+  return () => subscription.remove();
+}
+
+/** 调试：杀掉 `:kernel` 进程（仅服务模式 + debuggable 包）。 */
+export function killKernelForTest(): void {
+  const module = getNative();
+  if (!module) return;
+  try {
+    module.killKernelForTest();
+  } catch {
+    // 非服务模式/非调试包：忽略。
+  }
 }

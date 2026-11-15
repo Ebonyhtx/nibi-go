@@ -1,1 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    D20：内核跑在独立普通进程（不是 isolatedProcess——隔离进程没有网络权限）。
+    控制面走 Binder，帧流走 socketpair（见 INibiKernelService / KernelService）。
+  -->
+  <application>
+    <service
+      android:name="expo.modules.nibikernelhost.KernelService"
+      android:process=":kernel"
+      android:exported="false" />
+  </application>
+</manifest>

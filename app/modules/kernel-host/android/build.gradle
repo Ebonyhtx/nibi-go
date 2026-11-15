@@ -9,6 +9,11 @@ version = '0.1.0'
 android {
   namespace "expo.modules.nibikernelhost"
 
+  buildFeatures {
+    // D20：:kernel Service 的控制面（INibiKernelService.aidl）。
+    aidl true
+  }
+
   defaultConfig {
     versionCode 1
     versionName "0.1.0"

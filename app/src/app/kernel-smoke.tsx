@@ -14,8 +14,10 @@ import {
   kernelHostAbiVersion,
   kernelHostAvailable,
   kernelHostLoadError,
+  killKernelForTest,
   onKernelError,
   onKernelLine,
+  onKernelRestart,
   sendKernelLine,
   startKernelHost,
   stopKernelHost,
@@ -46,10 +48,14 @@ export default function KernelSmokeScreen() {
       append("line", line);
     });
     const offError = onKernelError((message) => append("error", message));
+    const offRestart = onKernelRestart((event) =>
+      append("info", `:kernel 重启：${event.status}（attempt ${event.attempt}）`),
+    );
     append("info", "已订阅内核输出；start 后这里会出现协议帧");
     return () => {
       offLine();
       offError();
+      offRestart();
       clientRef.current?.close();
       clientRef.current = null;
       destroyKernelHost();
@@ -80,14 +86,35 @@ export default function KernelSmokeScreen() {
     },
     async startMock() {
       // 本机假 Provider（scripts/dev/mock-openai.mjs + adb reverse tcp:9099）。
-      const ok = await startKernelHost({
-        NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
-        NIBI_API_KEY: "mock-key",
-        NIBI_MODEL: "mock-model",
-      });
+      const ok = await startKernelHost(
+        {
+          NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
+          NIBI_API_KEY: "mock-key",
+          NIBI_MODEL: "mock-model",
+        },
+        { useService: false },
+      );
       setStarted(ok);
       if (ok) makeClient();
       append("info", `start(mock) → ${ok}`);
+    },
+    async startServiceMock() {
+      // D20：内核跑在 :kernel 进程，控制面 Binder、帧流 socketpair。
+      const ok = await startKernelHost(
+        {
+          NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
+          NIBI_API_KEY: "mock-key",
+          NIBI_MODEL: "mock-model",
+        },
+        { useService: true },
+      );
+      setStarted(ok);
+      if (ok) makeClient();
+      append("info", `start(:kernel service) → ${ok}`);
+    },
+    killProcess() {
+      killKernelForTest();
+      append("info", "killKernelForTest()：等待 binder death → 重连");
     },
     stop() {
       const ok = stopKernelHost();
@@ -217,6 +244,20 @@ export default function KernelSmokeScreen() {
           label="读消息（session/messages）"
           onPress={presses.readMessages}
           color={th.amber}
+          fg="#fffdf9"
+        />
+      </View>
+      <View style={styles.actions}>
+        <Action
+          label="启动（:kernel 服务 + mock）"
+          onPress={presses.startServiceMock}
+          color={th.steel}
+          fg="#fffdf9"
+        />
+        <Action
+          label="杀掉 :kernel 进程"
+          onPress={presses.killProcess}
+          color={th.red}
           fg="#fffdf9"
         />
       </View>
