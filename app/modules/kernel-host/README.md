@@ -109,24 +109,54 @@ JVM 侧还需要 crate 的 Kotlin 组件（JNI 桥，`org.rustls.platformverifie
 - Android 15+ `dataSync` 有 6h/24h 上限：`KernelService.onTimeout` 主动停内核 + `stopSelf`，
   避免系统判 ANR；长任务要走 `specialUse` 声明或分段续跑（⑤ 待运营者定）。
 
-## Android shell（D25 Phase 1，2026-11-15）
+## Android shell / 随包运行时（D25 Phase 1+2，2026-11-15）
 
-内核在 Android 上发现 `/system/bin/sh`（mksh）并以下述方言执行：
+内核在 Android 上的 shell 发现由 fork 负责，宿主只准备环境：
 
 - `ShellDialect::AndroidSh`（`crates/kernel-api`）：POSIX 启动形态，无 bash/zsh 扩展；
-  Phase 2 装了 jniLibs bash 后路径含 `bash` → 自动切回 `GitBash` 方言；
-- 发现顺序（`crates/cli/src/shell.rs`）：`NIBI_SHELL` → `SHELL` → PATH 里的 bash/zsh/sh →
-  `/system/bin/sh`；hook 命令用同一个 shell（不再固定 `/bin/bash`）；
-- 宿主只设环境：`SHELL` / `NIBI_SHELL` = `/system/bin/sh`，`PATH` 含
-  `$NIBI_BIN`（`filesDir/runtime/bin`，Phase 2 三件套的固定入口）与 `/system/bin`；
-  不再创建 `bin/bash -> /system/bin/sh` 过渡符号链接；
-- 系统提示的环境段显示 `Platform: android` / `Shell: sh`（`describe_shell`）。
+  发现顺序（`crates/cli/src/shell.rs`）：`NIBI_SHELL` → `SHELL` → PATH 里的 bash/zsh/sh →
+  `/system/bin/sh`；hook 命令用同一套发现（不再固定 `/bin/bash`）。
+  Phase 2 把 bash 放进 `$NIBI_BIN` 后，PATH 命中 bash → 自动切回 `GitBash` 方言。
+- 宿主环境：`SHELL`/`NIBI_SHELL` = `filesDir/runtime/bin/bash`（没有运行时则
+  `/system/bin/sh`）；`PATH` = `$NIBI_BIN:/system/bin:/system/xbin`。
 
-真机验证（2026-11-15，PHK110 / Android 16）：
+### 运行时布局
 
-- UserPromptSubmit hook 经 sh 执行：`$SHELL` = `/system/bin/sh`，写出证明文件；
-- mock 模型的 Bash 工具调用经 sh 执行成功（`echo nibi-bash-sh-ok > $HOME/...`），
-  工具结果回到模型并完成回合；审批卡路径不变（build 模式仍需确认，yolo 只用于测试）。
+```
+jniLibs/arm64-v8a/        # 只能扁平 lib*.so；可 exec
+  libbash.so libbusybox.so libgit.so libgit_remote_http.so
+  libnibi_run.so libnibi_hook.so
+filesDir/runtime/
+  bin/                    # symlink -> nativeLibraryDir（bash/busybox/git/nibi-run + 377 applets）
+  git-core/               # symlink（151 个 git 内建/helper）+ git-sh-setup 等脚本
+  hooks/                  # symlink -> libnibi_hook.so（core.hooksPath）
+  share/git-core/templates/
+  etc/bash_env.sh         # BASH_ENV：command_not_found_handle + busybox 函数
+  terminfo/               # 构建机有 tic 时生成（xterm/screen/linux）
+assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
+```
+
+- 构建：`node scripts/android-runtime/build.mjs`（Linux 或 WSL + NDK r27b）。源码版本/URL/
+  sha256 在 `scripts/android-runtime/sources.json`；构建后 fail-closed 校验 ELF 身份、
+  `PT_INTERP=/system/bin/linker64`、16 KB LOAD 对齐、API 24 符号面、清单/zip 形状。
+  CI：`.github/workflows/android-runtime.yml`。
+- 安装：`NibiRuntime.install()` 按 `version` 解包 assets，再重建全部 symlink（APK 升级后
+  nativeLibraryDir 会变）；失败只回退 `/system/bin/sh`，不阻塞内核。
+- 打包：`app/plugins/withAndroidLegacyPackaging` 固定 `expo.useLegacyPackaging=true`，
+  APK 里 `extractNativeLibs="true"`；否则 jniLibs 不会被解压到可执行目录。
+- git：`filesDir/.gitconfig` 写入 `core.hooksPath=filesDir/runtime/hooks`（只写一次；
+  仓库级配置优先，husky 等不会被覆盖）。`nibi-hook` 按 `argv[0]` 找仓库
+  `.git/hooks/<name>`，再交给 `nibi-run`。
+- `nibi-run`：shebang（bash/node/python）、`$NIBI_BIN`/PATH 查找、npm `.bin` 入口；
+  App 数据 ELF 明确拒绝（Android 16 noexec），给出可操作错误。
+
+真机验证（2026-11-15，PHK110 / Android 16，`run-as` + App uid）：
+
+- `bash 5.2.37`、`busybox 1.36.1`、`git 2.51.0` 均可执行；管道与 busybox applet 正常；
+- `git init/add/commit` 触发 pre-commit → dispatcher → `nibi-run` → 仓库 hook 成功；
+- `#!/bin/bash` 脚本经 `nibi-run` 执行成功；`#!/usr/bin/env node` 在 Phase 3 前报
+  “node 不可用”（rc 127）；App 数据 ELF 被拒并给出原因（rc 126）。
+- 未完成：HTTPS（设备锁屏 + 后台 app UID 被系统限网）与 50 命令矩阵，解锁后补。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

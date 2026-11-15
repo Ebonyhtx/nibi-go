@@ -1,10 +1,12 @@
 # 票据 · Android 进程内内核没有可用的 POSIX shell（Bash 工具）
 
-> 状态（2026-11-15）：**已由 D25 Phase 1 解决**——GO fork 新增 `ShellDialect::AndroidSh`，
-> Android 发现 `/system/bin/sh`（NIBI_SHELL → SHELL → PATH → `/system/bin/sh`），hook 用同一个
-> shell；宿主不再建临时 `bin/bash` 符号链接。真机验证：UserPromptSubmit hook 与 Bash 工具都经 sh
-> 执行成功（`$SHELL=/system/bin/sh`）。Phase 2 装上 jniLibs bash 后路径含 `bash` 会自动切回
-> `GitBash` 方言。本票据保留现象/证据/三件套实测，作为历史记录。
+> 状态（2026-11-15）：**Phase 1 已解决 sh 面；Phase 2 已把真 bash 随包送进 jniLibs**。
+> GO fork 新增 `ShellDialect::AndroidSh`，Android 发现顺序 `NIBI_SHELL → SHELL → PATH 的
+> bash/zsh/sh → /system/bin/sh`，hook 用同一套发现；宿主不再建临时 `bin/bash` 符号链接。
+> Phase 1 真机验证：UserPromptSubmit hook 与 Bash 工具都经 sh 执行成功。Phase 2 随后把
+> bash 5.2.37 构建成 `libbash.so`，由 `filesDir/runtime/bin/bash` symlink 暴露；
+> `run-as` 真机验证 bash/管道/busybox/git/hook 均可用（HTTPS 待解锁后补）。
+> 本票据保留现象/证据/三件套实测，作为历史记录。
 >
 > 历史：曾用 GO 临时桥（`bin/bash -> /system/bin/sh`）真机跑通 `echo ... | tr ...`；正式方案见
 > `docs/plan.md` §7 Phase 1 与 `app/modules/kernel-host/README.md`「Android shell」。

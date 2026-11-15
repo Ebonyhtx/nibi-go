@@ -352,6 +352,30 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 7. **fork 治理**：D24 改变了 D17 的「不 fork/不养 Rust 构建链」；AGENTS、CI、许可证审计
    必须同步（见 §2.3/§11）。fork 基线建议 nibi-client `dev` `1369b043`。
 
+### 13.1 Phase 2 落地校正（2026-11-15，实际构建/真机 run-as）
+
+8. **bionic 缺的 applet/接口是产品边界，不是构建偶然**：busybox 必须关闭
+   `sys/kd.h` 相关（loadfont/setfont/conspy）、SysV IPC（ipcrm/ipcs/logread）、utmp/wtmp、
+   `getlogin_r`（logname）、`getusershell`（su）、`syncfs`、`adjtimex`、`ether_hostton`、
+   `mntent`（mount/swap）、hush（glob/sigisemptyset）、tc（CBQ 头）。清单固化在
+   `scripts/android-runtime/build.sh`，改配置要过 `--check` 与 50 命令矩阵。
+9. **bash**：bionic 没有 `getgrent`（关闭组名补全）、`mblen` 直到 API 26（用
+   `nibi_mblen` 包装 `mbrtowc`），bundled termcap 的 `tparam.c` 缺 `<unistd.h>`。
+   readline/ncurses 静态链接进 bash，最终只依赖 libc/libdl。
+10. **git**：bionic 没有 `pthread_setcancelstate`（`NO_PTHREADS=1`）；
+    `sync_file_range`/`getrandom` 在 API 24 不可用（make 变量覆盖 + `CSPRNG_METHOD=arc4random`）；
+    `NO_OPENSSL=1` 让 git 自身不链 libcrypto，TLS 只由 `git-remote-http`（静态 curl+OpenSSL）承担。
+11. **busybox 的 `make install` 必须带同一套 `CC/AR/...`**：否则 install 目标会隐式重建
+    `busybox`，用 host gcc 产出 x86-64，并静默替换掉 Android 产物。校验器的 ELF 身份检查
+    抓到了这一点；所有 `make` 入口现在共用同一个函数。
+12. **三件套统一动态 PIE**：静态探针的 `PT_TLS align=8` 再次复现（bionic 要求 64），
+    不再评估静态；全部加 `-Wl,-z,max-page-size=16384`，`--check` 断言 LOAD 对齐与
+    `PT_INTERP=/system/bin/linker64`。API 24 符号面用 NDK 的 24 版 stub 逐符号比对，
+    OpenSSL 的 `getentropy`/`memfd_create` 是弱符号（旧系统解析为 0）。
+13. **legacy packaging 是必需的**：`expo.useLegacyPackaging=true` → APK
+    `extractNativeLibs="true"`，libs 才会解压到 `nativeLibraryDir`；否则 symlink 目标不存在。
+    该值由 `app/plugins/withAndroidLegacyPackaging.js` 在 prebuild 时固定。
+
 ## 附录 A：dsh-Go 插件同类映射与可移植性
 
 ### A.1 结论

@@ -51,6 +51,30 @@ NIBI-GO 的运行时与开发依赖以宽松许可（MIT / Apache-2.0 / BSD / IS
 Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定宽松许可白名单，
 每次重 pin 后跑 `cargo deny check` / `cargo audit`（记录见 `kernel/CHANGELOG-FORK.md`）。
 
+## 随包 Android 运行时（D25 Phase 2）
+
+`scripts/android-runtime/sources.json` 固定版本、下载 URL 与 sha256；`build.mjs` 校验通过后
+才允许构建。`build.sh` 用 NDK r27b 交叉编译为 bionic 动态 PIE（API 24、16 KB LOAD 对齐），
+产物落在 `app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/`：
+
+| 组件 | 版本 | 许可 | 用途 |
+|---|---|---|---|
+| GNU bash | 5.2.37 | GPL-3.0-or-later | `$NIBI_BIN/bash`；内核 GitBash 方言与 hooks |
+| GNU readline | 8.2.13 | GPL-3.0-or-later | bash 行编辑（静态链接进 bash） |
+| ncurses | 6.5 | MIT | readline 的 terminfo 后端（静态链接进 bash） |
+| BusyBox | 1.36.1 | GPL-2.0-only | 常用 applet（grep/sed/awk/find/tar 等） |
+| git | 2.51.0 | GPL-2.0-only | `libgit.so` + `libgit_remote_http.so` |
+| curl | 8.16.0 | curl | git http/https 传输（静态链接进 remote helper） |
+| OpenSSL | 3.5.4 | Apache-2.0 | curl 的 TLS 后端（静态链接） |
+| zlib | 1.3.1 | Zlib | curl/git 的压缩后端（静态链接） |
+
+GPL 对应源码：上表各组件的完整源码即对应版本的官方 tarball（URL 与 sha256 见
+`scripts/android-runtime/sources.json`），加上本仓公开的
+`scripts/android-runtime/patch-sources.py`（最小 bionic 补丁）与 `build.sh`（构建参数）；
+任何人可用 `node scripts/android-runtime/build.mjs` 从这些输入重建同一产物。再分发时请保留
+本声明与 `NOTICE.md`。BusyBox 未启用的 applet（SysV IPC、utmp、mount/swap/tc 等）是
+Android app uid 的产品边界，清单在 `build.sh` 的配置段。
+
 ## 抽取件的上游
 
 `packages/shared-extract/` 中的协议契约代码来自 nibi-client（Apache-2.0，

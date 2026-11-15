@@ -21,7 +21,10 @@ Copyright 2026 NIBI Studio
    `kernel/LICENSE` 与 `kernel/vendor/THIRD-PARTY-NOTICES.txt` 随快照保留；
    同步与合并记录见 `kernel/UPSTREAM.md`，NIBI 时期的 fork 台账见
    `kernel/CHANGELOG-FORK.md`。
-4. **不在本仓库中的组件**：发布签名材料、发布流水线与运营侧服务均不在公开范围内。
+4. **随包 Android 运行时**：bash/busybox/git 等由 NDK 从固定上游源码构建（版本、URL、
+   sha256 见 `scripts/android-runtime/sources.json`），许可与 GPL 源码获取方式见
+   `THIRD-PARTY-NOTICES.md`「随包 Android 运行时」。
+5. **不在本仓库中的组件**：发布签名材料、发布流水线与运营侧服务均不在公开范围内。
 
 ## 第三方组件
 

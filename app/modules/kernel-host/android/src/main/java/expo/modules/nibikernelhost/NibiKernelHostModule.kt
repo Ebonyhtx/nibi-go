@@ -46,8 +46,9 @@ class NibiKernelHostModule : Module() {
         startService(extraEnv ?: emptyMap())
       } else {
         requireAvailable()
-        prepareEnvironment()
+        // 先应用调试 env，再装运行时：SHELL/PATH/GIT_* 必须由运行时口径最后落定。
         extraEnv?.forEach { (name, value) -> setEnv(name, value) }
+        prepareEnvironment()
         // T8 S2：必须在 nativeStart 前把 JVM + Context 交给内核；失败只降级内置根，不阻塞启动。
         val context = appContext.reactContext ?: throw IllegalStateException("缺少 Android Context")
         if (!NibiKernelHostNative.nativeAttach(context.applicationContext)) {
@@ -139,21 +140,17 @@ class NibiKernelHostModule : Module() {
     setEnv("HOME", files)
     setEnv("NIBI_DATA_BASE_DIR", files)
     setEnv("TMPDIR", context.cacheDir.absolutePath)
-    prepareShell(context.filesDir)
+    prepareRuntime(context)
   }
 
   /**
-   * D25 Phase 1：Android 的正式 shell 面。内核自己发现 `/system/bin/sh`（mksh，AndroidSh 方言），
-   * 宿主只把 SHELL / NIBI_SHELL / PATH 指过去；`$NIBI_BIN` 是 Phase 2 三件套（bash/busybox/git）
-   * 的固定入口，现在先建好目录并放进 PATH，装好后无需改内核。
+   * D25 Phase 2：随包 bash/busybox/git 安装到 filesDir/runtime；jniLibs 只放 lib*.so，
+   * 用户可见命令全部是 symlink（指向 nativeLibraryDir）。没有运行时回退 /system/bin/sh。
    */
-  private fun prepareShell(files: File) {
-    val bin = File(files, "runtime/bin")
-    bin.mkdirs()
-    setEnv("NIBI_BIN", bin.absolutePath)
-    setEnv("SHELL", "/system/bin/sh")
-    setEnv("NIBI_SHELL", "/system/bin/sh")
-    setEnv("PATH", "${bin.absolutePath}:/system/bin:/system/xbin")
+  private fun prepareRuntime(context: android.content.Context) {
+    val installed = NibiRuntime.install(context)
+    NibiRuntime.applyEnvironment(context, installed)
+    NibiRuntime.logFailure(installed)
   }
 
   private fun setEnv(name: String, value: String) {
