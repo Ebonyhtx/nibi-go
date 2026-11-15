@@ -16,6 +16,9 @@ export type IconName =
   | "puzzle"
   | "search"
   | "pen"
+  | "archive"
+  | "trash"
+  | "ellipsis"
   | "shield"
   | "question"
   | "x";
@@ -80,6 +83,23 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
           </>
         ) : name === "x" ? (
           <Path path="M6.5 6.5L17.5 17.5M17.5 6.5L6.5 17.5" {...paint} />
+        ) : name === "archive" ? (
+          <>
+            <Path path="M3.5 4.5H20.5V7.5H3.5Z" {...paint} />
+            <Path path="M5 7.5V19.5H19V7.5" {...paint} />
+            <Path path="M9.5 11.5H14.5" {...paint} />
+          </>
+        ) : name === "trash" ? (
+          <>
+            <Path path="M4.5 7H19.5M9.5 3.8H14.5M6.5 7L7.6 20H16.4L17.5 7" {...paint} />
+            <Path path="M10.4 10.8V16.6M13.6 10.8V16.6" {...paint} />
+          </>
+        ) : name === "ellipsis" ? (
+          <>
+            <Circle cx={6} cy={12} r={1.25} color={color} />
+            <Circle cx={12} cy={12} r={1.25} color={color} />
+            <Circle cx={18} cy={12} r={1.25} color={color} />
+          </>
         ) : name === "shield" ? (
           <Path path="M12 3.2L19 6V11.4C19 15.8 16 19 12 20.8C8 19 5 15.8 5 11.4V6Z" {...paint} />
         ) : name === "question" ? (

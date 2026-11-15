@@ -117,12 +117,17 @@ export default function GoHomeScreen() {
           <GoSidebar
             petState={petState}
             sessions={conversation.sessions}
+            archivedSessions={conversation.archivedSessions}
             activeSessionId={conversation.activeSessionId}
             onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
             onNewSession={() => {
               setDraft("");
               void conversation.newSession();
             }}
+            onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
+            onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
+            onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
+            onDeleteAllArchived={conversation.deleteAllArchived}
           />
         ) : null}
         {hasRail ? (
@@ -291,12 +296,17 @@ export default function GoHomeScreen() {
           onClose={() => setDrawerOpen(false)}
           petState={petState}
           sessions={conversation.sessions}
+          archivedSessions={conversation.archivedSessions}
           activeSessionId={conversation.activeSessionId}
           onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
           onNewSession={() => {
             setDraft("");
             void conversation.newSession();
           }}
+          onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
+          onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
+          onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
+          onDeleteAllArchived={conversation.deleteAllArchived}
         />
       ) : null}
     </View>

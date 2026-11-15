@@ -13,7 +13,7 @@ import {
   type KernelWorkspaceRef,
   type TurnState,
 } from "@nibi-go/kernel-session";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionsAndroid, Platform } from "react-native";
 
 import {
@@ -23,6 +23,9 @@ import {
   sendKernelLine,
   startKernelHost,
 } from "nibi-kernel-host";
+
+import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
+import { splitSessions } from "./sessionArchive";
 
 const DEV_MOCK_ENV = {
   NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
@@ -63,11 +66,22 @@ export interface KernelConversation {
   status: string;
   ready: boolean;
   sending: boolean;
+  /** 未归档的会话（抽屉主列表）。 */
   sessions: readonly KernelSessionSummary[];
+  /** 已归档的会话（归档管理）；归档是 GO 本地的会话管理状态，不写内核。 */
+  archivedSessions: readonly KernelSessionSummary[];
   activeSessionId: string | null;
   send: (text: string) => Promise<void>;
   newSession: () => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
+  /** 归档一条会话（隐藏出主列表，可在归档管理里恢复或删除）。 */
+  archiveSession: (sessionId: string) => Promise<void>;
+  /** 取消归档。 */
+  unarchiveSession: (sessionId: string) => Promise<void>;
+  /** 删除一条会话（`v4/command deleteSession`，内核软删除）；删当前会话会切到最近一条。 */
+  deleteSession: (sessionId: string) => Promise<void>;
+  /** 删除全部已归档会话；返回成功/失败数。 */
+  deleteAllArchived: () => Promise<{ succeeded: number; failed: number }>;
   /** 回答审批/提问（`v4/command` 的 `resolveInteraction`）。 */
   respondInteraction: (interactionId: string, answer: Record<string, unknown>) => Promise<void>;
   /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`）。 */
@@ -80,7 +94,9 @@ export function useKernelConversation(): KernelConversation {
   const [status, setStatus] = useState("初始化…");
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sessions, setSessions] = useState<readonly KernelSessionSummary[]>([]);
+  // 内核返回的全部顶层会话（含已归档）；列表按本地归档集合拆成两份。
+  const [allSessions, setAllSessions] = useState<readonly KernelSessionSummary[]>([]);
+  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [turnChanges, setTurnChanges] = useState<Record<string, readonly ChatFileChange[]>>({});
   // 已经请求过明细的轮（stale 水位时才允许重试；其他失败不反复打内核）。
@@ -88,8 +104,10 @@ export function useKernelConversation(): KernelConversation {
   const clientRef = useRef<KernelSessionClient | null>(null);
   const feedRef = useRef<ConversationFeed | null>(null);
   const controllerRef = useRef<ConversationController | null>(null);
-  // 重启重连时用来恢复「当前这条会话」（state 在回调里会过期）。
+  // 内核重启重连时用来恢复「当前这条会话」（state 在回调里会过期）。
   const activeSessionIdRef = useRef<string | null>(null);
+  // 归档集合的回调读值（refreshSessions/删除等回调不重建）。
+  const archivedIdsRef = useRef<ReadonlySet<string>>(new Set());
   // 本机已发出、内核还没回显的提示（dsh-Go PendingRow）。
   const pendingRef = useRef<Array<{ id: string; text: string; baselineRowId: number }>>([]);
   const pendingSeq = useRef(1);
@@ -180,21 +198,33 @@ export function useKernelConversation(): KernelConversation {
   const refreshSessions = useCallback(async (client: KernelSessionClient) => {
     try {
       const list = await client.listSessions();
-      const visible = list
+      const topLevel = list
         .filter((session) => !session.parentSessionId)
         .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-      setSessions(visible);
-      return visible;
+      setAllSessions(topLevel);
+      return splitSessions(topLevel, archivedIdsRef.current).visible;
     } catch {
       return [];
     }
   }, []);
+
+  const split = useMemo(
+    () => splitSessions(allSessions, archivedIds),
+    [allSessions, archivedIds],
+  );
+  const sessions = split.visible;
+  const archivedSessions = split.archived;
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         if (KERNEL_MODE === "service") void ensureNotificationPermission();
+        // 归档集合是本地状态：先读盘，再拉会话列表，避免已归档会话在首页闪一下。
+        const archived = await loadArchivedSessionIds();
+        if (cancelled) return;
+        archivedIdsRef.current = new Set(archived);
+        setArchivedIds(archivedIdsRef.current);
         const env = __DEV__ ? DEV_MOCK_ENV : undefined;
         let started = await startKernelHost(env, { useService: KERNEL_MODE === "service" });
         if (!started && KERNEL_MODE === "service") {
@@ -385,6 +415,75 @@ export function useKernelConversation(): KernelConversation {
     [attach],
   );
 
+  /** 归档集合的唯一写入口（ref + state + 落盘）。 */
+  const persistArchived = useCallback(async (next: ReadonlySet<string>) => {
+    archivedIdsRef.current = next;
+    setArchivedIds(next);
+    await saveArchivedSessionIds([...next]);
+  }, []);
+
+  const archiveSession = useCallback(
+    async (sessionId: string) => {
+      const next = new Set(archivedIdsRef.current);
+      next.add(sessionId);
+      await persistArchived(next);
+    },
+    [persistArchived],
+  );
+
+  const unarchiveSession = useCallback(
+    async (sessionId: string) => {
+      const next = new Set(archivedIdsRef.current);
+      next.delete(sessionId);
+      await persistArchived(next);
+    },
+    [persistArchived],
+  );
+
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      const client = clientRef.current;
+      if (!client) throw new Error("内核会话客户端不可用");
+      await client.deleteSession(sessionId);
+      if (archivedIdsRef.current.has(sessionId)) {
+        const next = new Set(archivedIdsRef.current);
+        next.delete(sessionId);
+        await persistArchived(next);
+      }
+      const visible = await refreshSessions(client);
+      if (activeSessionIdRef.current !== sessionId) return;
+      // 删的是当前会话：切到最近一条可见会话；一条都没有就新建（首页不能空）。
+      try {
+        if (visible.length > 0) await client.resumeSession(visible[0]!.sessionId);
+        else await client.createSession(workspaceRef());
+        const nextId = client.currentSessionId;
+        if (!nextId) return;
+        await attach(client, nextId);
+        activeSessionIdRef.current = nextId;
+        setActiveSessionId(nextId);
+        setReady(true);
+        setStatus("就绪");
+      } catch (error) {
+        setStatus(`切换会话失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    },
+    [attach, persistArchived, refreshSessions],
+  );
+
+  const deleteAllArchived = useCallback(async () => {
+    let succeeded = 0;
+    let failed = 0;
+    for (const sessionId of [...archivedIdsRef.current]) {
+      try {
+        await deleteSession(sessionId);
+        succeeded += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { succeeded, failed };
+  }, [deleteSession]);
+
   const respondInteraction = useCallback(
     async (interactionId: string, answer: Record<string, unknown>) => {
       const client = clientRef.current;
@@ -406,10 +505,15 @@ export function useKernelConversation(): KernelConversation {
     ready,
     sending,
     sessions,
+    archivedSessions,
     activeSessionId,
     send,
     newSession,
     openSession,
+    archiveSession,
+    unarchiveSession,
+    deleteSession,
+    deleteAllArchived,
     respondInteraction,
     turnChanges,
   };
