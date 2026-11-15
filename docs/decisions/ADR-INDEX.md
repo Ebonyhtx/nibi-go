@@ -76,7 +76,7 @@
 
 | 项 | 方向（已达成共识的部分） | 触发点 / 待定 |
 |---|---|---|
-| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM。**2026-11-15 真机新增输入**：内核 Bash 工具只认 bash/zsh，Android 只有 `/system/bin/sh`（票据 T9）；GO 已用 `bin/bash -> /system/bin/sh` 临时桥真机跑通管线（不随包带可执行文件），但 bash 语义与 hook 仍需正式方案；「随包带 bash」正是本条要评估的方案 | T8/S2 后定案；插件运行时最晚 C2 前 |
+| ④ 可执行内容边界 | **运行期永不下载可执行代码**；jniLibs 里塞 Node 再 exec 是灰色地带，只作最后手段，优先进程内 JS/WASM。**2026-11-15 真机新增输入**：内核 Bash 工具只认 bash/zsh，Android 只有 `/system/bin/sh`（票据 T9）；GO 已用 `bin/bash -> /system/bin/sh` 临时桥真机跑通管线（不随包带可执行文件），但 bash 语义与 hook 仍需正式方案；**targetSdk 36 可行性已实测**：`useLegacyPackaging=true` 后 jniLibs 可执行 ELF 从 App 进程 exec 成功（无需 targetSdk 28/PRoot），三件套剩体积/许可/Play 审查三项成本；「随包带 bash」正是本条要评估的方案 | T8/S2 后定案；插件运行时最晚 C2 前 |
 | ⑤ FGS 策略 | `dataSync` 在 targetSdk 35+ 有 6h/24h 上限；长任务走 `specialUse` + Play 声明，或分段续跑。**已落（2026-11-15）**：`POST_NOTIFICATIONS` 运行时请求、`KernelService.onTimeout` 超时主动停内核 + stopSelf | 剩 `specialUse` vs 分段（运营者）+ Play 声明；上架前补 |
 | ⑧ 体积/ABI 预算 | 只发 arm64 + App Bundle；**不给模拟器单发 x86_64**（内核只有 arm64，模拟器包只是开发产物） | 发布前；与 D13.3 工具链 75–100MB 叠加时定上限 |
 | 国内 App 备案 | 硬门槛（市场不收无备案 App）；侧载 vs 商店二选一 | 发布前，运营者决策 |
