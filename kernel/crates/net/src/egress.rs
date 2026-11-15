@@ -242,7 +242,21 @@ fn build_client(policy: &NetworkPolicy, platform: bool) -> Result<reqwest::Clien
         );
     }
     builder = match policy.roots.anchors() {
-        Anchors::Merge(ders) if use_platform => builder.tls_certs_merge(certificates(&ders)?),
+        Anchors::Merge(ders) if use_platform => {
+            // reqwest 的 tls_certs_merge 在 Android 上直接返回错误（它只在桌面平台构造
+            // rustls-platform-verifier）。这里自己装预配置的 rustls 配置：平台校验器 +
+            // 内置根 webpki，任一通过即可（与桌面 Merge 的语义一致）。
+            #[cfg(target_os = "android")]
+            {
+                let config = crate::android_trust::android_tls_config(&ders)
+                    .map_err(NetError::Policy)?;
+                builder.use_preconfigured_tls(config)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                builder.tls_certs_merge(certificates(&ders)?)
+            }
+        }
         Anchors::Merge(ders) | Anchors::Only(ders) => builder.tls_certs_only(certificates(&ders)?),
     };
     builder

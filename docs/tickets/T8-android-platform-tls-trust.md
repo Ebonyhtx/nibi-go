@@ -1,10 +1,25 @@
 # 票据 · Android 进程内内核的 TLS 信任锚初始化
 
 > 状态（2026-11-15）：S1 已真机验证（上游 `feat/android-kernel`，`2aa2d6d9`：平台根不可用时
-> 退内置 Mozilla 根），已并入 GO fork 基线 `1369b043`；**S2 已在 GO fork 实现**——
-> `nibi_app_server_attach_android(JNIEnv*, Context)`（`kernel/crates/net/src/android_trust.rs`
-> + `kernel/crates/cli/src/android_ffi.rs`）由 `:kernel` 服务/进程内模块在 start 前调用；
-> 构建断言要求该符号存在。企业 CA 真机用例待跑（Phase 0 回归）。
+> 退内置 Mozilla 根），已并入 GO fork 基线 `1369b043`；**S2 已在 GO fork 实现并真机跑通启动链**。
+>
+> S2 的实现分三块（缺一不可）：
+> 1. `nibi_app_server_attach_android(JNIEnv*, Context)`（`kernel/crates/net/src/android_trust.rs`
+>    + `kernel/crates/cli/src/android_ffi.rs`）由 `:kernel` 服务/进程内模块在 start 前调用；
+> 2. **不能用 reqwest 的 `tls_certs_merge`**：reqwest 0.13 在 Android 上直接返回
+>    `rustls-platform-verifier could not load extra certs`（`client.rs` 的 cfg 只对桌面平台构造
+>    平台校验器），而 `rustls-platform-verifier` 的 Android 后端也没有 `new_with_extra_roots`。
+>    所以 `net` 自己构造预配置 rustls 配置（`android_tls_config`）：平台 `Verifier::new` +
+>    内置根 `WebPkiServerVerifier` 的合并校验器，任一通过即可；`egress` 走
+>    `use_preconfigured_tls`（传 `ClientConfig` 本体，不是 `Some(...)`）。
+> 3. JVM 侧 Kotlin 组件 `org.rustls:rustls-platform-verifier:0.2.0`（版本必须等于
+>    `Cargo.lock` 的 `rustls-platform-verifier-android`），由 `withKernelAndroidTrust` config plugin
+>    注入仓库、debug NSC 覆盖与 R8 keep。
+>
+> 真机 2026-11-15（PHK110 / Android 16）：`:kernel` 里 `attach=true`，egress 构造不再报
+> `could not load extra certs`；`startup/storageState` 走到 ready、会话/流式/mock 回合全通
+> （5.7s / 16 tokens）。**企业/用户 CA 的信任用例仍未真机验证**（需要用户手工安装 CA；
+> 当前只证明平台校验器初始化与合并校验器不破坏公开 HTTPS）。
 >
 > 历史：Phase C C0 真机冒烟时发现；原期望载体是 nibi-client `kernel/crates/net/` +
 > `kernel/crates/cli/src/android_ffi.rs`。S1 的实现与真机证据保留在本票据下方。

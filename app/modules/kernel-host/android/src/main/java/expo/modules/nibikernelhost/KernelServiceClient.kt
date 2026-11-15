@@ -39,6 +39,9 @@ internal class KernelServiceClient(
   private var binding = false
   private var destroyed = false
   private var attempt = 0
+  // binder death 后的重绑中：只有这种重连成功才发 onRestart("ready")。
+  // 首次 start 成功不发（否则 JS 的 ready 处理会和首启初始化并发，互相关掉 client）。
+  private var recovering = false
   private var env: Map<String, String> = emptyMap()
 
   @Volatile
@@ -63,6 +66,7 @@ internal class KernelServiceClient(
   fun start(environment: Map<String, String>): Boolean {
     env = environment
     attempt = 0
+    recovering = false
     ensureServiceStarted()
     val latch = CountDownLatch(1)
     var ok = false
@@ -195,7 +199,10 @@ internal class KernelServiceClient(
           val started = prepareChannelAndStart()
           if (started) {
             onReady(true)
-            onRestart("ready", attempt)
+            if (recovering) {
+              onRestart("ready", attempt)
+              recovering = false
+            }
             attempt = 0
           } else {
             releaseBinder()
@@ -233,6 +240,7 @@ internal class KernelServiceClient(
     val service = binder ?: return false
     closeChannel()
     val fd = service.openFrames() ?: return false
+    Log.i(TAG, "帧通道已建立，调用内核 start")
     hostFd = fd
     val input = FileInputStream(fd.fileDescriptor)
     val output = FileOutputStream(fd.fileDescriptor)
@@ -241,7 +249,9 @@ internal class KernelServiceClient(
     startReader(input)
     val args = env.map { (name, value) -> "$name=$value" }.toTypedArray()
     return try {
-      service.start(args)
+      val started = service.start(args)
+      Log.i(TAG, "内核 start 返回 $started")
+      started
     } catch (error: Throwable) {
       Log.w(TAG, "内核 start 失败", error)
       false
@@ -295,6 +305,7 @@ internal class KernelServiceClient(
   private fun onBinderDied() {
     if (destroyed) return
     Log.w(TAG, "内核进程 binder death")
+    recovering = true
     releaseBinder()
     closeChannel()
     scheduleRebind()

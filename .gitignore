@@ -1,6 +1,9 @@
 # 历史本地只读参考仓（已移到工作区 .artifacts/go-reference-archive；保留忽略规则防误入）
 reference/
 
+# 本地验收截图/临时产物（证据放工作区根目录的 .artifacts，不入库）
+/.artifacts/
+
 # 构建产物
 node_modules/
 *.log

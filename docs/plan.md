@@ -154,14 +154,19 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `DT_NEEDED` 会记成构建机绝对路径（改 `-L` + `-l` 后为 `libnibi.so`）。
 - **T8 的 S1 已在真机验证**（上游 `feat/android-kernel`）：Android 平台根不可用时退内置
   Mozilla 根，`storageState` 走到 `ready`、内核保持运行（D21/D22 见 ADR-INDEX）。
-- **T8 S2 已在 GO fork 实现（2026-11-15）**：`nibi_app_server_attach_android(JNIEnv*, Context)`
-  在 `nibi_app_server_start` 前由进程内模块/`:kernel` 服务调用，成功后平台校验器可用；
-  失败/未调用仍走 S1 内置根兜底。`build.mjs` 把该符号列为必需导出。企业 CA 真机用例待跑。
-- **D24 Phase 0.1–0.4 已落地（2026-11-15）**：`kernel/` 快照（`1369b043`，2870 文件 blob 哈希
+- **T8 S2 已实现并真机跑通（2026-11-15）**：`nibi_app_server_attach_android(JNIEnv*, Context)`
+  在 `nibi_app_server_start` 前由进程内模块/`:kernel` 服务调用。关键修正：reqwest 的
+  `tls_certs_merge` 在 Android 上直接返回错误，且平台后端没有 `new_with_extra_roots`，
+  所以 `net` 自建 `android_tls_config`（平台 `Verifier::new` + 内置根 `WebPkiServerVerifier`
+  合并，任一通过）并经 `use_preconfigured_tls` 交给 reqwest。失败/未调用仍走 S1 内置根兜底。
+  `build.mjs` 把该符号列为必需导出。企业 CA 真机用例待手工安装验证。
+- **D24 Phase 0 已完成（2026-11-15）**：`kernel/` 快照（`1369b043`，2870 文件 blob 哈希
   全等）+ `kernel/UPSTREAM.md`；`scripts/android-kernel/build.mjs` 取代 `fetch.mjs`（API 24 /
   16 KB / ELF / 6 个符号 / sha256 + `.stamp.json`）；CI `android-kernel.yml`；
   `cargo deny --offline check licenses` 通过；许可声明见根 `NOTICE.md` / `THIRD-PARTY-NOTICES.md`。
-  桌面 `cargo test -p nibi-kernel-net` 39+11 通过；真机全回归待跑。
+  桌面 `cargo test --workspace` 4672 通过；真机（PHK110 / Android 16）`:kernel` 启动
+  `attach=true`、`storageState` ready、会话恢复/订阅/流式/mock 回合 5.7s 全通，binder death
+  → 新 pid → 自动重连；顺带修了首启 `onRestart("ready")` 与首启初始化并发互相关 client 的竞态。
 - **16 KB 页对齐（D22）**：4.1.0 的 `libnibi.so` 实测 4 KB，不满足；fork 基线
   （`1369b043`）的 `kernel/.cargo/config.toml` 已带 `-Wl,-z,max-page-size=16384` /
   `common-page-size=16384`，GO 的 `build.mjs` 与 JNI 薄层都做断言/链接参数。
@@ -253,16 +258,20 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 > 设计正文 `docs/design/android-native-runtime.md`；每阶段先过门禁再进下一阶段。
 > 顺序按“先让内核和 shell 自主，再上大运行时”，Node/Python 与 UI slots 不阻塞前两阶段。
 
-### Phase 0 · fork 落地 + T8 S2（1–4 已落地，2026-11-15；5 待真机）
+### Phase 0 · fork 落地 + T8 S2（1–5 已完成，2026-11-15；企业 CA 用例待手工）
 
 1. ✅ 以 nibi-client `dev` `1369b043` 为基线导入 `kernel/`（快照 + `kernel/UPSTREAM.md`）。
 2. ✅ GO 构建链：Rust 1.95 + NDK r27 + cargo lock；`scripts/android-kernel/build.mjs` 产
    `libnibi.so`（API 24 / arm64 / 16 KB / 符号断言）+ sha256/stamp；CI `android-kernel.yml`。
 3. ✅ 许可证/NOTICE 审计（`kernel/LICENSE` + vendored notices + 根 `NOTICE.md` /
    `THIRD-PARTY-NOTICES.md`；`cargo deny check licenses` 通过）。
-4. ✅ T8 S2：`nibi_app_server_attach_android` + JNI/`:kernel` 调用；失败退内置根。
-5. ⏳ 回归：桌面 `cargo test` + 真机启动/会话/流式/审批/改动卡/折叠/`:kernel` 服务。
-   出口：GO 自建 `.so` 替换上游 4.1.0，全回归通过。
+4. ✅ T8 S2：`nibi_app_server_attach_android` + JNI/`:kernel` 调用；Android 侧改用自建
+   `MergeVerifier`（平台 + 内置根，reqwest 的 `tls_certs_merge` 在 Android 上不可用）；
+   失败退内置根。
+5. ✅ 回归：桌面 `cargo test --workspace` 4672 通过；真机（PHK110 / Android 16）`:kernel`
+   启动 `attach=true`、egress 构造成功、`storageState` ready、会话恢复/订阅/流式/mock 回合
+   （5.7s）全通，binder death → 新 pid → 自动重连。
+   出口：GO 自建 `.so` 已替换上游 4.1.0。剩：企业/用户 CA 的信任用例（需手工装 CA）。
 
 ### Phase 1 · AndroidSh + hooks
 

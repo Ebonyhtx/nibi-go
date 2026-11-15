@@ -63,6 +63,7 @@ class KernelService : Service() {
     override fun onError(bytes: ByteArray) {
       // 保留通知：宿主桥接层识别它，转成 onKernelError 事件，不当作会话帧。
       val message = String(bytes, Charsets.UTF_8)
+      Log.w(TAG, "内核错误：${message.take(200)}")
       val payload = JSONObject()
         .put("method", HOST_ERROR_METHOD)
         .put("params", JSONObject().put("message", message))
@@ -299,10 +300,15 @@ class KernelService : Service() {
         if (at > 0) setEnv(entry.substring(0, at), entry.substring(at + 1))
       }
       // T8 S2：在 :kernel 进程里把 JVM + Context 交给内核（Binder 线程已附着），再启动内核。
-      if (!NibiKernelHostNative.nativeAttach(applicationContext)) {
+      Log.i(TAG, "start: attach 平台信任")
+      val attached = NibiKernelHostNative.nativeAttach(applicationContext)
+      Log.i(TAG, "start: attach=$attached")
+      if (!attached) {
         Log.w(TAG, "平台信任库未就绪，回退内置 Mozilla 根")
       }
-      return NibiKernelHostNative.nativeStart(sink).also { kernelStarted = it }
+      val started = NibiKernelHostNative.nativeStart(sink)
+      Log.i(TAG, "start: nativeStart=$started")
+      return started.also { kernelStarted = it }
     }
 
     override fun openFrames(): ParcelFileDescriptor? = openChannel()
