@@ -224,9 +224,9 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `dev` `1369b043`）；Android 原生运行时 = AndroidSh + bash/busybox/git + Node/Python +
   `nibi-run`，targetSdk 36、无 rootfs/PRoot。真机已验证：jniLibs 可执行 ELF 从 `:kernel` exec、
   App 私有目录 symlink → nativeLibraryDir 的 direct/PATH exec。**Phase 0/1 已完成；Phase 2
-  的构建/打包/nibi-run/hooks 已完成，剩 npm `.bin`、HTTPS 与 50 命令矩阵待设备解锁后补**
-  （2026-11-15）；当前 Android shell 在运行时安装后自动切 `$NIBI_BIN/bash`，失败回退
-  `/system/bin/sh`（AndroidSh 方言）。
+  的三件套/打包/nibi-run/hooks/50 命令矩阵/HTTPS 已完成并真机验证（run-as），剩 npm `.bin`
+  重写（随 Phase 3 的 node）与 App 启动路径点验**（2026-11-16）；当前 Android shell 在运行时
+  安装后自动切 `$NIBI_BIN/bash`，失败回退 `/system/bin/sh`（AndroidSh 方言）。
 - **未做**：真实 Provider 凭据与设置页、panic 看门狗、iroh NDK、企业 CA 真机用例、
   D25 Phase 3–6（Node/Python、UI slots、手机双开关、workspace 策略）、
   `dataSync` 之外的 `specialUse`/分段续跑。
@@ -308,19 +308,23 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    `BASH_ENV`/applet 名单；`NibiRuntime.install()` 解包并在 `filesDir/runtime/{bin,git-core,hooks}`
    建 symlink farm；`withAndroidLegacyPackaging` 把 `expo.useLegacyPackaging` 固定为 true。
    debug APK 已核对 `extractNativeLibs="true"`，lib/arm64-v8a 与 assets 均含产物。
-3. ◐ `nibi-run` 已完成 shebang 解析、`$NIBI_BIN`/PATH 查找、App 数据 ELF 明确拒绝
-   （rc 126）；真机验证 `#!/bin/bash` 脚本可跑、`#!/usr/bin/env node` 在 Phase 3 前报
-   “node 不可用”（rc 127）。**npm `.bin` 重写 spike 未做**（依赖 Phase 3 的 node）。
-4. ◐ git hooks：`core.hooksPath` 写进 `filesDir/.gitconfig`（仓库级配置优先，husky 不被覆盖），
-   `git` 包装器由 `NIBI_GIT_HOOKS`/dispatcher 执行仓库 `.git/hooks/<name>`。真机 `run-as`
+3. ◐ `nibi-run` 已完成 shebang 解析、`$NIBI_BIN`/git-scripts/`$NIBI_PACKAGES`/PATH 查找、
+   App 数据 ELF 明确拒绝（rc 126）；真机验证 `#!/bin/bash` 脚本可跑、npm `.bin` 的
+   symlink→脚本入口可跑、`#!/usr/bin/env node` 在 Phase 3 前报“node 不可用”（rc 127）。
+   **npm 安装后把 `.bin/*` 重写成 `$NIBI_BIN/<name> -> nibi-run` 的安装器部分仍在 Phase 3**
+   （需要 node 才能跑 npm）；nibi-run 侧解析已就绪。
+4. ◐ git hooks：`core.hooksPath` 由受管 `GIT_CONFIG_GLOBAL` 提供（仓库级配置优先，
+   husky 不被覆盖），`git` 包装器由 dispatcher 执行仓库 `.git/hooks/<name>`。真机 `run-as`
    验证：`git init/add/commit` 触发 pre-commit、dispatcher 经 nibi-run 跑通。
    **50 命令矩阵已过（2026-11-16）**：shell 基础/管道/重定向/数组/正则/here-string、
    busybox（grep/sed/awk/find/xargs/tar/gzip/diff/cmp/stat/df…）、git
    init/add/commit/log/status/branch/checkout/merge/tag/diff/show/ls-files/remote/
    本地 clone、`git submodule`/`filter-branch` 脚本命令、`script.sh`、node/ELF 边界；
    矩阵还抓到并修复了 `busybox awk` 在 clang 18 下的 `BB_GLOBAL_CONST` 误编译。
-   **只剩 HTTPS**：设备锁屏且后台 app UID 被系统限网，需解锁后补
-   `git clone/ls-remote https://…`。
+   **HTTPS 已通（2026-11-16）**：随包 Mozilla CA bundle + 受管身份；
+   `git ls-remote https://gitee.com/mirrors/git.git` 与
+   `git clone --depth 1 https://github.com/octocat/Hello-World.git` 真机成功。
+   系统 CA 目录在 OpenSSL 3.5 下不可用，bundle 是固定口径。
    出口：shell/git 接近桌面；CLI 支持边界写进产品文案。
 
 ### Phase 3 · Node/Python

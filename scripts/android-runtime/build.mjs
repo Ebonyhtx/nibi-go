@@ -54,6 +54,7 @@ const MIN_API = 24;
 const REQUIRED_ASSET_ENTRIES = [
   "etc/bash_env.sh",
   "etc/busybox-applets.txt",
+  "etc/cacert.pem",
   "git-core/git-sh-setup",
   "git-core/git-sh-i18n",
   "git-scripts/git-submodule",
@@ -241,6 +242,13 @@ function neededLibraries(ndk, file) {
 function verify(args) {
   const errors = [];
   const notes = [];
+  const sources = loadSources();
+  const caPath = join(ROOT, "scripts/android-runtime/assets/cacert.pem");
+  if (!existsSync(caPath)) {
+    errors.push("缺少 scripts/android-runtime/assets/cacert.pem");
+  } else if (sha256Hex(readFileSync(caPath)) !== sources.caBundle?.sha256) {
+    errors.push("cacert.pem 的 sha256 与 sources.json 的 caBundle 不一致");
+  }
   const ndk = resolveVerifyNdk(args);
   if (!ndk || !existsSync(ndk)) {
     errors.push(`找不到 NDK（用于符号面校验）：${ndk ?? "(未设置)"}`);

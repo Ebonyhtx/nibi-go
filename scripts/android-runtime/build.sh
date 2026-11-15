@@ -164,7 +164,9 @@ log "openssl 3.5.4"
   ANDROID_NDK_ROOT="$NDK" ./Configure android-arm64 \
     -D__ANDROID_API__="$API" --prefix="$OUT" --openssldir="$OUT/ssl" \
     no-shared no-tests no-apps no-docs -fPIC >/dev/null
-  make -j"$JOBS" >/dev/null
+  # Configure 生成的 configdata.pm 比 Makefile 新时，第一次 make 只重生成
+  # Makefile 并退出 1（WSL/Windows 时钟轻微漂移也会触发）；按上游提示再来一次。
+  make -j"$JOBS" >/dev/null || make -j"$JOBS" >/dev/null
   make install_sw >/dev/null
 )
 
@@ -190,7 +192,7 @@ log "git 2.51.0"
   git_make() {
     make -j"$JOBS" prefix="$OUT/git" \
       NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_ICONV=1 \
-      NO_EXPAT=1 NO_OPENSSL=1 NO_PTHREADS=1 \
+      NO_EXPAT=1 NO_OPENSSL=1 NO_PTHREADS=1 NO_GECOS_IN_PWENT=1 \
       HAVE_SYNC_FILE_RANGE= CSPRNG_METHOD=arc4random \
       CURL_CONFIG="$OUT/bin/curl-config" \
       CC="$CC" AR="$AR" RANLIB="$RANLIB" \
@@ -233,6 +235,7 @@ log "打包运行时资源"
 mkdir -p "$BUILD_ASSETS/etc" "$BUILD_ASSETS/git-scripts" \
   "$BUILD_ASSETS/git-core" "$BUILD_ASSETS/share/git-core" "$BUILD_ASSETS/terminfo"
 cp "$REPO_ROOT/scripts/android-runtime/assets/bash_env.sh" "$BUILD_ASSETS/etc/bash_env.sh"
+cp "$REPO_ROOT/scripts/android-runtime/assets/cacert.pem" "$BUILD_ASSETS/etc/cacert.pem"
 
 # Applet names: busybox's own install target creates one symlink per applet.
 find "$WORK/busybox-root" -type l -printf '%f\n' | sort -u > "$WORK/applets.txt"

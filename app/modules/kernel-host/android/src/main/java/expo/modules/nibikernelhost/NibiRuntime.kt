@@ -55,7 +55,7 @@ internal object NibiRuntime {
       }
 
       createSymlinks(context, root, manifest)
-      writeGitConfig(context, root)
+      writeManagedGitConfig(root)
 
       val bash = File(root, "bin/bash")
       if (!bash.isFile || !bash.canExecute()) {
@@ -92,7 +92,21 @@ internal object NibiRuntime {
     setEnv("GIT_EXEC_PATH", gitCore.absolutePath)
     setEnv("GIT_TEMPLATE_DIR", templates.absolutePath)
     setEnv("GIT_CONFIG_NOSYSTEM", "1")
+    val managedConfig = File(etc, "gitconfig")
+    if (managedConfig.isFile) {
+      // 受管全局配置：默认身份（Android app uid 没有 passwd 条目）+ include 用户 ~/.gitconfig
+      // + hooksPath。仓库级 core.hooksPath（husky 等）仍然优先。
+      setEnv("GIT_CONFIG_GLOBAL", managedConfig.absolutePath)
+    }
     setEnv("NIBI_GIT_HOOKS", hooks.absolutePath)
+    val caBundle = File(etc, "cacert.pem")
+    if (caBundle.isFile) {
+      // OpenSSL 3.5 在 Android 上不认 /system/etc/security/cacerts 的 hash-dir 命名，
+      // 用随包 Mozilla 根（固定、跨设备一致）；企业 CA 可覆盖 GIT_SSL_CAINFO。
+      setEnv("GIT_SSL_CAINFO", caBundle.absolutePath)
+      setEnv("CURL_CA_BUNDLE", caBundle.absolutePath)
+      setEnv("SSL_CERT_FILE", caBundle.absolutePath)
+    }
     setEnv("SSL_CERT_DIR", "/system/etc/security/cacerts")
     if (terminfo.isDirectory) {
       setEnv("TERMINFO", terminfo.absolutePath)
@@ -208,20 +222,23 @@ internal object NibiRuntime {
   }
 
   /**
-   * HOME 是 filesDir；全局 git config 只写一次。仓库级 core.hooksPath（如 husky）优先级更高，
-   * 不会被这里覆盖。
+   * 受管全局 git 配置写在 runtime/etc/gitconfig，通过 GIT_CONFIG_GLOBAL 生效，
+   * 不碰用户的 ~/.gitconfig。默认身份是 Android 必需的（app uid 没有 passwd 条目，
+   * git 无法自动推导）；用户 ~/.gitconfig 在 include 之后，可覆盖 name/email。
    */
-  private fun writeGitConfig(context: Context, root: File) {
-    val config = File(context.filesDir, ".gitconfig")
-    if (config.isFile) {
-      val text = config.readText()
-      if (!text.startsWith(GITCONFIG_MARKER)) return
-    }
+  private fun writeManagedGitConfig(root: File) {
+    val config = File(root, "etc/gitconfig")
+    config.parentFile?.mkdirs()
     val hooks = File(root, "hooks").absolutePath
     config.writeText(
       buildString {
         appendLine(GITCONFIG_MARKER)
         appendLine("# git 的 hook 统一经过 nibi-hook；仓库自己的 .git/hooks 仍由 dispatcher 执行。")
+        appendLine("[user]")
+        appendLine("\tname = NIBI-GO")
+        appendLine("\temail = nibi-go@localhost")
+        appendLine("[include]")
+        appendLine("\tpath = ~/.gitconfig")
         appendLine("[core]")
         appendLine("\thooksPath = $hooks")
       },

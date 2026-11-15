@@ -144,11 +144,15 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   nativeLibraryDir 会变）；失败只回退 `/system/bin/sh`，不阻塞内核。
 - 打包：`app/plugins/withAndroidLegacyPackaging` 固定 `expo.useLegacyPackaging=true`，
   APK 里 `extractNativeLibs="true"`；否则 jniLibs 不会被解压到可执行目录。
-- git：`filesDir/.gitconfig` 写入 `core.hooksPath=filesDir/runtime/hooks`（只写一次；
-  仓库级配置优先，husky 等不会被覆盖）。`nibi-hook` 按 `argv[0]` 找仓库
-  `.git/hooks/<name>`，再交给 `nibi-run`。
-- `nibi-run`：shebang（bash/node/python）、`$NIBI_BIN`/PATH 查找、npm `.bin` 入口；
-  App 数据 ELF 明确拒绝（Android 16 noexec），给出可操作错误。
+- git：受管全局配置 `runtime/etc/gitconfig`（`GIT_CONFIG_GLOBAL`）提供默认身份
+  `NIBI-GO <nibi-go@localhost>`、`include ~/.gitconfig` 与 `core.hooksPath=runtime/hooks`；
+  不写用户的 `~/.gitconfig`，仓库级配置（husky 等）优先级更高。`nibi-hook` 按 `argv[0]`
+  找仓库 `.git/hooks/<name>`，再交给 `nibi-run`。
+- HTTPS：随包 Mozilla CA bundle（`etc/cacert.pem`，sha256 固定）+ `GIT_SSL_CAINFO` /
+  `CURL_CA_BUNDLE` / `SSL_CERT_FILE`；Android 系统 CA hash-dir 在 OpenSSL 3.5 下不可用。
+- `nibi-run`：shebang（bash/node/python）、`$NIBI_BIN`/git-scripts/`$NIBI_PACKAGES`/PATH
+  查找、npm `.bin` 入口（含 `$NIBI_BIN/<name> -> nibi-run` 自身跳过）；App 数据 ELF
+  明确拒绝（Android 16 noexec），给出可操作错误。
 
 真机验证（2026-11-15，PHK110 / Android 16，`run-as` + App uid）：
 
@@ -162,7 +166,12 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   `git submodule`/`filter-branch` 脚本命令、`script.sh`、两类边界。矩阵抓到并修复了
   `busybox awk` 的 clang 18 `BB_GLOBAL_CONST` 误编译（`build.sh` 的
   `CONFIG_EXTRA_CFLAGS="-DBB_GLOBAL_CONST="`）。
-- 未完成：HTTPS（设备锁屏 + 后台 app UID 被系统限网），解锁后补 `git clone/ls-remote https://…`。
+- **HTTPS clone 通过（2026-11-16）**：`git ls-remote https://gitee.com/mirrors/git.git`
+  与 `git clone --depth 1 https://github.com/octocat/Hello-World.git` 成功；身份来自受管
+  `GIT_CONFIG_GLOBAL`，CA 来自随包 bundle。npm `.bin` 的 symlink→bash 入口可跑，
+  `#!/usr/bin/env node` 报 Phase 3 边界。
+- 未完成：`NibiRuntime.install()` 的 App 启动路径还没在解锁的设备上点过（构建/安装/资源已
+  在 APK 里核对）；run-as 已按同一环境变量口径验证二进制与脚本。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

@@ -39,6 +39,15 @@ EDITS = {
             1,
         ),
     ],
+    "git-2.51.0": [
+        (
+            "ident.c",
+            "\tpw = getpwuid(getuid());\n\tif (!pw) {",
+            "\tpw = getpwuid(getuid());\n\t/* bionic can return a struct with NULL fields for app UIDs. */\n"
+            "\tif (!pw || !pw->pw_name) {",
+            1,
+        ),
+    ],
 }
 
 
