@@ -99,6 +99,10 @@ export function ConversationList({
       onContentSizeChange={() => {
         if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
       }}
+      onLayout={() => {
+        // 键盘/旋转改变可视高度时也贴底，避免最后一条被输入栏或宠物切一半。
+        if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
+      }}
     >
       {rows.map((row) => {
         if (row.kind === "pending") {
