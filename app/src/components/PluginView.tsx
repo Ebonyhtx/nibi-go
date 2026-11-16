@@ -316,6 +316,9 @@ export function PluginComposerActions({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // 横向 ScrollView 在弹性列里会吃掉剩余高度（真机表现为胶囊下面半屏空白、宠物被顶到中间），
+      // 这里必须让它按内容高度收缩。
+      style={styles.composerScroll}
       contentContainerStyle={styles.composerRow}
     >
       {actions.map(({ plugin, action }) => (
@@ -417,7 +420,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   footerText: { fontSize: 10.5, flexShrink: 1 },
-  composerRow: { gap: space(2), paddingBottom: space(1.5) },
+  composerRow: { gap: space(2), paddingBottom: space(1.5), alignItems: "center" },
+  composerScroll: { flexGrow: 0, flexShrink: 0 },
   composerAction: {
     height: 30,
     borderRadius: radius.chip,
