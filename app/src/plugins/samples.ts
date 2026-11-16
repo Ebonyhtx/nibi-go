@@ -317,6 +317,17 @@ const USAGE_MANIFEST: Record<string, unknown> = {
         effects: [{ kind: "open", panel: "status" }],
       },
     ],
+    webIslands: [
+      {
+        id: "welcome",
+        title: "网页面板",
+        html: `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>NIBI-GO</title><style>body{margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#fdf7ec;color:#1c2f4e}main{max-width:520px;margin:0 auto}.eyebrow{font-size:11px;letter-spacing:.18em;color:#e08a3e;font-weight:700}h1{font-size:28px;margin:8px 0 10px}p{font-size:14px;line-height:1.6;color:#4a5a72}.card{margin-top:18px;padding:16px;border:1px solid rgba(28,47,78,.12);border-radius:16px;background:#fffdf9;display:flex;flex-direction:column;gap:6px}span{font-size:12px;line-height:1.5;color:#6b788c}</style></head><body><main><div class="eyebrow">WEB ISLAND</div><h1>NIBI-GO</h1><p>这个面板来自插件清单里的 Web Island 声明，宿主用 WebView 渲染。</p><div class="card"><strong>路由守卫</strong><span>只允许当前页面与同源 https 导航；外部链接会被拦下。</span></div><div class="card"><strong>超时降级</strong><span>加载超时或失败时显示可重试的降级页，不会卡住会话。</span></div></main></body></html>`,
+      },
+      // 仅开发期：一个不可路由的 https 地址，用来验证 8s 超时/失败降级。
+      ...(__DEV__
+        ? [{ id: "timeout-demo", title: "超时演示", url: "https://10.255.255.1/" }]
+        : []),
+    ],
   },
 };
 

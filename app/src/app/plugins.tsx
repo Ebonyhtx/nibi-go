@@ -46,6 +46,7 @@ function PluginCard({
   const toneSoft =
     status.tone === "ok" ? t.okSoft : status.tone === "warn" ? t.amberSoft : status.tone === "danger" ? t.redSoft : t.panel;
   const panels = manifest.contributes.panels;
+  const webIslands = manifest.contributes.webIslands;
   const canEnable = plugin.parsed.status === "ready" && plugin.parsed.slotsAvailable;
 
   return (
@@ -152,6 +153,38 @@ function PluginCard({
               </Pressable>
             );
           })}
+        </View>
+      ) : null}
+
+      {webIslands.length > 0 ? (
+        <View style={styles.panels}>
+          <Text style={[styles.panelsTitle, { color: t.inkFaint }]}>网页</Text>
+          {webIslands.map((island) => (
+            <Pressable
+              key={island.id}
+              disabled={!canEnable}
+              onPress={() =>
+                router.push({
+                  pathname: "/island",
+                  params: { pluginId: manifest.id, islandId: island.id },
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`打开网页面板 ${island.title}`}
+              style={({ pressed }) => [
+                styles.panelRow,
+                { borderColor: t.hairline, opacity: canEnable ? (pressed ? 0.6 : 1) : 0.45 },
+              ]}
+            >
+              <View style={styles.panelTextWrap}>
+                <Text style={[styles.panelTitle, { color: t.ink }]}>{island.title}</Text>
+                <Text style={[styles.panelDesc, { color: t.inkFaint }]} numberOfLines={1}>
+                  Web Island · 路由守卫 + 超时降级
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={14} color={t.inkGhost} />
+            </Pressable>
+          ))}
         </View>
       ) : null}
     </View>
