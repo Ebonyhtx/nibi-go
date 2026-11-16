@@ -29,6 +29,7 @@ export function ConversationList({
   onPluginAction,
   bottomInset = 0,
   onMessageLongPress,
+  annotationCountFor,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -41,8 +42,10 @@ export function ConversationList({
   onPluginAction?: PluginActionHandler;
   /** 底部浮层（宠物/插件胶囊）占的高度：列表多留这段，最后一条能滚到浮层上方。 */
   bottomInset?: number;
-  /** 助手消息长按：有插件 message.actions 时由首页打开动作气泡；第二个参数是按压点。 */
-  onMessageLongPress?: (message: string, anchor: PopupAnchor) => void;
+  /** 助手消息长按：有内置注释/插件 message.actions 时由首页打开动作气泡。 */
+  onMessageLongPress?: (messageKey: string, message: string, anchor: PopupAnchor) => void;
+  /** 这条消息已有多少条注释（用于「已注释」标记）。 */
+  annotationCountFor?: (messageKey: string) => number;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -333,13 +336,14 @@ export function ConversationList({
         }
 
         // assistant
+        const annotationCount = annotationCountFor?.(row.key) ?? 0;
         return (
           <View key={row.key} style={[styles.row, { alignItems: "flex-start" }]}>
             <Pressable
               onLongPress={
                 onMessageLongPress
                   ? (event) =>
-                      onMessageLongPress(row.text, {
+                      onMessageLongPress(row.key, row.text, {
                         x: event.nativeEvent.pageX,
                         y: event.nativeEvent.pageY,
                         width: 1,
@@ -349,7 +353,7 @@ export function ConversationList({
               }
               delayLongPress={350}
               accessibilityRole="button"
-              accessibilityLabel="助手消息，长按打开插件动作"
+              accessibilityLabel="助手消息，长按打开动作"
               style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
             >
               {row.model ? (
@@ -375,6 +379,14 @@ export function ConversationList({
                 </Text>
               ) : null}
             </Pressable>
+            {annotationCount > 0 ? (
+              <View style={styles.annotationMark}>
+                <Icon name="quote" size={10} color={th.brand} />
+                <Text style={[styles.annotationMarkText, { color: th.brand }]}>
+                  已注释 {annotationCount}
+                </Text>
+              </View>
+            ) : null}
           </View>
         );
       })}
@@ -558,6 +570,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   model: { fontSize: 10 },
+  annotationMark: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginTop: 4,
+    marginLeft: space(1),
+  },
+  annotationMarkText: { fontSize: 10, fontWeight: "600" },
   text: { fontSize: 14, lineHeight: 20 },
   reasoning: {
     borderLeftWidth: 2,

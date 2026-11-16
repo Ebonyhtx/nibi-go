@@ -238,7 +238,7 @@ const QUICK_MANIFEST: Record<string, unknown> = {
       {
         id: "checklist",
         title: "写作检查",
-        description: "事实、结构、语气、长度",
+        description: "发送前检查清单；动作会让 NIBI 检查这段内容。",
         view: {
           type: "card",
           title: "发送前检查",
@@ -247,13 +247,6 @@ const QUICK_MANIFEST: Record<string, unknown> = {
             {
               type: "list",
               items: ["事实是否准确", "结构是否清楚", "语气是否合适", "长度是否合适"],
-            },
-            { type: "divider" },
-            {
-              type: "button",
-              label: "让 NIBI 检查",
-              action: "check-writing",
-              style: "primary",
             },
           ],
         },

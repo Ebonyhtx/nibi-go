@@ -3,10 +3,11 @@
 // 只显示 manifest 与解析结果；插件代码不会在 UI 进程执行（MCP 工具在 `:kernel` 的
 // 子进程里跑）。这里也是“为什么不能渲染”的唯一解释入口：不兼容、清单有误、已降级。
 
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,15 +32,18 @@ function statusOf(plugin: LoadedPlugin): { label: string; tone: "ok" | "warn" | 
 
 function PluginCard({
   plugin,
-  busy,
   onToggle,
 }: {
   plugin: LoadedPlugin;
-  busy: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
   const t = useNibiTheme();
   const manifest = plugin.parsed.manifest;
+  // 开关用本地状态先行，避免父级异步 reload 把 Switch 拉回旧值造成闪烁。
+  const [enabled, setEnabled] = useState(plugin.enabled);
+  useEffect(() => {
+    setEnabled(plugin.enabled);
+  }, [plugin.enabled]);
   const status = statusOf(plugin);
   const tone =
     status.tone === "ok" ? t.ok : status.tone === "warn" ? t.amber : status.tone === "danger" ? t.red : t.inkFaint;
@@ -64,11 +68,14 @@ function PluginCard({
           <Text style={[styles.statusText, { color: tone }]}>{status.label}</Text>
         </View>
         <Switch
-          value={plugin.enabled}
-          disabled={!canEnable || busy}
-          onValueChange={onToggle}
+          value={enabled}
+          disabled={!canEnable}
+          onValueChange={(value) => {
+            setEnabled(value);
+            onToggle(value);
+          }}
           trackColor={{ true: t.brand, false: t.hairline }}
-          thumbColor={plugin.enabled ? t.brandFg : undefined}
+          thumbColor={enabled ? t.brandFg : undefined}
           accessibilityLabel={`启用 ${manifest.name}`}
         />
       </View>
@@ -181,7 +188,12 @@ export default function PluginsScreen() {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const plugins = usePlugins();
-  const [busy, setBusy] = useState<string | null>(null);
+  // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入插件中心先明确收起。
+  useFocusEffect(
+    useCallback(() => {
+      Keyboard.dismiss();
+    }, []),
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
@@ -221,17 +233,12 @@ export default function PluginsScreen() {
           <PluginCard
             key={plugin.dir}
             plugin={plugin}
-            busy={busy === plugin.parsed.manifest.id}
             onToggle={(enabled) => {
               const id = plugin.parsed.manifest.id;
-              setBusy(id);
-              void plugins
-                .setEnabled(id, enabled)
-                .catch((error: unknown) => {
-                  plugins.reload().catch(() => undefined);
-                  console.warn("[nibigo] 插件启停失败", error);
-                })
-                .finally(() => setBusy((current) => (current === id ? null : current)));
+              void plugins.setEnabled(id, enabled).catch((error: unknown) => {
+                plugins.reload().catch(() => undefined);
+                console.warn("[nibigo] 插件启停失败", error);
+              });
             }}
           />
         ))}
