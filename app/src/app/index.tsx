@@ -26,7 +26,12 @@ import { ConversationList } from "../components/ConversationList";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
-import { PluginComposerActions, type PluginActionHandler } from "../components/PluginView";
+import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
+import {
+  PluginComposerActions,
+  PluginComposerStrip,
+  type PluginActionHandler,
+} from "../components/PluginView";
 import { PET_STATE } from "../components/petStates";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
@@ -34,7 +39,13 @@ import { runPluginAction } from "../plugins/actions";
 import { takePendingInsert } from "../plugins/pendingInsert";
 import type { LoadedPlugin } from "../plugins/store";
 import { usePlugins } from "../plugins/usePlugins";
+import type { Effect } from "@nibi-go/plugin-contract";
 import { radius, space, type as t, useNibiTheme } from "../theme";
+
+interface SheetEntry {
+  plugin: LoadedPlugin;
+  action: { id: string; title: string; effects: Effect[] };
+}
 
 export default function GoHomeScreen() {
   const th = useNibiTheme();
@@ -62,7 +73,9 @@ export default function GoHomeScreen() {
   const [draft, setDraft] = useState("");
   // 内置插件的槽（工具卡/输入胶囊/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
-  const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
+  const [sheet, setSheet] = useState<{ title: string; items: PluginSheetItem[] } | null>(null);
+
+  const runAction = (plugin: LoadedPlugin, action: { id: string; effects: Effect[] }) => {
     runPluginAction(plugin, action, {
       insertText: (text, mode) => {
         setDraft((current) =>
@@ -76,6 +89,49 @@ export default function GoHomeScreen() {
         void plugins.reload();
       },
     });
+  };
+  const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
+    runAction(plugin, action);
+  };
+  const messageActions = useMemo<SheetEntry[]>(
+    () =>
+      plugins.enabled.flatMap((plugin) =>
+        plugin.parsed.manifest.contributes.messageActions.map((action) => ({ plugin, action })),
+      ),
+    [plugins.enabled],
+  );
+  const composerTools = useMemo<SheetEntry[]>(
+    () =>
+      plugins.enabled.flatMap((plugin) =>
+        plugin.parsed.manifest.contributes.composerTools.map((action) => ({ plugin, action })),
+      ),
+    [plugins.enabled],
+  );
+  const sessionActions = useMemo<SheetEntry[]>(
+    () =>
+      plugins.enabled.flatMap((plugin) =>
+        plugin.parsed.manifest.contributes.sessionActions.map((action) => ({ plugin, action })),
+      ),
+    [plugins.enabled],
+  );
+  const openSheet = (title: string, entries: readonly SheetEntry[]) => {
+    if (entries.length === 0) return;
+    setSheet({
+      title,
+      items: entries.map(({ plugin, action }) => ({
+        key: `${plugin.parsed.manifest.id}:${action.id}`,
+        label: action.title,
+        detail: plugin.parsed.manifest.name,
+        onPress: () => {
+          setSheet(null);
+          runAction(plugin, action);
+        },
+      })),
+    });
+  };
+  const openSessionSheet = (sessionId: string) => {
+    const title = conversation.sessions.find((session) => session.sessionId === sessionId)?.title;
+    openSheet(title ? `会话动作 · ${title}` : "会话动作", sessionActions);
   };
   // 面板动作里的“插入草稿”跨页带回首页。
   useFocusEffect(
@@ -174,6 +230,7 @@ export default function GoHomeScreen() {
             onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
             onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
             onDeleteAllArchived={conversation.deleteAllArchived}
+            onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
           />
         ) : null}
         {hasRail ? (
@@ -261,6 +318,11 @@ export default function GoHomeScreen() {
                   plugins={plugins.enabled}
                   onPluginAction={onPluginAction}
                   bottomInset={petTarget}
+                  onMessageLongPress={
+                    messageActions.length > 0
+                      ? () => openSheet("消息动作", messageActions)
+                      : undefined
+                  }
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
@@ -291,6 +353,7 @@ export default function GoHomeScreen() {
 
               {/* 宠物 + 插件胶囊浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
               <View style={styles.petOverlay} pointerEvents="box-none">
+                <PluginComposerStrip plugins={plugins.enabled} />
                 <View style={styles.actionsOverlay} pointerEvents="box-none">
                   <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
                 </View>
@@ -316,9 +379,17 @@ export default function GoHomeScreen() {
                 },
               ]}
             >
-              <View style={[styles.plus, { backgroundColor: th.panel }]}>
+              <Pressable
+                onPress={
+                  composerTools.length > 0 ? () => openSheet("插件工具", composerTools) : undefined
+                }
+                disabled={composerTools.length === 0}
+                style={[styles.plus, { backgroundColor: th.panel }]}
+                accessibilityRole="button"
+                accessibilityLabel="插件工具"
+              >
                 <Icon name="plus" size={13} color={th.inkSub} />
-              </View>
+              </Pressable>
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
@@ -378,8 +449,16 @@ export default function GoHomeScreen() {
           onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
           onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
           onDeleteAllArchived={conversation.deleteAllArchived}
+            onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
         />
       ) : null}
+
+      <PluginActionSheet
+        visible={sheet !== null}
+        title={sheet?.title ?? ""}
+        items={sheet?.items ?? []}
+        onClose={() => setSheet(null)}
+      />
     </View>
   );
 }

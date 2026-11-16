@@ -24,6 +24,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type AlertButton,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -61,6 +62,8 @@ export interface NavProps {
     kept: number;
     bytes: number;
   }>;
+  /** 会话行菜单里的插件动作入口（有 session.actions 时由首页提供）。 */
+  onSessionActions?: (sessionId: string) => void;
 }
 
 function sessionTime(ms: number | undefined): string {
@@ -99,6 +102,7 @@ export function GoNavContent({
   onUnarchiveSession,
   onDeleteSession,
   onDeleteAllArchived,
+  onSessionActions,
 }: NavProps) {
   const t = useNibiTheme();
   const router = useRouter();
@@ -124,10 +128,17 @@ export function GoNavContent({
 
   /** 活动列表的行菜单：归档任务（删除只在归档管理里，避免误删）。 */
   const openRowMenu = (session: KernelSessionSummary) => {
-    Alert.alert(session.title || "新对话", "归档后可在「已归档」里恢复或删除。", [
+    const buttons: AlertButton[] = [
       { text: "取消", style: "cancel" },
       { text: "归档任务", onPress: () => run(() => onArchiveSession?.(session.sessionId), "归档失败") },
-    ]);
+    ];
+    if (onSessionActions) {
+      buttons.push({
+        text: "插件动作",
+        onPress: () => onSessionActions(session.sessionId),
+      });
+    }
+    Alert.alert(session.title || "新对话", "归档后可在「已归档」里恢复或删除。", buttons);
   };
 
   const confirmDelete = (session: KernelSessionSummary) => {
@@ -442,6 +453,7 @@ export function GoDrawer({
   onUnarchiveSession,
   onDeleteSession,
   onDeleteAllArchived,
+  onSessionActions,
 }: {
   open: boolean;
   onClose: () => void;
@@ -461,6 +473,8 @@ export function GoDrawer({
     kept: number;
     bytes: number;
   }>;
+  /** 会话行菜单里的插件动作入口（有 session.actions 时由首页提供）。 */
+  onSessionActions?: (sessionId: string) => void;
 }) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
@@ -513,6 +527,7 @@ export function GoDrawer({
           onUnarchiveSession={onUnarchiveSession}
           onDeleteSession={onDeleteSession}
           onDeleteAllArchived={onDeleteAllArchived}
+        onSessionActions={onSessionActions}
         />
       </Animated.View>
     </View>
@@ -532,6 +547,7 @@ export function GoSidebar({
   onUnarchiveSession,
   onDeleteSession,
   onDeleteAllArchived,
+  onSessionActions,
 }: {
   petState?: PetStateId;
   onlineDevices?: number;
@@ -549,6 +565,8 @@ export function GoSidebar({
     kept: number;
     bytes: number;
   }>;
+  /** 会话行菜单里的插件动作入口（有 session.actions 时由首页提供）。 */
+  onSessionActions?: (sessionId: string) => void;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -573,6 +591,7 @@ export function GoSidebar({
         onUnarchiveSession={onUnarchiveSession}
         onDeleteSession={onDeleteSession}
         onDeleteAllArchived={onDeleteAllArchived}
+        onSessionActions={onSessionActions}
       />
     </View>
   );

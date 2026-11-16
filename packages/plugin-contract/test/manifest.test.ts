@@ -155,6 +155,63 @@ describe("readPluginManifest", () => {
     expect(plugin.degraded).toEqual(["panels:future"]);
   });
 
+  it("解析剩余槽位并执行每插件上限", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          "message.actions": [
+            { id: "explain", title: "解释", effects: [{ kind: "insert", text: "解释一下" }] },
+            { id: "shorten", title: "缩写", effects: [{ kind: "insert", text: "缩写" }] },
+            { id: "extra", title: "多余", effects: [{ kind: "toast", text: "x" }] },
+          ],
+          "composer.tools": [
+            {
+              id: "template",
+              title: "总结模板",
+              icon: "sparkles",
+              effects: [{ kind: "insert", text: "模板" }],
+            },
+          ],
+          "session.actions": [
+            { id: "status", title: "看状态", effects: [{ kind: "open", panel: "status" }] },
+          ],
+          "composer.strip": [{ id: "hint", text: "快捷动作可用" }],
+          "turn.note": [{ id: "privacy", text: "本机 · 数据不出机" }],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.status).toBe("ready");
+    expect(plugin.manifest.contributes.messageActions.map((action) => action.id)).toEqual([
+      "explain",
+      "shorten",
+    ]);
+    expect(plugin.manifest.contributes.composerTools[0]).toMatchObject({
+      id: "template",
+      icon: "sparkles",
+    });
+    expect(plugin.manifest.contributes.sessionActions).toHaveLength(1);
+    expect(plugin.manifest.contributes.strips).toHaveLength(1);
+    expect(plugin.manifest.contributes.turnNotes).toHaveLength(1);
+    expect(plugin.issues.some((issue) => issue.message.includes("最多 2 个"))).toBe(true);
+  });
+
+  it("状态条/脚注文字超长或缺失时丢掉该条", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          "composer.strip": [{ id: "too-long", text: "字".repeat(121) }],
+          "turn.note": [{ id: "missing" }],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.manifest.contributes.strips).toEqual([]);
+    expect(plugin.manifest.contributes.turnNotes).toEqual([]);
+    expect(plugin.issues.some((issue) => issue.path.includes("composer.strip"))).toBe(true);
+    expect(plugin.issues.some((issue) => issue.path.includes("turn.note"))).toBe(true);
+  });
+
   it("服务器名与 entry 做路径净化", () => {
     const plugin = readPluginManifest(
       manifest({

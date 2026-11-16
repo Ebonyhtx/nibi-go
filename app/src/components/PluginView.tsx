@@ -11,9 +11,12 @@ import type {
   ToolCardContribution,
   ViewTone,
 } from "@nibi-go/plugin-contract";
+import { resolveText } from "@nibi-go/plugin-contract";
 import type { ChatToolRow } from "@nibi-go/kernel-session";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
 
@@ -339,6 +342,49 @@ export function PluginComposerActions({
   );
 }
 
+/** 输入框上方状态条：多插件轮流，每 5 秒切一条；不改变 COMPOSE 尺寸。 */
+export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugin[] }) {
+  const t = useNibiTheme();
+  const strips = plugins.flatMap((plugin) =>
+    plugin.parsed.manifest.contributes.strips.map((strip) => ({ plugin, strip })),
+  );
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (strips.length <= 1) {
+      setIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % strips.length);
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [strips.length]);
+
+  if (strips.length === 0) return null;
+  const current = strips[Math.min(index, strips.length - 1)];
+  if (!current) return null;
+  const text = resolveText(
+    current.strip.text,
+    hostSlotData({
+      enabledPlugins: plugins.length,
+      plugin: {
+        id: current.plugin.parsed.manifest.id,
+        name: current.plugin.parsed.manifest.name,
+        version: current.plugin.parsed.manifest.version,
+      },
+    }),
+  );
+  if (text.trim().length === 0) return null;
+  return (
+    <View style={styles.stripWrap} pointerEvents="none">
+      <Text style={[styles.stripText, { color: toneColor(t, current.strip.tone ?? "faint") }]} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 /** 面板视图 + 动作行（插件中心/面板页共用）。 */
 export function PluginPanelView({
   plugin,
@@ -422,6 +468,8 @@ const styles = StyleSheet.create({
   footerText: { fontSize: 10.5, flexShrink: 1 },
   composerRow: { gap: space(1.5), alignItems: "center" },
   composerScroll: { flexGrow: 0, flexShrink: 0 },
+  stripWrap: { alignItems: "center", paddingHorizontal: space(4), paddingBottom: space(0.5) },
+  stripText: { fontSize: 10.5 },
   composerAction: {
     height: 28,
     borderRadius: radius.chip,

@@ -127,6 +127,35 @@ export interface ComposerActionContribution {
   effects: Effect[];
 }
 
+/** 助手消息长按菜单里的一项（每插件 ≤2）。 */
+export interface MessageActionContribution {
+  id: string;
+  title: string;
+  effects: Effect[];
+}
+
+/** 输入栏加号面板里的一项（每插件 ≤2）。 */
+export interface ComposerToolContribution {
+  id: string;
+  title: string;
+  icon?: string;
+  effects: Effect[];
+}
+
+/** 会话操作行里的一项（每插件 ≤2）。 */
+export interface SessionActionContribution {
+  id: string;
+  title: string;
+  effects: Effect[];
+}
+
+/** 回合脚注末尾的只读文字（每插件 ≤1）。 */
+export interface TurnNoteContribution {
+  id: string;
+  text: ViewText;
+  tone?: ViewTone;
+}
+
 export interface PanelContribution {
   id: string;
   title: string;
@@ -172,8 +201,12 @@ export interface PluginManifest {
   contributes: {
     toolCards: ToolCardContribution[];
     composerActions: ComposerActionContribution[];
+    messageActions: MessageActionContribution[];
+    composerTools: ComposerToolContribution[];
+    sessionActions: SessionActionContribution[];
     panels: PanelContribution[];
     strips: StripContribution[];
+    turnNotes: TurnNoteContribution[];
   };
 }
 
