@@ -143,6 +143,54 @@ static char *search_bin(const char *name) {
   return NULL;
 }
 
+/* npm 本地安装：nibi-npm.js 把 node_modules/.bin/<name> 换成指向本程序的
+ * symlink，真实入口放在 .bin/.nibi-targets/<name>。shell 通过 PATH 执行时
+ * argv[0] 仍是裸命令名，所以还要从 cwd 向上找 node_modules/.bin。 */
+static char *shim_in_dir(const char *dir, const char *name, int nested) {
+  char *store;
+  if (nested) {
+    char *modules = join2(dir, "node_modules");
+    char *bin = modules ? join2(modules, ".bin") : NULL;
+    store = bin ? join2(bin, ".nibi-targets") : NULL;
+    free(modules);
+    free(bin);
+  } else {
+    store = join2(dir, ".nibi-targets");
+  }
+  char *cand = store ? join2(store, name) : NULL;
+  free(store);
+  if (cand && file_exists(cand)) return cand;
+  free(cand);
+  return NULL;
+}
+
+static char *search_bin_shim(const char *argv0, const char *name) {
+  if (argv0) {
+    const char *slash = strrchr(argv0, '/');
+    if (slash) {
+      size_t n = (size_t)(slash - argv0);
+      char *dir = malloc(n + 1);
+      if (dir) {
+        memcpy(dir, argv0, n);
+        dir[n] = '\0';
+        char *cand = shim_in_dir(dir, name, 0);
+        free(dir);
+        if (cand) return cand;
+      }
+    }
+  }
+  char cwd[PATH_MAX];
+  if (!getcwd(cwd, sizeof(cwd))) return NULL;
+  for (;;) {
+    char *cand = shim_in_dir(cwd, name, 1);
+    if (cand) return cand;
+    char *up = strrchr(cwd, '/');
+    if (!up || up == cwd) break;
+    *up = '\0';
+  }
+  return NULL;
+}
+
 /* Search $PATH. Skips the git-core dispatcher symlinks that point back to
  * this executable: git prepends exec-path to PATH for child commands, and
  * without this guard `git submodule` would recurse into nibi-run forever. */
@@ -429,6 +477,12 @@ int main(int argc, char **argv) {
             "用法: nibi-run <命令|脚本> [参数...]\n"
             "  $NIBI_BIN 里的命令可直接运行；脚本按 shebang 交给 bash/node/python。\n");
     return 2;
+  }
+
+  if (!direct) {
+    char *shim = search_bin_shim(argv[0], cmd);
+    if (shim) run_script(shim, argv + start - 1, cmd);
+    free(shim);
   }
 
   const char *rt = getenv("NIBI_RUNTIME_DIR");
