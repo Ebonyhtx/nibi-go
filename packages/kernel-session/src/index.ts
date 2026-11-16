@@ -24,12 +24,17 @@ export {
   mapLegacyMessages,
   type ChatFileChange,
   type ChatRow,
+  type ChatToolDisplay,
+  type ChatToolDisplayUi,
+  type ChatToolRow,
   type LegacyKernelMessage,
 } from "./rows";
 export { KERNEL_METHODS } from "./protocol";
 export type {
+  KernelMcpServer,
   KernelMessage,
   KernelMessagePart,
+  KernelModelSelection,
   KernelNotification,
   KernelSessionCreateResult,
   KernelSessionDataPurge,

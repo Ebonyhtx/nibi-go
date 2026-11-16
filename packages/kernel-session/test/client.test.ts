@@ -74,6 +74,59 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).rejects.toThrow("没有返回 sessionId");
   });
 
+  it("createSession：把插件 MCP 服务器随会话带上", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const pending = client.createSession(workspace, undefined, [
+      {
+        name: "nibigo_weather",
+        command: "node",
+        args: ["/files/plugins/weather/server.mjs"],
+        alwaysLoad: true,
+        timeoutMs: 20_000,
+      },
+    ]);
+    expect(transport.lastFrame().params).toMatchObject({
+      workspace,
+      mcpServers: [
+        {
+          name: "nibigo_weather",
+          command: "node",
+          args: ["/files/plugins/weather/server.mjs"],
+          alwaysLoad: true,
+          timeoutMs: 20_000,
+        },
+      ],
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_mcp" } } });
+    await expect(pending).resolves.toMatchObject({ sessionId: "sess_mcp" });
+  });
+
+  it("resumeSession：resume 也带上 MCP 服务器（内核不持久化这份配置）", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const pending = client.resumeSession("sess_mcp", [
+      { name: "nibigo_weather", command: "node", args: ["/files/plugins/weather/server.mjs"] },
+    ]);
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionResume,
+      params: {
+        sessionId: "sess_mcp",
+        mcpServers: [
+          {
+            name: "nibigo_weather",
+            command: "node",
+            args: ["/files/plugins/weather/server.mjs"],
+          },
+        ],
+      },
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_mcp" } } });
+    await pending;
+    expect(client.currentSessionId).toBe("sess_mcp");
+  });
+
   it("自动应答内核的 session/requestRuntimePreferences（默认最小集合）", async () => {
     const transport = new FakeTransport();
     createClient(transport);

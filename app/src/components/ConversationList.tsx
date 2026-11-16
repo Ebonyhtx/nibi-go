@@ -4,18 +4,28 @@
 //   工具 = 一行式卡片（名称 + 状态 + 参数摘要）。
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
-import { type ComponentRef, useRef, useState } from "react";
+import { resolveView } from "@nibi-go/plugin-contract";
+import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { hostSlotData, toolSlotData } from "../plugins/data";
+import type { LoadedPlugin } from "../plugins/store";
 import { radius, space, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
+import {
+  matchPluginToolCard,
+  PluginToolCard,
+  type PluginActionHandler,
+} from "./PluginView";
 
 export function ConversationList({
   rows,
   onRespond,
   turnChanges,
   onOpenSession,
+  plugins,
+  onPluginAction,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -23,11 +33,50 @@ export function ConversationList({
   turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
   /** 子智能体卡的下钻入口（子会话 id）。 */
   onOpenSession?: (sessionId: string) => void;
+  /** 已启用的内置插件（工具卡匹配）。 */
+  plugins?: readonly LoadedPlugin[];
+  onPluginAction?: PluginActionHandler;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
   const stickToBottom = useRef(true);
+
+  /**
+   * 工具行 → 插件卡（没有匹配/插件停用时 undefined，调用方退回普通工具行）。
+   * 折叠后的过程行也用它，保证回合结束后工具卡不会消失。
+   */
+  const renderPluginTool = (row: Extract<ChatRow, { kind: "tool" }>): ReactNode => {
+    const match = plugins && onPluginAction ? matchPluginToolCard(plugins, row) : undefined;
+    if (!match || !plugins || !onPluginAction) return undefined;
+    const host = hostSlotData({
+      enabledPlugins: plugins.length,
+      plugin: {
+        id: match.plugin.parsed.manifest.id,
+        name: match.plugin.parsed.manifest.name,
+        version: match.plugin.parsed.manifest.version,
+      },
+    });
+    const data = toolSlotData({
+      host,
+      name: row.display?.toolName ?? row.name,
+      server: row.display?.serverName,
+      status: row.status,
+      structuredContent: row.display?.ui?.structuredContent,
+      widgetMeta: row.display?.ui?.widgetMeta,
+      text: row.output,
+      error: row.error,
+    });
+    return (
+      <PluginToolCard
+        key={row.key}
+        plugin={match.plugin}
+        card={match.card}
+        node={resolveView(match.card.view, data)}
+        onAction={onPluginAction}
+      />
+    );
+  };
 
   return (
     <ScrollView
@@ -75,6 +124,10 @@ export function ConversationList({
         }
 
         if (row.kind === "tool") {
+          // 插件工具卡：MCP 工具的 display 命中某个已启用插件的 toolCard。
+          // 没有匹配/插件停用就退回普通工具行（降级为纯文本，不影响会话）。
+          const pluginCard = renderPluginTool(row);
+          if (pluginCard) return pluginCard;
           const tone =
             row.status === "error"
               ? th.red
@@ -218,7 +271,7 @@ export function ConversationList({
         }
 
         if (row.kind === "process") {
-          return <TurnProcessCard key={row.key} row={row} />;
+          return <TurnProcessCard key={row.key} row={row} renderTool={renderPluginTool} />;
         }
 
         if (row.kind === "approval" || row.kind === "question") {
@@ -274,7 +327,13 @@ export function ConversationList({
 }
 
 /** 一轮的过程摘要（dsh-Go TurnProcess）：默认收起，点开列出思考/工具/中间消息。 */
-function TurnProcessCard({ row }: { row: Extract<ChatRow, { kind: "process" }> }) {
+function TurnProcessCard({
+  row,
+  renderTool,
+}: {
+  row: Extract<ChatRow, { kind: "process" }>;
+  renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
+}) {
   const th = useNibiTheme();
   const [open, setOpen] = useState(false);
   const parts = ["✓ 已完成"];
@@ -296,7 +355,7 @@ function TurnProcessCard({ row }: { row: Extract<ChatRow, { kind: "process" }> }
       {open ? (
         <View style={[styles.processBody, { borderLeftColor: th.hairline }]}>
           {row.rows.map((child) => (
-            <ProcessChild key={child.key} row={child} />
+            <ProcessChild key={child.key} row={child} renderTool={renderTool} />
           ))}
         </View>
       ) : null}
@@ -305,7 +364,13 @@ function TurnProcessCard({ row }: { row: Extract<ChatRow, { kind: "process" }> }
 }
 
 /** 折叠里的行：思考、工具行、中间消息；只读，不带交互。 */
-function ProcessChild({ row }: { row: ChatRow }) {
+function ProcessChild({
+  row,
+  renderTool,
+}: {
+  row: ChatRow;
+  renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
+}) {
   const th = useNibiTheme();
   if (row.kind === "assistant") {
     return (
@@ -320,6 +385,8 @@ function ProcessChild({ row }: { row: ChatRow }) {
     );
   }
   if (row.kind === "tool") {
+    const pluginCard = renderTool?.(row);
+    if (pluginCard) return pluginCard;
     return (
       <View style={styles.processBlock}>
         <Text

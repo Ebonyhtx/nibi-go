@@ -14,6 +14,7 @@
   "dependencies": {
     "@nibi-go/chat-core": "workspace:*",
     "@nibi-go/kernel-session": "workspace:*",
+    "@nibi-go/plugin-contract": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
     "@nibi-go/shared-extract": "workspace:*",
     "@shopify/react-native-skia": "2.14.0",

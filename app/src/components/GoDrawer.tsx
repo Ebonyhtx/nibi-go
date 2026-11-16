@@ -403,6 +403,16 @@ export function GoNavContent({
           </Pressable>
           <Pressable
             style={[styles.footBtn, { backgroundColor: t.panel }]}
+            accessibilityLabel="插件"
+            onPress={() => {
+              onNavigate?.();
+              router.push("/plugins");
+            }}
+          >
+            <Icon name="puzzle" size={16} color={t.inkSub} />
+          </Pressable>
+          <Pressable
+            style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="设置"
             onPress={() => {
               onNavigate?.();
@@ -574,16 +584,22 @@ export function GoRail({
   onMenu,
   onSearch,
   onSettings,
+  onPlugins,
 }: {
   petState?: PetStateId;
   onMenu: () => void;
   onSearch: () => void;
   onSettings: () => void;
+  onPlugins?: () => void;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const suspended = petState === PET_STATE.sleeping;
-  const key = (icon: "menu" | "search" | "phone" | "sliders", onPress?: () => void, label?: string) => (
+  const key = (
+    icon: "menu" | "search" | "phone" | "sliders" | "puzzle",
+    onPress?: () => void,
+    label?: string,
+  ) => (
     <Pressable
       key={icon}
       onPress={onPress}
@@ -610,6 +626,7 @@ export function GoRail({
           </View>
         </View>
         {key("sliders", onSettings, "设置")}
+        {onPlugins ? key("puzzle", onPlugins, "插件") : null}
       </View>
     </View>
   );

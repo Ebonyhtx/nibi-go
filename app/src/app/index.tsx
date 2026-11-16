@@ -7,8 +7,8 @@
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
-import { useMemo, useRef, useState } from "react";
-import { useRouter } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   PanResponder,
   Pressable,
@@ -25,9 +25,14 @@ import { ConversationList } from "../components/ConversationList";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
+import { PluginComposerActions, type PluginActionHandler } from "../components/PluginView";
 import { PET_STATE } from "../components/petStates";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
+import { runPluginAction } from "../plugins/actions";
+import { takePendingInsert } from "../plugins/pendingInsert";
+import type { LoadedPlugin } from "../plugins/store";
+import { usePlugins } from "../plugins/usePlugins";
 import { radius, space, type as t, useNibiTheme } from "../theme";
 
 export default function GoHomeScreen() {
@@ -42,6 +47,32 @@ export default function GoHomeScreen() {
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
   const conversation = useKernelConversation();
   const [draft, setDraft] = useState("");
+  // 内置插件的槽（工具卡/输入胶囊/面板入口）；启停状态在插件中心改。
+  const plugins = usePlugins();
+  const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
+    runPluginAction(plugin, action, {
+      insertText: (text, mode) => {
+        setDraft((current) =>
+          mode === "replace" ? text : current.length > 0 ? `${current}\n${text}` : text,
+        );
+      },
+      openPanel: (pluginId, panelId) => {
+        router.push({ pathname: "/panel", params: { pluginId, panelId } });
+      },
+      refresh: () => {
+        void plugins.reload();
+      },
+    });
+  };
+  // 面板动作里的“插入草稿”跨页带回首页。
+  useFocusEffect(
+    useCallback(() => {
+      const text = takePendingInsert();
+      if (text) {
+        setDraft((current) => (current.length > 0 ? `${current}\n${text}` : text));
+      }
+    }, []),
+  );
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
       ?.title || "新对话";
@@ -138,6 +169,7 @@ export default function GoHomeScreen() {
             onMenu={() => setSidebarOpen(true)}
             onSearch={() => undefined}
             onSettings={() => router.push("/settings")}
+            onPlugins={() => router.push("/plugins")}
           />
         ) : null}
 
@@ -213,6 +245,8 @@ export default function GoHomeScreen() {
                   onRespond={conversation.respondInteraction}
                   turnChanges={conversation.turnChanges}
                   onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
+                  plugins={plugins.enabled}
+                  onPluginAction={onPluginAction}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
@@ -241,6 +275,9 @@ export default function GoHomeScreen() {
                 <PetView state={petState} targetSize={petTarget} />
               </Pressable>
             </View>
+
+            {/* 插件动作胶囊：输入框正上方（composer.actions） */}
+            <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
 
             {/* 输入栏：单行 pill */}
             <View

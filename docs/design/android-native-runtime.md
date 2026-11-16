@@ -226,6 +226,38 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 **插件上限**：可以做到“功能丰富的助手扩展”（面板、图表、按钮、状态、工具卡、网页视图）；
 不能做到“换掉 GO 的外壳”。
 
+### 7.1 实现（Phase 4，2026-11-17）
+
+- **契约**：`packages/plugin-contract`（纯 TS，Node 可测）。清单文件
+  `nibi-go.plugin.json`：`schemaVersion:1`、`id/name/version`、`minApp`、`caps`、
+  可选 `runtime:{type:"mcp",serverName,entry,alwaysLoad?,timeoutMs?}`、`contributes`。
+  当前渲染 `toolCards` / `composer.actions` / `panels` 三类；其余槽位先解析、未渲染。
+- **视图 v1**：文字/行/列/卡/徽标/分隔/进度/列表/按钮/间距；数据绑定
+  `{ "$": "data.x" }` 与 `{{data.x}}` 插值。预算：工具卡 8KiB/40 节点/6 层、面板
+  32KiB/120/8、状态条 2KiB/8/3；超出整条不渲染。`tabs`/`gallery`/未知组件换成 v1
+  替身并标记“已降级”，单条过坏只丢该条。
+- **效果**：`insert/toast/copy/open/link/command/refresh`，每次 ≤4；`insert` 只改草稿、
+  永不自动发送；`link` 只收无凭据 https；`command` 不能叫 permission；3 秒点按窗口由
+  App 执行。`copy`/`command` 当前没有原生桥，执行时如实提示暂不支持。
+- **工具卡路径（不改内核协议）**：插件 MCP 工具在 `tools/list` 的
+  `_meta.ui.resourceUri` 让内核投影出 `display.kind="mcp_tool"`；结果里的
+  `structuredContent` 与 `_meta` 分别进 `display.ui.structuredContent` /
+  `display.ui.widgetMeta`。App 用 `display.ui.pluginId`（= 服务器名）与 `toolName`
+  匹配清单里的 `toolCards`，数据绑定到 `data.tool.structured`。
+- **宿主**：内置插件首次启动写到 `filesDir/plugins/<dir>/`；MCP 入口用随包 Node 以
+  `node server.mjs` 启动，经 `session/create|resume.mcpServers` 交给内核（内核不持久化
+  这份配置，恢复时要再带一次）。MCP 子进程走内核的环境白名单，拿不到 Provider key。
+- **样例**：`nibigo.weather`（MCP 工具 + 工具卡）、`nibigo.quick`（两个输入胶囊）、
+  `nibigo.usage`（面板，故意用 v2 `tabs` 演示降级）。插件中心可启停、看能力/清单问题/
+  降级原因、打开面板。
+- **验证边界**：MCP stdio 与内核 CLI `--mcp-config` 端到端通过；Metro Android bundle
+  200。真机（PHK110 / Android 16）已验证：插件中心 3 个样例与启停、`composer.actions`
+  插入草稿、面板绑定/v2 `tabs` 降级/刷新、天气 MCP 工具经审批后工具卡渲染（折叠过程行
+  里也保留）。x86_64 模拟器跑不了 arm64 内核，不作为验收环境。
+- **未做**：`message.actions`/`composer.strip`/`composer.tools`/`session.actions`/
+  `turn.note`/Web Island、插件市场与签名、数据推送通道（当前槽是静态宿主数据 +
+  工具结果）。
+
 ## 8. 手机操控
 
 ### 8.1 开关 1：手机操控（无障碍）

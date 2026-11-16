@@ -1,5 +1,6 @@
 import {
   KERNEL_METHODS,
+  type KernelMcpServer,
   type KernelMessage,
   type KernelModelSelection,
   type KernelNotification,
@@ -64,6 +65,10 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface SessionMcpParam {
+  mcpServers?: readonly KernelMcpServer[];
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -134,10 +139,12 @@ export class KernelSessionClient {
   async createSession(
     workspace: KernelWorkspaceRef,
     model?: KernelModelSelection,
+    mcpServers?: readonly KernelMcpServer[],
   ): Promise<KernelSessionCreateResult> {
     const result = await this.request<KernelSessionCreateResult>(KERNEL_METHODS.sessionCreate, {
       workspace,
       ...(model ? { model } : {}),
+      ...(mcpServers && mcpServers.length > 0 ? { mcpServers } : {}),
     });
     const id = result?.session?.sessionId;
     if (typeof id !== "string" || id.length === 0) {
@@ -284,10 +291,15 @@ export class KernelSessionClient {
 
   /**
    * 恢复会话（`session/resume`）：内核冷加载运行实例，返回快照。
-   * 之后用 `readMessages()` 拿历史。
+   * 之后用 `readMessages()` 拿历史。插件 MCP 服务器随 resume 一起交回去（内核不持久化这份配置）。
    */
-  async resumeSession(sessionId: string): Promise<unknown> {
-    const result = await this.request(KERNEL_METHODS.sessionResume, { sessionId });
+  async resumeSession(
+    sessionId: string,
+    mcpServers?: readonly KernelMcpServer[],
+  ): Promise<unknown> {
+    const params: { sessionId: string } & SessionMcpParam = { sessionId };
+    if (mcpServers && mcpServers.length > 0) params.mcpServers = mcpServers;
+    const result = await this.request(KERNEL_METHODS.sessionResume, params);
     this.sessionId = sessionId;
     return result;
   }
