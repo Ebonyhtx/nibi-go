@@ -26,6 +26,7 @@ export function ConversationList({
   onOpenSession,
   plugins,
   onPluginAction,
+  bottomInset = 0,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -36,6 +37,8 @@ export function ConversationList({
   /** 已启用的内置插件（工具卡匹配）。 */
   plugins?: readonly LoadedPlugin[];
   onPluginAction?: PluginActionHandler;
+  /** 底部浮层（宠物/插件胶囊）占的高度：列表多留这段，最后一条能滚到浮层上方。 */
+  bottomInset?: number;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -82,7 +85,10 @@ export function ConversationList({
     <ScrollView
       ref={ref}
       style={styles.scroll}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        bottomInset > 0 ? { paddingBottom: space(2) + bottomInset } : null,
+      ]}
       showsVerticalScrollIndicator={false}
       onScroll={(event) => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
