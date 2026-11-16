@@ -385,18 +385,22 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**35 项单测**。
    - 当前渲染全部声明槽：工具卡、`composer.actions`、`composer.strip`、`composer.tools`、
      `message.actions`、`session.actions`、`panels`、`turn.note`、Web Island。
-   - App：内置 3 个样例插件（天气 = MCP 工具卡、快捷 = 输入胶囊/状态条/加号工具/消息动作、
-     运行状态 = 面板/会话动作/回合脚注/Web Island）；插件中心可启停、看能力/降级原因/
-     清单问题、打开面板与网页面板。会话 `session/create|resume` 带插件 MCP
-     （`mcpServers`），工具行透传 `display` 并渲染插件工具卡（折叠后的过程行也保留）。
+   - App：内置 3 个面向用户的样例：天气（MCP 工具卡 + 「查天气」）、写作助手（输入胶囊/
+     状态条/加号工具/消息引用/写作检查面板/会话信息/回合脚注）、专注计时（Web Island
+     25 分钟计时器）。插件中心只展示名称、说明、面板/网页入口，不再把 caps/运行协议当
+     主视觉。会话 `session/create|resume` 带插件 MCP（`mcpServers`），工具行透传
+     `display` 并渲染插件工具卡（折叠后的过程行也保留）。
+   - 交互：加号工具和长按消息用锚定气泡浮层（缩放入场），不再用全屏底部弹窗；消息动作
+     选中后把原消息摘要钉在 COMPOSE 上方（引用条），只把 prompt 放进草稿、不自动发送；
+     状态条是跟随宠物的胶囊并在多条之间渐隐切换。
    - Web Island：`url` 只允许 https，或内联 `html` ≤16KiB；WebView 路由守卫只放行
-     `about:blank` 与同源 https，8s 超时/加载失败显示可重试降级页；开发期带一个不可达
-     地址的超时演示。
+     `about:blank` 与同源 https，8s 超时/加载失败显示可重试降级页；样例是可交互的
+     专注计时器（开始/暂停/重置）。
    - 验证：MCP stdio 手测（initialize/tools/list/tools/call）通过；内核 CLI
      `--mcp-config` 端到端调用成功；Metro Android bundle 200。真机（PHK110 / Android 16）：
-     插件中心 3 个样例与启停、输入胶囊插入草稿、状态条、回合脚注、加号工具面板插入模板、
-     消息长按菜单、会话行「插件动作」、面板绑定/v2 `tabs` 降级/刷新、天气 MCP 工具经审批后
-     工具卡渲染、Web Island 内联渲染与超时降级。
+     插件中心 3 个样例与启停、输入胶囊、状态条跟随宠物、加号气泡工具、消息长按气泡 +
+     引用条、会话信息里的「总结本会话」、写作检查面板、天气 MCP 工具卡、专注计时器
+     开始/暂停、Web Island 超时降级；抽屉打开时宠物隐藏、不遮侧栏。
    - 未做：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）；`copy`/
      `command` 效果当前只提示“暂不支持”；插件设置/命令面、市场与签名/Ed25519 仍属 C2。
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
