@@ -136,7 +136,7 @@ export default function PluginPanelScreen() {
           </View>
         )}
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          数据来自宿主与插件清单；插件代码不在 UI 进程执行。
+          这是插件提供的面板（只读清单/信息 + 动作），不是设置页；插件代码不在 UI 进程执行。
         </Text>
       </ScrollView>
     </View>

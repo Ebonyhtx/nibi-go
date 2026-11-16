@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
+  Keyboard,
   Easing,
   Pressable,
   ScrollView,
@@ -416,6 +417,7 @@ export function GoNavContent({
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="插件"
             onPress={() => {
+              Keyboard.dismiss();
               onNavigate?.();
               router.push("/plugins");
             }}
@@ -426,6 +428,7 @@ export function GoNavContent({
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="设置"
             onPress={() => {
+              Keyboard.dismiss();
               onNavigate?.();
               router.push("/settings");
             }}
@@ -653,13 +656,24 @@ export function GoRail({
 
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
-  dim: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: "rgba(28,47,78,0.24)" },
+  dim: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(28,47,78,0.24)",
+    zIndex: 19,
+    elevation: 19,
+  },
   panel: {
     position: "absolute",
     left: 0,
     top: 0,
     bottom: 0,
     borderRightWidth: StyleSheet.hairlineWidth,
+    zIndex: 20,
+    elevation: 20,
   },
   sidebar: { width: 320, height: "100%", borderRightWidth: StyleSheet.hairlineWidth },
   head: {
