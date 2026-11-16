@@ -134,7 +134,7 @@ export function GoNavContent({
     ];
     if (onSessionActions) {
       buttons.push({
-        text: "插件动作",
+        text: "会话信息",
         onPress: () => onSessionActions(session.sessionId),
       });
     }

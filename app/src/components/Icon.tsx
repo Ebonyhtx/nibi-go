@@ -21,7 +21,12 @@ export type IconName =
   | "ellipsis"
   | "shield"
   | "question"
-  | "x";
+  | "x"
+  | "sparkles"
+  | "globe"
+  | "doc"
+  | "clock"
+  | "quote";
 
 export interface IconProps {
   name: IconName;
@@ -107,6 +112,31 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
             <Circle cx={12} cy={12} r={8.5} {...ring} />
             <Path path="M9.6 9.3A2.6 2.6 0 0114.7 11.4C14.7 13 12 13 12 14.6" {...paint} />
             <Circle cx={12} cy={17.4} r={0.9} color={color} />
+          </>
+        ) : name === "sparkles" ? (
+          <>
+            <Path path="M12 3.5L13.6 8.4L18.5 10L13.6 11.6L12 16.5L10.4 11.6L5.5 10L10.4 8.4Z" {...paint} />
+            <Path path="M18.5 15.2L19.2 17.3L21.3 18L19.2 18.7L18.5 20.8L17.8 18.7L15.7 18L17.8 17.3Z" {...paint} />
+          </>
+        ) : name === "globe" ? (
+          <>
+            <Circle cx={12} cy={12} r={8.5} {...ring} />
+            <Path path="M3.5 12H20.5" {...paint} />
+            <Path path="M12 3.5C15.5 6 15.5 18 12 20.5C8.5 18 8.5 6 12 3.5Z" {...paint} />
+          </>
+        ) : name === "doc" ? (
+          <>
+            <Path path="M6 3.5H14L18 7.5V20.5H6Z" {...paint} />
+            <Path path="M14 3.5V7.5H18M9 12H15M9 15.5H15" {...paint} />
+          </>
+        ) : name === "clock" ? (
+          <>
+            <Circle cx={12} cy={12} r={8.5} {...ring} />
+            <Path path="M12 7.5V12L15.2 14" {...paint} />
+          </>
+        ) : name === "quote" ? (
+          <>
+            <Path path="M5 11.5C5 8.5 7 6.5 10 6.5M5 11.5H9.5V16H5ZM14.5 11.5C14.5 8.5 16.5 6.5 19.5 6.5M14.5 11.5H19V16H14.5Z" {...paint} />
           </>
         ) : (
           <Path path="M16.8 3.6L20.4 7.2L8.6 19L4 20L5 15.4Z" {...paint} />

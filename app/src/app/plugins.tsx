@@ -77,27 +77,13 @@ function PluginCard({
         <Text style={[styles.description, { color: t.inkSub }]}>{manifest.description}</Text>
       ) : null}
 
-      <View style={styles.chips}>
-        {manifest.caps.map((cap) => (
-          <View key={cap} style={[styles.chip, { backgroundColor: t.panel }]}>
-            <Text style={[styles.chipText, { color: t.inkFaint }]}>{cap}</Text>
-          </View>
-        ))}
-        {manifest.runtime ? (
-          <View style={[styles.chip, { backgroundColor: t.steelSoft }]}>
-            <Text style={[styles.chipText, { color: t.steel }]}>MCP · {manifest.runtime.serverName}</Text>
-          </View>
-        ) : (
-          <View style={[styles.chip, { backgroundColor: t.panel }]}>
-            <Text style={[styles.chipText, { color: t.inkFaint }]}>纯声明</Text>
-          </View>
-        )}
-        {plugin.parsed.degraded.length > 0 ? (
+      {plugin.parsed.degraded.length > 0 ? (
+        <View style={styles.chips}>
           <View style={[styles.chip, { backgroundColor: t.amberSoft }]}>
             <Text style={[styles.chipText, { color: t.amber }]}>已降级</Text>
           </View>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
 
       {plugin.parsed.reason ? (
         <Text style={[styles.reason, { color: tone }]}>{plugin.parsed.reason}</Text>

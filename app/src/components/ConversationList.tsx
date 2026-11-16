@@ -18,6 +18,7 @@ import {
   PluginToolCard,
   type PluginActionHandler,
 } from "./PluginView";
+import type { PopupAnchor } from "./PluginPopup";
 
 export function ConversationList({
   rows,
@@ -40,8 +41,8 @@ export function ConversationList({
   onPluginAction?: PluginActionHandler;
   /** 底部浮层（宠物/插件胶囊）占的高度：列表多留这段，最后一条能滚到浮层上方。 */
   bottomInset?: number;
-  /** 助手消息长按：有插件 message.actions 时由首页打开动作弹层。 */
-  onMessageLongPress?: () => void;
+  /** 助手消息长按：有插件 message.actions 时由首页打开动作气泡；第二个参数是按压点。 */
+  onMessageLongPress?: (message: string, anchor: PopupAnchor) => void;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -335,7 +336,17 @@ export function ConversationList({
         return (
           <View key={row.key} style={[styles.row, { alignItems: "flex-start" }]}>
             <Pressable
-              onLongPress={onMessageLongPress}
+              onLongPress={
+                onMessageLongPress
+                  ? (event) =>
+                      onMessageLongPress(row.text, {
+                        x: event.nativeEvent.pageX,
+                        y: event.nativeEvent.pageY,
+                        width: 1,
+                        height: 1,
+                      })
+                  : undefined
+              }
               delayLongPress={350}
               accessibilityRole="button"
               accessibilityLabel="助手消息，长按打开插件动作"

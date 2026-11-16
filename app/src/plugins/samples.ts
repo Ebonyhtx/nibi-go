@@ -113,9 +113,9 @@ rl.on("close", () => process.exit(0));
 const WEATHER_MANIFEST: Record<string, unknown> = {
   schemaVersion: 1,
   id: "nibigo.weather",
-  name: "天气（样例）",
+  name: "天气",
   version: "0.1.0",
-  description: "演示插件：MCP 工具 + 原生工具卡；数据来自插件子进程。",
+  description: "问模型天气时，插件工具会返回结果，并在对话里显示一张天气卡。",
   minApp: "0.1.0",
   caps: ["view.v1", "slots.v1", "effects.v1", "mcp.v1"],
   runtime: {
@@ -155,7 +155,7 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
             },
             {
               type: "text",
-              text: "来自插件工具 {{data.tool.name}}",
+              text: "来自天气插件",
               style: "caption",
               tone: "faint",
               maxLines: 1,
@@ -164,15 +164,22 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
         },
       },
     ],
+    "composer.actions": [
+      {
+        id: "ask-weather",
+        title: "查天气",
+        effects: [{ kind: "insert", text: "帮我查一下北京今天的天气。" }],
+      },
+    ],
   },
 };
 
 const QUICK_MANIFEST: Record<string, unknown> = {
   schemaVersion: 1,
   id: "nibigo.quick",
-  name: "快捷动作（样例）",
+  name: "写作助手",
   version: "0.1.0",
-  description: "演示插件：输入框上方的两个动作胶囊；只插入文字，不自动发送。",
+  description: "长按助手消息可引用并润色/缩写；加号里有周报和邮件模板。",
   minApp: "0.1.0",
   caps: ["view.v1", "slots.v1", "effects.v1"],
   contributes: {
@@ -190,151 +197,122 @@ const QUICK_MANIFEST: Record<string, unknown> = {
     ],
     "message.actions": [
       {
-        id: "explain",
-        title: "解释",
-        effects: [{ kind: "insert", text: "解释一下上面这条回答。" }],
+        id: "polish-message",
+        title: "润色",
+        effects: [{ kind: "insert", text: "把这条消息润色得更清晰、专业，保持事实不变。" }],
       },
       {
-        id: "shorten",
+        id: "shorten-message",
         title: "缩写",
-        effects: [{ kind: "insert", text: "把上面这条回答缩写得更短。" }],
+        effects: [{ kind: "insert", text: "把这条消息缩写得更短，保留关键信息。" }],
       },
     ],
     "composer.tools": [
       {
-        id: "summary-template",
-        title: "总结模板",
-        icon: "sparkles",
+        id: "weekly-template",
+        title: "周报模板",
+        icon: "doc",
         effects: [
           {
             kind: "insert",
-            text: "请按以下结构总结：1) 结论 2) 依据 3) 风险 4) 下一步。",
+            text: "请按「本周完成 / 关键结果 / 风险 / 下周计划」写一份周报。",
           },
         ],
       },
       {
-        id: "translate-template",
-        title: "翻译模板",
+        id: "mail-template",
+        title: "邮件模板",
         icon: "globe",
         effects: [
           {
             kind: "insert",
-            text: "把下面的内容翻译成英文，保留代码与专有名词。",
+            text: "帮我写一封简洁的邮件：主题清楚，正文三段（背景、诉求、下一步）。",
           },
         ],
       },
     ],
-    "composer.strip": [{ id: "quick-hint", text: "快捷动作可用", tone: "faint" }],
-  },
-};
-
-const USAGE_MANIFEST: Record<string, unknown> = {
-  schemaVersion: 1,
-  id: "nibigo.usage",
-  name: "运行状态（样例）",
-  version: "0.1.0",
-  description: "演示插件：面板 + 宿主数据绑定；tabs 在 v1 宿主下降级为纵向列。",
-  minApp: "0.1.0",
-  caps: ["view.v1", "slots.v1", "effects.v1"],
-  contributes: {
+    "composer.strip": [
+      { id: "writing-hint", text: "写作助手 · 长按消息可润色", tone: "faint" },
+    ],
     panels: [
       {
-        id: "status",
-        title: "本机状态",
-        description: "宿主数据 + v2 组件降级演示",
+        id: "checklist",
+        title: "写作检查",
+        description: "事实、结构、语气、长度",
         view: {
-          type: "tabs",
-          tabs: [
+          type: "card",
+          title: "发送前检查",
+          children: [
+            { type: "text", text: "快速过一遍这四项：", style: "body" },
             {
-              label: "概览",
-              children: [
-                {
-                  type: "row",
-                  align: "between",
-                  children: [
-                    { type: "text", text: "App 版本", style: "caption", tone: "sub" },
-                    { type: "text", text: "{{data.host.appVersion}}", style: "mono" },
-                  ],
-                },
-                {
-                  type: "row",
-                  align: "between",
-                  children: [
-                    { type: "text", text: "插件版本", style: "caption", tone: "sub" },
-                    { type: "text", text: "{{data.host.pluginVersion}}", style: "mono" },
-                  ],
-                },
-                {
-                  type: "row",
-                  align: "between",
-                  children: [
-                    { type: "text", text: "运行位置", style: "caption", tone: "sub" },
-                    { type: "text", text: "{{data.host.host}}", style: "mono" },
-                  ],
-                },
-                {
-                  type: "row",
-                  align: "between",
-                  children: [
-                    { type: "text", text: "已启用插件", style: "caption", tone: "sub" },
-                    { type: "text", text: "{{data.host.enabledPlugins}}", style: "mono" },
-                  ],
-                },
-                { type: "divider" },
-                {
-                  type: "list",
-                  items: { $: "data.host.capabilities" },
-                  empty: "没有能力声明",
-                },
-              ],
+              type: "list",
+              items: ["事实是否准确", "结构是否清楚", "语气是否合适", "长度是否合适"],
             },
+            { type: "divider" },
             {
-              label: "说明",
-              children: [
-                {
-                  type: "text",
-                  text: "这个面板来自插件清单，宿主只渲染声明式 JSON。",
-                  style: "body",
-                },
-                {
-                  type: "text",
-                  text: "tabs 是 v2 组件；v1 宿主会摊平成纵向列，插件中心标记「已降级」。",
-                  style: "caption",
-                  tone: "faint",
-                },
-              ],
+              type: "button",
+              label: "让 NIBI 检查",
+              action: "check-writing",
+              style: "primary",
             },
           ],
         },
-        actions: [{ id: "refresh", label: "刷新数据", effects: [{ kind: "refresh" }] }],
+        actions: [
+          {
+            id: "check-writing",
+            label: "让 NIBI 检查",
+            effects: [
+              {
+                kind: "insert",
+                text: "请按事实、结构、语气、长度检查上面的内容，并指出需要改的地方。",
+              },
+            ],
+          },
+        ],
       },
     ],
-    "turn.note": [{ id: "privacy", text: "本机运行 · 数据不出机", tone: "faint" }],
     "session.actions": [
       {
-        id: "open-status",
-        title: "本机状态",
-        effects: [{ kind: "open", panel: "status" }],
+        id: "summarize-session",
+        title: "总结本会话",
+        effects: [{ kind: "insert", text: "请总结当前会话的要点、结论和待办。" }],
       },
     ],
-    webIslands: [
+    "turn.note": [{ id: "local-note", text: "本机处理 · 数据不出机", tone: "faint" }],
+  },
+};
+
+const FOCUS_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><title>专注计时</title><style>body{margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#fdf7ec;color:#1c2f4e}main{max-width:520px;margin:0 auto}.eyebrow{font-size:11px;letter-spacing:.18em;color:#e08a3e;font-weight:700}h1{font-size:28px;margin:8px 0 18px}.ring{margin:0 auto 20px;width:220px;height:220px;border-radius:50%;background:#fffdf9;border:1px solid rgba(28,47,78,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(28,47,78,.08)}#time{font-size:48px;font-weight:700;letter-spacing:.04em}#status{margin-top:4px;font-size:12px;color:#6b788c}.row{display:flex;gap:10px;justify-content:center}.row button{border:0;border-radius:999px;padding:12px 22px;font-size:14px;font-weight:700;background:#e08a3e;color:#fff9ef}.row button.secondary{background:#f3ead8;color:#1c2f4e}.hint{margin-top:22px;font-size:12px;line-height:1.6;color:#6b788c}</style></head><body><main><div class="eyebrow">WEB ISLAND</div><h1>专注计时</h1><div class="ring"><div id="time">25:00</div><div id="status">准备开始</div></div><div class="row"><button id="start">开始</button><button id="reset" class="secondary">重置</button></div><p class="hint">这是一个可交互的网页面板：开始、暂停、重置都在插件页面里完成，宿主负责路由守卫与加载超时降级。</p></main><script>var total=25*60;var left=total;var timer=null;var timeEl=document.getElementById('time');var statusEl=document.getElementById('status');var startEl=document.getElementById('start');function render(){var m=Math.floor(left/60);var s=left%60;timeEl.textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;}function tick(){if(left<=0){clearInterval(timer);timer=null;statusEl.textContent='完成一次专注';startEl.textContent='开始';return;}left=left-1;render();}function toggle(){if(timer){clearInterval(timer);timer=null;startEl.textContent='继续';statusEl.textContent='已暂停';}else{if(left<=0){left=total;render();}timer=setInterval(tick,1000);startEl.textContent='暂停';statusEl.textContent='专注中';}}startEl.addEventListener('click',toggle);document.getElementById('reset').addEventListener('click',function(){clearInterval(timer);timer=null;left=total;render();statusEl.textContent='准备开始';startEl.textContent='开始';});render();</script></body></html>`;
+
+const FOCUS_MANIFEST: Record<string, unknown> = {
+  schemaVersion: 1,
+  id: "nibigo.focus",
+  name: "专注计时",
+  version: "0.1.0",
+  description: "Web Island 样例：一个可交互的 25 分钟专注计时器。",
+  minApp: "0.1.0",
+  caps: ["view.v1", "slots.v1", "effects.v1"],
+  contributes: {
+    "composer.actions": [
       {
-        id: "welcome",
-        title: "网页面板",
-        html: `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>NIBI-GO</title><style>body{margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#fdf7ec;color:#1c2f4e}main{max-width:520px;margin:0 auto}.eyebrow{font-size:11px;letter-spacing:.18em;color:#e08a3e;font-weight:700}h1{font-size:28px;margin:8px 0 10px}p{font-size:14px;line-height:1.6;color:#4a5a72}.card{margin-top:18px;padding:16px;border:1px solid rgba(28,47,78,.12);border-radius:16px;background:#fffdf9;display:flex;flex-direction:column;gap:6px}span{font-size:12px;line-height:1.5;color:#6b788c}</style></head><body><main><div class="eyebrow">WEB ISLAND</div><h1>NIBI-GO</h1><p>这个面板来自插件清单里的 Web Island 声明，宿主用 WebView 渲染。</p><div class="card"><strong>路由守卫</strong><span>只允许当前页面与同源 https 导航；外部链接会被拦下。</span></div><div class="card"><strong>超时降级</strong><span>加载超时或失败时显示可重试的降级页，不会卡住会话。</span></div></main></body></html>`,
+        id: "focus-session",
+        title: "专注",
+        effects: [
+          {
+            kind: "insert",
+            text: "帮我安排一个 25 分钟的专注时段，先做最重要的任务。",
+          },
+        ],
       },
-      // 仅开发期：一个不可路由的 https 地址，用来验证 8s 超时/失败降级。
-      ...(__DEV__
-        ? [{ id: "timeout-demo", title: "超时演示", url: "https://10.255.255.1/" }]
-        : []),
     ],
+    webIslands: [{ id: "timer", title: "专注计时器", html: FOCUS_HTML }],
   },
 };
 
 export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
   { dir: "nibigo-weather", manifest: WEATHER_MANIFEST, files: { "server.mjs": WEATHER_SERVER } },
   { dir: "nibigo-quick", manifest: QUICK_MANIFEST, files: {} },
-  { dir: "nibigo-usage", manifest: USAGE_MANIFEST, files: {} },
+  { dir: "nibigo-focus", manifest: FOCUS_MANIFEST, files: {} },
 ];
 
 export const MANIFEST_FILE = "nibi-go.plugin.json";
