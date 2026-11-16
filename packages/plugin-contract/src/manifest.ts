@@ -26,6 +26,7 @@ import type {
   TurnNoteContribution,
   ViewText,
   ViewTone,
+  WebIslandContribution,
 } from "./types";
 import { SLOT_LIMITS } from "./types";
 
@@ -413,6 +414,62 @@ function readTurnNotes(raw: unknown, issues: ContractIssue[]): TurnNoteContribut
   return notes;
 }
 
+function readWebIslands(raw: unknown, issues: ContractIssue[]): WebIslandContribution[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/contributes/webIslands", message: "webIslands 必须是数组" });
+    return [];
+  }
+  const limit = SLOT_LIMITS.webIslands;
+  if (raw.length > limit) {
+    issues.push({
+      path: "/contributes/webIslands",
+      message: `webIslands 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const islands: WebIslandContribution[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const path = `/contributes/webIslands/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "webIsland 必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || seen.has(id) || !title || textLength(title) > 16) {
+      issues.push({ path, message: "webIsland 需要唯一 id 与 ≤16 字的 title" });
+      continue;
+    }
+    const html =
+      typeof value.html === "string" && value.html.length > 0 && value.html.length <= 16 * 1024
+        ? value.html
+        : undefined;
+    let url: string | undefined;
+    if (typeof value.url === "string" && value.url.length > 0 && value.url.length <= 2_048) {
+      try {
+        const parsed = new URL(value.url);
+        if (parsed.protocol === "https:" && parsed.username === "" && parsed.password === "") {
+          url = value.url;
+        }
+      } catch {
+        // 非法 URL 走下面的统一 issue。
+      }
+    }
+    if ((html === undefined) === (url === undefined)) {
+      issues.push({
+        path,
+        message: "webIsland 需要 url（https）或 html（≤16KiB）二选一",
+      });
+      continue;
+    }
+    seen.add(id);
+    islands.push({ id, title, ...(html !== undefined ? { html } : { url }) });
+  }
+  return islands;
+}
+
 function emptyManifest(id: string, name: string, version: string): PluginManifest {
   return {
     schemaVersion: 1,
@@ -429,6 +486,7 @@ function emptyManifest(id: string, name: string, version: string): PluginManifes
       panels: [],
       strips: [],
       turnNotes: [],
+      webIslands: [],
     },
   };
 }
@@ -504,6 +562,7 @@ export function readPluginManifest(
   const panels = readPanels(contributesRaw.panels, issues, degraded);
   const strips = readStrips(contributesRaw["composer.strip"], issues);
   const turnNotes = readTurnNotes(contributesRaw["turn.note"], issues);
+  const webIslands = readWebIslands(contributesRaw.webIslands, issues);
 
   const manifest: PluginManifest = {
     schemaVersion: 1,
@@ -523,6 +582,7 @@ export function readPluginManifest(
       panels,
       strips,
       turnNotes,
+      webIslands,
     },
   };
 

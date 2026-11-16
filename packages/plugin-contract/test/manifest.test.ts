@@ -212,6 +212,45 @@ describe("readPluginManifest", () => {
     expect(plugin.issues.some((issue) => issue.path.includes("turn.note"))).toBe(true);
   });
 
+  it("webIslands 只收 https 或内联 html，且二选一", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          webIslands: [
+            { id: "inline", title: "内联", html: "<html><body>ok</body></html>" },
+            { id: "http", title: "明文", url: "http://example.com/panel" },
+            { id: "remote", title: "远程", url: "https://example.com/panel" },
+          ],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.manifest.contributes.webIslands.map((island) => island.id)).toEqual(["inline"]);
+    // 一条 http 非法 + 一条超出上限。
+    expect(plugin.issues.filter((issue) => issue.path.includes("webIslands"))).toHaveLength(2);
+  });
+
+  it("webIslands 拒绝 url+html 同时给和超长 html", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          webIslands: [
+            {
+              id: "both",
+              title: "两份",
+              html: "<p>x</p>",
+              url: "https://example.com",
+            },
+            { id: "large", title: "太大", html: "字".repeat(16 * 1024 + 1) },
+          ],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.manifest.contributes.webIslands).toEqual([]);
+    expect(plugin.issues.filter((issue) => issue.path.includes("webIslands"))).toHaveLength(2);
+  });
+
   it("服务器名与 entry 做路径净化", () => {
     const plugin = readPluginManifest(
       manifest({

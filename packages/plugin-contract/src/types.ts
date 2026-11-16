@@ -84,6 +84,7 @@ export const SLOT_LIMITS = {
   "composer.tools": 2,
   "session.actions": 2,
   "turn.note": 1,
+  webIslands: 2,
 } as const;
 
 export type SlotName = keyof typeof SLOT_LIMITS;
@@ -156,6 +157,14 @@ export interface TurnNoteContribution {
   tone?: ViewTone;
 }
 
+/** Web Island：插件声明的网页面板；url 只允许 https，或使用内联 html（≤16KiB）。 */
+export interface WebIslandContribution {
+  id: string;
+  title: string;
+  url?: string;
+  html?: string;
+}
+
 export interface PanelContribution {
   id: string;
   title: string;
@@ -207,6 +216,7 @@ export interface PluginManifest {
     panels: PanelContribution[];
     strips: StripContribution[];
     turnNotes: TurnNoteContribution[];
+    webIslands: WebIslandContribution[];
   };
 }
 
