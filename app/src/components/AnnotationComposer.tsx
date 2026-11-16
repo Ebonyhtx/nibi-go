@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -34,10 +35,22 @@ export function AnnotationComposer({
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const [comment, setComment] = useState(initialComment ?? "");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
     if (visible) setComment(initialComment ?? "");
   }, [initialComment, visible]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) =>
+      setKeyboardHeight(event.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -52,7 +65,8 @@ export function AnnotationComposer({
             {
               backgroundColor: t.card,
               borderColor: t.hairline,
-              paddingBottom: insets.bottom + space(3),
+              paddingBottom: keyboardHeight > 0 ? space(3) : insets.bottom + space(3),
+              marginBottom: Platform.OS === "android" ? keyboardHeight : 0,
             },
           ]}
         >
