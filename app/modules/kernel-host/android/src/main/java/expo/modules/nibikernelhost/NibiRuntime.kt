@@ -23,7 +23,10 @@ internal object NibiRuntime {
   private const val TAG = "NibiRuntime"
   private const val ASSET_ZIP = "nibi-runtime.zip"
   private const val ASSET_MANIFEST = "nibi-runtime.json"
+  private const val LANGS_ZIP = "nibi-langs.zip"
+  private const val LANGS_MANIFEST = "nibi-langs.json"
   private const val STAMP = "stamp.txt"
+  private const val LANGS_STAMP = "langs.txt"
   private const val GITCONFIG_MARKER = "# managed by NIBI-GO runtime installer"
 
   data class Installed(
@@ -31,6 +34,7 @@ internal object NibiRuntime {
     val shell: String,
     val version: String?,
     val error: String?,
+    val langsVersion: String? = null,
   )
 
   fun install(context: Context): Installed {
@@ -56,12 +60,18 @@ internal object NibiRuntime {
 
       createSymlinks(context, root, manifest)
       writeManagedGitConfig(root)
+      val langsVersion = try {
+        installLanguages(context, root)
+      } catch (t: Throwable) {
+        Log.w(TAG, "语言运行时安装失败；shell/git 继续可用", t)
+        null
+      }
 
       val bash = File(root, "bin/bash")
       if (!bash.isFile || !bash.canExecute()) {
         return fallback(context, "$bash 不可执行")
       }
-      Installed(true, bash.absolutePath, version, null)
+      Installed(true, bash.absolutePath, version, null, langsVersion)
     } catch (t: Throwable) {
       Log.w(TAG, "运行时安装失败，回退 /system/bin/sh", t)
       fallback(context, t.message ?: t.javaClass.simpleName)
@@ -108,6 +118,28 @@ internal object NibiRuntime {
       setEnv("SSL_CERT_FILE", caBundle.absolutePath)
     }
     setEnv("SSL_CERT_DIR", "/system/etc/security/cacerts")
+    if (installed.langsVersion != null) {
+      // Node/Python 自建运行时：libpython 与 node 依赖 nativeLibraryDir，
+      // 而 execve 不会自动搜该目录，只能靠 LD_LIBRARY_PATH（目录里都是本 App 的库）。
+      val previous = System.getenv("LD_LIBRARY_PATH")
+      setEnv(
+        "LD_LIBRARY_PATH",
+        if (previous.isNullOrBlank()) nativeDir else "$nativeDir:$previous",
+      )
+      val pythonHome = File(root, "python")
+      if (pythonHome.isDirectory) setEnv("PYTHONHOME", pythonHome.absolutePath)
+      setEnv("PYTHONUSERBASE", File(context.filesDir, "packages/pip").absolutePath)
+      setEnv("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+      if (caBundle.isFile) setEnv("PIP_CERT", caBundle.absolutePath)
+      setEnv("NPM_CONFIG_PREFIX", File(context.filesDir, "packages/npm").absolutePath)
+      setEnv("NPM_CONFIG_CACHE", File(context.filesDir, "cache/npm").absolutePath)
+      setEnv("NODE_PATH", File(context.filesDir, "packages/npm/node_modules").absolutePath)
+      val npmCli = File(root, "npm/bin/npm-cli.js")
+      if (npmCli.isFile) setEnv("NIBI_NODE_CLI", npmCli.absolutePath)
+      val npxCli = File(root, "npm/bin/npx-cli.js")
+      if (npxCli.isFile) setEnv("NIBI_NPX_CLI", npxCli.absolutePath)
+      Log.i(TAG, "语言运行时就绪：${installed.langsVersion}")
+    }
     if (terminfo.isDirectory) {
       setEnv("TERMINFO", terminfo.absolutePath)
     }
@@ -133,12 +165,20 @@ internal object NibiRuntime {
     }
 
   private fun extractZip(context: Context, root: File) {
-    ZipInputStream(BufferedInputStream(context.assets.open(ASSET_ZIP))).use { zip ->
+    unzipAsset(context, ASSET_ZIP, root)
+    val manifest = File(root, "etc/bash_env.sh")
+    if (!manifest.isFile) {
+      throw IllegalStateException("assets/$ASSET_ZIP 缺少 etc/bash_env.sh")
+    }
+  }
+
+  private fun unzipAsset(context: Context, asset: String, root: File) {
+    ZipInputStream(BufferedInputStream(context.assets.open(asset))).use { zip ->
       while (true) {
         val entry = zip.nextEntry ?: break
         val name = entry.name
         if (name.startsWith("/") || name.split('/').contains("..")) {
-          throw IllegalStateException("assets/$ASSET_ZIP 含非法路径：$name")
+          throw IllegalStateException("assets/$asset 含非法路径：$name")
         }
         val target = File(root, name)
         if (entry.isDirectory) {
@@ -150,10 +190,45 @@ internal object NibiRuntime {
         zip.closeEntry()
       }
     }
-    val manifest = File(root, "etc/bash_env.sh")
-    if (!manifest.isFile) {
-      throw IllegalStateException("assets/$ASSET_ZIP 缺少 etc/bash_env.sh")
+  }
+
+  /**
+   * Node/Python 是可选的第二层运行时（自建，非 Termux）。缺失或损坏时只记日志，
+   * 不影响 bash/git；`nibi-langs.json` 由 scripts/android-runtimes 生成。
+   */
+  private fun installLanguages(context: Context, root: File): String? {
+    val manifestText = readAsset(context, LANGS_MANIFEST) ?: return null
+    val manifest = JSONObject(manifestText)
+    val version = manifest.optString("version", "")
+    if (!version.startsWith("langs-1:")) {
+      Log.w(TAG, "nibi-langs.json 版本字段无效")
+      return null
     }
+    val stamp = File(root, LANGS_STAMP)
+    if (!(stamp.isFile && stamp.readText().trim() == version)) {
+      Log.i(TAG, "安装语言运行时 $version")
+      File(root, "python").deleteRecursively()
+      File(root, "npm").deleteRecursively()
+      unzipAsset(context, LANGS_ZIP, root)
+      stamp.writeText(version)
+    }
+    val nativeDir = context.applicationInfo.nativeLibraryDir
+    val bin = File(root, "bin").apply { mkdirs() }
+    val binMap = manifest.optJSONObject("bin")
+    if (binMap != null) {
+      for (name in binMap.keys()) {
+        link(File(bin, name), File(nativeDir, binMap.getString(name)))
+      }
+    }
+    val shims = manifest.optJSONArray("shims")
+    if (shims != null) {
+      val runner = File(bin, "nibi-run")
+      for (i in 0 until shims.length()) {
+        val name = shims.optString(i)
+        if (name.isNotBlank()) link(File(bin, name), runner)
+      }
+    }
+    return version
   }
 
   private fun createSymlinks(context: Context, root: File, manifest: JSONObject) {

@@ -409,6 +409,20 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
     - 验收证据：App 内 mock 模型 → Bash 工具 → 审批 → 输出
       `SHELL=…/runtime/bin/bash`、`BASH_VERSION=5.2.37(1)-release`，
       并写出 `pwd-proof.txt`（`/data/data/top.nibistudio.nibigo/files`）。
+18. **Phase 3 运行时选型改为自建（2026-11-16 运营者决定，不用 Termux 二进制）**：
+    - **Python 3.13.18 已完成并真机验证**：CPython 官方 Android 支持；宿主 Python
+      out-of-tree → 用 NDK 交叉编译；自建 libffi 3.4.8 / zlib 1.3.1（PIC）与
+      OpenSSL 3.5.4；`libpython3.13.so` strip 后 5.2MB，stdlib 裁剪后 29MB
+      （zip 11MB）；`ensurepip` 的 pip wheel 预装到 site-packages。真机
+      `python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes`、`pip 26.2.2`、
+      `pip install requests`、`pyfiglet` console script（经 nibi-run/BASH_ENV）全部通过。
+    - **Node 24.22.3 尚未完成**：上游 `android-configure` 官方声明 Android
+      “not supported”。已修 `host_arch`（configure 时需 `CC_host=gcc CXX_host=g++`，
+      否则宿主 mksnapshot 把 arm64 汇编交给 x86 g++）、V8 bionic `execinfo`、
+      `push_registers_asm` host stub、cpufeatures 链接；仍在宿主 mksnapshot 链接处缺
+      V8 cross 的 `trap_handler::TryHandleSignal` / simulator 符号。候选方案是用
+      nodejs-mobile 的 Node 22.9 源码分支（Android 补丁齐全，仍是自建源码）或继续给
+      24 补 V8 gyp。**不采用 Termux 预编译包**（供应链可控性原因）。
 17. **Phase 3 来源 spike（2026-11-16，Termux 预编译）**：
     - `nodejs 26.13.1`（aarch64）：单 PIE 49MB，NEEDED 12 个库（zlib/c-ares/sqlite/
       libffi/openssl3/ICU 79/libc++）；NDK 视角 LOAD 0x4000、`.note.android.ident`

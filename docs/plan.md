@@ -335,16 +335,16 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 
 ### Phase 3 · Node/Python
 
-1. ✅ spike 完成（2026-11-16）：
-   - App 数据里的 `.so`/`.node` 可 `dlopen`（app 进程探针 `dlopen-ok value=42`；
-     execve 仍被拒）——native addon 可装 `filesDir/packages`，不必预置 jniLibs。
-   - Termux `nodejs 26.13.1`（49MB 单 PIE + 46MB 依赖，API 30）+ `npm 12.2.2`（18MB）
-     在真机跑通：`npm install lodash`、`nibi-run cowsay`（`.bin` → `env node`）。
-   - Termux `python 3.14.10` 依赖 14 个包，未跑；`nodejs-mobile` 最新只有 Node 18.20.4。
-   - 待运营者定：APK 体积/随包 vs 按需运行时包；Node 26/API 30 与计划 Node 22/24 的偏差；
-     接入需要 launcher 隔离 node 的 `LD_LIBRARY_PATH`（不能污染 `:kernel` 的 libc++）。
-2. jniLibs `libnode.so`/`libpython.so` + wrappers；npm/pip 装到 `filesDir/packages`；
-   `--ignore-scripts` / wheel 策略。
+1. ✅/◐ 运营者选 **自建而不用 Termux 二进制**（2026-11-16）。已完成：
+   - App 数据 `.so`/`.node` 可 `dlopen`（探针 `dlopen-ok value=42`；execve 仍被拒）。
+   - **Python 3.13.18 自建完成并真机验证**：宿主 Python + NDK 交叉；自建 libffi/zlib/
+     OpenSSL；`python3` + `ssl/zlib/ctypes`、`pip 26.2.2`、`pip install requests`、
+     `pyfiglet` console script（nibi-run）全部通过；stdlib zip 11MB、libpython 5.2MB。
+   - Node 24.22.3 上游 `android-configure` 在宿主 mksnapshot 缺 V8 cross 补丁
+     （trap_handler/simulator 符号），未完成；候选 nodejs-mobile Node 22.9 源码分支。
+     Termux 预编译包因供应链可控性不采用。
+2. jniLibs `libpython3.13.so`/`libnode.so` + wrappers；npm/pip 装到 `filesDir/packages`；
+   `--ignore-scripts` / wheel 策略（Python 已接 `PYTHONHOME`/`PYTHONUSERBASE`/`pip` shim）。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
    出口：纯语言包可用，原生 addon 边界明确。
 
