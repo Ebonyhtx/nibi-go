@@ -467,8 +467,8 @@ const styles = StyleSheet.create({
   actionsOverlay: {
     position: "absolute",
     left: space(4),
-    right: "66%",
-    bottom: 0,
+    right: "40%",
+    bottom: space(2.5),
   },
   bottomFade: {
     position: "absolute",
