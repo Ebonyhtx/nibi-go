@@ -353,6 +353,9 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      `GIT_*`（Bash 工具拿不到 nativeLibraryDir 与运行时根：node 链接失败、npm 找不到）；
      模型凭据（`NIBI_API_KEY`/`NIBI_MODEL_*`）仍不投影。开发用 mock 的工具调用 ID
      同时改为每轮唯一（重复 ID 会被内核当成已处理，表现为 `[Tool use interrupted]`）。
+   - **体积口径（2026-11-17 运营者定）**：Node 运行时继续随包，不拆按需下载；
+     debug APK 约 128MB（`libnode.so` 91MB、`nibi-langs.zip` 16MB），
+     release 实测体积出来后再评估是否分 edition/瘦身。
 2. jniLibs `libpython3.13.so`/`libnode.so` + wrappers；npm/pip 装到 `filesDir/packages`；
    `--ignore-scripts` / wheel 策略（Python 已接 `PYTHONHOME`/`PYTHONUSERBASE`/`pip` shim）。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
