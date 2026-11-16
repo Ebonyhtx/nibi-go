@@ -22,8 +22,10 @@ Copyright 2026 NIBI Studio
    同步与合并记录见 `kernel/UPSTREAM.md`，NIBI 时期的 fork 台账见
    `kernel/CHANGELOG-FORK.md`。
 4. **随包 Android 运行时**：bash/busybox/git 等由 NDK 从固定上游源码构建（版本、URL、
-   sha256 见 `scripts/android-runtime/sources.json`），许可与 GPL 源码获取方式见
-   `THIRD-PARTY-NOTICES.md`「随包 Android 运行时」。
+   sha256 见 `scripts/android-runtime/sources.json`）；Node 24 / Python 3.13 语言运行时
+   同样自建（`scripts/android-runtimes/sources.json`），不使用 Termux 预编译包。许可与
+   GPL 源码获取方式见 `THIRD-PARTY-NOTICES.md`「随包 Android 运行时」与
+   「随包语言运行时」。
 5. **不在本仓库中的组件**：发布签名材料、发布流水线与运营侧服务均不在公开范围内。
 
 ## 第三方组件

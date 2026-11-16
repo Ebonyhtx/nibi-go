@@ -178,7 +178,7 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   （`bash_cv_getcwd_malloc=yes` 后改用 libc getcwd）。
 - 未完成：npm `.bin` 重写安装器（随 Phase 3 的 node）。
 
-## 语言运行时（D25 Phase 3，Python 已完成）
+## 语言运行时（D25 Phase 3，Python + Node 已完成）
 
 - **Python 3.13.18（自建，非 Termux）**：`scripts/android-runtimes/build-python.sh` 用宿主
   Python + NDK 交叉编译；libffi/zlib/OpenSSL 均自建。jniLibs 里是
@@ -188,10 +188,18 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   仅语言运行时进程需要），并建 `python3`/`python`/`pip`/`pip3` 链接。
   真机通过：`python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes`、`pip 26.2.2`、
   `pip install requests`、`pyfiglet` console script。
-- **Node：尚未完成**。上游 Node 24 `android-configure` 官方声明 Android 不受支持；
-  宿主 mksnapshot 仍缺 V8 cross 补丁（trap_handler/simulator）。候选是 nodejs-mobile
-  Node 22.9 源码分支或继续补 V8 gyp；**不采用 Termux 预编译包**。
-  `nibi-run` 已预留 `npm`/`npx`/`pip` 映射与 `.bin` 重写包装器（`nibi-npm.js`）。
+- **Node 24.22.3（自建）已完成**：`scripts/android-runtimes/build-node.sh` +
+  `patch-node.py`；`libnode.so` strip 后 91MB（NEEDED `libc++_shared.so`，APK 已带），
+  npm 11.19.1 在 `assets/nibi-langs.zip`（解压后 `filesDir/runtime/npm`）。
+  - 补丁要点：gyp 的 host 工具集依赖 `CC_host/CXX_host` 环境；宿主 mksnapshot 需要
+    arm64 模拟器的 trap handler/simulator 源文件（只对 `_toolset=="host"` 打开，
+    target 保留 Android 禁用）；Android 链接加 `-Wl,-z,max-page-size=16384`。
+  - `nibi-run` 把 `node_modules/.bin/<name>` 换成指向自己的 symlink，真身存
+    `.bin/.nibi-targets/<name>`；从 argv[0] 目录或 cwd 向上找
+    `node_modules/.bin/.nibi-targets`，`npm run` 的 `.bin` 命令因此可执行。
+  - 真机：`node v24.22.3`、`npm 11.19.1`、`npm install`、`npm run`（cowsay）、
+    `require('./hello.node')`（N-API 42）、`#!/usr/bin/env node` 脚本均通过。
+  - **不采用 Termux 预编译包**（供应链可控性）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

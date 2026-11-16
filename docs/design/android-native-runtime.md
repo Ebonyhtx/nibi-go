@@ -416,13 +416,23 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
       （zip 11MB）；`ensurepip` 的 pip wheel 预装到 site-packages。真机
       `python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes`、`pip 26.2.2`、
       `pip install requests`、`pyfiglet` console script（经 nibi-run/BASH_ENV）全部通过。
-    - **Node 24.22.3 尚未完成**：上游 `android-configure` 官方声明 Android
-      “not supported”。已修 `host_arch`（configure 时需 `CC_host=gcc CXX_host=g++`，
-      否则宿主 mksnapshot 把 arm64 汇编交给 x86 g++）、V8 bionic `execinfo`、
-      `push_registers_asm` host stub、cpufeatures 链接；仍在宿主 mksnapshot 链接处缺
-      V8 cross 的 `trap_handler::TryHandleSignal` / simulator 符号。候选方案是用
-      nodejs-mobile 的 Node 22.9 源码分支（Android 补丁齐全，仍是自建源码）或继续给
-      24 补 V8 gyp。**不采用 Termux 预编译包**（供应链可控性原因）。
+    - **Node 24.22.3 已完成并真机验证（2026-11-16）**：上游 `android-configure`
+      官方声明 Android “not supported”，`patch-node.py` 补齐五处：
+      1. gyp 只在环境里有 `CC_host`/`CXX_host` 时生成 host 工具集（`CrossCompileRequested`）；
+         否则宿主 mksnapshot 拿不到 host 对象。
+      2. 宿主 mksnapshot 跑 arm64 模拟器，需要 POSIX trap handler / simulator 三个源文件；
+         而 gyp 的 `OS="android"` 让它们被排除。补丁只对 `_toolset=="host"` 打开，
+         **target 仍保留 V8 的 Android 禁用以避免 `V8_TRAP_HANDLER_SUPPORTED` 的 `#error`**。
+      3. V8 bionic `execinfo`、`push_registers_asm` host stub、cpufeatures 链接。
+      4. `common.gypi` 的 Android 链接加 `-Wl,-z,max-page-size=16384`（否则 LOAD 4KB，
+         Android 16 的 16KB 页设备装不上）。
+      5. gyp 的 `.host.mk` 补丁会在每次重生成时丢失，构建脚本必须“打源补丁 → gyp →
+       再打 mk 补丁 → touch out/Makefile”。
+      真机：`node v24.22.3 arm64 android`、`npm 11.19.1`、`npm install cowsay`
+      （TLS 用随包 CA）、`npm run` 的 `.bin` 改写（`nibi-run` 从
+      `node_modules/.bin/.nibi-targets/<name>` 取回真身；直接 `require()` 与
+      `#!/usr/bin/env node` 脚本都通过）、N-API addon `require('./hello.node')` = 42。
+      `libnode.so` strip 后 91MB。**不采用 Termux 预编译包**（供应链可控性原因）。
 17. **Phase 3 来源 spike（2026-11-16，Termux 预编译）**：
     - `nodejs 26.13.1`（aarch64）：单 PIE 49MB，NEEDED 12 个库（zlib/c-ares/sqlite/
       libffi/openssl3/ICU 79/libc++）；NDK 视角 LOAD 0x4000、`.note.android.ident`

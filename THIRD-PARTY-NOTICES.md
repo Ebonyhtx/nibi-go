@@ -76,6 +76,29 @@ GPL 对应源码：上表各组件的完整源码即对应版本的官方 tarbal
 本声明与 `NOTICE.md`。BusyBox 未启用的 applet（SysV IPC、utmp、mount/swap/tc 等）是
 Android app uid 的产品边界，清单在 `build.sh` 的配置段。
 
+## 随包语言运行时（D25 Phase 3）
+
+`scripts/android-runtimes/sources.json` 固定版本、URL 与 sha256；`build.mjs` 校验后才打包。
+Node/Python 均由 NDK 从官方源码交叉编译（不是 Termux 预编译包），产物：
+
+| 组件 | 版本 | 许可 | 用途 |
+|---|---|---|---|
+| Node.js | 24.22.3 | MIT | `jniLibs/libnode.so`（`$NIBI_BIN/node`） |
+| npm | 11.19.1 | Artistic-2.0 | `assets/nibi-langs.zip` → `runtime/npm` |
+| V8 / ICU（Node 内置） | 随 Node 24.22.3 | BSD-3-Clause / Unicode-3.0 | JS 引擎与 Intl 数据（静态链接） |
+| Node 其它 bundled deps（c-ares、brotli、simdutf、ada、nghttp2、llhttp、zlib 等） | 随 Node 24.22.3 | MIT / BSD / ISC / Zlib 等 | 随 Node 源码树分发，逐项见 `deps/*/LICENSE` |
+| CPython | 3.13.18 | PSF-2.0 | `libpython_bin.so` + `libpython3.13.so` + stdlib |
+| pip | 26.2.2（ensurepip 内置 wheel） | MIT | `python/lib/python3.13/site-packages` |
+| libffi | 3.4.8 | MIT | Python `ctypes`（`libffi.so`） |
+| OpenSSL | 3.5.4 | Apache-2.0 | Python `_ssl`/`_hashlib`（静态链接） |
+| zlib | 1.3.1 | Zlib | Python/Node 压缩（静态链接） |
+
+对应源码即上表版本的官方 tarball（URL/sha256 见 `scripts/android-runtimes/sources.json`），
+加上本仓公开的 `scripts/android-runtimes/build-node.sh` / `build-python.sh` /
+`patch-node.py` 与本仓公开的构建参数；可用
+`node scripts/android-runtimes/build.mjs` 从这些输入重建。Node 的完整第三方声明随
+`deps/` 源码树保留；再分发时请保留本声明与 `NOTICE.md`。
+
 ## 抽取件的上游
 
 `packages/shared-extract/` 中的协议契约代码来自 nibi-client（Apache-2.0，
