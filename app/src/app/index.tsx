@@ -266,24 +266,30 @@ export default function GoHomeScreen() {
               )}
             </View>
 
-            {/* 宠物：固定在输入栏正上方（dsh-Go 位置），有会话时也不占正文 */}
-            <View
-              style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
-              {...petResponder.panHandlers}
-            >
-              <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
-                <PetView state={petState} targetSize={petTarget} />
-              </Pressable>
+            {/* 宠物 + 插件胶囊同一层：胶囊悬浮在输入栏上沿、宠物左侧，不占 COMPOSE 尺寸 */}
+            <View style={styles.petZone}>
+              <View style={styles.actionsOverlay} pointerEvents="box-none">
+                <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
+              </View>
+              <View
+                style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
+                {...petResponder.panHandlers}
+              >
+                <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
+                  <PetView state={petState} targetSize={petTarget} />
+                </Pressable>
+              </View>
             </View>
 
-            {/* 插件动作胶囊：输入框正上方（composer.actions） */}
-            <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
-
-            {/* 输入栏：单行 pill */}
+            {/* 输入栏：原始单行 pill */}
             <View
               style={[
                 styles.composer,
-                { backgroundColor: th.glass, borderColor: th.glassBorder, marginBottom: insets.bottom + space(2) },
+                {
+                  backgroundColor: th.glass,
+                  borderColor: th.glassBorder,
+                  marginBottom: insets.bottom + space(2),
+                },
               ]}
             >
               <View style={[styles.plus, { backgroundColor: th.panel }]}>
@@ -427,7 +433,16 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   startCtaText: { fontSize: 14, fontWeight: "700" },
-  petDock: { alignItems: "center", paddingBottom: space(1) },
+  // 宠物 + 胶囊共用的定位层：胶囊绝对定位，不参与输入栏/宠物的高度。
+  petZone: { position: "relative" },
+  actionsOverlay: {
+    position: "absolute",
+    left: space(4),
+    right: "66%",
+    bottom: 0,
+  },
+  // PetView 的方形画布底部有透明留白（脚线基线在 58/64）；负边距让鸟真正踩在输入栏上沿。
+  petDock: { alignItems: "center", marginBottom: -space(2), zIndex: 1 },
   composer: {
     flexDirection: "row",
     alignItems: "center",
