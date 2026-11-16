@@ -80,6 +80,8 @@ function hasToolResult(body) {
     const parsed = JSON.parse(body);
     const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
     const last = messages.at(-1);
+    // OpenAI Chat Completions 的工具结果是一条 role:"tool" 消息。
+    if (last?.role === "tool") return true;
     return (
       Array.isArray(last?.content) &&
       last.content.some((part) => part?.type === "tool_result")
@@ -251,6 +253,18 @@ const server = createServer(async (request, response) => {
   const body = await readBody(request);
   const text = replyText(body);
   const streaming = /"stream"\s*:\s*true/u.test(body);
+  const toolTurn = lastUserText(body).includes(TOOL_TRIGGER) && !hasToolResult(body);
+
+  if (toolTurn) {
+    try {
+      const toolNames = JSON.parse(body)?.tools
+        ?.map((tool) => tool?.function?.name ?? tool?.name)
+        .filter((name) => typeof name === "string" && name.length > 0);
+      if (toolNames?.length) console.log(`[mock-openai] tools: ${toolNames.join(", ")}`);
+    } catch {
+      // 工具列表只用于开发期观察。
+    }
+  }
 
   if (!streaming) {
     response.writeHead(200, { "content-type": "application/json" });
@@ -260,7 +274,25 @@ const server = createServer(async (request, response) => {
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
         model: MODEL,
-        choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+        choices: [
+          {
+            index: 0,
+            message: toolTurn
+              ? {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: nextToolCallId(),
+                      type: "function",
+                      function: { name: TOOL_NAME, arguments: JSON.stringify(TOOL_INPUT) },
+                    },
+                  ],
+                }
+              : { role: "assistant", content: text },
+            finish_reason: toolTurn ? "tool_calls" : "stop",
+          },
+        ],
         usage: { prompt_tokens: 8, completion_tokens: 16, total_tokens: 24 },
       }),
     );
@@ -274,6 +306,56 @@ const server = createServer(async (request, response) => {
   });
   const send = (payload) => response.write(`data: ${JSON.stringify(payload)}\n\n`);
   const id = "chatcmpl-mock";
+
+  if (toolTurn) {
+    const callId = nextToolCallId();
+    send({
+      id,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1000),
+      model: MODEL,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: "assistant",
+            tool_calls: [
+              { index: 0, id: callId, type: "function", function: { name: TOOL_NAME, arguments: "" } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    send({
+      id,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1000),
+      model: MODEL,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              { index: 0, function: { arguments: JSON.stringify(TOOL_INPUT) } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    send({
+      id,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1000),
+      model: MODEL,
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 8, completion_tokens: 16, total_tokens: 24 },
+    });
+    response.write("data: [DONE]\n\n");
+    response.end();
+    return;
+  }
 
   send({
     id,
