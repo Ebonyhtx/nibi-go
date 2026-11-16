@@ -10,15 +10,20 @@ import { satisfiesMinApp } from "./version";
 import { readView } from "./view";
 import type {
   ContractIssue,
+  ComposerActionContribution,
+  ComposerToolContribution,
+  Effect,
   HostProfile,
+  MessageActionContribution,
   PanelAction,
   ParsedPlugin,
   PluginManifest,
   PluginRuntime,
+  SessionActionContribution,
   StripContribution,
   ToolCardContribution,
-  ComposerActionContribution,
   PanelContribution,
+  TurnNoteContribution,
   ViewText,
   ViewTone,
 } from "./types";
@@ -58,6 +63,75 @@ function textValue(raw: unknown): ViewText | null {
 
 function textLength(value: string): number {
   return [...value].length;
+}
+
+/** 短文本：字面量限长，数据绑定不限（运行时求值后再由 UI 截断）。 */
+function shortTextValue(raw: unknown, maxChars: number): ViewText | null {
+  const text = textValue(raw);
+  if (text === null) return null;
+  if (typeof text === "string" && textLength(text) > maxChars) return null;
+  return text;
+}
+
+interface MenuAction {
+  id: string;
+  title: string;
+  icon?: string;
+  effects: Effect[];
+}
+
+/** message.actions / composer.tools / session.actions 共用的短动作解析。 */
+function readMenuActions(
+  raw: unknown,
+  key: string,
+  label: string,
+  limit: number,
+  maxTitle: number,
+  issues: ContractIssue[],
+  allowIcon: boolean,
+): MenuAction[] {
+  if (raw === undefined) return [];
+  const path = `/contributes/${key}`;
+  if (!Array.isArray(raw)) {
+    issues.push({ path, message: `${key} 必须是数组` });
+    return [];
+  }
+  if (raw.length > limit) {
+    issues.push({
+      path,
+      message: `${key} 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const actions: MenuAction[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const itemPath = `${path}/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path: itemPath, message: `${label} 必须是对象` });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || seen.has(id) || !title || textLength(title) > maxTitle) {
+      issues.push({
+        path: itemPath,
+        message: `${label} 需要唯一 id 与 ≤${maxTitle} 字的 title`,
+      });
+      continue;
+    }
+    const effects = readEffects(value.effects, `${itemPath}/effects`);
+    issues.push(...effects.issues);
+    if (effects.effects.length === 0) {
+      issues.push({ path: `${itemPath}/effects`, message: `${label} 至少需要一个合法效果` });
+      continue;
+    }
+    const icon =
+      allowIcon && typeof value.icon === "string" ? value.icon.slice(0, 32) : undefined;
+    seen.add(id);
+    actions.push({ id, title, ...(icon ? { icon } : {}), effects: effects.effects });
+  }
+  return actions;
 }
 
 function toneValue(raw: unknown): ViewTone | undefined {
@@ -297,14 +371,46 @@ function readStrips(raw: unknown, issues: ContractIssue[]): StripContribution[] 
     }
     const value = item as Record<string, unknown>;
     const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
-    const text = textValue(value.text);
+    const text = shortTextValue(value.text, 120);
     if (!id || !text) {
-      issues.push({ path, message: "strip 需要合法 id 与 text" });
+      issues.push({ path, message: "strip 需要合法 id 与 ≤120 字的 text" });
       continue;
     }
     strips.push({ id, text, ...(toneValue(value.tone) ? { tone: toneValue(value.tone) } : {}) });
   }
   return strips;
+}
+
+function readTurnNotes(raw: unknown, issues: ContractIssue[]): TurnNoteContribution[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/contributes/turn.note", message: "turn.note 必须是数组" });
+    return [];
+  }
+  const limit = SLOT_LIMITS["turn.note"];
+  if (raw.length > limit) {
+    issues.push({
+      path: "/contributes/turn.note",
+      message: `turn.note 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const notes: TurnNoteContribution[] = [];
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const path = `/contributes/turn.note/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "turn.note 必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const text = shortTextValue(value.text, 120);
+    if (!id || !text) {
+      issues.push({ path, message: "turn.note 需要合法 id 与 ≤120 字的 text" });
+      continue;
+    }
+    notes.push({ id, text, ...(toneValue(value.tone) ? { tone: toneValue(value.tone) } : {}) });
+  }
+  return notes;
 }
 
 function emptyManifest(id: string, name: string, version: string): PluginManifest {
@@ -314,7 +420,16 @@ function emptyManifest(id: string, name: string, version: string): PluginManifes
     name,
     version,
     caps: [],
-    contributes: { toolCards: [], composerActions: [], panels: [], strips: [] },
+    contributes: {
+      toolCards: [],
+      composerActions: [],
+      messageActions: [],
+      composerTools: [],
+      sessionActions: [],
+      panels: [],
+      strips: [],
+      turnNotes: [],
+    },
   };
 }
 
@@ -359,8 +474,36 @@ export function readPluginManifest(
   issues.push(...runtime.issues);
   const toolCards = readToolCards(contributesRaw.toolCards, issues, degraded);
   const composerActions = readComposerActions(contributesRaw["composer.actions"], issues);
+  const messageActions: MessageActionContribution[] = readMenuActions(
+    contributesRaw["message.actions"],
+    "message.actions",
+    "message action",
+    SLOT_LIMITS["message.actions"],
+    12,
+    issues,
+    false,
+  );
+  const composerTools: ComposerToolContribution[] = readMenuActions(
+    contributesRaw["composer.tools"],
+    "composer.tools",
+    "composer tool",
+    SLOT_LIMITS["composer.tools"],
+    12,
+    issues,
+    true,
+  );
+  const sessionActions: SessionActionContribution[] = readMenuActions(
+    contributesRaw["session.actions"],
+    "session.actions",
+    "session action",
+    SLOT_LIMITS["session.actions"],
+    12,
+    issues,
+    false,
+  );
   const panels = readPanels(contributesRaw.panels, issues, degraded);
   const strips = readStrips(contributesRaw["composer.strip"], issues);
+  const turnNotes = readTurnNotes(contributesRaw["turn.note"], issues);
 
   const manifest: PluginManifest = {
     schemaVersion: 1,
@@ -371,7 +514,16 @@ export function readPluginManifest(
     ...(basicsValue.minApp ? { minApp: basicsValue.minApp } : {}),
     caps: basicsValue.caps ?? [],
     ...(runtime.runtime ? { runtime: runtime.runtime } : {}),
-    contributes: { toolCards, composerActions, panels, strips },
+    contributes: {
+      toolCards,
+      composerActions,
+      messageActions,
+      composerTools,
+      sessionActions,
+      panels,
+      strips,
+      turnNotes,
+    },
   };
 
   // 版本下限：minApp 写坏了也按不可兼容处理（插件不能靠坏版本号绕过门）。

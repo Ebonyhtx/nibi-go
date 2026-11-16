@@ -4,7 +4,7 @@
 //   工具 = 一行式卡片（名称 + 状态 + 参数摘要）。
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
-import { resolveView } from "@nibi-go/plugin-contract";
+import { resolveText, resolveView } from "@nibi-go/plugin-contract";
 import { type ComponentRef, type ReactNode, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -27,6 +27,7 @@ export function ConversationList({
   plugins,
   onPluginAction,
   bottomInset = 0,
+  onMessageLongPress,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -39,6 +40,8 @@ export function ConversationList({
   onPluginAction?: PluginActionHandler;
   /** 底部浮层（宠物/插件胶囊）占的高度：列表多留这段，最后一条能滚到浮层上方。 */
   bottomInset?: number;
+  /** 助手消息长按：有插件 message.actions 时由首页打开动作弹层。 */
+  onMessageLongPress?: () => void;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -221,6 +224,27 @@ export function ConversationList({
           const ok = row.state === "completedSuccess";
           const stateLabel = row.folded ? "" : ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断";
           const files = turnChanges[row.key] ?? [];
+          const note = plugins
+            ? plugins
+                .flatMap((plugin) =>
+                  plugin.parsed.manifest.contributes.turnNotes
+                    .map((entry) =>
+                      resolveText(
+                        entry.text,
+                        hostSlotData({
+                          enabledPlugins: plugins.length,
+                          plugin: {
+                            id: plugin.parsed.manifest.id,
+                            name: plugin.parsed.manifest.name,
+                            version: plugin.parsed.manifest.version,
+                          },
+                        }),
+                      ).trim(),
+                    )
+                    .filter(Boolean),
+                )
+                .join(" · ")
+            : "";
           return (
             <View key={row.key} style={styles.turnBlock}>
               <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
@@ -229,6 +253,11 @@ export function ConversationList({
                 {parts.join(" · ")}
               </Text>
               {files.length > 0 ? <ChangeCard files={files} /> : null}
+              {note ? (
+                <Text style={[styles.turnNote, { color: th.inkFaint }]} numberOfLines={2}>
+                  {note}
+                </Text>
+              ) : null}
             </View>
           );
         }
@@ -305,7 +334,13 @@ export function ConversationList({
         // assistant
         return (
           <View key={row.key} style={[styles.row, { alignItems: "flex-start" }]}>
-            <View style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}>
+            <Pressable
+              onLongPress={onMessageLongPress}
+              delayLongPress={350}
+              accessibilityRole="button"
+              accessibilityLabel="助手消息，长按打开插件动作"
+              style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
+            >
               {row.model ? (
                 <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
               ) : null}
@@ -328,7 +363,7 @@ export function ConversationList({
                   {row.text.length > 0 ? "▍" : "生成中…"}
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
           </View>
         );
       })}
@@ -522,6 +557,7 @@ const styles = StyleSheet.create({
   streaming: { fontSize: 14, fontWeight: "700" },
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
+  turnNote: { fontSize: 10.5, textAlign: "center" },
   turnBlock: { gap: space(2) },
   process: { gap: 2 },
   processHeader: {

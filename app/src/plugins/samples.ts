@@ -188,6 +188,43 @@ const QUICK_MANIFEST: Record<string, unknown> = {
         effects: [{ kind: "insert", text: "把上面的内容润色一遍，保持事实不变。" }],
       },
     ],
+    "message.actions": [
+      {
+        id: "explain",
+        title: "解释",
+        effects: [{ kind: "insert", text: "解释一下上面这条回答。" }],
+      },
+      {
+        id: "shorten",
+        title: "缩写",
+        effects: [{ kind: "insert", text: "把上面这条回答缩写得更短。" }],
+      },
+    ],
+    "composer.tools": [
+      {
+        id: "summary-template",
+        title: "总结模板",
+        icon: "sparkles",
+        effects: [
+          {
+            kind: "insert",
+            text: "请按以下结构总结：1) 结论 2) 依据 3) 风险 4) 下一步。",
+          },
+        ],
+      },
+      {
+        id: "translate-template",
+        title: "翻译模板",
+        icon: "globe",
+        effects: [
+          {
+            kind: "insert",
+            text: "把下面的内容翻译成英文，保留代码与专有名词。",
+          },
+        ],
+      },
+    ],
+    "composer.strip": [{ id: "quick-hint", text: "快捷动作可用", tone: "faint" }],
   },
 };
 
@@ -270,6 +307,14 @@ const USAGE_MANIFEST: Record<string, unknown> = {
           ],
         },
         actions: [{ id: "refresh", label: "刷新数据", effects: [{ kind: "refresh" }] }],
+      },
+    ],
+    "turn.note": [{ id: "privacy", text: "本机运行 · 数据不出机", tone: "faint" }],
+    "session.actions": [
+      {
+        id: "open-status",
+        title: "本机状态",
+        effects: [{ kind: "open", panel: "status" }],
       },
     ],
   },
