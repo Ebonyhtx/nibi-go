@@ -212,13 +212,14 @@ static void prepend_git_scripts_to_path(void) {
 static char *search_packages(const char *name) {
   const char *pkgs = getenv("NIBI_PACKAGES");
   if (!pkgs || !*pkgs) return NULL;
-  const char *subdirs[] = {"npm/node_modules/.bin", "pip/bin", NULL};
+  const char *subdirs[] = {"npm/.nibi-bins", "npm/node_modules/.bin", "npm/bin", "pip/bin", NULL};
   for (int i = 0; subdirs[i]; i++) {
     char *dir = join2(pkgs, subdirs[i]);
     if (!dir) continue;
     char *cand = join2(dir, name);
     free(dir);
-    if (cand && file_exists(cand)) return cand;
+    /* .bin/<name> 可能已被安装器重写成指向本程序的 shim，跳过它继续找真身。 */
+    if (cand && file_exists(cand) && !is_self(cand)) return cand;
     free(cand);
   }
   return NULL;
@@ -376,6 +377,35 @@ static void run_elf(const char *path, char *const argv[]) {
   exit(126);
 }
 
+static void run_python_module(const char *module, char *const argv[], int start) {
+  const char *bin = bin_dir();
+  if (!bin || !*bin) {
+    fprintf(stderr, "nibi-run: $NIBI_BIN 未设置，无法启动 python。\n");
+    exit(127);
+  }
+  char *python = join2(bin, "python3");
+  if (!python || !executable(python)) {
+    fprintf(stderr, "nibi-run: 找不到 %s；Python 运行时未安装。\n", python ? python : "$NIBI_BIN/python3");
+    exit(127);
+  }
+  int argc = start;
+  while (argv[argc]) argc++;
+  char **next = calloc((size_t)(argc - start) + 4, sizeof(char *));
+  if (!next) {
+    perror("calloc");
+    exit(126);
+  }
+  int out = 0;
+  next[out++] = python;
+  next[out++] = "-m";
+  next[out++] = (char *)module;
+  for (int i = start; i < argc; i++) next[out++] = argv[i];
+  next[out] = NULL;
+  execve(python, next, environ);
+  fprintf(stderr, "nibi-run: 执行 %s -m %s 失败：%s\n", python, module, strerror(errno));
+  exit(126);
+}
+
 int main(int argc, char **argv) {
   if (argc < 1) return 127;
 
@@ -399,6 +429,25 @@ int main(int argc, char **argv) {
             "用法: nibi-run <命令|脚本> [参数...]\n"
             "  $NIBI_BIN 里的命令可直接运行；脚本按 shebang 交给 bash/node/python。\n");
     return 2;
+  }
+
+  const char *rt = getenv("NIBI_RUNTIME_DIR");
+  if (rt && *rt) {
+    if (strcmp(cmd, "npm") == 0 || strcmp(cmd, "npx") == 0) {
+      const char *wrapper = strcmp(cmd, "npm") == 0 ? "npm/nibi-npm.js" : "npm/nibi-npx.js";
+      const char *cli = strcmp(cmd, "npm") == 0 ? "npm/bin/npm-cli.js" : "npm/bin/npx-cli.js";
+      char *script = join2(rt, wrapper);
+      if (!script || !file_exists(script)) {
+        free(script);
+        script = join2(rt, cli);
+      }
+      if (script && file_exists(script)) {
+        run_script(script, argv + start - 1, cmd);
+      }
+      free(script);
+    } else if (strcmp(cmd, "pip") == 0 || strcmp(cmd, "pip3") == 0) {
+      run_python_module("pip", argv, start);
+    }
   }
 
   char *path = NULL;

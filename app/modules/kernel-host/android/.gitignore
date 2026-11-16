@@ -8,3 +8,7 @@ build/
 # 运行时资源由 scripts/android-runtime/build.mjs 生成（不入库）。
 src/main/assets/nibi-runtime.zip
 src/main/assets/nibi-runtime.json
+
+# 语言运行时资源由 scripts/android-runtimes/build.mjs 生成（不入库）。
+src/main/assets/nibi-langs.zip
+src/main/assets/nibi-langs.json
