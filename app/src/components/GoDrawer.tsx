@@ -401,7 +401,14 @@ export function GoNavContent({
               </View>
             ) : null}
           </Pressable>
-          <Pressable style={[styles.footBtn, { backgroundColor: t.panel }]} accessibilityLabel="设置">
+          <Pressable
+            style={[styles.footBtn, { backgroundColor: t.panel }]}
+            accessibilityLabel="设置"
+            onPress={() => {
+              onNavigate?.();
+              router.push("/settings");
+            }}
+          >
             <Icon name="sliders" size={16} color={t.inkSub} />
           </Pressable>
         </View>

@@ -1,6 +1,7 @@
 import {
   KERNEL_METHODS,
   type KernelMessage,
+  type KernelModelSelection,
   type KernelNotification,
   type KernelSessionCreateResult,
   type KernelSessionDataPurge,
@@ -129,10 +130,14 @@ export class KernelSessionClient {
     });
   }
 
-  /** 建会话；成功后记住 sessionId。 */
-  async createSession(workspace: KernelWorkspaceRef): Promise<KernelSessionCreateResult> {
+  /** 建会话；成功后记住 sessionId。`model` 显式给出时新会话用它（设置页的默认模型）。 */
+  async createSession(
+    workspace: KernelWorkspaceRef,
+    model?: KernelModelSelection,
+  ): Promise<KernelSessionCreateResult> {
     const result = await this.request<KernelSessionCreateResult>(KERNEL_METHODS.sessionCreate, {
       workspace,
+      ...(model ? { model } : {}),
     });
     const id = result?.session?.sessionId;
     if (typeof id !== "string" || id.length === 0) {

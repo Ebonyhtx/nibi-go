@@ -106,8 +106,11 @@ JVM 侧还需要 crate 的 Kotlin 组件（JNI 桥，`org.rustls.platformverifie
 - `POST_NOTIFICATIONS`（Android 13+）在服务启动前用 `PermissionsAndroid` 运行时请求；拒绝只影响
   通知栏显示，FGS 状态仍成立（`dumpsys activity services` 可见 `isForeground=true`）。
   本机测试时该权限此前被设成 `USER_FIXED` 拒绝，弹窗路径未在设备上复验。
-- Android 15+ `dataSync` 有 6h/24h 上限：`KernelService.onTimeout` 主动停内核 + `stopSelf`，
-  避免系统判 ANR；长任务要走 `specialUse` 声明或分段续跑（⑤ 待运营者定）。
+- ⑤ 已定：FGS 从 `dataSync` 改为 **`specialUse`**（属性
+  `android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE=on_device_agent_runtime`），API 34+ 的
+  `startForeground` 显式传 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`；`dumpsys` 实测
+  `types=0x40000000`，不再受 `dataSync` 6h/24h 上限。`onTimeout` 保留为防御性兜底。
+  商店分发需在 Play 控制台声明该用途。
 
 ## Android shell / 随包运行时（D25 Phase 1+2，2026-11-15）
 
@@ -204,6 +207,12 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
     （不含 `NIBI_API_KEY`/`NIBI_MODEL_*`）。真机一次调用返回
     `v24.22.3 / 11.19.1 / Python 3.13.18 / git 2.51.0 / NIBI-GO`。
   - **不采用 Termux 预编译包**（供应链可控性）。
+- **Provider 设置（2026-11-17）**：内核 app-server 暴露 `provider/state|save|remove|
+  setDefault|setKeys`；设置页写 `provider_config.json`，API key 存
+  `expo-secure-store`（Keystore）。启动时 Host 把 key 放进 `NIBI_PROVIDER_KEYS`
+  env（内核启动时算默认模型），运行期用 `provider/setKeys` 送进内存；配置文件与
+  Bash 工具环境都没有明文 key。开发期 `EXPO_PUBLIC_NIBI_REAL_PROVIDER=1` 可关掉
+  默认 mock，让设置页配的真实 Provider 生效。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
 

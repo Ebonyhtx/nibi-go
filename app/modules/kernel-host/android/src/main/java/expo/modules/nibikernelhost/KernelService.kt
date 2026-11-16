@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
@@ -92,14 +93,23 @@ class KernelService : Service() {
    * 宿主重新绑定/打开帧通道即可接回（会话状态在内核自己的存储里）。
    */
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    startForeground(NOTIFICATION_ID, notification())
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      // ⑤：内核是长期运行的本地 agent，声明 specialUse；dataSync 的 6h/24h 上限不适用。
+      startForeground(
+        NOTIFICATION_ID,
+        notification(),
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+      )
+    } else {
+      startForeground(NOTIFICATION_ID, notification())
+    }
     return START_STICKY
   }
 
   /**
-   * Android 15+ 对 `dataSync` 有 6h/24h 上限：超时会回调这里，必须在几秒内收尾，
-   * 否则系统会判 ANR。这里主动停内核与服务；UI 还活着时 binder death 会触发重连，
-   * App 在后台时则等用户下次打开再起（长任务分段/`specialUse` 属 ⑤ 的待定项）。
+   * 防御性兜底：如果机型/系统仍按有时限的类型回调 `onTimeout`（或以后改了类型），
+   * 必须在几秒内收尾，否则系统会判 ANR。这里主动停内核与服务；UI 还活着时 binder
+   * death 会触发重连，App 在后台时则等用户下次打开再起。
    */
   @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
   override fun onTimeout(startId: Int, fgsType: Int) {
