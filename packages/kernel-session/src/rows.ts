@@ -21,6 +21,27 @@ import type {
 /** dsh-Go `toolGroupThreshold`：连续 ≥3 次调用折成一组。 */
 export const TOOL_GROUP_THRESHOLD = 3;
 
+/** 工具结果的展示载荷（内核 v4 `toolCall.display`；GO 插件工具卡从 MCP 的 ui 元数据来）。 */
+export interface ChatToolDisplayUi {
+  pluginId?: string;
+  resourceUri?: string;
+  surface?: string;
+  preferredDisplayMode?: string;
+  /** JSON 文本：MCP 结果的 `structuredContent`。 */
+  structuredContent?: string;
+  /** JSON 文本：MCP 结果的 `_meta`（GO 插件把视图/卡片元数据放这里）。 */
+  widgetMeta?: string;
+  isError?: boolean;
+}
+
+export interface ChatToolDisplay {
+  kind: string;
+  serverName?: string;
+  toolName?: string;
+  description?: string;
+  ui?: ChatToolDisplayUi;
+}
+
 export interface ChatToolRow {
   kind: "tool";
   key: string;
@@ -31,6 +52,7 @@ export interface ChatToolRow {
   /** 工具输出正文（成功/失败都有；dsh-Go 的工具行同样带结果）。 */
   output?: string;
   error?: string;
+  display?: ChatToolDisplay;
 }
 
 export interface PendingPrompt {
@@ -172,6 +194,36 @@ interface AssistantGroup {
   createdAt?: number;
 }
 
+function toolDisplay(raw: unknown): ChatToolDisplay | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.kind !== "string" || value.kind.length === 0) return undefined;
+  const uiRaw =
+    value.ui && typeof value.ui === "object" ? (value.ui as Record<string, unknown>) : null;
+  const ui = uiRaw
+    ? {
+        ...(typeof uiRaw.pluginId === "string" ? { pluginId: uiRaw.pluginId } : {}),
+        ...(typeof uiRaw.resourceUri === "string" ? { resourceUri: uiRaw.resourceUri } : {}),
+        ...(typeof uiRaw.surface === "string" ? { surface: uiRaw.surface } : {}),
+        ...(typeof uiRaw.preferredDisplayMode === "string"
+          ? { preferredDisplayMode: uiRaw.preferredDisplayMode }
+          : {}),
+        ...(typeof uiRaw.structuredContent === "string"
+          ? { structuredContent: uiRaw.structuredContent }
+          : {}),
+        ...(typeof uiRaw.widgetMeta === "string" ? { widgetMeta: uiRaw.widgetMeta } : {}),
+        ...(uiRaw.isError === true ? { isError: true } : {}),
+      }
+    : undefined;
+  return {
+    kind: value.kind,
+    ...(typeof value.serverName === "string" ? { serverName: value.serverName } : {}),
+    ...(typeof value.toolName === "string" ? { toolName: value.toolName } : {}),
+    ...(typeof value.description === "string" ? { description: value.description } : {}),
+    ...(ui && Object.keys(ui).length > 0 ? { ui } : {}),
+  };
+}
+
 function toolRow(row: ProtocolToolCall): ChatToolRow {
   const detail =
     typeof row.inputText === "string" && row.inputText.length > 0
@@ -181,6 +233,7 @@ function toolRow(row: ProtocolToolCall): ChatToolRow {
     typeof row.output?.text === "string" && row.output.text.trim().length > 0
       ? row.output.text.trim().slice(0, 600)
       : undefined;
+  const display = toolDisplay(row.display);
   return {
     kind: "tool",
     key: `t${row.toolCallId}`,
@@ -189,6 +242,7 @@ function toolRow(row: ProtocolToolCall): ChatToolRow {
     ...(detail ? { detail } : {}),
     ...(output ? { output } : {}),
     ...(row.error ? { error: row.error.message } : {}),
+    ...(display ? { display } : {}),
   };
 }
 

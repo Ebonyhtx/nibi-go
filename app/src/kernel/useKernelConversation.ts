@@ -29,6 +29,7 @@ import { kernelStartEnv } from "./kernelEnv";
 import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
 import { fetchProviderState } from "./providerSettings";
 import { splitSessions } from "./sessionArchive";
+import { loadPluginMcpServers } from "../plugins/store";
 
 /**
  * D20 承载模式：默认 `:kernel` 进程（前台服务，UI 死掉内核仍在）；
@@ -45,7 +46,22 @@ function workspaceRef(): KernelWorkspaceRef {
 /**
  * 新会话带上设置页的默认模型。内核启动时也算一次默认，但 Provider 可能是在 App
  * 启动后才加的；显式传 `model` 让新会话不必等内核重启。
+ *
+ * 插件的 MCP 服务器也在这里交给内核（`session/create.mcpServers`）。插件文件读不出来
+ * 时只记日志，不影响会话本身。
  */
+async function pluginMcpServers(): Promise<
+  Awaited<ReturnType<typeof loadPluginMcpServers>> | undefined
+> {
+  try {
+    const servers = await loadPluginMcpServers();
+    return servers.length > 0 ? servers : undefined;
+  } catch (error) {
+    console.warn("[nibigo] 插件 MCP 配置读取失败，本次会话不带插件", error);
+    return undefined;
+  }
+}
+
 async function createWithDefaultModel(client: KernelSessionClient) {
   let model:
     | { providerId: string; modelId: string; thoughtLevel?: string }
@@ -64,7 +80,12 @@ async function createWithDefaultModel(client: KernelSessionClient) {
   } catch {
     // 老内核没有 provider/state：按内核自己的缺省建会话。
   }
-  return client.createSession(workspaceRef(), model);
+  return client.createSession(workspaceRef(), model, await pluginMcpServers());
+}
+
+/** 恢复会话时也把插件 MCP 交回去（内核不持久化这份配置）。 */
+async function resumeWithPlugins(client: KernelSessionClient, sessionId: string) {
+  return client.resumeSession(sessionId, await pluginMcpServers());
 }
 
 /** Android 13+ 前台服务通知需要运行时授权；拒绝不影响内核，只是通知不显示。 */
@@ -288,7 +309,7 @@ export function useKernelConversation(): KernelConversation {
         // 启动恢复「最近一条有消息的会话」；全空则停在最新一条，不每次多建。
         let opened = false;
         for (const candidate of list.slice(0, 3)) {
-          await client.resumeSession(candidate.sessionId);
+          await resumeWithPlugins(client, candidate.sessionId);
           const messages = await client.readMessages({ limit: 1 });
           if (messages.length > 0) {
             opened = true;
@@ -296,7 +317,7 @@ export function useKernelConversation(): KernelConversation {
           }
         }
         if (!opened) {
-          if (list.length > 0) await client.resumeSession(list[0]!.sessionId);
+          if (list.length > 0) await resumeWithPlugins(client, list[0]!.sessionId);
           else await createWithDefaultModel(client);
         }
         const sessionId = client.currentSessionId;
@@ -353,13 +374,13 @@ export function useKernelConversation(): KernelConversation {
       let sessionId: string | null = null;
       const preferred = activeSessionIdRef.current;
       if (preferred) {
-        await client.resumeSession(preferred);
+        await resumeWithPlugins(client, preferred);
         sessionId = client.currentSessionId;
       }
       if (!sessionId) {
         const list = await refreshSessions(client);
         if (list.length > 0) {
-          await client.resumeSession(list[0]!.sessionId);
+          await resumeWithPlugins(client, list[0]!.sessionId);
           sessionId = client.currentSessionId;
         } else {
           await createWithDefaultModel(client);
@@ -433,7 +454,7 @@ export function useKernelConversation(): KernelConversation {
     const client = clientRef.current;
     if (!client) return;
     try {
-      await client.createSession(workspaceRef());
+      await createWithDefaultModel(client);
       const sessionId = client.currentSessionId;
       if (!sessionId) return;
       await attach(client, sessionId);
@@ -451,7 +472,7 @@ export function useKernelConversation(): KernelConversation {
       const client = clientRef.current;
       if (!client || sessionId === client.currentSessionId) return;
       try {
-        await client.resumeSession(sessionId);
+        await resumeWithPlugins(client, sessionId);
         await attach(client, sessionId);
         activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
@@ -494,8 +515,8 @@ export function useKernelConversation(): KernelConversation {
       const visible = (await refreshSessions(client)).filter(
         (session) => session.sessionId !== excluded,
       );
-      if (visible.length > 0) await client.resumeSession(visible[0]!.sessionId);
-      else await client.createSession(workspaceRef());
+      if (visible.length > 0) await resumeWithPlugins(client, visible[0]!.sessionId);
+      else await createWithDefaultModel(client);
       const nextId = client.currentSessionId;
       if (!nextId) throw new Error("没有可用会话");
       await attach(client, nextId);

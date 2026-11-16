@@ -26,6 +26,28 @@ export interface KernelWorkspaceRef {
   workspaceKey: string;
 }
 
+/**
+ * `session/create` / `session/resume` 的 `mcpServers` 一项（内核 `commands::session_mcp_servers`）。
+ *
+ * GO 插件宿主把插件的 MCP 入口按这个形状交给内核：`command`/`args` 走 stdio，`type`+`url`
+ * 走 HTTP/SSE。凭据不进这里——插件只拿到 `nibi-run`/node 的环境白名单。
+ */
+export interface KernelMcpServer {
+  name: string;
+  /** stdio 服务器：可执行文件（PATH 查找，例如 `node`）。 */
+  command?: string;
+  args?: string[];
+  env?: Array<{ name: string; value: string }>;
+  /** HTTP/SSE 服务器。 */
+  type?: "http" | "sse";
+  url?: string;
+  headers?: Array<{ name: string; value: string }>;
+  /** 工具不延迟加载（插件工具卡需要模型能直接看到）。 */
+  alwaysLoad?: boolean;
+  timeoutMs?: number;
+  isolation?: "session" | "workspace";
+}
+
 export interface KernelMessagePart {
   partId?: string;
   type: string;

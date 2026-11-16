@@ -76,6 +76,48 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     });
   });
 
+  it("工具行透传 display（GO 插件工具卡从 MCP ui 元数据来）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "toolCall",
+          toolCallId: "call_weather",
+          toolName: "mcp__nibigo_weather__weather_get",
+          status: "success",
+          inputText: '{"city":"北京"}',
+          output: { text: "北京 晴 24°C" },
+          display: {
+            kind: "mcp_tool",
+            serverName: "nibigo_weather",
+            toolName: "weather_get",
+            ui: {
+              pluginId: "nibigo_weather",
+              resourceUri: "nibi-go://plugin/nibigo.weather/tool-card",
+              structuredContent: '{"city":"北京","temperature":24}',
+              widgetMeta: '{"nibiGo":{"card":"forecast"}}',
+            },
+          },
+        },
+      ]),
+    );
+    expect(rows[0]).toMatchObject({
+      kind: "tool",
+      name: "mcp__nibigo_weather__weather_get",
+      display: {
+        kind: "mcp_tool",
+        serverName: "nibigo_weather",
+        toolName: "weather_get",
+        ui: {
+          pluginId: "nibigo_weather",
+          structuredContent: '{"city":"北京","temperature":24}',
+          widgetMeta: '{"nibiGo":{"card":"forecast"}}',
+        },
+      },
+    });
+  });
+
   it("streaming 状态跟着 assistantText/reasoning 的 state", () => {
     const rows = deriveRows(
       snapshotWith([
