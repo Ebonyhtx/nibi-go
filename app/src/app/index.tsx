@@ -247,6 +247,7 @@ export default function GoHomeScreen() {
                   onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
                   plugins={plugins.enabled}
                   onPluginAction={onPluginAction}
+                  bottomInset={petTarget}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
@@ -264,20 +265,28 @@ export default function GoHomeScreen() {
                   </View>
                 </View>
               )}
-            </View>
 
-            {/* 宠物 + 插件胶囊同一层：胶囊悬浮在输入栏上沿、宠物左侧，不占 COMPOSE 尺寸 */}
-            <View style={styles.petZone}>
-              <View style={styles.actionsOverlay} pointerEvents="box-none">
-                <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
-              </View>
-              <View
-                style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
-                {...petResponder.panHandlers}
-              >
-                <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
-                  <PetView state={petState} targetSize={petTarget} />
-                </Pressable>
+              {/* 底部渐隐：消息流在宠物/胶囊下方柔和收住，不再出现一条硬边底色 */}
+              <LinearGradient
+                colors={["transparent", th.bgGradient[1]]}
+                locations={[0, 0.88]}
+                style={[styles.bottomFade, { height: petTarget + space(2) }]}
+                pointerEvents="none"
+              />
+
+              {/* 宠物 + 插件胶囊浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
+              <View style={styles.petOverlay} pointerEvents="box-none">
+                <View style={styles.actionsOverlay} pointerEvents="box-none">
+                  <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
+                </View>
+                <View
+                  style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
+                  {...petResponder.panHandlers}
+                >
+                  <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
+                    <PetView state={petState} targetSize={petTarget} />
+                  </Pressable>
+                </View>
               </View>
             </View>
 
@@ -433,12 +442,23 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   startCtaText: { fontSize: 14, fontWeight: "700" },
-  // 宠物 + 胶囊共用的定位层：胶囊绝对定位，不参与输入栏/宠物的高度。
-  petZone: { position: "relative" },
+  // 宠物 + 胶囊浮在会话流底部：绝对定位，列表高度不再为它们让位，消息可以滚到输入栏上方。
+  petOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   actionsOverlay: {
     position: "absolute",
     left: space(4),
     right: "66%",
+    bottom: space(4),
+  },
+  bottomFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     bottom: 0,
   },
   // PetView 的方形画布底部有透明留白（脚线基线在 58/64）；负边距让鸟真正踩在输入栏上沿。
