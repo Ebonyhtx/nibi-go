@@ -382,18 +382,23 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      徽标/分隔/进度/列表/按钮/间距）、三档预算（工具卡 8KiB/40 节点/6 层、面板
      32KiB/120/8、状态条 2KiB/8/3）、效果白名单（每次 ≤4，`insert` 永不自动发送，
      `link` 只收无凭据 https，`command` 不能叫 permission）、`minApp`/`caps` 协商、
-     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；31 项单测。
-   - App：内置 3 个样例插件（天气 = MCP 工具卡、快捷 = `composer.actions`、运行状态 =
-     `panels`）；插件中心可启停、看能力/降级原因/清单问题、打开面板。会话
-     `session/create|resume` 带插件 MCP（`mcpServers`），工具行透传 `display` 并渲染
-     插件工具卡（折叠后的过程行也保留）。
+     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**35 项单测**。
+   - 当前渲染全部声明槽：工具卡、`composer.actions`、`composer.strip`、`composer.tools`、
+     `message.actions`、`session.actions`、`panels`、`turn.note`、Web Island。
+   - App：内置 3 个样例插件（天气 = MCP 工具卡、快捷 = 输入胶囊/状态条/加号工具/消息动作、
+     运行状态 = 面板/会话动作/回合脚注/Web Island）；插件中心可启停、看能力/降级原因/
+     清单问题、打开面板与网页面板。会话 `session/create|resume` 带插件 MCP
+     （`mcpServers`），工具行透传 `display` 并渲染插件工具卡（折叠后的过程行也保留）。
+   - Web Island：`url` 只允许 https，或内联 `html` ≤16KiB；WebView 路由守卫只放行
+     `about:blank` 与同源 https，8s 超时/加载失败显示可重试降级页；开发期带一个不可达
+     地址的超时演示。
    - 验证：MCP stdio 手测（initialize/tools/list/tools/call）通过；内核 CLI
      `--mcp-config` 端到端调用成功；Metro Android bundle 200。真机（PHK110 / Android 16）：
-     插件中心 3 个样例与启停、`composer.actions` 插入草稿、面板绑定/v2 `tabs` 降级/刷新、
-     天气 MCP 工具经审批后工具卡渲染（展开「1 次工具」可见）。
-   - 未做：`message.actions`/`composer.strip`/`composer.tools`/`session.actions`/
-     `turn.note`/Web Island；`copy`/`command` 效果当前只提示“暂不支持”；插件市场与
-     签名/Ed25519 仍属 C2。
+     插件中心 3 个样例与启停、输入胶囊插入草稿、状态条、回合脚注、加号工具面板插入模板、
+     消息长按菜单、会话行「插件动作」、面板绑定/v2 `tabs` 降级/刷新、天气 MCP 工具经审批后
+     工具卡渲染、Web Island 内联渲染与超时降级。
+   - 未做：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）；`copy`/
+     `command` 效果当前只提示“暂不支持”；插件设置/命令面、市场与签名/Ed25519 仍属 C2。
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
 6. workspace/策略/指标：配额、路径策略、cwd/env、审批、50 命令矩阵。
 

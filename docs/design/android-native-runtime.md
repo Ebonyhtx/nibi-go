@@ -231,7 +231,8 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - **契约**：`packages/plugin-contract`（纯 TS，Node 可测）。清单文件
   `nibi-go.plugin.json`：`schemaVersion:1`、`id/name/version`、`minApp`、`caps`、
   可选 `runtime:{type:"mcp",serverName,entry,alwaysLoad?,timeoutMs?}`、`contributes`。
-  当前渲染 `toolCards` / `composer.actions` / `panels` 三类；其余槽位先解析、未渲染。
+  当前渲染 `toolCards` / `composer.actions` / `composer.strip` / `composer.tools` /
+  `message.actions` / `session.actions` / `panels` / `turn.note` / Web Island。
 - **视图 v1**：文字/行/列/卡/徽标/分隔/进度/列表/按钮/间距；数据绑定
   `{ "$": "data.x" }` 与 `{{data.x}}` 插值。预算：工具卡 8KiB/40 节点/6 层、面板
   32KiB/120/8、状态条 2KiB/8/3；超出整条不渲染。`tabs`/`gallery`/未知组件换成 v1
@@ -247,16 +248,19 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - **宿主**：内置插件首次启动写到 `filesDir/plugins/<dir>/`；MCP 入口用随包 Node 以
   `node server.mjs` 启动，经 `session/create|resume.mcpServers` 交给内核（内核不持久化
   这份配置，恢复时要再带一次）。MCP 子进程走内核的环境白名单，拿不到 Provider key。
-- **样例**：`nibigo.weather`（MCP 工具 + 工具卡）、`nibigo.quick`（两个输入胶囊）、
-  `nibigo.usage`（面板，故意用 v2 `tabs` 演示降级）。插件中心可启停、看能力/清单问题/
-  降级原因、打开面板。
+- **样例**：`nibigo.weather`（MCP 工具 + 工具卡）、`nibigo.quick`（输入胶囊/状态条/加号
+  工具/消息动作）、`nibigo.usage`（面板/会话动作/回合脚注/Web Island，故意用 v2 `tabs`
+  演示降级）。插件中心可启停、看能力/清单问题/降级原因、打开面板与网页面板。
+- **Web Island**：清单 `webIslands` 支持 `url`（仅 https、无凭据）或内联 `html`
+  （≤16KiB），每插件 ≤2；App 用 WebView 渲染，只放行 `about:blank` 与同源 https 导航，
+  8s 未完成或加载失败显示可重试降级页。开发期额外给一个不可达地址用于验证降级。
 - **验证边界**：MCP stdio 与内核 CLI `--mcp-config` 端到端通过；Metro Android bundle
-  200。真机（PHK110 / Android 16）已验证：插件中心 3 个样例与启停、`composer.actions`
-  插入草稿、面板绑定/v2 `tabs` 降级/刷新、天气 MCP 工具经审批后工具卡渲染（折叠过程行
-  里也保留）。x86_64 模拟器跑不了 arm64 内核，不作为验收环境。
-- **未做**：`message.actions`/`composer.strip`/`composer.tools`/`session.actions`/
-  `turn.note`/Web Island、插件市场与签名、数据推送通道（当前槽是静态宿主数据 +
-  工具结果）。
+  200。真机（PHK110 / Android 16）已验证：插件中心 3 个样例与启停、输入胶囊插入草稿、
+  状态条、回合脚注、加号工具面板插入模板、消息长按菜单、会话行「插件动作」、面板绑定/
+  v2 `tabs` 降级/刷新、天气 MCP 工具经审批后工具卡渲染（折叠过程行里也保留）、Web Island
+  内联渲染与超时降级。x86_64 模拟器跑不了 arm64 内核，不作为验收环境。
+- **未做**：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）、`copy`/
+  `command` 的原生桥、插件设置/命令面、插件市场与签名。
 
 ## 8. 手机操控
 
