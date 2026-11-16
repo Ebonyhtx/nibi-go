@@ -433,6 +433,14 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
       `node_modules/.bin/.nibi-targets/<name>` 取回真身；直接 `require()` 与
       `#!/usr/bin/env node` 脚本都通过）、N-API addon `require('./hello.node')` = 42。
       `libnode.so` strip 后 91MB。**不采用 Termux 预编译包**（供应链可控性原因）。
+    - **Bash 工具的环境投影（2026-11-17）**：内核给用户命令的环境是白名单
+      （`kernel/crates/env-local/src/shell/environ.rs`）。Android 运行时的
+      `LD_LIBRARY_PATH`、`PYTHONHOME`、`PYTHONUSERBASE`、`NIBI_BIN`、
+      `NIBI_RUNTIME_DIR`、`NIBI_NATIVE_LIB_DIR`、`NIBI_PACKAGES`、`NPM_CONFIG_*`、
+      `NODE_PATH`、`GIT_CONFIG_GLOBAL`/`GIT_EXEC_PATH`/`GIT_SSL_CAINFO` 等已加入；
+      `NIBI_API_KEY`/`NIBI_MODEL_*` 仍不投影。加之前 App 内 Bash 工具跑 `node` 报
+      `cannot locate symbol ... basic_ostringstream`、`nibi-run` 找不到 npm；
+      加之后一次调用返回 `v24.22.3 / 11.19.1 / Python 3.13.18 / git 2.51.0 / NIBI-GO`。
 17. **Phase 3 来源 spike（2026-11-16，Termux 预编译）**：
     - `nodejs 26.13.1`（aarch64）：单 PIE 49MB，NEEDED 12 个库（zlib/c-ares/sqlite/
       libffi/openssl3/ICU 79/libc++）；NDK 视角 LOAD 0x4000、`.note.android.ident`
