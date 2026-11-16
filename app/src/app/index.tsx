@@ -7,7 +7,7 @@
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
   Keyboard,
@@ -23,10 +23,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ConversationList } from "../components/ConversationList";
+import { ComposerQuoteBar, type QuoteContext } from "../components/ComposerQuoteBar";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
-import { Dot, Icon } from "../components/Icon";
+import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
+import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import {
   PluginComposerActions,
   PluginComposerStrip,
@@ -35,7 +37,7 @@ import {
 import { PET_STATE } from "../components/petStates";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
-import { runPluginAction } from "../plugins/actions";
+import { runPluginAction, type PluginActionContext } from "../plugins/actions";
 import { takePendingInsert } from "../plugins/pendingInsert";
 import type { LoadedPlugin } from "../plugins/store";
 import { usePlugins } from "../plugins/usePlugins";
@@ -44,7 +46,13 @@ import { radius, space, type as t, useNibiTheme } from "../theme";
 
 interface SheetEntry {
   plugin: LoadedPlugin;
-  action: { id: string; title: string; effects: Effect[] };
+  action: { id: string; title: string; icon?: string; effects: Effect[] };
+}
+
+function toolIcon(name: string | undefined): IconName {
+  return name === "sparkles" || name === "globe" || name === "doc" || name === "clock"
+    ? name
+    : "puzzle";
 }
 
 export default function GoHomeScreen() {
@@ -73,22 +81,33 @@ export default function GoHomeScreen() {
   const [draft, setDraft] = useState("");
   // 内置插件的槽（工具卡/输入胶囊/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
-  const [sheet, setSheet] = useState<{ title: string; items: PluginSheetItem[] } | null>(null);
+  const [popup, setPopup] = useState<
+    | { kind: "tools"; anchor: PopupAnchor }
+    | { kind: "message"; anchor: PopupAnchor; message: string }
+    | null
+  >(null);
+  const [quote, setQuote] = useState<QuoteContext | null>(null);
+  const [sessionSheet, setSessionSheet] = useState<{
+    title: string;
+    items: PluginSheetItem[];
+  } | null>(null);
+  const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
 
+  const pluginContext: PluginActionContext = {
+    insertText: (text, mode) => {
+      setDraft((current) =>
+        mode === "replace" ? text : current.length > 0 ? `${current}\n${text}` : text,
+      );
+    },
+    openPanel: (pluginId, panelId) => {
+      router.push({ pathname: "/panel", params: { pluginId, panelId } });
+    },
+    refresh: () => {
+      void plugins.reload();
+    },
+  };
   const runAction = (plugin: LoadedPlugin, action: { id: string; effects: Effect[] }) => {
-    runPluginAction(plugin, action, {
-      insertText: (text, mode) => {
-        setDraft((current) =>
-          mode === "replace" ? text : current.length > 0 ? `${current}\n${text}` : text,
-        );
-      },
-      openPanel: (pluginId, panelId) => {
-        router.push({ pathname: "/panel", params: { pluginId, panelId } });
-      },
-      refresh: () => {
-        void plugins.reload();
-      },
-    });
+    runPluginAction(plugin, action, pluginContext);
   };
   const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
     runAction(plugin, action);
@@ -114,24 +133,56 @@ export default function GoHomeScreen() {
       ),
     [plugins.enabled],
   );
-  const openSheet = (title: string, entries: readonly SheetEntry[]) => {
-    if (entries.length === 0) return;
-    setSheet({
-      title,
-      items: entries.map(({ plugin, action }) => ({
+
+  const openToolsPopup = () => {
+    if (composerTools.length === 0) return;
+    plusRef.current?.measureInWindow((x, y, measureWidth, measureHeight) => {
+      setPopup({
+        kind: "tools",
+        anchor: { x, y, width: measureWidth, height: measureHeight },
+      });
+    });
+  };
+  const openMessagePopup = (message: string, anchor: PopupAnchor) => {
+    setPopup({ kind: "message", anchor, message });
+  };
+  const applyMessageAction = (
+    plugin: LoadedPlugin,
+    action: { id: string; title: string; effects: Effect[] },
+    message: string,
+  ) => {
+    setPopup(null);
+    const inserts = action.effects.filter((effect) => effect.kind === "insert");
+    if (inserts.length > 0) {
+      setDraft(
+        inserts
+          .map((effect) => (effect.kind === "insert" ? effect.text : ""))
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+    // 引用/注释：原消息摘要钉在输入框上方，动作只把 prompt 放进草稿，不自动发送。
+    setQuote({ text: message, label: action.title });
+    const remaining = action.effects.filter((effect) => effect.kind !== "insert");
+    if (remaining.length > 0) {
+      runPluginAction(plugin, { id: action.id, effects: remaining }, pluginContext);
+    }
+  };
+  const openSessionSheet = (sessionId: string) => {
+    if (sessionActions.length === 0) return;
+    const title = conversation.sessions.find((session) => session.sessionId === sessionId)?.title;
+    setSessionSheet({
+      title: title ? `会话信息 · ${title}` : "会话信息",
+      items: sessionActions.map(({ plugin, action }) => ({
         key: `${plugin.parsed.manifest.id}:${action.id}`,
         label: action.title,
         detail: plugin.parsed.manifest.name,
         onPress: () => {
-          setSheet(null);
+          setSessionSheet(null);
           runAction(plugin, action);
         },
       })),
     });
-  };
-  const openSessionSheet = (sessionId: string) => {
-    const title = conversation.sessions.find((session) => session.sessionId === sessionId)?.title;
-    openSheet(title ? `会话动作 · ${title}` : "会话动作", sessionActions);
   };
   // 面板动作里的“插入草稿”跨页带回首页。
   useFocusEffect(
@@ -142,6 +193,11 @@ export default function GoHomeScreen() {
       }
     }, []),
   );
+  // 切换会话时清掉上一轮的引用/弹出层，避免把 A 会话的引用带进 B。
+  useEffect(() => {
+    setQuote(null);
+    setPopup(null);
+  }, [conversation.activeSessionId]);
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
       ?.title || "新对话";
@@ -159,6 +215,12 @@ export default function GoHomeScreen() {
   // 宠物目标尺寸（dp）；PetView 内部再按设备像素取整数倍微调（像素不糊）。
   // 手机 88 / 横屏 72（省高度）/ 平板 104。
   const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
+  // 状态条浮在宠物上方，列表底部要多留一条，避免回合脚注被胶囊压住。
+  const stripInset = plugins.enabled.some(
+    (plugin) => plugin.parsed.manifest.contributes.strips.length > 0,
+  )
+    ? space(6)
+    : 0;
 
   const hasSidebar = layout.left === "sidebar";
   const hasRail = layout.left === "rail";
@@ -317,11 +379,9 @@ export default function GoHomeScreen() {
                   onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
                   plugins={plugins.enabled}
                   onPluginAction={onPluginAction}
-                  bottomInset={petTarget}
+                  bottomInset={petTarget + stripInset}
                   onMessageLongPress={
-                    messageActions.length > 0
-                      ? () => openSheet("消息动作", messageActions)
-                      : undefined
+                    messageActions.length > 0 ? openMessagePopup : undefined
                   }
                 />
               ) : (
@@ -352,20 +412,28 @@ export default function GoHomeScreen() {
               ) : null}
 
               {/* 宠物 + 插件胶囊浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
-              <View style={styles.petOverlay} pointerEvents="box-none">
-                <PluginComposerStrip plugins={plugins.enabled} />
-                <View style={styles.actionsOverlay} pointerEvents="box-none">
-                  <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
+              {!drawerOpen ? (
+                <View style={styles.petOverlay} pointerEvents="box-none">
+                  <View style={{ transform: [{ translateX: petOffset * petRange }] }}>
+                    <PluginComposerStrip plugins={plugins.enabled} />
+                  </View>
+                  <View style={styles.actionsOverlay} pointerEvents="box-none">
+                    {quote ? (
+                      <ComposerQuoteBar quote={quote} onClose={() => setQuote(null)} />
+                    ) : (
+                      <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
+                    )}
+                  </View>
+                  <View
+                    style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
+                    {...petResponder.panHandlers}
+                  >
+                    <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
+                      <PetView state={petState} targetSize={petTarget} />
+                    </Pressable>
+                  </View>
                 </View>
-                <View
-                  style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
-                  {...petResponder.panHandlers}
-                >
-                  <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
-                    <PetView state={petState} targetSize={petTarget} />
-                  </Pressable>
-                </View>
-              </View>
+              ) : null}
             </View>
 
             {/* 输入栏：原始单行 pill */}
@@ -380,9 +448,8 @@ export default function GoHomeScreen() {
               ]}
             >
               <Pressable
-                onPress={
-                  composerTools.length > 0 ? () => openSheet("插件工具", composerTools) : undefined
-                }
+                ref={plusRef}
+                onPress={openToolsPopup}
                 disabled={composerTools.length === 0}
                 style={[styles.plus, { backgroundColor: th.panel }]}
                 accessibilityRole="button"
@@ -401,6 +468,7 @@ export default function GoHomeScreen() {
                 onSubmitEditing={() => {
                   const text = draft;
                   setDraft("");
+                  setQuote(null);
                   void conversation.send(text);
                 }}
               />
@@ -412,6 +480,7 @@ export default function GoHomeScreen() {
                 onPress={() => {
                   const text = draft;
                   setDraft("");
+                  setQuote(null);
                   void conversation.send(text);
                 }}
                 style={[
@@ -453,11 +522,84 @@ export default function GoHomeScreen() {
         />
       ) : null}
 
+      <PluginPopup
+        visible={popup?.kind === "tools"}
+        anchor={popup?.kind === "tools" ? popup.anchor : null}
+        onClose={() => setPopup(null)}
+        width={300}
+      >
+        <Text style={[styles.popupTitle, { color: th.ink }]}>插件工具</Text>
+        <View style={styles.toolGrid}>
+          {composerTools.map(({ plugin, action }) => (
+            <Pressable
+              key={`${plugin.parsed.manifest.id}:${action.id}`}
+              onPress={() => {
+                setPopup(null);
+                runAction(plugin, action);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={action.title}
+              style={({ pressed }) => [
+                styles.toolTile,
+                {
+                  borderColor: th.hairline,
+                  backgroundColor: th.panel,
+                  opacity: pressed ? 0.65 : 1,
+                },
+              ]}
+            >
+              <View style={[styles.toolIcon, { backgroundColor: th.brandSoft }]}>
+                <Icon name={toolIcon(action.icon)} size={20} color={th.brand} />
+              </View>
+              <Text style={[styles.toolLabel, { color: th.ink }]} numberOfLines={1}>
+                {action.title}
+              </Text>
+              <Text style={[styles.toolHint, { color: th.inkFaint }]} numberOfLines={1}>
+                {plugin.parsed.manifest.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </PluginPopup>
+
+      <PluginPopup
+        visible={popup?.kind === "message"}
+        anchor={popup?.kind === "message" ? popup.anchor : null}
+        onClose={() => setPopup(null)}
+        width={270}
+      >
+        <Text style={[styles.popupTitle, { color: th.ink }]}>引用这条消息…</Text>
+        {messageActions.map(({ plugin, action }) => (
+          <Pressable
+            key={`${plugin.parsed.manifest.id}:${action.id}`}
+            onPress={() => {
+              if (popup?.kind === "message") {
+                applyMessageAction(plugin, action, popup.message);
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={action.title}
+            style={({ pressed }) => [
+              styles.menuRow,
+              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <View style={styles.menuText}>
+              <Text style={[styles.menuLabel, { color: th.ink }]}>{action.title}</Text>
+              <Text style={[styles.menuDetail, { color: th.inkFaint }]}>
+                {plugin.parsed.manifest.name}
+              </Text>
+            </View>
+            <Icon name="quote" size={14} color={th.inkGhost} />
+          </Pressable>
+        ))}
+      </PluginPopup>
+
       <PluginActionSheet
-        visible={sheet !== null}
-        title={sheet?.title ?? ""}
-        items={sheet?.items ?? []}
-        onClose={() => setSheet(null)}
+        visible={sessionSheet !== null}
+        title={sessionSheet?.title ?? ""}
+        items={sessionSheet?.items ?? []}
+        onClose={() => setSessionSheet(null)}
       />
     </View>
   );
@@ -555,6 +697,46 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
+  popupTitle: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    paddingHorizontal: space(2),
+    paddingBottom: space(1.5),
+  },
+  toolGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space(2),
+  },
+  toolTile: {
+    width: "47%",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    padding: space(2.5),
+    gap: 4,
+  },
+  toolIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.chip,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  toolLabel: { fontSize: 12.5, fontWeight: "600" },
+  toolHint: { fontSize: 10 },
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2),
+    paddingVertical: space(2.5),
+    minHeight: 48,
+  },
+  menuText: { flex: 1, gap: 2 },
+  menuLabel: { fontSize: 13.5, fontWeight: "600" },
+  menuDetail: { fontSize: 10.5 },
   // PetView 的方形画布底部有透明留白（脚线基线在 58/64）；负边距让鸟真正踩在输入栏上沿。
   petDock: { alignItems: "center", marginBottom: -space(2), zIndex: 1 },
   composer: {

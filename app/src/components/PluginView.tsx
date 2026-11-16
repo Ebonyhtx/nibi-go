@@ -13,12 +13,13 @@ import type {
 } from "@nibi-go/plugin-contract";
 import { resolveText } from "@nibi-go/plugin-contract";
 import type { ChatToolRow } from "@nibi-go/kernel-session";
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
+import { Dot } from "./Icon";
 
 /** 可执行动作的最小形状：面板动作有 label，输入胶囊动作有 title。 */
 export interface PluginActionLike {
@@ -349,6 +350,7 @@ export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugi
     plugin.parsed.manifest.contributes.strips.map((strip) => ({ plugin, strip })),
   );
   const [index, setIndex] = useState(0);
+  const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (strips.length <= 1) {
@@ -360,6 +362,15 @@ export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugi
     }, 5_000);
     return () => clearInterval(timer);
   }, [strips.length]);
+
+  useEffect(() => {
+    opacity.setValue(0);
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [index, opacity]);
 
   if (strips.length === 0) return null;
   const current = strips[Math.min(index, strips.length - 1)];
@@ -378,9 +389,24 @@ export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugi
   if (text.trim().length === 0) return null;
   return (
     <View style={styles.stripWrap} pointerEvents="none">
-      <Text style={[styles.stripText, { color: toneColor(t, current.strip.tone ?? "faint") }]} numberOfLines={1}>
-        {text}
-      </Text>
+      <Animated.View
+        style={[
+          styles.stripPill,
+          {
+            backgroundColor: t.glass,
+            borderColor: t.glassBorder,
+            opacity,
+          },
+        ]}
+      >
+        <Dot size={5} color={toneColor(t, current.strip.tone ?? "brand")} />
+        <Text
+          style={[styles.stripText, { color: toneColor(t, current.strip.tone ?? "faint") }]}
+          numberOfLines={1}
+        >
+          {text}
+        </Text>
+      </Animated.View>
     </View>
   );
 }
@@ -468,7 +494,17 @@ const styles = StyleSheet.create({
   footerText: { fontSize: 10.5, flexShrink: 1 },
   composerRow: { gap: space(1.5), alignItems: "center" },
   composerScroll: { flexGrow: 0, flexShrink: 0 },
-  stripWrap: { alignItems: "center", paddingHorizontal: space(4), paddingBottom: space(0.5) },
+  stripWrap: { alignItems: "center", paddingBottom: space(1) },
+  stripPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: 4,
+    maxWidth: "82%",
+  },
   stripText: { fontSize: 10.5 },
   composerAction: {
     height: 28,
