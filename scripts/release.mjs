@@ -104,11 +104,13 @@ try {
   }
   const passphrase = readPassphrase();
 
-  // 3.5) 原生产物必须在位：libnibi.so（D24）与 bash/busybox/git（D25 Phase 2）
-  // 都由脚本构建、不进版本库；缺任何一个都直接失败，避免发空壳包。
+  // 3.5) 原生产物必须在位：libnibi.so（D24）、bash/busybox/git（D25 Phase 2）
+  // 与 Node/Python 语言运行时（Phase 3）都由脚本构建、不进版本库；
+  // 缺任何一个都直接失败，避免发空壳包。
   step("检查 Android 原生产物");
   run("node", ["scripts/android-kernel/build.mjs", "--check"]);
   run("node", ["scripts/android-runtime/build.mjs", "--check"]);
+  run("node", ["scripts/android-runtimes/build.mjs", "--check"]);
 
   // 4) prebuild：version/versionCode 与 config plugin 注入都要重新落到 android/
   step("expo prebuild（同步版本号与原生配置）");

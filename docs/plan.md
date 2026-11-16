@@ -340,9 +340,12 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    - **Python 3.13.18 自建完成并真机验证**：宿主 Python + NDK 交叉；自建 libffi/zlib/
      OpenSSL；`python3` + `ssl/zlib/ctypes`、`pip 26.2.2`、`pip install requests`、
      `pyfiglet` console script（nibi-run）全部通过；stdlib zip 11MB、libpython 5.2MB。
-   - Node 24.22.3 上游 `android-configure` 在宿主 mksnapshot 缺 V8 cross 补丁
-     （trap_handler/simulator 符号），未完成；候选 nodejs-mobile Node 22.9 源码分支。
-     Termux 预编译包因供应链可控性不采用。
+   - **Node 24.22.3 自建完成并真机验证**（2026-11-16）：上游 `android-configure` +
+     `patch-node.py`（bionic backtrace、V8 宿主 arm64-simulator trap handler、gyp host
+     工具集、16 KB LOAD 对齐）；`libnode.so` strip 后 91MB，npm 11.19.1 随包。
+     真机：`node v24.22.3 arm64 android`、`npm 11.19.1`、`npm install`（TLS 用随包 CA）、
+     `npm run` 的 `.bin` 重写（cowsay 输出）、`require('./hello.node')`（N-API addon 42）、
+     `#!/usr/bin/env node` 经 nibi-run。Termux 预编译包因供应链可控性不采用。
 2. jniLibs `libpython3.13.so`/`libnode.so` + wrappers；npm/pip 装到 `filesDir/packages`；
    `--ignore-scripts` / wheel 策略（Python 已接 `PYTHONHOME`/`PYTHONUSERBASE`/`pip` shim）。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
