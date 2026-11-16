@@ -1,0 +1,83 @@
+name: Android language runtimes
+
+# D25 Phase 3：自建 Node / Python 语言运行时的可复现构建。
+#
+# 只在手动触发时运行：Node 从源码交叉编译包含宿主 V8 工具，单次构建约
+# 1–2 小时，不适合挂在 push/PR 上。发布前由发布负责人手动跑一次，产物与
+# `scripts/android-runtimes/build.mjs --check` 对齐。
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "构建目标"
+        required: true
+        default: node
+        type: choice
+        options:
+          - node
+          - python
+          - both
+
+concurrency:
+  group: android-langs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+
+      - name: Install NDK r27b
+        run: |
+          set -euo pipefail
+          NDK_DIR="$RUNNER_TEMP/android-ndk-r27b"
+          if [ ! -d "$NDK_DIR" ]; then
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
+              https://dl.google.com/android/repository/android-ndk-r27b-linux.zip
+            echo "33e16af1a6bbabe12cad54b2117085c07eab7e4fa67cdd831805f0e94fd826c1  $RUNNER_TEMP/ndk.zip" | sha256sum -c -
+            unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
+          fi
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Cache source tarballs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: build/android-runtimes/src
+          key: android-langs-src-${{ hashFiles('scripts/android-runtimes/sources.json') }}
+
+      - name: Build Node + package
+        if: ${{ inputs.target == 'node' || inputs.target == 'both' }}
+        run: node scripts/android-runtimes/build.mjs --node-only --jobs 4
+
+      - name: Build Python + package
+        if: ${{ inputs.target == 'python' || inputs.target == 'both' }}
+        run: node scripts/android-runtimes/build.mjs --python-only --jobs 4
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          case "${{ inputs.target }}" in
+            node)   node scripts/android-runtimes/build.mjs --check --node-only ;;
+            python) node scripts/android-runtimes/build.mjs --check --python-only ;;
+            *)      node scripts/android-runtimes/build.mjs --check ;;
+          esac
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4
+        with:
+          name: android-langs-${{ inputs.target }}
+          path: |
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libnode.so
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libpython_bin.so
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libpython3.13.so
+            app/modules/kernel-host/android/prebuilt/jniLibs/arm64-v8a/libffi.so
+            app/modules/kernel-host/android/prebuilt/.langs-stamp.json
+            app/modules/kernel-host/android/src/main/assets/nibi-langs.zip
+            app/modules/kernel-host/android/src/main/assets/nibi-langs.json
+          if-no-files-found: error

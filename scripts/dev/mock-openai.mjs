@@ -67,6 +67,13 @@ function lastUserText(body) {
   return "";
 }
 
+/** 工具调用 ID 必须每轮唯一：内核按 ID 落库，重复 ID 会被当成已处理/中断。 */
+let toolCallSeq = 0;
+function nextToolCallId() {
+  toolCallSeq += 1;
+  return `toolu_mock_${Date.now().toString(36)}_${toolCallSeq}`;
+}
+
 /** 当前这一轮是否已经带回了工具结果（只看最后一条消息，历史里的旧结果不算）。 */
 function hasToolResult(body) {
   try {
@@ -138,7 +145,7 @@ const server = createServer(async (request, response) => {
                 content: [
                   {
                     type: "tool_use",
-                    id: "toolu_mock_1",
+                    id: nextToolCallId(),
                     name: TOOL_NAME,
                     input: TOOL_INPUT,
                   },
@@ -189,7 +196,7 @@ const server = createServer(async (request, response) => {
       event("content_block_start", {
         type: "content_block_start",
         index: 0,
-        content_block: { type: "tool_use", id: "toolu_mock_1", name: TOOL_NAME, input: {} },
+        content_block: { type: "tool_use", id: nextToolCallId(), name: TOOL_NAME, input: {} },
       });
       event("content_block_delta", {
         type: "content_block_delta",
