@@ -8,6 +8,7 @@
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "expo-router";
 import {
   PanResponder,
   Pressable,
@@ -33,6 +34,7 @@ export default function GoHomeScreen() {
   const th = useNibiTheme();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -135,7 +137,7 @@ export default function GoHomeScreen() {
             petState={petState}
             onMenu={() => setSidebarOpen(true)}
             onSearch={() => undefined}
-            onSettings={() => undefined}
+            onSettings={() => router.push("/settings")}
           />
         ) : null}
 
@@ -178,7 +180,9 @@ export default function GoHomeScreen() {
 
               <View style={styles.topRight}>
                 <View style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
-                  <Text style={[styles.modelText, { color: th.inkSub }]}>NIBI-4 · 高</Text>
+                  <Text style={[styles.modelText, { color: th.inkSub }]}>
+                    {conversation.modelLabel}
+                  </Text>
                   <Icon name="chevron-down" size={12} color={th.inkGhost} />
                 </View>
 

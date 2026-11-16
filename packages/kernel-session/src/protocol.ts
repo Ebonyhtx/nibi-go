@@ -12,6 +12,14 @@ export interface KernelTransport {
   onLine(listener: (line: string) => void): () => void;
 }
 
+/** `session/create` 的模型选择（内核 `commands::selection`：providerId/modelId/thoughtLevel）。 */
+export interface KernelModelSelection {
+  providerId: string;
+  modelId: string;
+  /** 内核的 `thoughtLevel`（推理档位）。 */
+  thoughtLevel?: string;
+}
+
 /** `nibiWorkspaceRefSchema`：创建会话必填。 */
 export interface KernelWorkspaceRef {
   workspacePath: string;

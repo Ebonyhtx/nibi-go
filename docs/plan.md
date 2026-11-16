@@ -361,6 +361,20 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。
    出口：纯语言包可用，原生 addon 边界明确。
 
+### 可用性收口（2026-11-17）
+
+1. ✅ **Provider 设置页**：内核新增 `provider/state|save|remove|setDefault|setKeys`；
+   设置页可看列表/预设、添加/编辑/删除、测试连通性、设默认。API key 存
+   `expo-secure-store`（Android Keystore），启动时经 `NIBI_PROVIDER_KEYS` 进内核启动
+   env，运行期经 `provider/setKeys` 进内存；`provider_config.json` 不落 key。
+   真机：添加指向本机 mock 的 Provider（`http://127.0.0.1:9099/v1`）→ Key 已保存 →
+   连通性通过 → 设为默认 → 新会话顶栏显示 `mock-model`，发 `hi` 得到 mock 回复。
+2. ✅ **FGS 改为 `specialUse`**：manifest 声明
+   `PROPERTY_SPECIAL_USE_FGS_SUBTYPE=on_device_agent_runtime`，`startForeground` 在
+   API 34+ 传 `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`；`dumpsys` 实测
+   `isForeground=true types=0x40000000`，不再受 `dataSync` 的 6h/24h 上限。
+   商店分发时需在 Play 控制台声明用途。
+
 ### Phase 4–6
 
 4. UI slots：工具卡、`composer.actions`、`panels` 先行；3 个样例插件、版本兼容/降级。

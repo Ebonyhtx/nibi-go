@@ -3,9 +3,10 @@
     D20：内核跑在独立普通进程（不是 isolatedProcess——隔离进程没有网络权限）。
     控制面走 Binder，帧流走 socketpair（见 INibiKernelService / KernelService）。
   -->
-  <!-- D20.2：内核进程以后台前台服务承载（dataSync；6h/24h 上限见 ⑤）。 -->
+  <!-- D20.2 / ⑤：内核是长期运行的本地 agent，不是一次性数据同步；用 specialUse
+       （dataSync 在 Android 15+ 有 6h/24h 上限）。商店分发需要在 Play 控制台声明用途。 -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <!-- Android 13+：前台服务通知要用户授权才显示；没有授权服务状态仍成立。 -->
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -14,6 +15,10 @@
       android:name="expo.modules.nibikernelhost.KernelService"
       android:process=":kernel"
       android:exported="false"
-      android:foregroundServiceType="dataSync" />
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="on_device_agent_runtime" />
+    </service>
   </application>
 </manifest>

@@ -25,13 +25,10 @@ import {
 } from "nibi-kernel-host";
 
 import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
+import { kernelStartEnv } from "./kernelEnv";
+import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
+import { fetchProviderState } from "./providerSettings";
 import { splitSessions } from "./sessionArchive";
-
-const DEV_MOCK_ENV = {
-  NIBI_MODEL_BASE_URL: "http://127.0.0.1:9099/v1",
-  NIBI_API_KEY: "mock-key",
-  NIBI_MODEL: "mock-model",
-};
 
 /**
  * D20 承载模式：默认 `:kernel` 进程（前台服务，UI 死掉内核仍在）；
@@ -43,6 +40,31 @@ const KERNEL_MODE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "inprocess" ? "
 function workspaceRef(): KernelWorkspaceRef {
   const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
   return { workspacePath, workspaceKey: workspacePath };
+}
+
+/**
+ * 新会话带上设置页的默认模型。内核启动时也算一次默认，但 Provider 可能是在 App
+ * 启动后才加的；显式传 `model` 让新会话不必等内核重启。
+ */
+async function createWithDefaultModel(client: KernelSessionClient) {
+  let model:
+    | { providerId: string; modelId: string; thoughtLevel?: string }
+    | undefined;
+  try {
+    const state = await fetchProviderState(client);
+    if (state.default?.providerId && state.default?.modelId) {
+      model = {
+        providerId: state.default.providerId,
+        modelId: state.default.modelId,
+        ...(state.default.reasoningLevel
+          ? { thoughtLevel: state.default.reasoningLevel }
+          : {}),
+      };
+    }
+  } catch {
+    // 老内核没有 provider/state：按内核自己的缺省建会话。
+  }
+  return client.createSession(workspaceRef(), model);
 }
 
 /** Android 13+ 前台服务通知需要运行时授权；拒绝不影响内核，只是通知不显示。 */
@@ -64,6 +86,8 @@ export interface KernelConversation {
   rows: readonly ChatRow[];
   turn: TurnState;
   status: string;
+  /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）。 */
+  modelLabel: string;
   ready: boolean;
   sending: boolean;
   /** 未归档的会话（抽屉主列表）。 */
@@ -97,6 +121,7 @@ export function useKernelConversation(): KernelConversation {
   const [rows, setRows] = useState<readonly ChatRow[]>([]);
   const [turn, setTurn] = useState<TurnState>("idle");
   const [status, setStatus] = useState("初始化…");
+  const [modelLabel, setModelLabel] = useState("未配置模型");
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
   // 内核返回的全部顶层会话（含已归档）；列表按本地归档集合拆成两份。
@@ -230,12 +255,15 @@ export function useKernelConversation(): KernelConversation {
         if (cancelled) return;
         archivedIdsRef.current = new Set(archived);
         setArchivedIds(archivedIdsRef.current);
-        const env = __DEV__ ? DEV_MOCK_ENV : undefined;
-        let started = await startKernelHost(env, { useService: KERNEL_MODE === "service" });
+        // 默认模型在 app-server 启动时就算，Keystore 的 key 必须进启动 env；启动后的
+        // 新增/删除再用 provider/setKeys 补。
+        const env = { ...(kernelStartEnv() ?? {}), ...(await providerKeysEnv()) };
+        const startEnv = Object.keys(env).length > 0 ? env : undefined;
+        let started = await startKernelHost(startEnv, { useService: KERNEL_MODE === "service" });
         if (!started && KERNEL_MODE === "service") {
           // 前台服务起不来（后台启动限制/机型差异）时回退进程内，首页不能空。
           console.warn("[nibigo] :kernel 服务启动失败，回退进程内");
-          started = await startKernelHost(env, { useService: false });
+          started = await startKernelHost(startEnv, { useService: false });
         }
         if (cancelled) return;
         if (!started && !kernelHostAvailable()) {
@@ -246,6 +274,14 @@ export function useKernelConversation(): KernelConversation {
           transport: { sendLine: sendKernelLine, onLine: onKernelLine },
         });
         clientRef.current = client;
+        // Keystore 里的 Provider key 只进内核内存；失败不阻塞会话（设置页会再提示）。
+        await pushProviderKeys(client).catch((error: unknown) => {
+          console.warn("[nibigo] 下发 Provider key 失败", error);
+        });
+        const providerState = await fetchProviderState(client).catch(() => null);
+        if (providerState?.default?.modelId) {
+          setModelLabel(providerState.default.modelId);
+        }
 
         const list = await refreshSessions(client);
         if (cancelled) return;
@@ -261,7 +297,7 @@ export function useKernelConversation(): KernelConversation {
         }
         if (!opened) {
           if (list.length > 0) await client.resumeSession(list[0]!.sessionId);
-          else await client.createSession(workspaceRef());
+          else await createWithDefaultModel(client);
         }
         const sessionId = client.currentSessionId;
         if (cancelled || !sessionId) return;
@@ -306,6 +342,13 @@ export function useKernelConversation(): KernelConversation {
       transport: { sendLine: sendKernelLine, onLine: onKernelLine },
     });
     clientRef.current = client;
+    await pushProviderKeys(client).catch((error: unknown) => {
+      console.warn("[nibigo] 重连后下发 Provider key 失败", error);
+    });
+    const providerState = await fetchProviderState(client).catch(() => null);
+    if (providerState?.default?.modelId) {
+      setModelLabel(providerState.default.modelId);
+    }
     try {
       let sessionId: string | null = null;
       const preferred = activeSessionIdRef.current;
@@ -319,7 +362,7 @@ export function useKernelConversation(): KernelConversation {
           await client.resumeSession(list[0]!.sessionId);
           sessionId = client.currentSessionId;
         } else {
-          await client.createSession(workspaceRef());
+          await createWithDefaultModel(client);
           sessionId = client.currentSessionId;
         }
       }
@@ -533,6 +576,7 @@ export function useKernelConversation(): KernelConversation {
     rows,
     turn,
     status,
+    modelLabel,
     ready,
     sending,
     sessions,

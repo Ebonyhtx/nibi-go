@@ -441,6 +441,21 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
       `NIBI_API_KEY`/`NIBI_MODEL_*` 仍不投影。加之前 App 内 Bash 工具跑 `node` 报
       `cannot locate symbol ... basic_ostringstream`、`nibi-run` 找不到 npm；
       加之后一次调用返回 `v24.22.3 / 11.19.1 / Python 3.13.18 / git 2.51.0 / NIBI-GO`。
+19. **Provider 设置与 FGS `specialUse`（2026-11-17）**：
+    - 内核 app-server 新增 `provider/state|save|remove|setDefault|setKeys`（`ProviderAdmin`
+      端口，`Platform` 实现）；设置页复用桌面同一份 `provider_config.json`。
+    - **key 不进配置文件**：`expo-secure-store`（Android Keystore）保存；启动时 Host 把它
+      放进 `NIBI_PROVIDER_KEYS` env（内核在启动时算默认模型，必须早于 app-server 启动），
+      运行期新增/删除再走 `provider/setKeys`（只进内存）。Bash 工具的环境白名单不含它。
+    - 自定义模型的 `defaultModelSelection` 没有 `reasoningLevel` 时，目录快照会过滤掉
+      默认；`Platform::default_selection` 与 `models::assemble` 都对配置文件里的
+      provider/model 做了回落，设置页显示默认也读原始配置。
+    - 新会话创建时 App 显式带 `model`（provider/state 的默认），不依赖内核重启；
+      真机用本机 mock 走通：设置页保存 → Key 已保存 → 连通性通过 → 新会话发 `hi`
+      → mock 回复，顶栏显示 `mock-model`。
+    - FGS：`dataSync` 改成 `specialUse`（`on_device_agent_runtime`），API 34+
+      `startForeground(..., FOREGROUND_SERVICE_TYPE_SPECIAL_USE)`；真机
+      `types=0x40000000`，不触发 6h/24h `onTimeout`。Play 分发需声明用途。
 17. **Phase 3 来源 spike（2026-11-16，Termux 预编译）**：
     - `nodejs 26.13.1`（aarch64）：单 PIE 49MB，NEEDED 12 个库（zlib/c-ares/sqlite/
       libffi/openssl3/ICU 79/libc++）；NDK 视角 LOAD 0x4000、`.note.android.ident`
