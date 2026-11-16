@@ -7,9 +7,10 @@
 // 宠物位置（对齐 dsh-Go）：**永远在输入栏正上方**，不占正文区——有会话时中间
 // 是消息流，宠物仍在输入栏上方那一小块，不会跟会话抢地方。
 // Phase C：C0 已跑通（进程内内核 + 会话协议），空态从「挂起」改为「就绪，可开始」。
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
+  Keyboard,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -42,6 +43,18 @@ export default function GoHomeScreen() {
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // edge-to-edge 下 adjustResize 不一定会缩小窗口：直接把输入栏抬到键盘上方。
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) =>
+      setKeyboardHeight(event.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const layout = resolveAdaptiveLayout({ width, height, sidebarOpen });
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
@@ -297,7 +310,7 @@ export default function GoHomeScreen() {
                 {
                   backgroundColor: th.glass,
                   borderColor: th.glassBorder,
-                  marginBottom: insets.bottom + space(2),
+                  marginBottom: keyboardHeight > 0 ? keyboardHeight + space(2) : insets.bottom + space(2),
                 },
               ]}
             >
@@ -453,7 +466,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: space(4),
     right: "66%",
-    bottom: space(4),
+    bottom: space(1.5),
   },
   bottomFade: {
     position: "absolute",
