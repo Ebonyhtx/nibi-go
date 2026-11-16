@@ -72,6 +72,46 @@ fn commands_get_the_shell_that_runs_them() {
     assert_eq!(env.get("PYTHONUTF8").map(String::as_str), Some("1"));
 }
 
+/// Android 随包运行时（D25 Phase 2/3）：Bash 工具的环境是白名单投影，Node/Python/
+/// git 依赖的路径变量必须通过；模型凭据必须继续被挡住。
+#[test]
+fn android_runtime_variables_pass_but_credentials_do_not() {
+    let env = super::project(
+        &snapshot(&[
+            ("PATH", "/data/user/0/p/files/runtime/bin:/system/bin"),
+            ("LD_LIBRARY_PATH", "/data/app/p/lib/arm64"),
+            ("NIBI_RUNTIME_DIR", "/data/user/0/p/files/runtime"),
+            ("NIBI_BIN", "/data/user/0/p/files/runtime/bin"),
+            ("PYTHONHOME", "/data/user/0/p/files/runtime/python"),
+            (
+                "GIT_CONFIG_GLOBAL",
+                "/data/user/0/p/files/runtime/etc/gitconfig",
+            ),
+            (
+                "GIT_SSL_CAINFO",
+                "/data/user/0/p/files/runtime/etc/cacert.pem",
+            ),
+            ("NIBI_API_KEY", "sk-secret"),
+            ("NIBI_MODEL_BASE_URL", "http://127.0.0.1:9099/v1"),
+        ]),
+        None,
+    );
+    assert_eq!(
+        env.get("LD_LIBRARY_PATH").map(String::as_str),
+        Some("/data/app/p/lib/arm64")
+    );
+    assert_eq!(
+        env.get("NIBI_RUNTIME_DIR").map(String::as_str),
+        Some("/data/user/0/p/files/runtime")
+    );
+    assert_eq!(
+        env.get("GIT_CONFIG_GLOBAL").map(String::as_str),
+        Some("/data/user/0/p/files/runtime/etc/gitconfig")
+    );
+    assert!(!env.contains_key("NIBI_API_KEY"), "{env:?}");
+    assert!(!env.contains_key("NIBI_MODEL_BASE_URL"), "{env:?}");
+}
+
 /// MCP node fallback（docs/design/v2/mcp-node-fallback.md）：Host 注入的两个变量必须随
 /// PATH 一起投影给 stdio 子进程，否则 shim 以 127 失败；它们不是凭据。
 #[test]

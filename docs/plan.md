@@ -346,6 +346,13 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      真机：`node v24.22.3 arm64 android`、`npm 11.19.1`、`npm install`（TLS 用随包 CA）、
      `npm run` 的 `.bin` 重写（cowsay 输出）、`require('./hello.node')`（N-API addon 42）、
      `#!/usr/bin/env node` 经 nibi-run。Termux 预编译包因供应链可控性不采用。
+   - **App 内 Bash 工具端到端（2026-11-17）**：一次 Bash 工具调用
+     `node -v; nibi-run npm --version; python3 -V; git --version; git config user.name`
+     返回 `v24.22.3 / 11.19.1 / Python 3.13.18 / git 2.51.0 / NIBI-GO`。
+     该轮修掉内核子进程环境白名单缺 `LD_LIBRARY_PATH`、`PYTHONHOME`、`NIBI_*`、
+     `GIT_*`（Bash 工具拿不到 nativeLibraryDir 与运行时根：node 链接失败、npm 找不到）；
+     模型凭据（`NIBI_API_KEY`/`NIBI_MODEL_*`）仍不投影。开发用 mock 的工具调用 ID
+     同时改为每轮唯一（重复 ID 会被内核当成已处理，表现为 `[Tool use interrupted]`）。
 2. jniLibs `libpython3.13.so`/`libnode.so` + wrappers；npm/pip 装到 `filesDir/packages`；
    `--ignore-scripts` / wheel 策略（Python 已接 `PYTHONHOME`/`PYTHONUSERBASE`/`pip` shim）。
 3. 纯 JS/Python 包 + 至少 3 个 Android 原生包；不支持项明确报错。

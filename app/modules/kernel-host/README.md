@@ -199,6 +199,10 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
     `node_modules/.bin/.nibi-targets`，`npm run` 的 `.bin` 命令因此可执行。
   - 真机：`node v24.22.3`、`npm 11.19.1`、`npm install`、`npm run`（cowsay）、
     `require('./hello.node')`（N-API 42）、`#!/usr/bin/env node` 脚本均通过。
+  - **App 内 Bash 工具**：内核子进程环境是白名单投影；白名单里补了
+    `LD_LIBRARY_PATH`/`PYTHONHOME`/`PYTHONUSERBASE`/`NIBI_*`/`NPM_CONFIG_*`/`GIT_*`
+    （不含 `NIBI_API_KEY`/`NIBI_MODEL_*`）。真机一次调用返回
+    `v24.22.3 / 11.19.1 / Python 3.13.18 / git 2.51.0 / NIBI-GO`。
   - **不采用 Termux 预编译包**（供应链可控性）。
 
 ## 真机结果（2026-11-15，OnePlus PHK110 / arm64-v8a / Android 16）
