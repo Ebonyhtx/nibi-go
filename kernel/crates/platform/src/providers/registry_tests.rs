@@ -126,3 +126,40 @@ async fn an_explicit_builtin_file_replaces_the_bundled_copy() {
     );
     assert_eq!(registry.current().await.revision, 0);
 }
+
+/// Android Host 把 key 存在 Keystore，启动内核时经 `NIBI_PROVIDER_KEYS` 注入；配置文件里没有
+/// key。注入后 provider 可执行，文件仍然没有 key。
+#[tokio::test]
+async fn host_injected_keys_make_keyless_providers_executable_without_touching_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (registry, paths) = registry(dir.path()).await;
+    let mut personal: serde_json::Value = serde_json::from_str(PERSONAL).unwrap();
+    for rule in personal["config"]["providerConfigRules"]["providerRules"]
+        .as_array_mut()
+        .unwrap()
+    {
+        if let Some(access) = rule["config"]["access"].as_object_mut() {
+            access.remove("apiKey");
+        }
+    }
+    write(paths.provider_config().as_path(), &personal.to_string()).await;
+    // 没有 key：provider 存在但不可执行。
+    let current = registry.current().await;
+    assert!(models(&current).is_empty());
+
+    registry.set_provider_keys(BTreeMap::from([
+        ("personal:gateway".to_owned(), "sk-injected".to_owned()),
+        ("personal:responses".to_owned(), "sk-injected-2".to_owned()),
+    ]));
+    let current = registry.current().await;
+    assert!(models(&current).contains(&"personal:gateway/glm-5".to_owned()));
+    assert!(models(&current).contains(&"personal:responses/gpt-5.4".to_owned()));
+
+    let on_disk = std::fs::read_to_string(paths.provider_config().as_path()).unwrap();
+    let on_disk: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+    assert!(
+        on_disk["config"]["providerConfigRules"]["providerRules"][0]["config"]["access"]
+            ["apiKey"]
+            .is_null()
+    );
+}

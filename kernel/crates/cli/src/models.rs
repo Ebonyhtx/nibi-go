@@ -286,6 +286,22 @@ async fn assemble_model(
         // 团队项目已过期或未分配：照 App 的文案（platform.md §9.2）。目录为空（没给 `--model`），或 `--model` 指的
         // provider 有这样的团队项目时（工作线 F49：不再看 App 的当前连接）。
         Err(reason) => {
+            // 自定义模型的 `defaultModelSelection` 没写 reasoningLevel 时，目录快照的
+            // default 会是 None（catalog::default_selection 要求档位匹配）。设置页保存的默认
+            // 仍应生效：按配置文件里的 provider/model 启动，由模型用缺省档位。
+            if flag.is_none()
+                && let Some(configured) = platform.default_selection().await
+                && catalog.models.iter().any(|entry| {
+                    entry.provider == configured.provider && entry.model == configured.model
+                })
+            {
+                return Assembled {
+                    model: ProviderModel::new(egress, platform, clock),
+                    selection: with_effort(configured, effort, Some(&catalog)),
+                    limits,
+                    notice: None,
+                };
+            }
             let provider = flag
                 .as_deref()
                 .and_then(|flag| flag.trim().split_once('/'))

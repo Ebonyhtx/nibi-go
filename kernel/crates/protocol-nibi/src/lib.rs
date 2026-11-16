@@ -49,6 +49,7 @@ mod workflow_settings_turn;
 use std::sync::Arc;
 
 use nibi_kernel_base::Spawner;
+use nibi_kernel_api::provider::ProviderAdmin;
 use nibi_kernel_api::session_api::Kernel;
 use nibi_kernel_protocol_core::connection::{self, Options, Peer};
 use serde_json::json;
@@ -156,6 +157,53 @@ pub async fn serve_with_capture<R>(
 where
     R: AsyncBufRead + Unpin,
 {
+    serve_full(
+        reader, context, kernel, defaults, spawner, options, ports, None,
+    )
+    .await
+}
+
+/// 同 [`serve_with_capture`]，另给 Provider 设置页的后端（`provider/state|save|remove|setDefault`）。
+pub async fn serve_with_provider_admin<R>(
+    reader: R,
+    context: Arc<Context>,
+    kernel: Arc<dyn Kernel>,
+    defaults: Defaults,
+    spawner: Spawner,
+    options: Options,
+    ports: telemetry::TelemetryPorts,
+    admin: Arc<dyn ProviderAdmin>,
+) -> std::io::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+{
+    serve_full(
+        reader,
+        context,
+        kernel,
+        defaults,
+        spawner,
+        options,
+        ports,
+        Some(admin),
+    )
+    .await
+}
+
+#[expect(clippy::too_many_arguments, reason = "协议装配的完整端口表")]
+async fn serve_full<R>(
+    reader: R,
+    context: Arc<Context>,
+    kernel: Arc<dyn Kernel>,
+    defaults: Defaults,
+    spawner: Spawner,
+    options: Options,
+    ports: telemetry::TelemetryPorts,
+    provider_admin: Option<Arc<dyn ProviderAdmin>>,
+) -> std::io::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+{
     let peer: Peer = context.peer.clone();
     let telemetry::TelemetryPorts {
         capture,
@@ -164,13 +212,17 @@ where
         mcp_resource,
         mcp_ui_events,
     } = ports;
-    let server = Arc::new(server::Server::new(
+    let mut server = server::Server::new(
         context,
         kernel,
         spawner.clone(),
         defaults,
         capture.clone(),
-    ));
+    );
+    if let Some(admin) = provider_admin {
+        server = server.with_provider_admin(admin);
+    }
+    let server = Arc::new(server);
     // Host 侧的 stdio 服务：冷打开会话时问一轮启动偏好（`session/requestRuntimePreferences`）。
     server.request_host_preferences();
     // 常驻池的协议侧事实（Live/分享订阅）：有订阅者时不回收会话。

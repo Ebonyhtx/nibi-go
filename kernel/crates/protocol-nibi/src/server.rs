@@ -1,7 +1,7 @@
 //! App 协议的方法表（docs/specs/rust-cli/app-protocol.md §3.4、§10.3）：P1 的方法；其余回 `-32601`。
 //! 命令在 [`crate::commands`]，订阅在 [`crate::subscribe`]。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use async_trait::async_trait;
@@ -10,6 +10,7 @@ use nibi_kernel_api::env::{EnvPath, WorkspaceRef};
 use nibi_kernel_api::ids::{EnvironmentId, SessionId};
 use nibi_kernel_api::model::ModelSelection;
 use nibi_kernel_api::permission::PermissionMode;
+use nibi_kernel_api::provider::{ProviderAdmin, ProviderAdminDraft};
 use nibi_kernel_api::residency::{
     ResidencyLease, SessionLifecycleSnapshot, SessionResidencyWatch,
 };
@@ -67,6 +68,8 @@ impl Default for Preferences {
 pub struct Server {
     pub(crate) context: Arc<Context>,
     pub(crate) kernel: Arc<dyn Kernel>,
+    /// Provider 设置页的后端（Host 侧 stdio 服务注入；测试/纯 CLI 没有）。
+    pub(crate) provider_admin: Option<Arc<dyn ProviderAdmin>>,
     pub(crate) bridge: SessionBridge<Live>,
     pub(crate) topics: Arc<Topics>,
     pub(crate) remembered: Mutex<Remembered>,
@@ -232,6 +235,7 @@ impl Server {
             ),
             context,
             kernel,
+            provider_admin: None,
             topics,
             remembered: Mutex::new(Remembered::default()),
             followups: Mutex::new(HashMap::new()),
@@ -245,6 +249,13 @@ impl Server {
             preferences: Mutex::new(Preferences::default()),
             host_preferences: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// 注入 Provider 设置页的后端（`provider/state|save|remove|setDefault`）。
+    #[must_use]
+    pub fn with_provider_admin(mut self, admin: Arc<dyn ProviderAdmin>) -> Self {
+        self.provider_admin = Some(admin);
+        self
     }
 
     /// 打开「冷打开时问 Host 启动偏好」（Host 侧的 stdio 服务在装配时调用一次）。
@@ -653,6 +664,12 @@ impl Server {
         json!({"closed": true})
     }
 
+    fn provider_admin(&self) -> Result<&Arc<dyn ProviderAdmin>, RpcError> {
+        self.provider_admin
+            .as_ref()
+            .ok_or_else(|| RpcError::internal("provider admin is unavailable in this entry"))
+    }
+
     async fn dispatch(&self, method: &str, params: Value) -> Result<Reply, RpcError> {
         let reply = |value: Value| Ok(Reply::new(value));
         match method {
@@ -698,6 +715,59 @@ impl Server {
             "plugins/resolveSuggestedReference" => crate::plugin_catalog::suggested(self, &params)
                 .await
                 .map(Reply::new),
+            // Provider 设置页（GO）：列表/预设/默认、保存、删除。key 不在这里传，Host 从
+            // Keystore 取出后经 `NIBI_PROVIDER_KEYS` 注入平台层。
+            "provider/state" => {
+                let admin = self.provider_admin()?;
+                let state = admin.provider_state().await.map_err(RpcError::internal)?;
+                reply(serde_json::to_value(state).map_err(|error| {
+                    RpcError::internal(format!("serializing provider state: {error}"))
+                })?)
+            }
+            "provider/save" => {
+                let admin = self.provider_admin()?;
+                let draft: ProviderAdminDraft = serde_json::from_value(params).map_err(|error| {
+                    RpcError::invalid_params(format!("invalid provider draft: {error}"))
+                })?;
+                let provider_id = admin.save_provider(draft).await.map_err(RpcError::internal)?;
+                reply(json!({"providerId": provider_id}))
+            }
+            "provider/remove" => {
+                let admin = self.provider_admin()?;
+                let provider_id = params["providerId"]
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("providerId is required"))?;
+                admin
+                    .remove_provider(provider_id)
+                    .await
+                    .map_err(RpcError::internal)?;
+                reply(json!({"removed": true}))
+            }
+            "provider/setDefault" => {
+                let admin = self.provider_admin()?;
+                let selection: ModelSelection = serde_json::from_value(params["selection"].clone())
+                    .map_err(|error| {
+                        RpcError::invalid_params(format!("invalid model selection: {error}"))
+                    })?;
+                admin
+                    .set_default_model(selection.clone())
+                    .await
+                    .map_err(RpcError::internal)?;
+                reply(json!({"default": selection}))
+            }
+            "provider/setKeys" => {
+                let admin = self.provider_admin()?;
+                let keys: BTreeMap<String, String> =
+                    serde_json::from_value(params["keys"].clone()).map_err(|error| {
+                        RpcError::invalid_params(format!("invalid provider keys: {error}"))
+                    })?;
+                let updated = keys.len();
+                admin
+                    .set_provider_keys(keys)
+                    .await
+                    .map_err(RpcError::internal)?;
+                reply(json!({"updated": updated}))
+            }
             "provider/testModelConnectivity" => crate::model_connectivity::test(self, &params)
                 .await
                 .map(Reply::new),
