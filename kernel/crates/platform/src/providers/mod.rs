@@ -76,6 +76,9 @@ pub(crate) struct Registry {
     personal: StoragePath,
     credentials: CredentialStore,
     plans: Plans,
+    /// Host 注入的 API key（Android：`NIBI_PROVIDER_KEYS`，来源是 Keystore）。只在内存里覆盖
+    /// `provider_config.json` 的 `access.apiKey`，绝不写回文件。
+    provider_keys: Mutex<BTreeMap<String, String>>,
     gate: Mutex<ChangeGate>,
     published: Mutex<Published>,
     next_seq: AtomicU64,
@@ -105,6 +108,7 @@ impl Registry {
             personal,
             credentials,
             plans,
+            provider_keys: Mutex::new(BTreeMap::new()),
             gate: Mutex::new(ChangeGate::new(FULL_READ_EVERY)),
             published: Mutex::new(Published {
                 seq: 0,
@@ -112,6 +116,14 @@ impl Registry {
             }),
             next_seq: AtomicU64::new(1),
         }
+    }
+
+    /// Host 注入的 API key（Android `NIBI_PROVIDER_KEYS`）：按 `providerId` 覆盖内存里的
+    /// `access.apiKey`。空 map 表示没有注入，文件里的值照旧。
+    pub fn set_provider_keys(&self, keys: BTreeMap<String, String>) {
+        *lock(&self.provider_keys) = keys;
+        // 强制下一次 current() 重读：key 变了但文件指纹没变，ChangeGate 否则会沿用旧快照。
+        *lock(&self.gate) = ChangeGate::new(FULL_READ_EVERY);
     }
 
     /// 当前快照；文件有变化时先重新读取。
@@ -185,6 +197,7 @@ impl Registry {
             .await
             .map_err(|error| format!("personal provider config: {error}"))?
             .unwrap_or_else(|| EMPTY_PERSONAL.to_vec());
+        let bytes = apply_provider_keys(bytes, &lock(&self.provider_keys))?;
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|error| format!("personal provider config: {error}"))?;
         Ok(value["config"].clone())
@@ -214,6 +227,7 @@ impl Registry {
         if builtin.len() > MAX_CONFIG_BYTES || personal.len() > MAX_CONFIG_BYTES {
             return Err("provider config exceeds 8 MiB".to_owned());
         }
+        let personal = apply_provider_keys(personal, &lock(&self.provider_keys))?;
         let builtin_value: Value = serde_json::from_slice(&builtin).unwrap_or(Value::Null);
         let builtin_config = &builtin_value["config"];
         let credentials = self.account_credentials().await;
@@ -327,6 +341,53 @@ fn connections(
             Some((account.provider.clone(), entries))
         })
         .collect()
+}
+
+/// 把 Host 注入的 key 合进个人配置（只在内存里；文件不动）。找不到的 provider 忽略，
+/// 账号 provider 的 `access` 不会被改（只在 `type` 不是 `zhipu-account` 时覆盖）。
+fn apply_provider_keys(
+    personal: Vec<u8>,
+    keys: &BTreeMap<String, String>,
+) -> Result<Vec<u8>, String> {
+    if keys.is_empty() {
+        return Ok(personal);
+    }
+    let mut value: Value = serde_json::from_slice(&personal)
+        .map_err(|error| format!("personal provider config: {error}"))?;
+    let Some(rules) = value
+        .pointer_mut("/config/providerConfigRules/providerRules")
+        .and_then(Value::as_array_mut)
+    else {
+        return serde_json::to_vec(&value)
+            .map_err(|error| format!("personal provider config: {error}"));
+    };
+    for rule in rules {
+        let Some(id) = rule.get("providerId").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(key) = keys.get(id).map(|key| key.trim()).filter(|key| !key.is_empty()) else {
+            continue;
+        };
+        let Some(config) = rule
+            .get_mut("config")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if config
+            .get("access")
+            .and_then(|access| access.get("type"))
+            .and_then(Value::as_str)
+            == Some("zhipu-account")
+        {
+            continue;
+        }
+        config.insert(
+            "access".to_owned(),
+            json!({"type": "api-key", "apiKey": key}),
+        );
+    }
+    serde_json::to_vec(&value).map_err(|error| format!("personal provider config: {error}"))
 }
 
 fn signature(inputs: &Inputs) -> Vec<u8> {

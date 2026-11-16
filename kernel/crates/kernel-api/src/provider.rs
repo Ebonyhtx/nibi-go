@@ -262,6 +262,88 @@ pub trait ModelLimits: Send + Sync {
     fn limits(&self, selection: &ModelSelection) -> Option<TokenLimits>;
 }
 
+/// Provider 设置页的一份状态（`provider/state`）：可编辑列表、新建预设与当前默认模型。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAdminState {
+    pub providers: Vec<ProviderAdminSummary>,
+    pub presets: Vec<ProviderAdminPreset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<ModelSelection>,
+}
+
+/// 一个 Provider 的概览（`nibi provider list` 的 DTO；布尔值直接给 UI）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAdminSummary {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<WireProtocol>,
+    pub models: Vec<String>,
+    /// API key 已配置（配置里的 `access.apiKey`，或 Host 经 `NIBI_PROVIDER_KEYS` 注入）。
+    pub has_key: bool,
+    /// 官方账号 Provider：不能填 key、不能改端点。
+    pub account: bool,
+    /// 个人配置里的规则；只有这些能改模型清单与删除。
+    pub personal: bool,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_reasoning: Option<String>,
+}
+
+/// 新建 Provider 的内置预设。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAdminPreset {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub protocol: WireProtocol,
+    pub models: Vec<String>,
+}
+
+/// 新建或修改一个个人 Provider。API key 不在这里：Host 存在 Android Keystore，启动内核时经
+/// `NIBI_PROVIDER_KEYS` 注入（不落 `provider_config.json`）。
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAdminDraft {
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub base_url: String,
+    pub protocol: WireProtocol,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub template: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+/// Provider 设置页的后端（实现在平台层；协议层只做 JSON 映射）。错误文字直接给用户看。
+#[async_trait]
+pub trait ProviderAdmin: Send + Sync {
+    async fn provider_state(&self) -> Result<ProviderAdminState, String>;
+    async fn save_provider(&self, draft: ProviderAdminDraft) -> Result<String, String>;
+    async fn remove_provider(&self, provider_id: &str) -> Result<(), String>;
+    async fn set_default_model(&self, selection: ModelSelection) -> Result<(), String>;
+    /// Host 把 Keystore 里的 API key 交给平台层（只存内存，不落文件）。启动后与保存后各调用一次。
+    async fn set_provider_keys(
+        &self,
+        keys: std::collections::BTreeMap<String, String>,
+    ) -> Result<(), String>;
+}
+
 #[cfg(test)]
 #[path = "provider_tests.rs"]
 mod tests;

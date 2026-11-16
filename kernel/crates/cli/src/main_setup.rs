@@ -73,7 +73,16 @@ pub(super) fn platform(
         origins,
     };
     // `NIBI_MAX_OUTPUT_TOKENS`：Provider 配置的 `maxOutputTokens.map` 用 min(配置的 max, 它)（cli-args.md §9.1，F42）。
-    Ok(Platform::new(paths, &secret, services).with_max_output_tokens(startup.max_output_tokens))
+    // `NIBI_PROVIDER_KEYS`：Android Host 从 Keystore 取出、只经进程环境注入的 Provider API key
+    // （`{providerId: key}`）；不落 `provider_config.json`，也不进用户命令的环境白名单。
+    let provider_keys = startup
+        .env
+        .get("NIBI_PROVIDER_KEYS")
+        .and_then(|raw| serde_json::from_str::<std::collections::BTreeMap<String, String>>(raw).ok())
+        .unwrap_or_default();
+    Ok(Platform::new(paths, &secret, services)
+        .with_max_output_tokens(startup.max_output_tokens)
+        .with_provider_keys(provider_keys))
 }
 
 /// 网络出口（config.md §2.4，F21）：按环境快照算出口策略；`NODE_EXTRA_CA_CERTS` 用不了时先在 stderr 写警告。

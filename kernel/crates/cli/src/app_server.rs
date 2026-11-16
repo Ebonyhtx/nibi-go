@@ -568,7 +568,7 @@ where
     egress.observe(capture.observer());
     // 读到 Host 关掉输入或收到退出信号时结束（Host 回收整棵进程树）。
     tokio::select! {
-        result = nibi_kernel_protocol_nibi::serve_with_capture(
+        result = nibi_kernel_protocol_nibi::serve_with_provider_admin(
             input,
             context,
             kernel,
@@ -585,6 +585,7 @@ where
                     metrics: process_metrics,
                 }),
             },
+            platform.clone(),
         ) => {
             result?;
         }

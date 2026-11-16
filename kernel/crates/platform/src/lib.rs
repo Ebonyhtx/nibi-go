@@ -37,6 +37,7 @@ mod team;
 mod test_support;
 mod token;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -44,7 +45,8 @@ use nibi_kernel_api::clock::Clock;
 use nibi_kernel_api::model::{ModelError, ModelSelection};
 use nibi_kernel_api::provider::{
     Credential, EndpointContext, ModelCapabilities, ModelCatalog, ModelDirectory, ModelEndpoint,
-    ModelEndpoints, ModelLimits, TokenLimits, WireProtocol,
+    ModelEndpoints, ModelLimits, ProviderAdmin, ProviderAdminDraft, ProviderAdminPreset,
+    ProviderAdminState, ProviderAdminSummary, TokenLimits, WireProtocol,
 };
 use nibi_kernel_base::secret::RedactedString;
 use nibi_kernel_net::Egress;
@@ -178,6 +180,14 @@ impl Platform {
             .clone()
     }
 
+    /// Host 注入的 Provider API key（Android：`NIBI_PROVIDER_KEYS`，来源是 Keystore）。只在内存里
+    /// 覆盖 `access.apiKey`，不写回 `provider_config.json`。
+    #[must_use]
+    pub fn with_provider_keys(self, keys: BTreeMap<String, String>) -> Self {
+        self.registry.set_provider_keys(keys);
+        self
+    }
+
     /// 凭据文件 `credentials.json` 的位置。
     pub fn credentials_file(&self) -> &StoragePath {
         self.credentials.file()
@@ -260,6 +270,22 @@ impl Platform {
         providers::edit::remove(&self.personal_config, id).await
     }
 
+    /// 设置页的一份状态（`provider/state`）。
+    pub async fn provider_admin_state(&self) -> Result<ProviderAdminState, String> {
+        let providers = self.provider_list().await?;
+        let presets = self.provider_presets().await?;
+        // 用配置文件里的 `defaultModelSelection`，不用解析后的快照：自定义模型可能没写
+        // `reasoningLevel`，快照会把它过滤掉，但设置页仍要显示“默认”。
+        let config = self.registry.personal_config().await?;
+        let configured = &config["defaultModelSelection"];
+        let default = selection_from_config(configured);
+        Ok(ProviderAdminState {
+            providers: providers.into_iter().map(admin_summary).collect(),
+            presets: presets.into_iter().map(admin_preset).collect(),
+            default,
+        })
+    }
+
     /// 内置配置的通用规则（显式覆盖的端点按它算能力，model.md §6，修复线 F23）。内置配置读不了时为空规则
     /// （能力是缺省值）。
     pub async fn site_rules(&self) -> SiteRules {
@@ -277,7 +303,13 @@ impl Platform {
 
     /// 新会话默认使用的模型；没有可用 Provider 时为空。
     pub async fn default_selection(&self) -> Option<ModelSelection> {
-        self.registry.current().await.snapshot.default.clone()
+        if let Some(selection) = self.registry.current().await.snapshot.default.clone() {
+            return Some(selection);
+        }
+        // 自定义模型没有写 `reasoningLevel` 时，目录快照会过滤掉这个默认选择；新会话仍应
+        // 使用配置文件里的 provider/model（模型自己按缺省档位跑）。
+        let config = self.registry.personal_config().await.ok()?;
+        selection_from_config(&config["defaultModelSelection"])
     }
 
     /// 这次请求的凭据与附加的请求头：账号模型有注入的来源时向它要（G8），否则自己算（没有附加的请求头）。
@@ -478,6 +510,81 @@ fn without_auth_headers(headers: &mut Vec<(String, RedactedString)>) {
     headers.retain(|(name, _)| {
         !name.eq_ignore_ascii_case(header::AUTHORIZATION) && !name.eq_ignore_ascii_case("x-api-key")
     });
+}
+
+/// `defaultModelSelection`（Node/App 的 `{providerId, modelId, options.reasoningLevel}`）→ 内核选择。
+fn selection_from_config(value: &serde_json::Value) -> Option<ModelSelection> {
+    let provider = value["providerId"].as_str()?;
+    let model = value["modelId"].as_str()?;
+    Some(ModelSelection {
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        reasoning: value["options"]["reasoningLevel"]
+            .as_str()
+            .map(str::to_owned),
+        connection: None,
+    })
+}
+
+fn admin_summary(summary: ProviderSummary) -> ProviderAdminSummary {
+    ProviderAdminSummary {
+        id: summary.id,
+        name: summary.name,
+        base_url: summary.base_url,
+        protocol: summary.protocol,
+        models: summary.models,
+        has_key: summary.has_key,
+        account: summary.account,
+        personal: summary.personal,
+        enabled: summary.enabled,
+        template: summary.template,
+        default_reasoning: summary.default_reasoning,
+    }
+}
+
+fn admin_preset(preset: ProviderPreset) -> ProviderAdminPreset {
+    ProviderAdminPreset {
+        id: preset.id,
+        name: preset.name,
+        base_url: preset.base_url,
+        protocol: preset.protocol,
+        models: preset.models,
+    }
+}
+
+#[async_trait]
+impl ProviderAdmin for Platform {
+    async fn provider_state(&self) -> Result<ProviderAdminState, String> {
+        self.provider_admin_state().await
+    }
+
+    async fn save_provider(&self, draft: ProviderAdminDraft) -> Result<String, String> {
+        self.save_provider(ProviderDraft {
+            provider_id: draft.provider_id,
+            name: draft.name,
+            base_url: draft.base_url,
+            protocol: draft.protocol,
+            models: draft.models,
+            // Host 的 key 存在 Keystore，经 `NIBI_PROVIDER_KEYS` 注入；配置文件不写 key。
+            api_key: None,
+            template: draft.template,
+            enabled: draft.enabled,
+        })
+        .await
+    }
+
+    async fn remove_provider(&self, provider_id: &str) -> Result<(), String> {
+        Platform::remove_provider(self, provider_id).await
+    }
+
+    async fn set_default_model(&self, selection: ModelSelection) -> Result<(), String> {
+        self.save_default_model(&selection).await.map(|_| ())
+    }
+
+    async fn set_provider_keys(&self, keys: BTreeMap<String, String>) -> Result<(), String> {
+        self.registry.set_provider_keys(keys);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
