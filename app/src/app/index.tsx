@@ -116,17 +116,11 @@ export default function GoHomeScreen() {
   };
 
   const bodyMax = Math.min(layout.bodyMaxWidth, hasSidebar ? layout.bodyWidth - space(8) : layout.bodyMaxWidth);
-  // 有动作胶囊时把宠物稍微右移，给胶囊让出更多可视宽度；没有胶囊时仍居中。
-  const hasComposerActions = plugins.enabled.some(
-    (plugin) => plugin.parsed.manifest.contributes.composerActions.length > 0,
-  );
-  const petShift = hasComposerActions && keyboardHeight === 0 ? 0.6 : 0;
 
   // 宠物可横向拖动（正式功能，不是 dev 手势）：偏移归一化到 -1..1，
   // 跨旋转/换尺寸自动收敛；行程只允许在输入栏范围内，拖不出去。
   const petRange = Math.max(0, (bodyMax - space(8) - petTarget) / 2);
   const [petOffset, setPetOffset] = useState(0);
-  const petDockOffset = Math.max(-1, Math.min(1, petOffset + petShift));
   const offsetRef = useRef(0);
   const dragStartRef = useRef(0);
   const applyOffset = (v: number) => {
@@ -297,13 +291,11 @@ export default function GoHomeScreen() {
 
               {/* 宠物 + 插件胶囊浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
               <View style={styles.petOverlay} pointerEvents="box-none">
-                {keyboardHeight === 0 ? (
-                  <View style={styles.actionsOverlay} pointerEvents="box-none">
-                    <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
-                  </View>
-                ) : null}
+                <View style={styles.actionsOverlay} pointerEvents="box-none">
+                  <PluginComposerActions plugins={plugins.enabled} onAction={onPluginAction} />
+                </View>
                 <View
-                  style={[styles.petDock, { transform: [{ translateX: petDockOffset * petRange }] }]}
+                  style={[styles.petDock, { transform: [{ translateX: petOffset * petRange }] }]}
                   {...petResponder.panHandlers}
                 >
                   <Pressable onPress={cyclePetState} accessibilityLabel="桌宠">
@@ -475,8 +467,8 @@ const styles = StyleSheet.create({
   actionsOverlay: {
     position: "absolute",
     left: space(4),
-    right: "44%",
-    bottom: space(1.5),
+    right: "66%",
+    bottom: 0,
   },
   bottomFade: {
     position: "absolute",
