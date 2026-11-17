@@ -348,7 +348,8 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - **会话内模型与思考**：模型 chip 打开供应商 → 模型 → 思考强度；选择只写 COMPOSE
   草稿，发送时随 `sendText.modelSelection` 提交；滑轨用 Animated 渐变/流光/浮叶，不引
   新原生依赖。权限模式是 `build/guarded/yolo` 三档（计划是独立 `planEnabled` 令牌），
-  顶栏 chip 显示当前权限并可切换；完全访问二次确认。
+  顶栏 chip 显示当前权限并可切换；完全访问用应用内确认卡。侧边呼吸圆点显示上下文
+  占用环，展开显示 used/max 与 `usage.contextWindow.cache.hitRate`。
 - 注释走内核 `conversationQuotes`（`kind=annotation` + comment/instruction/number/
   messageKey/messageRole）：只引用选中片段，消息气泡不复制整条原文；编辑器按行/按句
   给出可点选段（长消息滚动，选中段高亮）；

@@ -10,7 +10,6 @@
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-  Alert,
   Keyboard,
   PanResponder,
   Pressable,
@@ -29,6 +28,7 @@ import { AnnotationComposer, type AnnotationDraft } from "../components/Annotati
 import { AnnotationManager, type AnnotationItem } from "../components/AnnotationManager";
 import { CapsuleStack } from "../components/CapsuleStack";
 import { ComposerAttachments } from "../components/ComposerAttachments";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ModelPickerSheet, type ModelChoice } from "../components/ModelPickerSheet";
 import { thinkingLevelLabel } from "../components/ThinkingRail";
 import { ComposerTokens } from "../components/ComposerTokens";
@@ -128,6 +128,7 @@ export default function GoHomeScreen() {
   const [permissionMode, setPermissionMode] = useState<"build" | "guarded" | "yolo">("build");
   const [planEnabled, setPlanEnabled] = useState(false);
   const [permissionMenu, setPermissionMenu] = useState<PopupAnchor | null>(null);
+  const [confirmFullAccess, setConfirmFullAccess] = useState(false);
   const sessionChipRef = useRef<ComponentRef<typeof Pressable> | null>(null);
   // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
@@ -664,21 +665,8 @@ export default function GoHomeScreen() {
       return;
     }
     if (id === "yolo") {
-      Alert.alert(
-        "切换到完全访问",
-        "完全访问会减少确认次数，模型可以在不逐次询问的情况下修改文件和执行命令。\n\n只在你信任当前任务和模型时使用。",
-        [
-          { text: "取消", style: "cancel" },
-          {
-            text: "切换到完全访问",
-            style: "destructive",
-            onPress: () => {
-              setPermissionMode("yolo");
-              setPermissionMenu(null);
-            },
-          },
-        ],
-      );
+      setPermissionMenu(null);
+      setConfirmFullAccess(true);
       return;
     }
     setPermissionMode(id);
@@ -853,7 +841,7 @@ export default function GoHomeScreen() {
                     <View
                       style={[
                         styles.effortMeterFill,
-                        { height: `${Math.round(effortProgress * 100)}%`, backgroundColor: th.brand },
+                        { height: `${Math.round(effortProgress * 100)}%`, backgroundColor: th.ok },
                       ]}
                     />
                   </View>
@@ -1066,7 +1054,7 @@ export default function GoHomeScreen() {
         />
       ) : null}
 
-      <SideStatus plugins={plugins.enabled} bottom={statusBottom} />
+      <SideStatus plugins={plugins.enabled} usage={conversation.contextUsage} bottom={statusBottom} />
 
       <PluginPopup
         visible={popup?.kind === "plus"}
@@ -1157,6 +1145,19 @@ export default function GoHomeScreen() {
         onManage={() => {
           setModelPickerOpen(false);
           router.push("/settings/provider");
+        }}
+      />
+
+      <ConfirmDialog
+        visible={confirmFullAccess}
+        title="切换到完全访问"
+        message={"完全访问会减少确认次数，模型可以在不逐次询问的情况下修改文件和执行命令。\n\n只在你信任当前任务和模型时使用。"}
+        confirmLabel="切换到完全访问"
+        danger
+        onCancel={() => setConfirmFullAccess(false)}
+        onConfirm={() => {
+          setConfirmFullAccess(false);
+          setPermissionMode("yolo");
         }}
       />
 
