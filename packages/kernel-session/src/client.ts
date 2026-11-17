@@ -36,6 +36,15 @@ export interface KernelSessionClientOptions {
   clientId?: string;
 }
 
+/** `session/create` 的可选参数。 */
+export interface KernelSessionCreateOptions {
+  /**
+   * `deferred`：草稿会话——首条用户输入之前不落库、不进 `session/list`
+   * （内核在第一条输入时提升为正式会话）；`immediate` 或缺省照旧立即落库。
+   */
+  persistence?: "deferred" | "immediate";
+}
+
 /** `v4/conversation/fileChanges` 的一个文件（内核 `FileChangeItem`）。 */
 export interface KernelFileChange {
   path: string;
@@ -138,16 +147,22 @@ export class KernelSessionClient {
     });
   }
 
-  /** 建会话；成功后记住 sessionId。`model` 显式给出时新会话用它（设置页的默认模型）。 */
+  /**
+   * 建会话；成功后记住 sessionId。`model` 显式给出时新会话用它（设置页的默认模型）。
+   * `options.persistence` 只在显式给出时随请求带上（`deferred` = 草稿，不落库直到首条输入）。
+   */
   async createSession(
     workspace: KernelWorkspaceRef,
     model?: KernelModelSelection,
     mcpServers?: readonly KernelMcpServer[],
+    options?: KernelSessionCreateOptions,
   ): Promise<KernelSessionCreateResult> {
+    const persistence = options?.persistence;
     const result = await this.request<KernelSessionCreateResult>(KERNEL_METHODS.sessionCreate, {
       workspace,
       ...(model ? { model } : {}),
       ...(mcpServers && mcpServers.length > 0 ? { mcpServers } : {}),
+      ...(persistence ? { persistence } : {}),
     });
     const id = result?.session?.sessionId;
     if (typeof id !== "string" || id.length === 0) {
@@ -267,6 +282,32 @@ export class KernelSessionClient {
   async setMode(mode: "build" | "edit" | "guarded" | "yolo"): Promise<void> {
     const sessionId = this.requireSessionId();
     await this.request(KERNEL_METHODS.sessionSetMode, { sessionId, mode });
+  }
+
+  /**
+   * 目标管理（`session/goal`）：`show` 回一句人读状态，`set` 设置/替换目标并让内核开一轮，
+   * `pause`/`resume` 暂停或恢复续跑，`clear` 清除。
+   *
+   * 以前 App 把 `/goal` 当普通文本发：设置能生效但内核的回执走 Meta stdout、V4 投影不展示，
+   * 界面上看不到任何结果；`/goal pause` 还会被解析成一个叫 “pause” 的新目标。
+   */
+  async goal(
+    action: "show" | "set" | "pause" | "resume" | "clear",
+    objective?: string,
+  ): Promise<{ response: string; startedTurn: boolean }> {
+    const sessionId = this.requireSessionId();
+    const result = await this.request<{ response?: unknown; startedTurn?: unknown }>(
+      KERNEL_METHODS.sessionGoal,
+      {
+        sessionId,
+        action,
+        ...(objective ? { objective } : {}),
+      },
+    );
+    return {
+      response: typeof result?.response === "string" ? result.response : "",
+      startedTurn: result?.startedTurn === true,
+    };
   }
 
   /**
