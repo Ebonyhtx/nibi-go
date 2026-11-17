@@ -664,7 +664,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(28,47,78,0.08)",
     zIndex: 19,
-    elevation: 19,
   },
   panel: {
     position: "absolute",
@@ -673,7 +672,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRightWidth: StyleSheet.hairlineWidth,
     zIndex: 20,
-    elevation: 20,
   },
   sidebar: { width: 320, height: "100%", borderRightWidth: StyleSheet.hairlineWidth },
   head: {

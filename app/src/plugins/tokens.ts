@@ -16,7 +16,7 @@ import type {
 import type { LoadedPlugin } from "./store";
 import { pluginKernelId } from "./store";
 
-export type ComposerTokenKind = "plugin" | "command" | "skill";
+export type ComposerTokenKind = "plugin" | "command" | "skill" | "message";
 
 export interface ComposerToken {
   /** 列表内唯一（同一个插件可选一次；命令只允许一个）。 */
@@ -24,12 +24,15 @@ export interface ComposerToken {
   kind: ComposerTokenKind;
   pluginId: string;
   pluginName: string;
-  /** 展示名（插件名 / 动作名）。 */
+  /** 展示名（插件名 / 动作名 / “这条消息”）。 */
   label: string;
-  /** 发送时的值：插件稳定 id / 命令名 / 技能限定名。 */
+  /** 发送时的值：插件稳定 id / 命令名 / 技能限定名 / 消息行 key。 */
   value: string;
   accent?: string;
   icon?: string;
+  /** kind=message：被引用消息的原文与角色（作为 transform 引用发送，不是注释）。 */
+  messageText?: string;
+  messageRole?: "user" | "assistant";
 }
 
 export interface ComposerDisplayToken {
@@ -165,13 +168,19 @@ function commandLabel(
   command: string,
 ): { label: string; pluginId?: string } {
   for (const plugin of plugins) {
+    const manifest = plugin.parsed.manifest;
     const actions = [
-      ...plugin.parsed.manifest.contributes.composerActions,
-      ...plugin.parsed.manifest.contributes.composerTools,
+      ...manifest.contributes.composerActions,
+      ...manifest.contributes.composerTools,
     ];
     for (const action of actions) {
       if (action.token?.kind === "command" && action.token.value === command) {
-        return { label: action.title, pluginId: plugin.parsed.manifest.id };
+        return { label: action.title, pluginId: manifest.id };
+      }
+    }
+    for (const action of manifest.contributes.messageActions) {
+      if (action.command === command) {
+        return { label: action.title, pluginId: manifest.id };
       }
     }
   }

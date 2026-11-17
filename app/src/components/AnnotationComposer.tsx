@@ -29,24 +29,43 @@ export interface AnnotationDraft {
   comment: string;
 }
 
-function paragraphsOf(text: string): string[] {
-  const chunks: string[] = [];
-  for (const line of text.split(/\n+/u)) {
+interface Segment {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * 可点选的原文片段：按行切；单行过长再按句切。保留原文偏移，点选后能让
+ * TextInput 的 selection 真正高亮对应范围。
+ */
+function segmentsOf(text: string): Segment[] {
+  const segments: Segment[] = [];
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const lineStart = offset;
+    offset += line.length + 1;
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // 长行再按句切开：手机上拖选择柄不稳时，仍能选到“一小段”。
-    if (trimmed.length <= 80) {
-      chunks.push(trimmed);
-    } else {
-      chunks.push(
-        ...trimmed
-          .split(/(?<=[。！？!?])\s*/u)
-          .map((part) => part.trim())
-          .filter(Boolean),
-      );
+    const trimmedStart = lineStart + line.indexOf(trimmed);
+    if ([...trimmed].length <= 80) {
+      segments.push({ text: trimmed, start: trimmedStart, end: trimmedStart + trimmed.length });
+      continue;
+    }
+    let cursor = 0;
+    for (const part of trimmed.split(/(?<=[。！？!?])\s*/u)) {
+      const value = part.trim();
+      if (value) {
+        const at = trimmed.indexOf(value, cursor);
+        const start = trimmedStart + (at >= 0 ? at : cursor);
+        segments.push({ text: value, start, end: start + value.length });
+        cursor = (at >= 0 ? at : cursor) + part.length;
+      } else {
+        cursor += part.length;
+      }
     }
   }
-  return chunks;
+  return segments;
 }
 
 export function AnnotationComposer({
@@ -74,12 +93,20 @@ export function AnnotationComposer({
   const insets = useSafeAreaInsets();
   const [comment, setComment] = useState(initialComment ?? "");
   const [excerpt, setExcerpt] = useState(initialExcerpt ?? fullText);
+  const [selection, setSelection] = useState({ start: 0, end: fullText.length });
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
     if (!visible) return;
     setComment(initialComment ?? "");
-    setExcerpt(initialExcerpt?.trim() ? initialExcerpt : fullText);
+    const initial = initialExcerpt?.trim() ? initialExcerpt : fullText;
+    setExcerpt(initial);
+    const at = initial && initial !== fullText ? fullText.indexOf(initial) : -1;
+    setSelection(
+      at >= 0
+        ? { start: at, end: at + initial.length }
+        : { start: 0, end: fullText.length },
+    );
   }, [fullText, initialComment, initialExcerpt, visible]);
 
   useEffect(() => {
@@ -93,9 +120,13 @@ export function AnnotationComposer({
     };
   }, []);
 
-  const paragraphs = useMemo(() => paragraphsOf(fullText), [fullText]);
+  const segments = useMemo(() => segmentsOf(fullText), [fullText]);
   const selected = excerpt.trim();
   const length = selected.length;
+  const selectSegment = (segment: Segment) => {
+    setExcerpt(segment.text);
+    setSelection({ start: segment.start, end: segment.end });
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -148,8 +179,11 @@ export function AnnotationComposer({
               multiline
               editable={false}
               showSoftInputOnFocus={false}
+              selection={selection}
+              selectionColor={t.brandSoft}
               onSelectionChange={(event) => {
                 const { start, end } = event.nativeEvent.selection;
+                setSelection({ start, end });
                 if (end > start) {
                   const next = fullText.slice(start, end).trim();
                   if (next) setExcerpt(next);
@@ -160,42 +194,64 @@ export function AnnotationComposer({
             />
           </View>
 
-          {paragraphs.length > 1 ? (
-            <ScrollView
-              horizontal
-              keyboardShouldPersistTaps="always"
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.paragraphRow}
-            >
-              <Pressable
-                onPress={() => setExcerpt(fullText)}
-                style={[styles.paragraph, { backgroundColor: t.panel, borderColor: t.hairline }]}
+          {segments.length > 1 ? (
+            <View style={styles.segmentWrap}>
+              <View style={styles.segmentHead}>
+                <Text style={[styles.segmentTitle, { color: t.inkFaint }]}>
+                  选择段落（长消息可上下滚动）
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setExcerpt(fullText);
+                    setSelection({ start: 0, end: fullText.length });
+                  }}
+                  style={[styles.segmentAll, { backgroundColor: t.panel, borderColor: t.hairline }]}
+                >
+                  <Text style={[styles.segmentAllText, { color: t.inkSub }]}>整条</Text>
+                </Pressable>
+              </View>
+              <ScrollView
+                style={styles.segmentList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="always"
+                showsVerticalScrollIndicator
               >
-                <Text style={[styles.paragraphText, { color: t.inkSub }]}>整条</Text>
-              </Pressable>
-              {paragraphs.map((paragraph, index) => {
-                const active = selected === paragraph;
-                return (
-                  <Pressable
-                    key={`${index}:${paragraph.slice(0, 12)}`}
-                    onPress={() => setExcerpt(paragraph)}
-                    style={[
-                      styles.paragraph,
-                      {
-                        backgroundColor: active ? t.brandSoft : t.panel,
-                        borderColor: active ? t.brandSoft : t.hairline,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.paragraphText, { color: active ? t.brand : t.inkSub }]}
+                {segments.map((segment, index) => {
+                  const active =
+                    selection.start === segment.start && selection.end === segment.end;
+                  return (
+                    <Pressable
+                      key={`${index}:${segment.start}`}
+                      onPress={() => selectSegment(segment)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`选择第 ${index + 1} 段`}
+                      style={[
+                        styles.segmentRow,
+                        {
+                          backgroundColor: active ? t.brandSoft : t.panel,
+                          borderColor: active ? t.brandSoft : t.hairline,
+                        },
+                      ]}
                     >
-                      第 {index + 1} 段
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                      <Text
+                        style={[styles.segmentNumber, { color: active ? t.brand : t.inkGhost }]}
+                      >
+                        {index + 1}
+                      </Text>
+                      <Text
+                        style={[styles.segmentText, { color: active ? t.ink : t.inkSub }]}
+                        numberOfLines={1}
+                      >
+                        {segment.text}
+                      </Text>
+                      {active ? (
+                        <Text style={[styles.segmentCheck, { color: t.brand }]}>✓</Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
           ) : null}
 
           <TextInput
@@ -294,14 +350,30 @@ const styles = StyleSheet.create({
     maxHeight: 150,
   },
   quoteText: { fontSize: 12, lineHeight: 17 },
-  paragraphRow: { flexDirection: "row", gap: space(1.5), alignItems: "center" },
-  paragraph: {
+  segmentWrap: { gap: space(1) },
+  segmentHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  segmentTitle: { fontSize: 9.5 },
+  segmentAll: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.chip,
     paddingHorizontal: space(2),
-    paddingVertical: 3,
+    paddingVertical: 2,
   },
-  paragraphText: { fontSize: 10, fontWeight: "600" },
+  segmentAllText: { fontSize: 9.5, fontWeight: "600" },
+  segmentList: { maxHeight: 122 },
+  segmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(2),
+    paddingVertical: 5,
+    marginBottom: 4,
+  },
+  segmentNumber: { width: 14, fontSize: 9.5, fontWeight: "700", textAlign: "right" },
+  segmentText: { flex: 1, fontSize: 11, lineHeight: 15 },
+  segmentCheck: { fontSize: 12, fontWeight: "700" },
   input: {
     minHeight: 74,
     borderWidth: StyleSheet.hairlineWidth,

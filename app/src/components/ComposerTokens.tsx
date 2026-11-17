@@ -17,6 +17,8 @@ function tokenColor(t: NibiTheme, accent: string | undefined): { bg: string; fg:
       return { bg: t.amberSoft, fg: t.amber };
     case "danger":
       return { bg: t.redSoft, fg: t.red };
+    case "default":
+      return { bg: t.steelSoft, fg: t.steel };
     case "brand":
     default:
       return { bg: t.brandSoft, fg: t.brand };
@@ -24,6 +26,7 @@ function tokenColor(t: NibiTheme, accent: string | undefined): { bg: string; fg:
 }
 
 function tokenIcon(token: ComposerToken): IconName {
+  if (token.kind === "message") return "quote";
   if (token.kind === "command") return token.icon === "clock" ? "clock" : "sparkles";
   if (token.kind === "skill") return "doc";
   return token.icon === "globe" || token.icon === "doc" || token.icon === "clock"

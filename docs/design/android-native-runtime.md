@@ -337,9 +337,12 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   写进 `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；MCP 仍走
   `session/create|resume.mcpServers`；
 - 注释走内核 `conversationQuotes`（`kind=annotation` + comment/instruction/number/
-  messageKey/messageRole）：只引用选中片段，消息气泡不复制整条原文；
+  messageKey/messageRole）：只引用选中片段，消息气泡不复制整条原文；编辑器按行/按句
+  给出可点选段（长消息滚动，选中段高亮）；
+- 消息动作（润色/缩写）声明 `command`/`prompt`，发送 `kind=transform` 的消息引用 +
+  `/命令`，由内核展开命令并只输出改写后的正文；不把动作写成注释评论；
 - 验收：3 个示例插件（工具卡、命令胶囊、面板）在本机与远端主机降级正确；
-  老版本字段忽略；附件/命令 token 与注释引用在模型文本里可区分；Web Island 超时降级。
+  老版本字段忽略；附件/命令 token 与注释/transform 引用在模型文本里可区分；Web Island 超时降级。
 
 ### Phase 5：手机两开关
 

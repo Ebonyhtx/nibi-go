@@ -78,11 +78,14 @@ function AnnotationQuoteCards({
   plugins?: readonly LoadedPlugin[];
 }) {
   const th = useNibiTheme();
-  const annotations = quotes.filter((quote) => quote.kind === "annotation");
+  const annotations = quotes.filter(
+    (quote) => quote.kind === "annotation" || quote.kind === "transform",
+  );
   if (annotations.length === 0) return null;
   return (
     <View style={styles.quoteList}>
       {annotations.map((quote, index) => {
+        const isTransform = quote.kind === "transform";
         const parsed = parseComposerText(quote.text, plugins ?? []);
         const excerpt =
           [parsed.tokens.map((token) => token.label).join(" "), parsed.body]
@@ -94,8 +97,15 @@ function AnnotationQuoteCards({
             key={`${quote.messageKey ?? "quote"}:${quote.number ?? index + 1}:${quote.text.slice(0, 8)}`}
             style={[styles.quoteCard, { backgroundColor: th.card, borderColor: th.hairline }]}
           >
-            <View style={[styles.quoteNumber, { backgroundColor: th.brandSoft }]}>
-              <Text style={[styles.quoteNumberText, { color: th.brand }]}>
+            <View
+              style={[
+                styles.quoteNumber,
+                { backgroundColor: isTransform ? th.steelSoft : th.brandSoft },
+              ]}
+            >
+              <Text
+                style={[styles.quoteNumberText, { color: isTransform ? th.steel : th.brand }]}
+              >
                 {quote.number ?? index + 1}
               </Text>
             </View>
@@ -103,7 +113,11 @@ function AnnotationQuoteCards({
               <Text style={[styles.quoteExcerpt, { color: th.inkSub }]} numberOfLines={2}>
                 {excerpt}
               </Text>
-              {quote.instruction ? (
+              {isTransform ? (
+                <Text style={[styles.quoteNote, { color: th.steel }]} numberOfLines={1}>
+                  改写引用
+                </Text>
+              ) : quote.instruction ? (
                 <Text style={[styles.quoteNote, { color: th.brand }]} numberOfLines={1}>
                   指令：{quote.instruction}
                 </Text>

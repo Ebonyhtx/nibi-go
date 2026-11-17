@@ -61,7 +61,7 @@ export interface KernelConversationQuote {
   senderId?: string;
   messageId?: string;
   sentAt?: string;
-  kind?: "annotation" | "quote";
+  kind?: "annotation" | "transform" | "quote";
   comment?: string;
   instruction?: string;
   number?: number;

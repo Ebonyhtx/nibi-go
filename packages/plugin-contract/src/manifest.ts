@@ -466,15 +466,28 @@ function readMessageActions(
       continue;
     }
     const instruction = readPrompt(value.instruction);
+    const command =
+      typeof value.command === "string" && TOKEN_VALUE_RE.test(value.command.trim())
+        ? value.command.trim()
+        : undefined;
+    const prompt = readPrompt(value.prompt);
+    const skills = readSkillRefs(value.skills);
+    if (command && !prompt) {
+      issues.push({
+        path: `${path}/prompt`,
+        message: "message action 的 command 需要 prompt（内核展开用的命令正文）",
+      });
+      continue;
+    }
     const effects =
       value.effects === undefined
         ? { effects: [] as Effect[], issues: [] as ContractIssue[] }
         : readEffects(value.effects, `${path}/effects`);
     issues.push(...effects.issues);
-    if (!instruction && effects.effects.length === 0) {
+    if (!command && !instruction && effects.effects.length === 0) {
       issues.push({
         path,
-        message: "message action 需要 instruction 或至少一个合法效果",
+        message: "message action 需要 command、instruction 或至少一个合法效果",
       });
       continue;
     }
@@ -482,6 +495,9 @@ function readMessageActions(
     actions.push({
       id,
       title,
+      ...(command ? { command } : {}),
+      ...(prompt ? { prompt } : {}),
+      ...(skills ? { skills } : {}),
       ...(instruction ? { instruction } : {}),
       ...(effects.effects.length > 0 ? { effects: effects.effects } : {}),
     });
