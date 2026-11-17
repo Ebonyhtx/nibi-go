@@ -90,7 +90,7 @@ const NATIVE_COMMANDS: ReadonlyArray<ComposerCatalogItem> = [
     group: "native-command",
     source: "nibi",
     title: "目标",
-    detail: "设置或查看当前目标",
+    detail: "空发送=查看；输入文字=设定目标；也可写 pause/resume/clear",
     icon: "shield",
     token: { kind: "command", value: "goal" },
   },
