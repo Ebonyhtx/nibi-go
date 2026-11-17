@@ -322,6 +322,7 @@ async fn execute(command: Command, context: &Context<'_>) -> Result<String, Stri
                 api_key: key,
                 template: options.template,
                 enabled: true,
+                model_configs: std::collections::BTreeMap::new(),
             };
             let id = context.platform.save_provider(draft).await?;
             if json {
@@ -351,6 +352,7 @@ async fn execute(command: Command, context: &Context<'_>) -> Result<String, Stri
                 api_key: Some(key),
                 template: item.template.clone(),
                 enabled: item.enabled,
+                model_configs: std::collections::BTreeMap::new(),
             };
             context.platform.save_provider(draft).await?;
             if json {

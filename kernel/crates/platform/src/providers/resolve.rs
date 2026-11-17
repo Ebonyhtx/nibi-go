@@ -181,7 +181,40 @@ pub(crate) fn resolve(
     }
 }
 
-/// 一个模型的有效配置：按分组顺序套用匹配的规则（手动规则先清掉用户可编辑的叶子）。
+/// 为一个还没写进 Provider 模型清单的模型算生效配置（设置页的「智能配置」预览）。
+/// 把模型临时加进个人 provider 的 `personalModelIds`，复用完整的三层解析。
+pub(crate) fn resolve_model(
+    builtin: &Value,
+    personal: &Value,
+    provider_id: &str,
+    model_id: &str,
+) -> Option<Value> {
+    let mut personal = personal.clone();
+    let rules = personal["providerConfigRules"]["providerRules"].as_array_mut()?;
+    let rule = rules
+        .iter_mut()
+        .find(|rule| rule["providerId"].as_str() == Some(provider_id))?;
+    let config = rule["config"].as_object_mut()?;
+    let models = config
+        .entry("personalModelIds")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if let Some(models) = models.as_array_mut()
+        && !models.iter().any(|value| value.as_str() == Some(model_id))
+    {
+        models.push(Value::String(model_id.to_owned()));
+    }
+    let resolved = resolve(builtin, &personal, None);
+    resolved
+        .providers
+        .into_iter()
+        .find(|provider| provider.provider_id == provider_id)?
+        .models
+        .into_iter()
+        .find(|model| model.model_id == model_id)
+        .map(|model| model.effective_config)
+}
+
+/// 一个模型的有效配置：按分组顺序套用匹配的规则（手动规则先清掉用户可编辑的叶子）。/// 一个模型的有效配置：按分组顺序套用匹配的规则（手动规则先清掉用户可编辑的叶子）。
 fn model_config(model_rules: &[Rule], provider_id: &str, rule: &Value, model_id: &str) -> Value {
     let config = &rule["config"];
     let base_url = config["api"]["baseUrl"].as_str().unwrap_or("");
@@ -240,4 +273,43 @@ fn overlay_rules(
         overlay(&mut effective, &value["config"]);
     }
     effective
+}
+
+#[cfg(test)]
+mod resolve_model_tests {
+    use super::resolve_model;
+    use serde_json::json;
+
+    #[test]
+    fn arbitrary_model_uses_builtin_model_rules() {
+        let bundled: serde_json::Value = serde_json::from_str(crate::providers::BUNDLED_BUILTIN)
+            .expect("bundled provider config");
+        let builtin = &bundled["config"];
+        let personal = json!({
+            "providerConfigRules": {
+                "providerRules": [{
+                    "providerId": "personal:test",
+                    "config": {
+                        "api": {
+                            "type": "openai-chat-completions",
+                            "baseUrl": "https://gateway.example.com/v1"
+                        },
+                        "personalModelIds": ["kimi-k3"]
+                    }
+                }]
+            },
+            "modelConfigRules": {"providerModelRules": [], "manualProviderModelRules": []}
+        });
+        let config = resolve_model(builtin, &personal, "personal:test", "kimi-k3")
+            .expect("resolved model");
+        assert_eq!(config["properties"]["contextWindow"], json!(1048576));
+        assert_eq!(
+            config["properties"]["inputFormat"]["supportsImage"],
+            json!(true)
+        );
+        assert_eq!(
+            config["optionSpecs"]["reasoningLevel"]["values"],
+            json!(["low", "high", "max"])
+        );
+    }
 }

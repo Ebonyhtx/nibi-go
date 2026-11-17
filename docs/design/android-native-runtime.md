@@ -341,6 +341,14 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - 插件目录除 App 清单外同时生成 `.nibi-plugin/plugin.json` + `commands/` + `skills/`，
   写进 `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；MCP 仍走
   `session/create|resume.mcpServers`；
+- **模型设置（2026-11-18）**：Provider 页改为供应商列表 + 模型行；模型编辑 sheet 的
+  “智能配置”调内核 `provider/resolveModel`（内置 `nibi-builtin.json` 的 model/modelApi/
+  providerSite 规则），可改上下文、输入模态、能力、思考档位和参数映射；`provider/state`
+  增加每个模型的生效 `modelInfo`，`provider/save` 接受 `modelConfigs` 覆盖模板内置模型。
+- **会话内模型与思考**：模型 chip 打开供应商 → 模型 → 思考强度；选择只写 COMPOSE
+  草稿，发送时随 `sendText.modelSelection` 提交；滑轨用 Animated 渐变/流光/浮叶，不引
+  新原生依赖。权限模式是 `build/guarded/yolo` 三档（计划是独立 `planEnabled` 令牌），
+  顶栏 chip 显示当前权限并可切换；完全访问二次确认。
 - 注释走内核 `conversationQuotes`（`kind=annotation` + comment/instruction/number/
   messageKey/messageRole）：只引用选中片段，消息气泡不复制整条原文；编辑器按行/按句
   给出可点选段（长消息滚动，选中段高亮）；

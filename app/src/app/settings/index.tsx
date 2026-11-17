@@ -102,7 +102,7 @@ export default function SettingsHomeScreen() {
           <Row
             icon="monitor"
             title="Provider 与模型"
-            detail="端点、模型列表、API Key 与默认模型"
+            detail="供应商、模型能力、思考档位与 API Key"
             onPress={() => router.push("/settings/provider")}
             last
           />

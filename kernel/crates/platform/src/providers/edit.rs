@@ -69,6 +69,8 @@ pub struct Draft {
     /// 继承的内置模板。
     pub template: Option<String>,
     pub enabled: bool,
+    /// 模型 → 完整能力覆盖；保存时合并进 `providerModelRules`。
+    pub model_configs: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// 文件的空配置（与 Node `encodeProviderConfigFile(emptyUpdate)` 相同）。
@@ -533,6 +535,26 @@ pub async fn save(file: &StoragePath, builtin: &Value, draft: &Draft) -> Result<
             if !present {
                 model_rules.push(default_model_rule(&id, model));
             }
+        }
+        // 智能配置保存的是完整生效配置；模板内置模型也允许用个人规则覆盖（编辑模型能力）。
+        for (model, overrides) in &draft.model_configs {
+            let index = model_rules.iter().position(|rule| {
+                rule["providerId"].as_str() == Some(id.as_str())
+                    && rule["modelId"].as_str() == Some(model.as_str())
+            });
+            let index = match index {
+                Some(index) => index,
+                None => {
+                    model_rules.push(default_model_rule(&id, model));
+                    model_rules.len() - 1
+                }
+            };
+            let mut config = model_rules[index]["config"].clone();
+            if !config.is_object() {
+                config = json!({});
+            }
+            overlay(&mut config, overrides);
+            model_rules[index]["config"] = config;
         }
         set_rules(
             &mut body,

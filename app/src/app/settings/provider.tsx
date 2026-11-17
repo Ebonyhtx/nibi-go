@@ -17,6 +17,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Icon } from "../../components/Icon";
+
 import { KernelSessionClient } from "@nibi-go/kernel-session";
 
 import {
@@ -25,15 +27,18 @@ import {
   sendKernelLine,
   startKernelHost,
 } from "nibi-kernel-host";
+import { ModelConfigSheet } from "../../components/ModelConfigSheet";
 import {
   fetchProviderState,
   PROVIDER_PROTOCOLS,
+  resolveProviderModel,
   removeProvider,
   saveProvider,
   setDefaultProvider,
   testProvider,
   type ModelSelection,
   type ProviderDraft,
+  type ProviderModelConfig,
   type ProviderPreset,
   type ProviderProtocol,
   type ProviderState,
@@ -67,6 +72,19 @@ const EMPTY_DRAFT: EditingState = {
   enabled: true,
 };
 
+function protocolLabel(protocol: ProviderProtocol | undefined): string {
+  switch (protocol) {
+    case "anthropic-messages":
+      return "Anthropic Messages";
+    case "openai-responses":
+      return "OpenAI Responses";
+    case "openai-chat-completions":
+      return "OpenAI Chat";
+    default:
+      return "未配置协议";
+  }
+}
+
 function modelsOf(draft: EditingState): string[] {
   return draft.models
     .split(/[,\n]/u)
@@ -86,6 +104,11 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [modelEditor, setModelEditor] = useState<{
+    provider: ProviderSummary;
+    modelId?: string;
+    config?: ProviderModelConfig;
+  } | null>(null);
 
   const client = useCallback((): KernelSessionClient => {
     if (!clientRef.current) throw new Error("内核尚未就绪");
@@ -206,7 +229,7 @@ export default function SettingsScreen() {
   };
 
   const remove = (provider: ProviderSummary) => {
-    Alert.alert("删除 Provider", `删除「${provider.name}」？`, [
+    Alert.alert("删除供应商", `删除「${provider.name}」？`, [
       { text: "取消", style: "cancel" },
       {
         text: "删除",
@@ -276,34 +299,62 @@ export default function SettingsScreen() {
     })();
   };
 
+  const saveModel = async (
+    provider: ProviderSummary,
+    modelId: string,
+    config: ProviderModelConfig,
+  ) => {
+    const models = provider.models.includes(modelId)
+      ? provider.models
+      : [...provider.models, modelId];
+    await saveProvider(client(), {
+      providerId: provider.id,
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      protocol: provider.protocol ?? "openai-chat-completions",
+      models,
+      ...(provider.template ? { template: provider.template } : {}),
+      enabled: provider.enabled,
+      modelConfigs: { [modelId]: config },
+    });
+    await reload();
+  };
+
   const body = (() => {
     if (editing) {
       return (
         <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
           <Text style={[styles.cardTitle, { color: t.ink }]}>
-            {editing.providerId ? "编辑 Provider" : "添加 Provider"}
+            {editing.providerId ? "编辑供应商" : "添加供应商"}
           </Text>
           {!editing.providerId && state.presets.length > 0 && (
             <>
               <Text style={[styles.label, { color: t.inkSub }]}>从预设开始</Text>
-              <View style={styles.chips}>
-                {state.presets.map((preset) => (
-                  <Pressable
-                    key={preset.id}
-                    onPress={() => applyPreset(preset)}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor:
-                          editing.template === preset.id ? t.brandSoft : t.panel,
-                        borderColor: editing.template === preset.id ? t.brand : t.hairline,
-                      },
-                    ]}
-                  >
-                    <Text style={{ color: t.ink, fontSize: typeScale.small }}>{preset.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
+                {state.presets.map((preset) => {
+                  const active = editing.template === preset.id;
+                  return (
+                    <Pressable
+                      key={preset.id}
+                      onPress={() => applyPreset(preset)}
+                      style={[
+                        styles.presetCard,
+                        {
+                          backgroundColor: active ? t.brandSoft : t.panel,
+                          borderColor: active ? t.brand : t.hairline,
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                        {preset.name}
+                      </Text>
+                      <Text style={{ color: t.inkFaint, fontSize: 8.5 }} numberOfLines={1}>
+                        {preset.baseUrl.replace(/^https?:\/\//u, "")}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             </>
           )}
 
@@ -423,17 +474,23 @@ export default function SettingsScreen() {
         )}
         {state.providers.map((provider) => {
           const isDefault =
-            provider.id === defaultProviderId && provider.models[0] === defaultModelId;
+            provider.id === defaultProviderId &&
+            (defaultModelId ? provider.models.includes(defaultModelId) : false);
           return (
             <View
               key={provider.id}
               style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
             >
               <View style={styles.rowBetween}>
+                <View style={[styles.providerAvatar, { backgroundColor: provider.hasKey ? t.brandSoft : t.panel }]}>
+                  <Text style={[styles.providerAvatarText, { color: provider.hasKey ? t.brand : t.inkFaint }]}>
+                    {provider.name.trim().slice(0, 1).toUpperCase() || "N"}
+                  </Text>
+                </View>
                 <View style={styles.titleColumn}>
                   <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
                   <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
-                    {provider.protocol ?? "未配置协议"} · {provider.baseUrl || "未配置端点"}
+                    {protocolLabel(provider.protocol)} · {provider.baseUrl || "未配置端点"}
                   </Text>
                 </View>
                 <View style={styles.badges}>
@@ -465,9 +522,72 @@ export default function SettingsScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={2}>
-                {provider.models.length > 0 ? provider.models.join(" / ") : "没有模型"}
-              </Text>
+              <View style={styles.modelList}>
+                {provider.models.length === 0 ? (
+                  <Text style={[styles.sub, { color: t.inkSub }]}>没有模型</Text>
+                ) : (
+                  provider.models.map((modelId) => {
+                    const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
+                    const input = config?.properties?.inputFormat;
+                    const window = config?.properties?.contextWindow;
+                    return (
+                      <View
+                        key={modelId}
+                        style={[styles.modelRow, { borderColor: t.hairline }]}
+                      >
+                        <View style={styles.modelInfo}>
+                          <Text style={[styles.modelName, { color: t.ink }]} numberOfLines={1}>
+                            {modelId}
+                          </Text>
+                          <View style={styles.modelBadges}>
+                            {window ? (
+                              <Text style={[styles.modelMeta, { color: t.inkFaint }]}>
+                                {window >= 1_000_000
+                                  ? `${Math.round(window / 100_000) / 10}M`
+                                  : window >= 1000
+                                    ? `${Math.round(window / 1000)}K`
+                                    : window}
+                              </Text>
+                            ) : null}
+                            {input?.supportsImage ? (
+                              <View style={[styles.badge, { backgroundColor: t.steelSoft }]}>
+                                <Text style={{ color: t.steel, fontSize: typeScale.micro }}>视觉</Text>
+                              </View>
+                            ) : null}
+                            {input?.supportsPdf ? (
+                              <View style={[styles.badge, { backgroundColor: t.panel }]}>
+                                <Text style={{ color: t.inkSub, fontSize: typeScale.micro }}>PDF</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                        {provider.personal ? (
+                          <Pressable
+                            onPress={() =>
+                              setModelEditor({ provider, modelId, ...(config ? { config } : {}) })
+                            }
+                            hitSlop={6}
+                            accessibilityRole="button"
+                            accessibilityLabel={`编辑模型 ${modelId}`}
+                            style={[styles.modelEdit, { backgroundColor: t.panel }]}
+                          >
+                            <Icon name="pen" size={12} color={t.inkSub} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    );
+                  })
+                )}
+                {provider.personal ? (
+                  <Pressable
+                    onPress={() => setModelEditor({ provider })}
+                    style={[styles.addModel, { borderColor: t.hairline }]}
+                  >
+                    <Icon name="plus" size={11} color={t.brand} />
+                    <Text style={[styles.addModelText, { color: t.brand }]}>添加模型</Text>
+                  </Pressable>
+                ) : null}
+              </View>
 
               <View style={styles.actions}>
                 <Pressable
@@ -515,7 +635,8 @@ export default function SettingsScreen() {
           onPress={() => beginEdit()}
           style={[styles.addButton, { borderColor: t.brand, backgroundColor: t.brandSoft }]}
         >
-          <Text style={{ color: t.brand, fontWeight: "600" }}>＋ 添加 Provider</Text>
+          <Icon name="plus" size={15} color={t.brand} />
+          <Text style={{ color: t.brand, fontWeight: "700", fontSize: 12.5 }}>添加供应商</Text>
         </Pressable>
       </>
     );
@@ -523,17 +644,25 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: t.bg }]}>
-      <View style={[styles.header, { paddingTop: insets.top + space(2) }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Text style={{ color: t.inkSub, fontSize: typeScale.heading }}>‹ 返回</Text>
+      <View style={[styles.header, { paddingTop: insets.top + space(2), borderBottomColor: t.hairline }]}>
+        <Pressable
+          onPress={() => router.back()}
+          style={[styles.backButton, { backgroundColor: t.panel, borderColor: t.hairline }]}
+          accessibilityRole="button"
+          accessibilityLabel="返回"
+        >
+          <Icon name="chevron-left" size={16} color={t.inkSub} />
         </Pressable>
-        <Text style={[styles.screenTitle, { color: t.ink }]}>Provider 与模型</Text>
-        <View style={styles.backButton} />
+        <View style={styles.headerText}>
+          <Text style={[styles.screenTitle, { color: t.ink }]}>模型设置</Text>
+          <Text style={[styles.headerSub, { color: t.inkFaint }]}>供应商 · 模型 · 思考档位</Text>
+        </View>
+        <View style={styles.headerSpacer} />
       </View>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(8) }]}
       >
-        <Text style={[styles.section, { color: t.inkSub }]}>模型 Provider</Text>
+        <Text style={[styles.section, { color: t.inkSub }]}>供应商</Text>
         {loading && <ActivityIndicator style={styles.loading} />}
         {error && <Text style={{ color: t.red, marginBottom: space(3) }}>{error}</Text>}
         {note && (
@@ -548,6 +677,19 @@ export default function SettingsScreen() {
         )}
         {body}
       </ScrollView>
+
+      <ModelConfigSheet
+        visible={modelEditor !== null}
+        provider={modelEditor?.provider ?? null}
+        modelId={modelEditor?.modelId}
+        initialConfig={modelEditor?.config}
+        onResolve={(providerId, modelId) => resolveProviderModel(client(), providerId, modelId)}
+        onClose={() => setModelEditor(null)}
+        onSave={(modelId, config) => {
+          if (!modelEditor) return Promise.resolve();
+          return saveModel(modelEditor.provider, modelId, config);
+        }}
+      />
     </View>
   );
 }
@@ -557,13 +699,43 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: space(2),
     paddingHorizontal: space(4),
-    paddingBottom: space(2),
+    paddingBottom: space(2.5),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backButton: { width: 64 },
+  headerText: { flex: 1, alignItems: "center", gap: 1 },
+  headerSpacer: { width: 40, height: 40 },
+  headerSub: { fontSize: 9.5 },
+  providerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  providerAvatarText: { fontSize: 16, fontWeight: "700" },
+  presetRow: { gap: space(2), paddingVertical: 2 },
+  presetCard: {
+    width: 148,
+    minHeight: 52,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+    gap: 3,
+    justifyContent: "center",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   screenTitle: { fontSize: typeScale.title, fontWeight: "700" },
-  content: { paddingHorizontal: space(4) },
+  content: { paddingHorizontal: space(4), paddingTop: space(3) },
   section: {
     fontSize: typeScale.micro,
     letterSpacing: 1,
@@ -580,6 +752,37 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: typeScale.heading, fontWeight: "600" },
   sub: { fontSize: typeScale.small, marginTop: space(1) },
+  modelList: { gap: space(1.5), marginTop: space(1) },
+  modelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space(1.5),
+  },
+  modelInfo: { flex: 1, gap: 2 },
+  modelName: { fontSize: 11.5, fontWeight: "600" },
+  modelBadges: { flexDirection: "row", alignItems: "center", gap: 5 },
+  modelMeta: { fontSize: 9.5 },
+  modelEdit: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addModel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1.5),
+    marginTop: space(1),
+  },
+  addModelText: { fontSize: 10.5, fontWeight: "700" },
   titleColumn: { flex: 1, paddingRight: space(2) },
   badges: { flexDirection: "row", gap: space(1), flexWrap: "wrap", justifyContent: "flex-end" },
   badge: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.5) },
@@ -621,10 +824,13 @@ const styles = StyleSheet.create({
     paddingVertical: space(1.5),
   },
   addButton: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.control,
-    paddingVertical: space(3),
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: space(2),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    paddingVertical: space(3),
     marginTop: space(1),
   },
 });

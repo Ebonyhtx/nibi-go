@@ -279,11 +279,51 @@ impl Platform {
         let config = self.registry.personal_config().await?;
         let configured = &config["defaultModelSelection"];
         let default = selection_from_config(configured);
+        // 模型能力来自完整解析（不受“Provider 可执行/有 key”影响）；设置页编辑刚加的模型也要能看到。
+        let builtin = self.registry.builtin_config().await?;
+        let personal = self.registry.personal_config().await?;
+        let resolved = providers::resolve::resolve(&builtin, &personal, None);
+        let model_info: std::collections::HashMap<String, Vec<nibi_kernel_api::provider::ProviderAdminModel>> =
+            resolved
+                .providers
+                .into_iter()
+                .map(|provider| {
+                    (
+                        provider.provider_id,
+                        provider
+                            .models
+                            .into_iter()
+                            .map(|model| nibi_kernel_api::provider::ProviderAdminModel {
+                                id: model.model_id,
+                                config: model.effective_config,
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
         Ok(ProviderAdminState {
-            providers: providers.into_iter().map(admin_summary).collect(),
+            providers: providers
+                .into_iter()
+                .map(|summary| {
+                    let info = model_info.get(&summary.id).cloned().unwrap_or_default();
+                    admin_summary(summary, info)
+                })
+                .collect(),
             presets: presets.into_iter().map(admin_preset).collect(),
             default,
         })
+    }
+
+    /// 设置页的模型「智能配置」：给还没写进 Provider 的模型 ID 算生效能力。
+    pub async fn resolve_model_config(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        let builtin = self.registry.builtin_config().await?;
+        let personal = self.registry.personal_config().await?;
+        providers::resolve::resolve_model(&builtin, &personal, provider_id, model_id)
+            .ok_or_else(|| format!("provider {provider_id} is not configured"))
     }
 
     /// 内置配置的通用规则（显式覆盖的端点按它算能力，model.md §6，修复线 F23）。内置配置读不了时为空规则
@@ -526,7 +566,10 @@ fn selection_from_config(value: &serde_json::Value) -> Option<ModelSelection> {
     })
 }
 
-fn admin_summary(summary: ProviderSummary) -> ProviderAdminSummary {
+fn admin_summary(
+    summary: ProviderSummary,
+    model_info: Vec<nibi_kernel_api::provider::ProviderAdminModel>,
+) -> ProviderAdminSummary {
     ProviderAdminSummary {
         id: summary.id,
         name: summary.name,
@@ -539,6 +582,7 @@ fn admin_summary(summary: ProviderSummary) -> ProviderAdminSummary {
         enabled: summary.enabled,
         template: summary.template,
         default_reasoning: summary.default_reasoning,
+        model_info,
     }
 }
 
@@ -569,6 +613,7 @@ impl ProviderAdmin for Platform {
             api_key: None,
             template: draft.template,
             enabled: draft.enabled,
+            model_configs: draft.model_configs,
         })
         .await
     }
@@ -584,6 +629,14 @@ impl ProviderAdmin for Platform {
     async fn set_provider_keys(&self, keys: BTreeMap<String, String>) -> Result<(), String> {
         self.registry.set_provider_keys(keys);
         Ok(())
+    }
+
+    async fn resolve_model_config(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        Platform::resolve_model_config(self, provider_id, model_id).await
     }
 }
 

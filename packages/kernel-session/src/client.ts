@@ -189,6 +189,18 @@ export class KernelSessionClient {
         requestedDelivery: options.requestedDelivery ?? "startNow",
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
+        ...(typeof options.planEnabled === "boolean" ? { planEnabled: options.planEnabled } : {}),
+        ...(options.modelSelection
+          ? {
+              modelSelection: {
+                providerId: options.modelSelection.providerId,
+                modelId: options.modelSelection.modelId,
+                ...(options.modelSelection.reasoningLevel
+                  ? { options: { reasoningLevel: options.modelSelection.reasoningLevel } }
+                  : {}),
+              },
+            }
+          : {}),
         ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
         ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
       },
@@ -224,7 +236,7 @@ export class KernelSessionClient {
    * 立即切换会话模式（`session/setMode`，plan/build）。加号菜单里的计划模式/退出计划
    * 用这条命令，而不是等下一次 sendText 的 mode 字段——退出计划不该依赖再发一条消息。
    */
-  async setMode(mode: "plan" | "build"): Promise<void> {
+  async setMode(mode: "build" | "edit" | "guarded" | "yolo"): Promise<void> {
     const sessionId = this.requireSessionId();
     await this.request(KERNEL_METHODS.sessionSetMode, { sessionId, mode });
   }

@@ -293,6 +293,18 @@ pub struct ProviderAdminSummary {
     pub template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_reasoning: Option<String>,
+    /// 每个模型的生效能力（目录解析后的 `ModelConfig`；未列出的模型为空）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_info: Vec<ProviderAdminModel>,
+}
+
+/// Provider 设置页的模型能力（内置目录与个人覆盖合并后的生效配置）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAdminModel {
+    pub id: String,
+    /// 生效的 `modelConfigRules` 配置（properties/optionSpecs 的完整 JSON）。
+    pub config: Value,
 }
 
 /// 新建 Provider 的内置预设。
@@ -324,6 +336,9 @@ pub struct ProviderAdminDraft {
     pub template: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 模型 → 完整能力覆盖（空对象表示沿用内置目录）。
+    #[serde(default)]
+    pub model_configs: std::collections::BTreeMap<String, Value>,
 }
 
 const fn default_true() -> bool {
@@ -342,6 +357,9 @@ pub trait ProviderAdmin: Send + Sync {
         &self,
         keys: std::collections::BTreeMap<String, String>,
     ) -> Result<(), String>;
+    /// 设置页「智能配置」：解析一个模型 ID 的生效能力（无需先保存模型）。
+    async fn resolve_model_config(&self, provider_id: &str, model_id: &str)
+        -> Result<Value, String>;
 }
 
 #[cfg(test)]

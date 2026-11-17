@@ -9,6 +9,35 @@ export type ProviderProtocol =
   | "openai-chat-completions"
   | "openai-responses";
 
+export interface ProviderModelInfo {
+  id: string;
+  config: ProviderModelConfig;
+}
+
+export interface ProviderModelConfig {
+  enabled?: boolean;
+  properties?: {
+    contextWindow?: number;
+    inputFormat?: {
+      supportsText?: boolean;
+      supportsImage?: boolean;
+      supportsVideo?: boolean;
+      supportsAudio?: boolean;
+      supportsPdf?: boolean;
+    };
+    outputFormat?: { supportsText?: boolean };
+    supportsToolCall?: boolean;
+    supportsJsonSchemaOutput?: boolean;
+    supportsNativeWebSearch?: boolean;
+    supportsMidConversationSystem?: boolean;
+    requiresMfjsToolSchema?: boolean;
+  };
+  optionSpecs?: {
+    reasoningLevel?: { values?: string[]; map?: string };
+    maxOutputTokens?: { max?: number; map?: string };
+  };
+}
+
 export interface ProviderSummary {
   id: string;
   name: string;
@@ -21,6 +50,7 @@ export interface ProviderSummary {
   enabled: boolean;
   template?: string;
   defaultReasoning?: string;
+  modelInfo?: ProviderModelInfo[];
 }
 
 export interface ProviderPreset {
@@ -51,6 +81,7 @@ export interface ProviderDraft {
   models: string[];
   template?: string;
   enabled?: boolean;
+  modelConfigs?: Record<string, ProviderModelConfig>;
 }
 
 interface KernelRpc {
@@ -103,6 +134,18 @@ export async function saveProvider(client: KernelRpc, draft: ProviderDraft): Pro
     throw new Error("provider/save 没有返回 providerId");
   }
   return result.providerId;
+}
+
+export async function resolveProviderModel(
+  client: KernelRpc,
+  providerId: string,
+  modelId: string,
+): Promise<ProviderModelConfig> {
+  const result = await client.request<{ config?: ProviderModelConfig }>("provider/resolveModel", {
+    providerId,
+    modelId,
+  });
+  return result?.config ?? {};
 }
 
 export async function removeProvider(client: KernelRpc, providerId: string): Promise<void> {
