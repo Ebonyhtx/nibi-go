@@ -105,10 +105,81 @@ fn the_default_selection_follows_the_personal_config() {
     );
 }
 
-/// Node `resolveInitialModelSelection`（workspace-trust.md §3.1）：配置的缺省“可选”时原样用它，否则目录第一项、
-/// 最后一个档位。目录第一项是 `account:zai-individual-coding-plan/GLM-5.3`（档位到 max）。
+/// FIX 1：配置的缺省指向存在的 provider + model 时，始终返回它，绝不悄悄换成目录第一项（另一个 provider）。
+/// 需求背景：`defaultModelSelection` 没写 `options.reasoningLevel` 时，旧逻辑（Node `resolveInitialModelSelection`）
+/// 判它不可选、返回 `providerOrder[0]`。用户的 `personal:deepseek/deepseek-flash` 因此启动成
+/// `personal:mockgateway`，冷启动失败后还把错的选择写进会话。
 #[test]
-fn an_unusable_default_falls_back_to_the_first_model_like_node() {
+fn a_configured_default_without_options_keeps_its_provider() {
+    let builtin: Value = serde_json::from_str(BUNDLED_BUILTIN).unwrap();
+    let personal = json!({
+        "providerOrder": ["personal:mockgateway", "personal:deepseek"],
+        "providerConfigRules": {
+            "providerRules": [
+                {
+                    "providerId": "personal:mockgateway",
+                    "providerName": "Mock Gateway",
+                    "enabled": true,
+                    "templateId": "deepseek",
+                    "config": {
+                        "group": "standard-personal",
+                        "access": {"type": "api-key", "apiKey": "sk-mock"},
+                        "personalModelIds": ["deepseek-flash"]
+                    }
+                },
+                {
+                    "providerId": "personal:deepseek",
+                    "providerName": "DeepSeek",
+                    "enabled": true,
+                    "templateId": "deepseek",
+                    "config": {
+                        "group": "standard-personal",
+                        "access": {"type": "api-key", "apiKey": "sk-deepseek"},
+                        "personalModelIds": ["deepseek-flash"]
+                    }
+                }
+            ]
+        },
+        "modelConfigRules": {"providerModelRules": [], "manualProviderModelRules": []},
+        // 登录写的形状：没有 options。
+        "defaultModelSelection": {"providerId": "personal:deepseek", "modelId": "deepseek-flash"}
+    });
+    let snapshot = snapshot(
+        &resolve(&builtin["config"], &personal, None),
+        &Default::default(),
+    );
+    assert_eq!(snapshot.templates[0].provider, "personal:mockgateway");
+    let levels = snapshot
+        .templates
+        .iter()
+        .find(|template| {
+            template.provider == "personal:deepseek" && template.model == "deepseek-flash"
+        })
+        .map(|template| template.levels.clone())
+        .expect("deepseek-flash is executable");
+    let selection = snapshot
+        .default
+        .expect("the configured default is selected");
+    assert_eq!(selection.provider, "personal:deepseek");
+    assert_eq!(selection.model, "deepseek-flash");
+    assert!(
+        !selection
+            .reasoning
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+    );
+    assert_eq!(
+        selection.reasoning.as_deref(),
+        levels.last().map(String::as_str)
+    );
+    assert_ne!(selection.provider, "personal:mockgateway");
+}
+
+/// 没有配置、或点名的 provider/model 不存在时才走目录第一项（第一个非隐藏 provider 的第一个有档位的模型）、
+/// 最后一个档位（Node `completeNewModelSelection`）。
+#[test]
+fn a_missing_default_falls_back_to_the_first_model() {
     let snapshot = fixture_snapshot();
     let first = Some(ModelSelection {
         provider: ENTITLED.to_owned(),
@@ -117,19 +188,7 @@ fn an_unusable_default_falls_back_to_the_first_model_like_node() {
         connection: None,
     });
     let resolve = |configured: Value| default_selection(&snapshot.templates, &configured);
-    // 没有档位（登录写的形状、`/effort auto`）：Node 判为不可选。
-    assert_eq!(
-        resolve(json!({"providerId": "personal:gateway", "modelId": "custom-chat"})),
-        first
-    );
-    // 档位不在模型的档位里。
-    assert_eq!(
-        resolve(
-            json!({"providerId": "personal:gateway", "modelId": "custom-chat", "options": {"reasoningLevel": "max"}})
-        ),
-        first
-    );
-    // 模型不在目录里、没有缺省。
+    // 模型不在目录里。
     assert_eq!(
         resolve(
             json!({"providerId": "personal:gateway", "modelId": "gone", "options": {"reasoningLevel": "low"}})
@@ -137,7 +196,7 @@ fn an_unusable_default_falls_back_to_the_first_model_like_node() {
         first
     );
     assert_eq!(resolve(Value::Null), first);
-    // 可选：原样用它，包括档位。
+    // 档位有效：原样用它。
     assert_eq!(
         resolve(
             json!({"providerId": "personal:gateway", "modelId": "glm-5", "options": {"reasoningLevel": "enabled"}})
@@ -149,25 +208,36 @@ fn an_unusable_default_falls_back_to_the_first_model_like_node() {
             connection: None,
         })
     );
-    // 隐藏的 provider 不可选，也不当目录第一项。
+    // FIX 1：已经存在的配置项即使档位无效也用这个模型（取它的最后一个档位），不再回到目录第一项。
+    assert_eq!(
+        resolve(
+            json!({"providerId": "personal:gateway", "modelId": "custom-chat", "options": {"reasoningLevel": "max"}})
+        ),
+        Some(ModelSelection {
+            provider: "personal:gateway".to_owned(),
+            model: "custom-chat".to_owned(),
+            reasoning: Some("high".to_owned()),
+            connection: None,
+        })
+    );
+    // 隐藏 provider 的模型也可按显式选择解析，所以配置点名时同样生效。
     let mut templates = snapshot.templates.clone();
     for template in &mut templates {
         if template.provider == ENTITLED || template.provider == "personal:gateway" {
             template.hidden = true;
         }
     }
-    let fallback = default_selection(
-        &templates,
-        &json!({"providerId": "personal:gateway", "modelId": "glm-5", "options": {"reasoningLevel": "enabled"}}),
-    )
-    .unwrap();
-    assert_eq!(fallback.provider, "personal:responses");
     assert_eq!(
-        fallback.reasoning.as_deref(),
-        templates
-            .iter()
-            .find(|template| template.provider == "personal:responses")
-            .and_then(|template| template.levels.last().map(String::as_str))
+        default_selection(
+            &templates,
+            &json!({"providerId": "personal:gateway", "modelId": "glm-5"})
+        ),
+        Some(ModelSelection {
+            provider: "personal:gateway".to_owned(),
+            model: "glm-5".to_owned(),
+            reasoning: Some("enabled".to_owned()),
+            connection: None,
+        })
     );
 }
 

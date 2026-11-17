@@ -346,8 +346,8 @@ impl Platform {
         if let Some(selection) = self.registry.current().await.snapshot.default.clone() {
             return Some(selection);
         }
-        // 自定义模型没有写 `reasoningLevel` 时，目录快照会过滤掉这个默认选择；新会话仍应
-        // 使用配置文件里的 provider/model（模型自己按缺省档位跑）。
+        // 配置的模型没有解析成可执行模板时（例如自定义模型没写 `reasoningLevel`），目录快照里没有它；
+        // 新会话仍应使用配置文件里的 provider/model（模型自己按缺省档位跑）。
         let config = self.registry.personal_config().await.ok()?;
         selection_from_config(&config["defaultModelSelection"])
     }

@@ -547,7 +547,7 @@ impl Projection {
     /// 回合的开始、结束等改变阶段的事件：control、availability 与 inputRouting 一起换。
     fn phase_patch(&self, patch: &mut Map<String, Value>) {
         patch.insert("control".into(), self.control());
-        patch.insert("availability".into(), state::availability());
+        patch.insert("availability".into(), state::availability(self.phase));
         patch.insert(
             "inputRouting".into(),
             state::input_routing(self.phase, self.followup),
@@ -1143,7 +1143,7 @@ impl Projection {
             "seq": seq,
             "revision": self.revision,
             "control": self.control(),
-            "availability": state::availability(),
+            "availability": state::availability(self.phase),
             "inputRouting": state::input_routing(self.phase, self.followup),
             "meta": state::meta(&self.title, true),
             "config": self.config(),
