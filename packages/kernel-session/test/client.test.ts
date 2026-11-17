@@ -216,6 +216,13 @@ describe("@nibi-go/kernel-session", () => {
           commands: ["nibigo-weather-weather"],
         },
       ],
+      mode: "guarded",
+      planEnabled: true,
+      modelSelection: {
+        providerId: "personal:test",
+        modelId: "kimi-k3",
+        reasoningLevel: "max",
+      },
     });
     const frame = transport.lastFrame();
     expect(frame).toMatchObject({
@@ -230,6 +237,13 @@ describe("@nibi-go/kernel-session", () => {
           requestedDelivery: "startNow",
           conversationQuotes: [{ text: "选中的一小段", kind: "annotation" }],
           pluginReferences: [{ id: "nibigo-weather@inline" }],
+          mode: "guarded",
+          planEnabled: true,
+          modelSelection: {
+            providerId: "personal:test",
+            modelId: "kimi-k3",
+            options: { reasoningLevel: "max" },
+          },
         },
       },
     });
