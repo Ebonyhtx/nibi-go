@@ -121,7 +121,10 @@ export default function PluginPanelScreen() {
               node={resolveView(panel.view, data)}
               actions={panel.actions}
               onAction={(target, action) => {
-                runPluginAction(target, action, {
+                runPluginAction(
+                  target,
+                  { id: action.id, effects: action.effects ?? [] },
+                  {
                   insertText: (text) => {
                     setPendingInsert(text);
                     router.dismissTo("/");

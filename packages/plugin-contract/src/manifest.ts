@@ -11,6 +11,7 @@ import { readView } from "./view";
 import type {
   ContractIssue,
   ComposerActionContribution,
+  ComposerTokenContribution,
   ComposerToolContribution,
   Effect,
   HostProfile,
@@ -19,6 +20,7 @@ import type {
   ParsedPlugin,
   PluginManifest,
   PluginRuntime,
+  PluginSkillContribution,
   SessionActionContribution,
   StripContribution,
   ToolCardContribution,
@@ -34,6 +36,8 @@ const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const SERVER_RE = /^[a-z][a-z0-9_]{1,31}$/u;
 const BINDING_RE = /^data(?:\.[A-Za-z0-9_-]+)*$/u;
 const VERSION_RE = /^\d{1,6}(?:\.\d{1,6}){0,2}(?:[-+][0-9A-Za-z.-]{1,32})?$/u;
+const TOKEN_VALUE_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
+const SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/u;
 
 const manifestBasics = z.object({
   schemaVersion: z.literal(1),
@@ -42,7 +46,21 @@ const manifestBasics = z.object({
   version: z.string().regex(VERSION_RE, "version 必须是 1/1.2/1.2.3 形式"),
   description: z.string().trim().max(280).optional(),
   minApp: z.string().optional(),
+  accent: z
+    .enum(["default", "sub", "faint", "brand", "ok", "warn", "danger"])
+    .optional(),
   caps: z.array(z.string().trim().min(1).max(32)).max(32).optional(),
+  skills: z
+    .array(
+      z.object({
+        id: z.string().regex(ID_RE),
+        name: z.string().trim().min(1).max(64).optional(),
+        description: z.string().trim().max(280).optional(),
+        body: z.string().min(1).max(16 * 1024),
+      }),
+    )
+    .max(8)
+    .optional(),
   // `runtime` 交给 readRuntime 单独校验：坏掉的运行时不拒整份清单（其余槽还能显示）。
 });
 
@@ -79,6 +97,93 @@ interface MenuAction {
   title: string;
   icon?: string;
   effects: Effect[];
+}
+
+/** 输入 token：`{ kind: "plugin" | "command" | "skill", value }`。 */
+function readComposerToken(
+  raw: unknown,
+  path: string,
+  issues: ContractIssue[],
+): ComposerTokenContribution | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    issues.push({ path, message: "token 必须是对象" });
+    return undefined;
+  }
+  const value = raw as Record<string, unknown>;
+  const kind = value.kind;
+  const token = typeof value.value === "string" ? value.value.trim() : "";
+  if (
+    (kind !== "plugin" && kind !== "command" && kind !== "skill") ||
+    !TOKEN_VALUE_RE.test(token)
+  ) {
+    issues.push({
+      path,
+      message: "token 需要 kind=plugin|command|skill 与合法 value",
+    });
+    return undefined;
+  }
+  return { kind, value: token };
+}
+
+function readPrompt(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim();
+  return text.length > 0 && text.length <= 8_000 ? text : undefined;
+}
+
+function readSkillRefs(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const names = raw
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => SKILL_NAME_RE.test(item))
+    .slice(0, 8);
+  return names.length > 0 ? names : undefined;
+}
+
+interface TokenAction {
+  token?: ComposerTokenContribution;
+  prompt?: string;
+  skills?: string[];
+  effects?: Effect[];
+}
+
+/** composer.actions / composer.tools 共用的 token/effects 解析：token 与 effects 至少有一个。 */
+function readTokenAction(
+  value: Record<string, unknown>,
+  path: string,
+  issues: ContractIssue[],
+): TokenAction | null {
+  const token = readComposerToken(value.token, `${path}/token`, issues);
+  const effects =
+    value.effects === undefined
+      ? { effects: [] as Effect[], issues: [] as ContractIssue[] }
+      : readEffects(value.effects, `${path}/effects`);
+  issues.push(...effects.issues);
+  if (!token && effects.effects.length === 0) {
+    issues.push({
+      path: `${path}/effects`,
+      message: "action 需要 token 或至少一个合法效果",
+    });
+    return null;
+  }
+  const prompt = readPrompt(value.prompt);
+  const skills = readSkillRefs(value.skills);
+  // 命令 token 必须带正文：否则 /命令 发出去内核找不到命令，用户只会看到原始 token。
+  if (token?.kind === "command" && !prompt) {
+    issues.push({
+      path: `${path}/prompt`,
+      message: "command token 需要 prompt（内核展开用的命令正文）",
+    });
+    return null;
+  }
+  return {
+    ...(token ? { token } : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(skills ? { skills } : {}),
+    ...(effects.effects.length > 0 ? { effects: effects.effects } : {}),
+  };
 }
 
 /** message.actions / composer.tools / session.actions 共用的短动作解析。 */
@@ -280,15 +385,106 @@ function readComposerActions(
       issues.push({ path, message: "composer action 需要唯一 id 与 ≤10 字的 title" });
       continue;
     }
-    const effects = readEffects(value.effects, `${path}/effects`);
-    issues.push(...effects.issues);
-    if (effects.effects.length === 0) {
-      issues.push({ path: `${path}/effects`, message: "composer action 至少需要一个合法效果" });
-      continue;
-    }
+    const action = readTokenAction(value, path, issues);
+    if (!action) continue;
     const icon = typeof value.icon === "string" ? value.icon.slice(0, 32) : undefined;
     seen.add(id);
-    actions.push({ id, title, ...(icon ? { icon } : {}), effects: effects.effects });
+    actions.push({ id, title, ...(icon ? { icon } : {}), ...action });
+  }
+  return actions;
+}
+
+function readComposerTools(
+  raw: unknown,
+  issues: ContractIssue[],
+): ComposerToolContribution[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/contributes/composer.tools", message: "composer.tools 必须是数组" });
+    return [];
+  }
+  const limit = SLOT_LIMITS["composer.tools"];
+  if (raw.length > limit) {
+    issues.push({
+      path: "/contributes/composer.tools",
+      message: `composer.tools 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const actions: ComposerToolContribution[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const path = `/contributes/composer.tools/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "composer tool 必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || seen.has(id) || !title || textLength(title) > 12) {
+      issues.push({ path, message: "composer tool 需要唯一 id 与 ≤12 字的 title" });
+      continue;
+    }
+    const action = readTokenAction(value, path, issues);
+    if (!action) continue;
+    const icon = typeof value.icon === "string" ? value.icon.slice(0, 32) : undefined;
+    seen.add(id);
+    actions.push({ id, title, ...(icon ? { icon } : {}), ...action });
+  }
+  return actions;
+}
+
+function readMessageActions(
+  raw: unknown,
+  issues: ContractIssue[],
+): MessageActionContribution[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/contributes/message.actions", message: "message.actions 必须是数组" });
+    return [];
+  }
+  const limit = SLOT_LIMITS["message.actions"];
+  if (raw.length > limit) {
+    issues.push({
+      path: "/contributes/message.actions",
+      message: `message.actions 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const actions: MessageActionContribution[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const path = `/contributes/message.actions/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "message action 必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || seen.has(id) || !title || textLength(title) > 12) {
+      issues.push({ path, message: "message action 需要唯一 id 与 ≤12 字的 title" });
+      continue;
+    }
+    const instruction = readPrompt(value.instruction);
+    const effects =
+      value.effects === undefined
+        ? { effects: [] as Effect[], issues: [] as ContractIssue[] }
+        : readEffects(value.effects, `${path}/effects`);
+    issues.push(...effects.issues);
+    if (!instruction && effects.effects.length === 0) {
+      issues.push({
+        path,
+        message: "message action 需要 instruction 或至少一个合法效果",
+      });
+      continue;
+    }
+    seen.add(id);
+    actions.push({
+      id,
+      title,
+      ...(instruction ? { instruction } : {}),
+      ...(effects.effects.length > 0 ? { effects: effects.effects } : {}),
+    });
   }
   return actions;
 }
@@ -532,24 +728,8 @@ export function readPluginManifest(
   issues.push(...runtime.issues);
   const toolCards = readToolCards(contributesRaw.toolCards, issues, degraded);
   const composerActions = readComposerActions(contributesRaw["composer.actions"], issues);
-  const messageActions: MessageActionContribution[] = readMenuActions(
-    contributesRaw["message.actions"],
-    "message.actions",
-    "message action",
-    SLOT_LIMITS["message.actions"],
-    12,
-    issues,
-    false,
-  );
-  const composerTools: ComposerToolContribution[] = readMenuActions(
-    contributesRaw["composer.tools"],
-    "composer.tools",
-    "composer tool",
-    SLOT_LIMITS["composer.tools"],
-    12,
-    issues,
-    true,
-  );
+  const messageActions = readMessageActions(contributesRaw["message.actions"], issues);
+  const composerTools = readComposerTools(contributesRaw["composer.tools"], issues);
   const sessionActions: SessionActionContribution[] = readMenuActions(
     contributesRaw["session.actions"],
     "session.actions",
@@ -571,7 +751,11 @@ export function readPluginManifest(
     version: basicsValue.version,
     ...(basicsValue.description ? { description: basicsValue.description } : {}),
     ...(basicsValue.minApp ? { minApp: basicsValue.minApp } : {}),
+    ...(basicsValue.accent ? { accent: basicsValue.accent } : {}),
     caps: basicsValue.caps ?? [],
+    ...(basicsValue.skills && basicsValue.skills.length > 0
+      ? { skills: basicsValue.skills as PluginSkillContribution[] }
+      : {}),
     ...(runtime.runtime ? { runtime: runtime.runtime } : {}),
     contributes: {
       toolCards,

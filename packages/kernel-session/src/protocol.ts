@@ -48,6 +48,44 @@ export interface KernelMcpServer {
   isolation?: "session" | "workspace";
 }
 
+/**
+ * `sendText` 的结构化引用（内核 `conversationQuotes`）：用户选中的原文 + 可选评论/指令。
+ *
+ * 行上的正文仍是用户输入；这份数据只在模型边界追加成 `<conversation_quote>`，界面把它
+ * 画成小卡片，不把原文抄进气泡。
+ */
+export interface KernelConversationQuote {
+  text: string;
+  path?: string;
+  senderName?: string;
+  senderId?: string;
+  messageId?: string;
+  sentAt?: string;
+  kind?: "annotation" | "quote";
+  comment?: string;
+  instruction?: string;
+  number?: number;
+  messageKey?: string;
+  messageRole?: "user" | "assistant";
+}
+
+/** 插件引用（内核 `pluginReferences`）：identifiers-only 的能力元数据。 */
+export interface KernelPluginReference {
+  id: string;
+  name?: string;
+  skills?: string[];
+  mcpServers?: string[];
+  commands?: string[];
+}
+
+export interface KernelSendTextOptions {
+  conversationQuotes?: readonly KernelConversationQuote[];
+  pluginReferences?: readonly KernelPluginReference[];
+  /** 新输入默认 `startNow`；排队/引导沿用内核的 `requestedDelivery`。 */
+  requestedDelivery?: "startNow" | "queue" | "guide";
+  inputOrigin?: "desktop" | "mobile";
+}
+
 export interface KernelMessagePart {
   partId?: string;
   type: string;

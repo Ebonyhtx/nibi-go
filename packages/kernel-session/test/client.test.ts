@@ -190,6 +190,67 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).resolves.toEqual({ accepted: true, stateRevision: 3 });
   });
 
+  it("sendText：v4/command 带引用与插件能力，ACCEPT 后返回交付方式", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_3" } } });
+    await created;
+
+    const pending = client.sendText("看这里", {
+      conversationQuotes: [
+        {
+          text: "选中的一小段",
+          kind: "annotation",
+          comment: "这里不对",
+          number: 1,
+          messageKey: "m1",
+          messageRole: "assistant",
+        },
+      ],
+      pluginReferences: [
+        {
+          id: "nibigo-weather@inline",
+          name: "天气",
+          mcpServers: ["nibigo_weather"],
+          commands: ["nibigo-weather-weather"],
+        },
+      ],
+    });
+    const frame = transport.lastFrame();
+    expect(frame).toMatchObject({
+      method: KERNEL_METHODS.command,
+      params: {
+        clientId: "nibi-go",
+        sessionId: "sess_3",
+        type: "sendText",
+        payload: {
+          text: "看这里",
+          inputOrigin: "mobile",
+          requestedDelivery: "startNow",
+          conversationQuotes: [{ text: "选中的一小段", kind: "annotation" }],
+          pluginReferences: [{ id: "nibigo-weather@inline" }],
+        },
+      },
+    });
+    transport.receive({ id: 2, result: { status: "accepted", result: { delivery: "startNow" } } });
+    await expect(pending).resolves.toEqual({ accepted: true, delivery: "startNow" });
+  });
+
+  it("sendText：rejected/failed 抛出内核原因", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_6" } } });
+    await created;
+    const pending = client.sendText("hi");
+    transport.receive({
+      id: 2,
+      result: { status: "rejected", reasonCode: "guard.inputRejected", message: "输入被拒绝" },
+    });
+    await expect(pending).rejects.toThrow("输入被拒绝");
+  });
+
   it("resolveInteraction：发 v4/command 信封，noop（已收口）也算成功", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

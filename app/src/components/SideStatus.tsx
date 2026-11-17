@@ -1,13 +1,22 @@
-// 插件状态：贴屏幕右侧的悬浮状态点。
+// 插件状态：贴屏幕右侧的圆形悬浮状态点。
 //
-// 收起时只露一个会呼吸的状态点；点一下向左展开完整状态条，再点收起。
-// 多插件状态轮流显示，不占 COMPOSE/列表布局。
+// 收起时只露一个会呼吸的圆点（贴边，不留缝）；点一下向左展开完整状态条，再点收起。
+// 整条状态可以上下拖动，位置留在本次会话里；多插件状态轮流显示。
 
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { resolveText, type ViewTone } from "@nibi-go/plugin-contract";
-import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Dot } from "./Icon";
 import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
@@ -37,13 +46,46 @@ export function SideStatus({
   bottom: number;
 }) {
   const t = useNibiTheme();
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const strips = plugins.flatMap((plugin) =>
     plugin.parsed.manifest.contributes.strips.map((strip) => ({ plugin, strip })),
   );
   const [expanded, setExpanded] = useState(false);
   const [index, setIndex] = useState(0);
+  // 拖动后的底部距离；null = 用父级给的基础位置。
+  const [draggedBottom, setDraggedBottom] = useState<number | null>(null);
+  const bottomRef = useRef(bottom);
+  bottomRef.current = bottom;
+  const draggedRef = useRef<number | null>(null);
+  draggedRef.current = draggedBottom;
+  const dragStart = useRef(0);
   const breathe = useRef(new Animated.Value(0)).current;
   const expand = useRef(new Animated.Value(0)).current;
+
+  const clampBottom = (value: number): number => {
+    const min = insets.bottom + 72;
+    const max = Math.max(min, screenHeight - insets.top - 96);
+    return Math.max(min, Math.min(max, value));
+  };
+
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dy) > 3,
+        onMoveShouldSetPanResponderCapture: (_event, gesture) => Math.abs(gesture.dy) > 3,
+        onPanResponderGrant: () => {
+          dragStart.current = draggedRef.current ?? bottomRef.current;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          setDraggedBottom(clampBottom(dragStart.current - gesture.dy));
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    // clampBottom 只依赖布局尺寸，随 screenHeight/insets 重建。
+    [screenHeight, insets.top, insets.bottom],
+  );
 
   useEffect(() => {
     if (strips.length <= 1) {
@@ -102,8 +144,14 @@ export function SideStatus({
   );
   if (text.trim().length === 0) return null;
 
+  const actualBottom = draggedBottom ?? bottom;
+
   return (
-    <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
+    <View
+      style={[styles.dock, { bottom: actualBottom }]}
+      pointerEvents="auto"
+      {...pan.panHandlers}
+    >
       <Animated.View
         style={[
           styles.pill,
@@ -134,8 +182,11 @@ export function SideStatus({
 
       <Pressable
         onPress={() => setExpanded((value) => !value)}
+        hitSlop={12}
         accessibilityRole="button"
-        accessibilityLabel={expanded ? "收起插件状态" : "展开插件状态"}
+        accessibilityLabel={
+          expanded ? "收起插件状态，可上下拖动" : "展开插件状态，可上下拖动"
+        }
         style={styles.dotButton}
       >
         <Animated.View
@@ -144,14 +195,14 @@ export function SideStatus({
             {
               backgroundColor: t.card,
               borderColor: t.hairline,
-              opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.65, 1] }),
+              opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }),
               transform: [
-                { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] }) },
+                { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.08] }) },
               ],
             },
           ]}
         >
-          <Dot size={7} color={toneColor(t, tone)} />
+          <Dot size={8} color={toneColor(t, tone)} />
         </Animated.View>
       </Pressable>
     </View>
@@ -162,23 +213,31 @@ const styles = StyleSheet.create({
   dock: {
     position: "absolute",
     right: 0,
+    zIndex: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: space(1),
   },
-  dotButton: { paddingVertical: space(1.5), paddingLeft: space(1) },
+  dotButton: { width: 28, height: 44, alignItems: "center", justifyContent: "center" },
+  // 圆形、贴边：不再用半胶囊（半胶囊看起来像被截断的条）。
   dot: {
-    width: 26,
-    height: 26,
-    borderTopLeftRadius: radius.chip,
-    borderBottomLeftRadius: radius.chip,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: 0,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#1c2f4e",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   pill: {
-    maxWidth: 220,
+    position: "absolute",
+    right: 28,
+    top: 7,
+    maxWidth: 218,
     height: 30,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.chip,

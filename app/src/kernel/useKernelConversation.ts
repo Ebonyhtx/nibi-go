@@ -9,6 +9,8 @@ import {
   KernelSessionClient,
   type ChatFileChange,
   type ChatRow,
+  type KernelConversationQuote,
+  type KernelPluginReference,
   type KernelSessionSummary,
   type KernelWorkspaceRef,
   type TurnState,
@@ -103,6 +105,13 @@ async function ensureNotificationPermission(): Promise<void> {
   }
 }
 
+export interface KernelSendOptions {
+  /** 注释/选段：只进模型文本与历史引用卡，不进用户气泡正文。 */
+  conversationQuotes?: readonly KernelConversationQuote[];
+  /** 选中的插件：identifiers-only 能力说明。 */
+  pluginReferences?: readonly KernelPluginReference[];
+}
+
 export interface KernelConversation {
   rows: readonly ChatRow[];
   turn: TurnState;
@@ -116,7 +125,7 @@ export interface KernelConversation {
   /** 已归档的会话（归档管理）；归档是 GO 本地的会话管理状态，不写内核。 */
   archivedSessions: readonly KernelSessionSummary[];
   activeSessionId: string | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, options?: KernelSendOptions) => Promise<void>;
   newSession: () => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
   /** 归档一条会话（隐藏出主列表，可在归档管理里恢复或删除）。 */
@@ -160,21 +169,47 @@ export function useKernelConversation(): KernelConversation {
   // 归档集合的回调读值（refreshSessions/删除等回调不重建）。
   const archivedIdsRef = useRef<ReadonlySet<string>>(new Set());
   // 本机已发出、内核还没回显的提示（dsh-Go PendingRow）。
-  const pendingRef = useRef<Array<{ id: string; text: string; baselineRowId: number }>>([]);
+  const pendingRef = useRef<
+    Array<{
+      id: string;
+      text: string;
+      baselineRowId: number;
+      conversationQuotes?: readonly KernelConversationQuote[];
+      pluginReferences?: readonly KernelPluginReference[];
+    }>
+  >([]);
   const pendingSeq = useRef(1);
 
   const syncPending = useCallback((controller: ConversationController) => {
     const snapshot = controller.snapshot;
     if (!snapshot) return;
-    const remaining = pendingRef.current.filter(
-      (entry) =>
-        !snapshot.rows.window.some(
-          (row) => row.kind === "userInput" && row.text === entry.text && row.rowId > entry.baselineRowId,
-        ),
-    );
+    const remaining = pendingRef.current.filter((entry) => {
+      const commandName = entry.text.startsWith("/")
+        ? (entry.text.slice(1).split(/\s+/u)[0] ?? "")
+        : "";
+      return !snapshot.rows.window.some((row) => {
+        if (row.kind !== "userInput" || row.rowId <= entry.baselineRowId) return false;
+        if (row.text === entry.text) return true;
+        // 命令展开后内核把用户行写成 `<command-name>/命令</command-name>` 标签，
+        // 正文不再等于草稿；按命令名认领，避免乐观气泡永远停在“发送中”。
+        return (
+          commandName.length > 0 &&
+          row.text.includes(`<command-name>/${commandName}</command-name>`)
+        );
+      });
+    });
     if (remaining.length !== pendingRef.current.length) {
       pendingRef.current = remaining;
-      controller.setPending(remaining.map(({ id, text }) => ({ id, text })));
+      controller.setPending(
+        remaining.map(({ id, text, conversationQuotes, pluginReferences }) => ({
+          id,
+          text,
+          ...(conversationQuotes && conversationQuotes.length > 0
+            ? { conversationQuotes }
+            : {}),
+          ...(pluginReferences && pluginReferences.length > 0 ? { pluginReferences } : {}),
+        })),
+      );
     }
   }, []);
 
@@ -421,27 +456,57 @@ export function useKernelConversation(): KernelConversation {
   }, [reconnect]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, options: KernelSendOptions = {}) => {
       const content = text.trim();
       const client = clientRef.current;
-      if (!content || !client || client.currentSessionId === null) return;
+      const quotes = options.conversationQuotes ?? [];
+      const pluginReferences = options.pluginReferences ?? [];
+      if ((!content && quotes.length === 0) || !client || client.currentSessionId === null) {
+        return;
+      }
       setSending(true);
       const snapshot = controllerRef.current?.snapshot;
       const baselineRowId = snapshot
         ? snapshot.rows.window.reduce((max, row) => Math.max(max, row.rowId), 0)
         : 0;
+      const pendingId = `p${pendingSeq.current++}`;
       pendingRef.current.push({
-        id: `p${pendingSeq.current++}`,
+        id: pendingId,
         text: content,
         baselineRowId,
+        ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
+        ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
       });
       controllerRef.current?.setPending(
-        pendingRef.current.map(({ id, text }) => ({ id, text })),
+        pendingRef.current.map(
+          ({ id, text: pendingText, conversationQuotes, pluginReferences: refs }) => ({
+            id,
+            text: pendingText,
+            ...(conversationQuotes && conversationQuotes.length > 0
+              ? { conversationQuotes }
+              : {}),
+            ...(refs && refs.length > 0 ? { pluginReferences: refs } : {}),
+          }),
+        ),
       );
       try {
-        await client.sendPrompt(content);
+        await client.sendText(content, { conversationQuotes: quotes, pluginReferences });
         await refreshSessions(client);
       } catch (error) {
+        // 发送失败时把乐观气泡收掉，避免它一直停在“发送中”。
+        pendingRef.current = pendingRef.current.filter((entry) => entry.id !== pendingId);
+        controllerRef.current?.setPending(
+          pendingRef.current.map(
+            ({ id, text: pendingText, conversationQuotes, pluginReferences: refs }) => ({
+              id,
+              text: pendingText,
+              ...(conversationQuotes && conversationQuotes.length > 0
+                ? { conversationQuotes }
+                : {}),
+              ...(refs && refs.length > 0 ? { pluginReferences: refs } : {}),
+            }),
+          ),
+        );
         setStatus(`发送失败：${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setSending(false);

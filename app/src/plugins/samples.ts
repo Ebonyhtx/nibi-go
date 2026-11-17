@@ -112,11 +112,12 @@ rl.on("close", () => process.exit(0));
 
 const WEATHER_MANIFEST: Record<string, unknown> = {
   schemaVersion: 1,
-  id: "nibigo.weather",
+  id: "nibigo-weather",
   name: "天气",
   version: "0.1.0",
   description: "问模型天气时，插件工具会返回结果，并在对话里显示一张天气卡。",
   minApp: "0.1.0",
+  accent: "brand",
   caps: ["view.v1", "slots.v1", "effects.v1", "mcp.v1"],
   runtime: {
     type: "mcp",
@@ -168,7 +169,14 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
       {
         id: "ask-weather",
         title: "查天气",
-        effects: [{ kind: "insert", text: "帮我查一下北京今天的天气。" }],
+        icon: "globe",
+        token: { kind: "command", value: "nibigo-weather-weather" },
+        prompt: [
+          "用户从天气插件的快捷动作发起了天气查询。",
+          "该插件提供 MCP 工具 `mcp__nibigo_weather__weather_get`；需要真实天气数据时调用它，不要编造。",
+          "如果用户没有说城市，先问清楚城市再查询。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
     ],
   },
@@ -176,35 +184,65 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
 
 const QUICK_MANIFEST: Record<string, unknown> = {
   schemaVersion: 1,
-  id: "nibigo.quick",
+  id: "nibigo-quick",
   name: "写作助手",
   version: "0.1.0",
-  description: "长按助手消息可引用并润色/缩写；加号里有周报和邮件模板。",
+  description: "长按任意消息可加注释/润色/缩写；快捷胶囊里有总结、周报和邮件命令。",
   minApp: "0.1.0",
+  accent: "ok",
   caps: ["view.v1", "slots.v1", "effects.v1"],
+  skills: [
+    {
+      id: "writing-check",
+      name: "写作检查",
+      description: "按事实、结构、语气、长度四项检查一段文字。",
+      body: [
+        "# 写作检查",
+        "",
+        "逐项检查，先给结论再给修改建议：",
+        "1. 事实：有没有无法从上下文确认的数字、时间、人名或承诺。",
+        "2. 结构：开头是否说明目的，段落是否有单一主题。",
+        "3. 语气：是否与收件人/场景匹配，避免空话和过度承诺。",
+        "4. 长度：删掉重复信息，保留可执行的动作和截止时间。",
+      ].join("\n"),
+    },
+  ],
   contributes: {
     "composer.actions": [
       {
         id: "summarize",
         title: "总结",
-        effects: [{ kind: "insert", text: "请总结上面的内容，按要点列出。" }],
+        icon: "doc",
+        token: { kind: "command", value: "nibigo-quick-summarize" },
+        prompt: [
+          "用户从写作助手的快捷动作选择了「总结」。",
+          "总结当前会话或用户指定内容，按要点列出；不要编造上下文里没有的事实。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
       {
         id: "polish",
         title: "润色",
-        effects: [{ kind: "insert", text: "把上面的内容润色一遍，保持事实不变。" }],
+        icon: "sparkles",
+        token: { kind: "command", value: "nibigo-quick-polish" },
+        skills: ["nibigo-quick:writing-check"],
+        prompt: [
+          "用户从写作助手的快捷动作选择了「润色」。",
+          "润色用户指定或上文的内容，保持事实不变，先检查再改写。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
     ],
     "message.actions": [
       {
         id: "polish-message",
         title: "润色",
-        effects: [{ kind: "insert", text: "把这条消息润色得更清晰、专业，保持事实不变。" }],
+        instruction: "把这条消息润色得更清晰、专业，保持事实不变。",
       },
       {
         id: "shorten-message",
         title: "缩写",
-        effects: [{ kind: "insert", text: "把这条消息缩写得更短，保留关键信息。" }],
+        instruction: "把这条消息缩写得更短，保留关键信息。",
       },
     ],
     "composer.tools": [
@@ -212,23 +250,23 @@ const QUICK_MANIFEST: Record<string, unknown> = {
         id: "weekly-template",
         title: "周报模板",
         icon: "doc",
-        effects: [
-          {
-            kind: "insert",
-            text: "请按「本周完成 / 关键结果 / 风险 / 下周计划」写一份周报。",
-          },
-        ],
+        token: { kind: "command", value: "nibigo-quick-weekly" },
+        prompt: [
+          "用户从写作助手选择了「周报模板」。",
+          "按「本周完成 / 关键结果 / 风险 / 下周计划」写一份周报；缺失的信息明确标成待补充。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
       {
         id: "mail-template",
         title: "邮件模板",
         icon: "globe",
-        effects: [
-          {
-            kind: "insert",
-            text: "帮我写一封简洁的邮件：主题清楚，正文三段（背景、诉求、下一步）。",
-          },
-        ],
+        token: { kind: "command", value: "nibigo-quick-mail" },
+        prompt: [
+          "用户从写作助手选择了「邮件模板」。",
+          "写一封简洁的邮件：主题清楚，正文三段（背景、诉求、下一步），不要编造收件人或事实。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
     ],
     "composer.strip": [
@@ -279,23 +317,25 @@ const FOCUS_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8
 
 const FOCUS_MANIFEST: Record<string, unknown> = {
   schemaVersion: 1,
-  id: "nibigo.focus",
+  id: "nibigo-focus",
   name: "专注计时",
   version: "0.1.0",
   description: "Web Island 样例：一个可交互的 25 分钟专注计时器。",
   minApp: "0.1.0",
+  accent: "warn",
   caps: ["view.v1", "slots.v1", "effects.v1"],
   contributes: {
     "composer.actions": [
       {
         id: "focus-session",
         title: "专注",
-        effects: [
-          {
-            kind: "insert",
-            text: "帮我安排一个 25 分钟的专注时段，先做最重要的任务。",
-          },
-        ],
+        icon: "clock",
+        token: { kind: "command", value: "nibigo-focus-focus" },
+        prompt: [
+          "用户从专注插件选择了「专注」。",
+          "帮用户安排一个 25 分钟的专注时段：先确认最重要的任务，再给出开始/结束时间与一个最小的完成标准。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
     ],
     webIslands: [{ id: "timer", title: "专注计时器", html: FOCUS_HTML }],

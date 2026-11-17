@@ -8,9 +8,11 @@
 import type {
   AssistantTextRow as ProtocolAssistantText,
   ConversationRow as ProtocolRow,
+  ConversationSelectionText,
   ConversationSnapshot,
   InteractionAutoResolution,
   PendingInteraction,
+  PluginReference,
   ReasoningRow as ProtocolReasoning,
   SubagentRow as ProtocolSubagent,
   ToolCallRow as ProtocolToolCall,
@@ -59,6 +61,9 @@ export interface PendingPrompt {
   /** 本机生成的稳定 id（`p<seq>`）。 */
   id: string;
   text: string;
+  /** 发送时带的结构化引用（乐观气泡也画小卡片）。 */
+  conversationQuotes?: readonly ConversationSelectionText[];
+  pluginReferences?: readonly PluginReference[];
 }
 
 /** 权限请求的可选项（内核 `permissionRequestPayload.options`）。 */
@@ -94,6 +99,10 @@ export type ChatRow =
       key: string;
       text: string;
       createdAt?: number;
+      /** 这条输入携带的结构化引用（注释/选段）；气泡里按小卡片展示，不抄进正文。 */
+      conversationQuotes?: readonly ConversationSelectionText[];
+      /** 这条输入引用的插件（模型边界的能力元数据）。 */
+      pluginReferences?: readonly PluginReference[];
     }
   | {
       kind: "assistant";
@@ -117,6 +126,8 @@ export type ChatRow =
       kind: "pending";
       key: string;
       text: string;
+      conversationQuotes?: readonly ConversationSelectionText[];
+      pluginReferences?: readonly PluginReference[];
     }
   | {
       /** 轮末脚注：用时 / 工具数 / token / 文件改动。 */
@@ -539,6 +550,12 @@ export function deriveRows(
             ...(typeof user.createdAt === "number"
               ? { createdAt: user.createdAt as unknown as number }
               : {}),
+            ...(user.conversationQuotes && user.conversationQuotes.length > 0
+              ? { conversationQuotes: user.conversationQuotes }
+              : {}),
+            ...(user.pluginReferences && user.pluginReferences.length > 0
+              ? { pluginReferences: user.pluginReferences }
+              : {}),
           });
           // 这一轮的用户气泡落在轮头之后：轮范围从这里开始（气泡本身不进折叠）。
           if (currentTurn && turnAwaitingUser) {
@@ -599,7 +616,17 @@ export function deriveRows(
   }
 
   for (const prompt of pending) {
-    out.push({ kind: "pending", key: prompt.id, text: prompt.text });
+    out.push({
+      kind: "pending",
+      key: prompt.id,
+      text: prompt.text,
+      ...(prompt.conversationQuotes && prompt.conversationQuotes.length > 0
+        ? { conversationQuotes: prompt.conversationQuotes }
+        : {}),
+      ...(prompt.pluginReferences && prompt.pluginReferences.length > 0
+        ? { pluginReferences: prompt.pluginReferences }
+        : {}),
+    });
   }
   return out;
 }

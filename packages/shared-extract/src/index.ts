@@ -11,5 +11,6 @@ export * from "./web-remote-control/acknowledged-relay-protocol";
 export * from "./rpc/index";
 export * from "./nibi-protocol-v4/wire-binary";
 export * from "./nibi-protocol-v4/index";
+export * from "./conversationSelection";
 export * from "./nibi-auth";
 export { DEFAULT_NIBI_ENDPOINT_ORIGIN, DEFAULT_WEB_REMOTE_CONTROL_RELAY_WS_URL } from "./relay-endpoints";

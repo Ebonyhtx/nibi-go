@@ -23,28 +23,42 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ConversationList } from "../components/ConversationList";
-import { AnnotationComposer } from "../components/AnnotationComposer";
+import { AnnotationComposer, type AnnotationDraft } from "../components/AnnotationComposer";
 import { AnnotationManager, type AnnotationItem } from "../components/AnnotationManager";
+import { CapsuleStack } from "../components/CapsuleStack";
+import { ComposerTokens } from "../components/ComposerTokens";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
-import { PluginComposerActions, type PluginActionHandler } from "../components/PluginView";
+import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus } from "../components/SideStatus";
 import { PET_STATE } from "../components/petStates";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
 import { runPluginAction, type PluginActionContext } from "../plugins/actions";
 import { takePendingInsert } from "../plugins/pendingInsert";
-import type { LoadedPlugin } from "../plugins/store";
+import {
+  pluginCapability,
+  type LoadedPlugin,
+  type PluginCapability,
+} from "../plugins/store";
+import { composePrompt, type CapsuleEntry, type ComposerToken } from "../plugins/tokens";
 import { usePlugins } from "../plugins/usePlugins";
+import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
 import { radius, space, type as t, useNibiTheme } from "../theme";
 
 interface SheetEntry {
   plugin: LoadedPlugin;
-  action: { id: string; title: string; icon?: string; effects: Effect[] };
+  action: {
+    id: string;
+    title: string;
+    icon?: string;
+    effects?: Effect[];
+    instruction?: string;
+  };
 }
 
 function toolIcon(name: string | undefined): IconName {
@@ -77,27 +91,39 @@ export default function GoHomeScreen() {
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
   const conversation = useKernelConversation();
   const [draft, setDraft] = useState("");
-  // 内置插件的槽（工具卡/输入胶囊/面板入口）；启停状态在插件中心改。
+  // COMPOSE 里的不可编辑 token（插件引用 / 命令 / 技能）。
+  const [tokens, setTokens] = useState<ComposerToken[]>([]);
+  // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
   const [popup, setPopup] = useState<
-    | { kind: "tools"; anchor: PopupAnchor }
-    | { kind: "message"; anchor: PopupAnchor; messageKey: string; message: string }
+    | { kind: "plugins"; anchor: PopupAnchor }
+    | {
+        kind: "message";
+        anchor: PopupAnchor;
+        messageKey: string;
+        message: string;
+        messageRole: "user" | "assistant";
+        messageId?: string;
+      }
     | null
   >(null);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
-  // 已发送注释的消息标记（发送后顶部数字消失，但消息下方保留“已注释”）。
-  const [annotationMarks, setAnnotationMarks] = useState<Record<string, number>>({});
   const [annotationEditor, setAnnotationEditor] = useState<{
     messageKey: string;
-    messageText: string;
+    messageId?: string;
+    messageRole: "user" | "assistant";
+    fullText: string;
+    initialExcerpt?: string;
     editingId?: string;
     comment?: string;
+    instruction?: string;
+    instructionLabel?: string;
   } | null>(null);
   const [annotationManagerOpen, setAnnotationManagerOpen] = useState(false);
   const canSend =
     conversation.ready &&
     !conversation.sending &&
-    (draft.trim().length > 0 || annotations.length > 0);
+    (draft.trim().length > 0 || tokens.length > 0 || annotations.length > 0);
   const [sessionSheet, setSessionSheet] = useState<{
     title: string;
     items: PluginSheetItem[];
@@ -117,8 +143,15 @@ export default function GoHomeScreen() {
       void plugins.reload();
     },
   };
-  const runAction = (plugin: LoadedPlugin, action: { id: string; effects: Effect[] }) => {
-    runPluginAction(plugin, action, pluginContext);
+  const runAction = (
+    plugin: LoadedPlugin,
+    action: { id: string; effects?: readonly Effect[] },
+  ) => {
+    runPluginAction(
+      plugin,
+      { id: action.id, effects: action.effects ? [...action.effects] : [] },
+      pluginContext,
+    );
   };
   const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
     runAction(plugin, action);
@@ -130,13 +163,6 @@ export default function GoHomeScreen() {
       ),
     [plugins.enabled],
   );
-  const composerTools = useMemo<SheetEntry[]>(
-    () =>
-      plugins.enabled.flatMap((plugin) =>
-        plugin.parsed.manifest.contributes.composerTools.map((action) => ({ plugin, action })),
-      ),
-    [plugins.enabled],
-  );
   const sessionActions = useMemo<SheetEntry[]>(
     () =>
       plugins.enabled.flatMap((plugin) =>
@@ -145,37 +171,97 @@ export default function GoHomeScreen() {
     [plugins.enabled],
   );
 
-  const openToolsPopup = () => {
-    if (composerTools.length === 0) return;
+  const addToken = (token: ComposerToken) => {
+    setTokens((current) => {
+      // 一条消息只认一个命令（内核从正文开头展开）；再选命令就替换。
+      if (token.kind === "command") {
+        return [...current.filter((entry) => entry.kind !== "command"), token];
+      }
+      if (current.some((entry) => entry.id === token.id)) return current;
+      return [...current, token];
+    });
+  };
+  const addPluginToken = (plugin: LoadedPlugin) => {
+    addToken({
+      id: `plugin:${plugin.parsed.manifest.id}`,
+      kind: "plugin",
+      pluginId: plugin.parsed.manifest.id,
+      pluginName: plugin.parsed.manifest.name,
+      label: plugin.parsed.manifest.name,
+      value: pluginCapability(plugin).id,
+      ...(plugin.parsed.manifest.accent ? { accent: plugin.parsed.manifest.accent } : {}),
+      ...(plugin.parsed.manifest.contributes.composerActions[0]?.icon
+        ? { icon: plugin.parsed.manifest.contributes.composerActions[0].icon }
+        : {}),
+    });
+  };
+  const pluginReferencesForTokens = (
+    list: readonly ComposerToken[],
+  ): PluginCapability[] => {
+    const seen = new Set<string>();
+    const references: PluginCapability[] = [];
+    for (const token of list) {
+      if (token.kind !== "plugin") continue;
+      const plugin = plugins.enabled.find(
+        (candidate) => candidate.parsed.manifest.id === token.pluginId,
+      );
+      if (!plugin) continue;
+      const capability = pluginCapability(plugin);
+      if (seen.has(capability.id)) continue;
+      seen.add(capability.id);
+      references.push(capability);
+    }
+    return references;
+  };
+  const openPluginPicker = () => {
     plusRef.current?.measureInWindow((x, y, measureWidth, measureHeight) => {
       setPopup({
-        kind: "tools",
+        kind: "plugins",
         anchor: { x, y, width: measureWidth, height: measureHeight },
       });
     });
   };
-  const openMessagePopup = (messageKey: string, message: string, anchor: PopupAnchor) => {
-    setPopup({ kind: "message", anchor, messageKey, message });
-  };
-  const applyMessageAction = (
-    plugin: LoadedPlugin,
-    action: { id: string; title: string; effects: Effect[] },
+  const openMessagePopup = (
+    messageKey: string,
+    message: string,
+    anchor: PopupAnchor,
+    messageRole: "user" | "assistant",
+    messageId?: string,
   ) => {
+    setPopup({
+      kind: "message",
+      anchor,
+      messageKey,
+      message,
+      messageRole,
+      ...(messageId ? { messageId } : {}),
+    });
+  };
+  const applyMessageAction = (plugin: LoadedPlugin, action: SheetEntry["action"]) => {
+    if (popup?.kind !== "message") return;
+    // 插件消息动作的语义是“针对这条消息的一条注释指令”，不是把提示词塞进草稿。
+    const instruction =
+      action.instruction?.trim() ||
+      (action.effects ?? [])
+        .filter((effect) => effect.kind === "insert")
+        .map((effect) => (effect.kind === "insert" ? effect.text.trim() : ""))
+        .filter(Boolean)
+        .join("\n");
     setPopup(null);
-    const inserts = action.effects.filter((effect) => effect.kind === "insert");
-    if (inserts.length > 0) {
-      setDraft(
-        inserts
-          .map((effect) => (effect.kind === "insert" ? effect.text : ""))
-          .filter(Boolean)
-          .join("\n"),
-      );
+    if (instruction) {
+      setAnnotationEditor({
+        messageKey: popup.messageKey,
+        ...(popup.messageId ? { messageId: popup.messageId } : {}),
+        messageRole: popup.messageRole,
+        fullText: popup.message,
+        initialExcerpt: popup.message,
+        comment: "",
+        instruction,
+        instructionLabel: action.title,
+      });
+      return;
     }
-    // 插件消息动作只把 prompt 放进草稿；引用/注释由内置「注释」入口处理。
-    const remaining = action.effects.filter((effect) => effect.kind !== "insert");
-    if (remaining.length > 0) {
-      runPluginAction(plugin, { id: action.id, effects: remaining }, pluginContext);
-    }
+    runAction(plugin, action);
   };
   const openSessionSheet = (sessionId: string) => {
     if (sessionActions.length === 0) return;
@@ -193,13 +279,20 @@ export default function GoHomeScreen() {
       })),
     });
   };
-  const saveAnnotation = (comment: string) => {
+  const saveAnnotation = ({ excerpt, comment }: AnnotationDraft) => {
     const editor = annotationEditor;
     if (!editor) return;
     if (editor.editingId) {
       setAnnotations((current) =>
         current.map((annotation) =>
-          annotation.id === editor.editingId ? { ...annotation, comment } : annotation,
+          annotation.id === editor.editingId
+            ? {
+                ...annotation,
+                messageText: excerpt,
+                comment,
+                ...(editor.instruction ? { instruction: editor.instruction } : {}),
+              }
+            : annotation,
         ),
       );
     } else {
@@ -208,8 +301,13 @@ export default function GoHomeScreen() {
         {
           id: `annotation-${Date.now()}`,
           messageKey: editor.messageKey,
-          messageText: editor.messageText,
+          ...(editor.messageId ? { messageId: editor.messageId } : {}),
+          messageRole: editor.messageRole,
+          messageText: excerpt,
+          fullText: editor.fullText,
           comment,
+          ...(editor.instruction ? { instruction: editor.instruction } : {}),
+          createdAt: Date.now(),
         },
       ]);
     }
@@ -219,39 +317,43 @@ export default function GoHomeScreen() {
     setAnnotationManagerOpen(false);
     setAnnotationEditor({
       messageKey: annotation.messageKey,
-      messageText: annotation.messageText,
+      ...(annotation.messageId ? { messageId: annotation.messageId } : {}),
+      messageRole: annotation.messageRole,
+      fullText: annotation.fullText || annotation.messageText,
+      initialExcerpt: annotation.messageText,
       editingId: annotation.id,
       comment: annotation.comment,
+      ...(annotation.instruction ? { instruction: annotation.instruction } : {}),
     });
   };
   const deleteAnnotation = (id: string) => {
     setAnnotations((current) => current.filter((annotation) => annotation.id !== id));
   };
   const annotationCountFor = (messageKey: string): number =>
-    annotations.filter((annotation) => annotation.messageKey === messageKey).length +
-    (annotationMarks[messageKey] ?? 0);
+    annotations.filter((annotation) => annotation.messageKey === messageKey).length;
   const sendDraft = () => {
-    const base = draft.trim();
-    const blocks = annotations.map((annotation, index) => {
-      const comment = annotation.comment.trim();
-      return `注释 ${index + 1}：\n原文：${annotation.messageText.trim()}\n评论：${comment || "（无评论）"}`;
-    });
-    const prompt = [base, blocks.length > 0 ? `以下是针对上文消息的注释：\n\n${blocks.join("\n\n")}` : ""]
-      .filter(Boolean)
-      .join("\n\n");
-    if (!prompt) return;
-    if (annotations.length > 0) {
-      setAnnotationMarks((current) => {
-        const next = { ...current };
-        for (const annotation of annotations) {
-          next[annotation.messageKey] = (next[annotation.messageKey] ?? 0) + 1;
-        }
-        return next;
-      });
-      setAnnotations([]);
-    }
+    const prompt = composePrompt(tokens, draft);
+    const quotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
+      text: annotation.messageText,
+      kind: "annotation",
+      number: index + 1,
+      messageKey: annotation.messageKey,
+      messageRole: annotation.messageRole,
+      senderName: annotation.messageRole === "assistant" ? "NIBI" : "我",
+      sentAt: new Date(annotation.createdAt).toISOString(),
+      ...(annotation.messageId ? { messageId: annotation.messageId } : {}),
+      ...(annotation.comment.trim() ? { comment: annotation.comment.trim() } : {}),
+      ...(annotation.instruction ? { instruction: annotation.instruction } : {}),
+    }));
+    if (!prompt && quotes.length === 0) return;
+    const pluginReferences = pluginReferencesForTokens(tokens);
+    setAnnotations([]);
+    setTokens([]);
     setDraft("");
-    void conversation.send(prompt);
+    void conversation.send(prompt, {
+      ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
+      ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
+    });
   };
 
   // 面板动作里的“插入草稿”跨页带回首页。
@@ -266,6 +368,7 @@ export default function GoHomeScreen() {
   // 切换会话时清掉上一轮的注释/弹出层，避免把 A 会话的注释带进 B。
   useEffect(() => {
     setAnnotations([]);
+    setTokens([]);
     setAnnotationEditor(null);
     setAnnotationManagerOpen(false);
     setPopup(null);
@@ -287,6 +390,10 @@ export default function GoHomeScreen() {
   // 宠物目标尺寸（dp）；PetView 内部再按设备像素取整数倍微调（像素不糊）。
   // 手机 88 / 横屏 72（省高度）/ 平板 104。
   const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
+  // 状态点挂在整个屏幕的右缘（不在正文的 16dp 留白里），底部按 COMPOSE 高度让位。
+  const composerBottom =
+    keyboardHeight > 0 ? keyboardHeight + space(2) : insets.bottom + space(2);
+  const statusBottom = composerBottom + 52 + petTarget + space(8);
   const hasSidebar = layout.left === "sidebar";
   const hasRail = layout.left === "rail";
   const inShell = hasSidebar || hasRail;
@@ -307,7 +414,6 @@ export default function GoHomeScreen() {
   // 跨旋转/换尺寸自动收敛；行程只允许在输入栏范围内，拖不出去。
   const petRange = Math.max(0, (bodyMax - space(8) - petTarget) / 2);
   const [petOffset, setPetOffset] = useState(0);
-  const petLeft = bodyMax / 2 - petTarget / 2 + petOffset * petRange;
   const offsetRef = useRef(0);
   const dragStartRef = useRef(0);
   const applyOffset = (v: number) => {
@@ -469,8 +575,6 @@ export default function GoHomeScreen() {
                 </View>
               )}
 
-              <SideStatus plugins={plugins.enabled} bottom={petTarget + space(8)} />
-
               {/* 底部渐隐：键盘抬起时舞台变矮，渐隐会变成明显色块，所以只在键盘收起时显示 */}
               {keyboardHeight === 0 ? (
                 <LinearGradient
@@ -481,22 +585,22 @@ export default function GoHomeScreen() {
                 />
               ) : null}
 
-              {/* 宠物 + 插件胶囊浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
+              {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
               <View style={styles.petOverlay} pointerEvents="box-none">
                 <View style={styles.actionsOverlay} pointerEvents="auto">
-                  <PluginComposerActions
+                  <CapsuleStack
                     plugins={plugins.enabled}
-                    onAction={onPluginAction}
-                    trailingSpace={petTarget}
+                    onToken={addToken}
+                    onEffects={(plugin, action, effects) => {
+                      // 旧清单只有 insert 效果时，不把提示词塞进草稿：退化成插件引用。
+                      if (effects.length > 0 && effects.every((effect) => effect.kind === "insert")) {
+                        addPluginToken(plugin);
+                        return;
+                      }
+                      runAction(plugin, { id: action.id, effects });
+                    }}
                   />
                 </View>
-                <LinearGradient
-                  colors={["transparent", th.bg]}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={[styles.petEdgeFade, { left: petLeft - 18 }]}
-                  pointerEvents="none"
-                />
                 {annotations.length > 0 ? (
                   <View style={{ transform: [{ translateX: petOffset * petRange }] }}>
                     <Pressable
@@ -526,16 +630,17 @@ export default function GoHomeScreen() {
                   ]}
                 >
                   <View
-                    style={[
-                      styles.petTouch,
-                      { width: petTarget, height: petTarget - space(9) },
-                    ]}
+                    style={[styles.petTouch, { width: petTarget, height: petTarget - space(2) }]}
                     {...petResponder.panHandlers}
                   >
                     <Pressable
                       onPress={cyclePetState}
                       accessibilityLabel="桌宠"
-                      style={{ width: petTarget, height: petTarget - space(9), alignItems: "center" }}
+                      style={{
+                        width: petTarget,
+                        height: petTarget - space(2),
+                        alignItems: "center",
+                      }}
                     >
                       <View pointerEvents="none">
                         <PetView state={petState} targetSize={petTarget} />
@@ -546,7 +651,7 @@ export default function GoHomeScreen() {
               </View>
             </View>
 
-            {/* 输入栏：原始单行 pill */}
+            {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token */}
             <View
               style={[
                 styles.composer,
@@ -559,18 +664,21 @@ export default function GoHomeScreen() {
             >
               <Pressable
                 ref={plusRef}
-                onPress={openToolsPopup}
-                disabled={composerTools.length === 0}
+                onPress={openPluginPicker}
                 style={[styles.plus, { backgroundColor: th.panel }]}
                 accessibilityRole="button"
-                accessibilityLabel="插件工具"
+                accessibilityLabel="选择插件"
               >
                 <Icon name="plus" size={13} color={th.inkSub} />
               </Pressable>
+              <ComposerTokens
+                tokens={tokens}
+                onRemove={(id) => setTokens((current) => current.filter((token) => token.id !== id))}
+              />
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="给 NIBI 发消息…"
+                placeholder={tokens.length > 0 ? "继续输入…" : "给 NIBI 发消息…"}
                 placeholderTextColor={th.inkFaint}
                 style={[styles.composerInput, { color: th.ink }]}
                 returnKeyType="send"
@@ -621,41 +729,82 @@ export default function GoHomeScreen() {
         />
       ) : null}
 
+      <SideStatus plugins={plugins.enabled} bottom={statusBottom} />
+
       <PluginPopup
-        visible={popup?.kind === "tools"}
-        anchor={popup?.kind === "tools" ? popup.anchor : null}
+        visible={popup?.kind === "plugins"}
+        anchor={popup?.kind === "plugins" ? popup.anchor : null}
         onClose={() => setPopup(null)}
-        width={250}
+        width={286}
       >
-        <Text style={[styles.popupTitle, { color: th.ink }]}>添加</Text>
-        {composerTools.map(({ plugin, action }) => (
-          <Pressable
-            key={`${plugin.parsed.manifest.id}:${action.id}`}
-            onPress={() => {
-              setPopup(null);
-              runAction(plugin, action);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={action.title}
-            style={({ pressed }) => [
-              styles.menuRow,
-              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <View style={[styles.toolIconSmall, { backgroundColor: th.brandSoft }]}>
-              <Icon name={toolIcon(action.icon)} size={15} color={th.brand} />
-            </View>
-            <View style={styles.menuText}>
-              <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
-                {action.title}
-              </Text>
-              <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
-                {plugin.parsed.manifest.name}
-              </Text>
-            </View>
-            <Icon name="chevron-right" size={13} color={th.inkGhost} />
-          </Pressable>
-        ))}
+        <Text style={[styles.popupTitle, { color: th.ink }]}>选择插件</Text>
+        {plugins.enabled.length === 0 ? (
+          <Text style={[styles.menuDetail, { color: th.inkFaint, padding: space(2) }]}>
+            还没有启用的插件。到插件中心启用后，这里会出现插件名。
+          </Text>
+        ) : (
+          plugins.enabled.map((plugin) => {
+            const capability = pluginCapability(plugin);
+            const badges = [
+              ...(capability.mcpServers.length > 0 ? ["MCP"] : []),
+              ...(capability.commands.length > 0 ? [`${capability.commands.length} 个命令`] : []),
+              ...(capability.skills.length > 0 ? [`${capability.skills.length} 个技能`] : []),
+            ];
+            return (
+              <Pressable
+                key={plugin.parsed.manifest.id}
+                onPress={() => {
+                  setPopup(null);
+                  addPluginToken(plugin);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`引用插件 ${plugin.parsed.manifest.name}`}
+                style={({ pressed }) => [
+                  styles.menuRow,
+                  { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.toolIconSmall,
+                    {
+                      backgroundColor:
+                        plugin.parsed.manifest.accent === "ok"
+                          ? th.okSoft
+                          : plugin.parsed.manifest.accent === "warn"
+                            ? th.amberSoft
+                            : th.brandSoft,
+                    },
+                  ]}
+                >
+                  <Icon
+                    name={toolIcon(plugin.parsed.manifest.contributes.composerActions[0]?.icon)}
+                    size={15}
+                    color={
+                      plugin.parsed.manifest.accent === "ok"
+                        ? th.ok
+                        : plugin.parsed.manifest.accent === "warn"
+                          ? th.amber
+                          : th.brand
+                    }
+                  />
+                </View>
+                <View style={styles.menuText}>
+                  <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
+                    {plugin.parsed.manifest.name}
+                  </Text>
+                  <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
+                    {badges.length > 0 ? badges.join(" · ") : "插件能力"}
+                  </Text>
+                </View>
+                <Icon name="plus" size={13} color={th.inkGhost} />
+              </Pressable>
+            );
+          })
+        )}
+        <Text style={[styles.menuDetail, { color: th.inkGhost, paddingHorizontal: space(2), paddingTop: space(2) }]}>
+          选中后只在输入栏加入插件名；模型收到的<Text style={{ fontWeight: "700" }}>只是能力说明</Text>，不会把整段提示词塞进输入框。
+        </Text>
       </PluginPopup>
 
       <PluginPopup
@@ -671,7 +820,10 @@ export default function GoHomeScreen() {
             setPopup(null);
             setAnnotationEditor({
               messageKey: popup.messageKey,
-              messageText: popup.message,
+              ...(popup.messageId ? { messageId: popup.messageId } : {}),
+              messageRole: popup.messageRole,
+              fullText: popup.message,
+              initialExcerpt: popup.message,
               comment: "",
             });
           }}
@@ -711,8 +863,8 @@ export default function GoHomeScreen() {
           >
             <View style={styles.menuText}>
               <Text style={[styles.menuLabel, { color: th.ink }]}>{action.title}</Text>
-              <Text style={[styles.menuDetail, { color: th.inkFaint }]}>
-                {plugin.parsed.manifest.name}
+              <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
+                {action.instruction ? "针对这条消息的注释指令" : plugin.parsed.manifest.name}
               </Text>
             </View>
             <Icon name="quote" size={14} color={th.inkGhost} />
@@ -722,8 +874,11 @@ export default function GoHomeScreen() {
 
       <AnnotationComposer
         visible={annotationEditor !== null}
-        messageText={annotationEditor?.messageText ?? ""}
+        fullText={annotationEditor?.fullText ?? ""}
+        initialExcerpt={annotationEditor?.initialExcerpt}
         initialComment={annotationEditor?.comment}
+        instruction={annotationEditor?.instruction}
+        instructionLabel={annotationEditor?.instructionLabel}
         editing={annotationEditor?.editingId !== undefined}
         onCancel={() => setAnnotationEditor(null)}
         onSubmit={saveAnnotation}
@@ -830,8 +985,8 @@ const styles = StyleSheet.create({
   actionsOverlay: {
     position: "absolute",
     left: space(4),
-    right: "40%",
     bottom: space(2.5),
+    width: 112,
   },
   bottomFade: {
     position: "absolute",
@@ -868,12 +1023,6 @@ const styles = StyleSheet.create({
   // PetView 的方形画布底部有透明留白/飞行云海；裁到输入栏上沿，避免云海盖住 COMPOSE。
   petDock: { alignItems: "center", overflow: "hidden" },
   petTouch: { alignItems: "center", justifyContent: "center" },
-  petEdgeFade: {
-    position: "absolute",
-    width: 22,
-    height: 30,
-    bottom: space(2.5),
-  },
   annotationBadge: {
     alignSelf: "center",
     flexDirection: "row",

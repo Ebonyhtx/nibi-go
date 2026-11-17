@@ -61,6 +61,9 @@ git diff <当前基线>..FETCH_HEAD -- kernel/          # 先看上游改了什�
 | 2026-11-15 | `crates/cli/src/shell.rs` | Android 发现顺序 `NIBI_SHELL` → `SHELL` → PATH 的 bash/zsh/sh → `/system/bin/sh` | D25 Phase 1 | 同上 |
 | 2026-11-15 | `crates/env-local/src/host.rs` | `describe_shell` 把 Android 的 `/system/bin/sh` 显示为 `sh` | D25 Phase 1 | 同上 |
 | 2026-11-15 | `app/modules/kernel-host/android/build.gradle`（仓外配套） | 引入 `org.rustls:rustls-platform-verifier:0.2.0` AAR；版本由 `build.mjs` 与 `Cargo.lock` 核对 | T8 S2 JVM 组件 | 同上 |
+| 2026-11-17 | `crates/protocol-nibi/src/conversation_intent.rs` | 新增 `plugin_references_part`：把 `pluginReferences` 渲染成 `<plugin_reference>`（identifiers-only，含 skills/mcp_servers/commands）；`model_text`/`canonical` 增加该参数 | GO 手机 COMPOSE 的插件引用（对应 NIBI 客户端 `plugin_reference` reminder） | `docs/plan.md` Phase 4 |
+| 2026-11-17 | `crates/protocol-nibi/src/commands.rs` | `sendText` / `editUserQuery` 读取 `payload.pluginReferences`，只注入模型文本，用户行仍显示原文 | 同上 | 同上 |
+| 2026-11-17 | `crates/protocol-nibi/src/projection/rows.rs` | userInput 行透传 `pluginReferences`，刷新/冷恢复后仍能回显 | 同上 | 同上 |
 
 ## 5. 合并记录
 

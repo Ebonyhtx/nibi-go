@@ -330,8 +330,16 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 ### Phase 4：声明式 UI slots
 
 - 先做工具卡 + composer.actions + panels；JSON 视图/数据/动作/错误隔离；
-- 验收：3 个示例插件（工具卡、胶囊、面板）在本机与远端主机降级正确；
-  老版本字段忽略；Web Island 超时降级。
+- 输入 token 对齐 NIBI 客户端：插件引用（`[@名字](plugin://name@inline)`，内核注入
+  `<plugin_reference>`）、命令（`/命令`，内核展开插件命令模板）、技能（`$技能`）；
+  `composer.actions`/`composer.tools` 只声明 token + 命令正文，不把长提示词塞进 COMPOSE；
+- 插件目录除 App 清单外同时生成 `.nibi-plugin/plugin.json` + `commands/` + `skills/`，
+  写进 `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；MCP 仍走
+  `session/create|resume.mcpServers`；
+- 注释走内核 `conversationQuotes`（`kind=annotation` + comment/instruction/number/
+  messageKey/messageRole）：只引用选中片段，消息气泡不复制整条原文；
+- 验收：3 个示例插件（工具卡、命令胶囊、面板）在本机与远端主机降级正确；
+  老版本字段忽略；附件/命令 token 与注释引用在模型文本里可区分；Web Island 超时降级。
 
 ### Phase 5：手机两开关
 

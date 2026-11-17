@@ -39,9 +39,135 @@ interface PluginState {
 
 const PLUGINS_DIR = "plugins";
 const STATE_FILE = "nibi-plugins.json";
+const KERNEL_MANIFEST_DIR = ".nibi-plugin";
+const KERNEL_COMMANDS_DIR = "commands";
+const KERNEL_SKILLS_DIR = "skills";
+const KERNEL_CONFIG_DIR = ".nibi/cli";
+const KERNEL_CONFIG_FILE = "config.json";
+const KERNEL_PLUGIN_MARKETPLACE = "inline";
 
 function stripFileScheme(uri: string): string {
   return uri.replace(/^file:\/\//u, "");
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** 内核插件名：小写字母/数字/._-，来自 UI 清单 id（GO 样例本来就是这种形状）。 */
+function kernelPluginName(manifest: Record<string, unknown>, fallback: string): string {
+  const id = text(manifest.id);
+  return /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : fallback;
+}
+
+interface KernelCommand {
+  name: string;
+  title: string;
+  prompt: string;
+  skills: string[];
+}
+
+/** 从 composer.actions / composer.tools 的 command token 生成内核命令文件。 */
+function kernelCommands(manifest: Record<string, unknown>): KernelCommand[] {
+  const contributes = record(manifest.contributes);
+  if (!contributes) return [];
+  const commands: KernelCommand[] = [];
+  const seen = new Set<string>();
+  for (const key of ["composer.actions", "composer.tools"] as const) {
+    const items = contributes[key];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      const action = record(item);
+      const token = record(action?.token);
+      if (!action || !token || token.kind !== "command") continue;
+      const name = text(token.value);
+      if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(name) || seen.has(name)) continue;
+      const prompt = text(action.prompt);
+      if (!prompt) continue;
+      seen.add(name);
+      const skills = Array.isArray(action.skills)
+        ? action.skills
+            .map((value) => text(value))
+            .filter((value) => /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/u.test(value))
+        : [];
+      commands.push({
+        name,
+        title: text(action.title) || name,
+        prompt,
+        skills,
+      });
+    }
+  }
+  return commands;
+}
+
+interface KernelSkill {
+  id: string;
+  name: string;
+  description: string;
+  body: string;
+}
+
+function kernelSkills(manifest: Record<string, unknown>): KernelSkill[] {
+  if (!Array.isArray(manifest.skills)) return [];
+  const skills: KernelSkill[] = [];
+  const seen = new Set<string>();
+  for (const item of manifest.skills) {
+    const skill = record(item);
+    if (!skill) continue;
+    const id = text(skill.id);
+    const body = text(skill.body);
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(id) || seen.has(id) || !body) continue;
+    seen.add(id);
+    skills.push({
+      id,
+      name: text(skill.name) || id,
+      description: text(skill.description),
+      body,
+    });
+  }
+  return skills;
+}
+
+function commandFile(command: KernelCommand): string {
+  const frontmatter = [
+    "---",
+    `description: ${JSON.stringify(command.title)}`,
+    'argument-hint: "[补充说明]"',
+    ...(command.skills.length > 0 ? [`skills: [${command.skills.join(", ")}]`] : []),
+    "---",
+  ];
+  return `${frontmatter.join("\n")}\n${command.prompt}\n`;
+}
+
+function skillFile(skill: KernelSkill): string {
+  const frontmatter = [
+    "---",
+    `name: ${JSON.stringify(skill.name)}`,
+    ...(skill.description ? [`description: ${JSON.stringify(skill.description)}`] : []),
+    "---",
+  ];
+  return `${frontmatter.join("\n")}\n${skill.body}\n`;
+}
+
+/** 内核标准插件清单（`.nibi-plugin/plugin.json`）：只声明命令与技能；MCP 仍由会话配置带入。 */
+function kernelManifest(manifest: Record<string, unknown>, fallbackName: string): string {
+  const name = kernelPluginName(manifest, fallbackName);
+  const commands = kernelCommands(manifest);
+  const skills = kernelSkills(manifest);
+  const body = {
+    name,
+    ...(text(manifest.description) ? { description: text(manifest.description) } : {}),
+    ...(commands.length > 0 ? { commands: `./${KERNEL_COMMANDS_DIR}` } : {}),
+    ...(skills.length > 0 ? { skills: `./${KERNEL_SKILLS_DIR}` } : {}),
+  };
+  return `${JSON.stringify(body, null, 2)}\n`;
 }
 
 export function appVersion(): string {
@@ -78,6 +204,26 @@ async function ensurePluginFiles(): Promise<void> {
         );
         for (const [name, content] of Object.entries(plugin.files)) {
           await writeIfChanged(new File(dir, name), content);
+        }
+
+        // 内核标准插件面：命令与技能按 NIBI 插件格式落盘，内核在回合里展开。
+        const kernelDir = new Directory(dir, KERNEL_MANIFEST_DIR);
+        kernelDir.create({ intermediates: true, idempotent: true });
+        await writeIfChanged(
+          new File(kernelDir, "plugin.json"),
+          kernelManifest(plugin.manifest, plugin.dir),
+        );
+        const commandsDir = new Directory(dir, KERNEL_COMMANDS_DIR);
+        commandsDir.create({ intermediates: true, idempotent: true });
+        for (const command of kernelCommands(plugin.manifest)) {
+          await writeIfChanged(new File(commandsDir, `${command.name}.md`), commandFile(command));
+        }
+        const skillsDir = new Directory(dir, KERNEL_SKILLS_DIR);
+        skillsDir.create({ intermediates: true, idempotent: true });
+        for (const skill of kernelSkills(plugin.manifest)) {
+          const skillDir = new Directory(skillsDir, skill.id);
+          skillDir.create({ intermediates: true, idempotent: true });
+          await writeIfChanged(new File(skillDir, "SKILL.md"), skillFile(skill));
         }
       }
     })().catch((error: unknown) => {
@@ -175,7 +321,90 @@ export function pluginMcpServers(plugins: readonly LoadedPlugin[]): KernelMcpSer
   return servers;
 }
 
+/** 把插件根与启停态写进内核用户配置（`~/.nibi/cli/config.json` 的 `plugins` 段）。 */
+export async function syncKernelPluginConfig(
+  plugins: readonly LoadedPlugin[],
+): Promise<void> {
+  const configDir = new Directory(Paths.document, KERNEL_CONFIG_DIR);
+  configDir.create({ intermediates: true, idempotent: true });
+  const file = new File(configDir, KERNEL_CONFIG_FILE);
+  let current: Record<string, unknown> = {};
+  if (file.exists) {
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const value = record(parsed);
+      if (value) current = value;
+    } catch {
+      // 坏配置按空对象重写：内核本身也会忽略坏文件。
+    }
+  }
+  const section = record(current.plugins) ?? {};
+  // `plugins.dirs` 是**插件目录本身**的列表，不是父目录：内核把每一项当候选，
+  // 在它下面找 `.nibi-plugin/plugin.json`。写父目录会让所有插件都被跳过。
+  const dirs = plugins.map((plugin) => plugin.root);
+  const enabledPlugins = record(section.enabledPlugins) ?? {};
+  for (const plugin of plugins) {
+    const id = plugin.parsed.manifest.id;
+    const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
+    enabledPlugins[`${name}@${KERNEL_PLUGIN_MARKETPLACE}`] = plugin.enabled;
+  }
+  const next = {
+    ...current,
+    plugins: {
+      ...section,
+      enabled: true,
+      dirs,
+      enabledPlugins,
+    },
+  };
+  await writeIfChanged(file, `${JSON.stringify(next, null, 2)}\n`);
+}
+
 /** 新会话/恢复会话前调用：确保插件文件存在，返回当前应带上的 MCP 配置。 */
 export async function loadPluginMcpServers(): Promise<KernelMcpServer[]> {
-  return pluginMcpServers(await loadPlugins());
+  const plugins = await loadPlugins();
+  await syncKernelPluginConfig(plugins);
+  return pluginMcpServers(plugins);
+}
+
+/** 插件在模型语境里的能力声明（`<plugin_reference>` 的 identifiers-only 载荷）。 */
+export interface PluginCapability {
+  /** 稳定身份：`<插件名>@inline`。 */
+  id: string;
+  name: string;
+  skills: string[];
+  mcpServers: string[];
+  commands: string[];
+}
+
+export function pluginKernelId(plugin: LoadedPlugin): string {
+  const id = plugin.parsed.manifest.id;
+  const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
+  return `${name}@${KERNEL_PLUGIN_MARKETPLACE}`;
+}
+
+export function pluginCapability(plugin: LoadedPlugin): PluginCapability {
+  const manifest = plugin.parsed.manifest;
+  const name = pluginKernelId(plugin).split("@")[0] ?? plugin.dir;
+  const commands = new Set<string>();
+  for (const action of [
+    ...manifest.contributes.composerActions,
+    ...manifest.contributes.composerTools,
+  ]) {
+    if (action.token?.kind === "command") commands.add(action.token.value);
+  }
+  return {
+    id: pluginKernelId(plugin),
+    name: manifest.name,
+    skills: (manifest.skills ?? []).map((skill) => `${name}:${skill.id}`),
+    mcpServers: manifest.runtime ? [manifest.runtime.serverName] : [],
+    commands: [...commands].sort(),
+  };
+}
+
+/** 已启用插件的引用载荷；停用/不可用插件不会被模型看到。 */
+export function enabledPluginCapabilities(
+  plugins: readonly LoadedPlugin[],
+): PluginCapability[] {
+  return enabledPlugins(plugins).map(pluginCapability);
 }

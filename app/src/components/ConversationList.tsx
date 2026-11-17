@@ -5,11 +5,13 @@
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
-import { type ComponentRef, type ReactNode, useRef, useState } from "react";
+import type { ConversationSelectionText } from "@nibi-go/shared-extract";
+import { type ComponentRef, type ReactNode, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { hostSlotData, toolSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
+import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
 import { radius, space, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
@@ -19,6 +21,104 @@ import {
   type PluginActionHandler,
 } from "./PluginView";
 import type { PopupAnchor } from "./PluginPopup";
+
+/** 用户行里的插件/命令 token：只画名字，不把提示词展开到气泡。 */
+function MessageTokens({
+  tokens,
+  plugins,
+}: {
+  tokens: readonly ComposerDisplayToken[];
+  plugins?: readonly LoadedPlugin[];
+}) {
+  const th = useNibiTheme();
+  if (tokens.length === 0) return null;
+  return (
+    <View style={styles.messageTokens}>
+      {tokens.map((token, index) => {
+        const plugin = token.pluginId
+          ? plugins?.find((candidate) => candidate.parsed.manifest.id === token.pluginId)
+          : undefined;
+        const accent = plugin?.parsed.manifest.accent;
+        const fg =
+          accent === "ok" ? th.ok : accent === "warn" ? th.amber : th.brand;
+        const bg =
+          accent === "ok" ? th.okSoft : accent === "warn" ? th.amberSoft : th.brandSoft;
+        return (
+          <View
+            key={`${token.kind}:${token.value ?? token.label}:${index}`}
+            style={[styles.messageToken, { backgroundColor: bg }]}
+          >
+            <Icon
+              name={
+                token.kind === "command"
+                  ? "sparkles"
+                  : token.kind === "skill"
+                    ? "doc"
+                    : "puzzle"
+              }
+              size={10}
+              color={fg}
+            />
+            <Text style={[styles.messageTokenText, { color: fg }]} numberOfLines={1}>
+              {token.label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** 用户气泡里的注释引用卡：编号 + 选中的一小段原文 + 评论/指令。 */
+function AnnotationQuoteCards({
+  quotes,
+  plugins,
+}: {
+  quotes: readonly ConversationSelectionText[];
+  plugins?: readonly LoadedPlugin[];
+}) {
+  const th = useNibiTheme();
+  const annotations = quotes.filter((quote) => quote.kind === "annotation");
+  if (annotations.length === 0) return null;
+  return (
+    <View style={styles.quoteList}>
+      {annotations.map((quote, index) => {
+        const parsed = parseComposerText(quote.text, plugins ?? []);
+        const excerpt =
+          [parsed.tokens.map((token) => token.label).join(" "), parsed.body]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || quote.text.trim();
+        return (
+          <View
+            key={`${quote.messageKey ?? "quote"}:${quote.number ?? index + 1}:${quote.text.slice(0, 8)}`}
+            style={[styles.quoteCard, { backgroundColor: th.card, borderColor: th.hairline }]}
+          >
+            <View style={[styles.quoteNumber, { backgroundColor: th.brandSoft }]}>
+              <Text style={[styles.quoteNumberText, { color: th.brand }]}>
+                {quote.number ?? index + 1}
+              </Text>
+            </View>
+            <View style={styles.quoteBody}>
+              <Text style={[styles.quoteExcerpt, { color: th.inkSub }]} numberOfLines={2}>
+                {excerpt}
+              </Text>
+              {quote.instruction ? (
+                <Text style={[styles.quoteNote, { color: th.brand }]} numberOfLines={1}>
+                  指令：{quote.instruction}
+                </Text>
+              ) : quote.comment?.trim() ? (
+                <Text style={[styles.quoteNote, { color: th.ink }]} numberOfLines={2}>
+                  {quote.comment.trim()}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 export function ConversationList({
   rows,
@@ -42,15 +142,33 @@ export function ConversationList({
   onPluginAction?: PluginActionHandler;
   /** 底部浮层（宠物/插件胶囊）占的高度：列表多留这段，最后一条能滚到浮层上方。 */
   bottomInset?: number;
-  /** 助手消息长按：有内置注释/插件 message.actions 时由首页打开动作气泡。 */
-  onMessageLongPress?: (messageKey: string, message: string, anchor: PopupAnchor) => void;
-  /** 这条消息已有多少条注释（用于「已注释」标记）。 */
+  /** 消息长按：有内置注释/插件 message.actions 时由首页打开动作气泡。 */
+  onMessageLongPress?: (
+    messageKey: string,
+    message: string,
+    anchor: PopupAnchor,
+    messageRole: "user" | "assistant",
+  ) => void;
+  /** 这条消息当前还有多少条未发送注释（已发送的从行上的引用里统计）。 */
   annotationCountFor?: (messageKey: string) => number;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
   const stickToBottom = useRef(true);
+
+  // 已发送注释的标记从行上的 conversationQuotes 派生：刷新/换设备后仍然在。
+  const sentAnnotationCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      if (row.kind !== "user" && row.kind !== "pending") continue;
+      for (const quote of row.conversationQuotes ?? []) {
+        if (quote.kind !== "annotation" || !quote.messageKey) continue;
+        counts[quote.messageKey] = (counts[quote.messageKey] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [rows]);
 
   /**
    * 工具行 → 插件卡（没有匹配/插件停用时 undefined，调用方退回普通工具行）。
@@ -113,6 +231,7 @@ export function ConversationList({
     >
       {rows.map((row) => {
         if (row.kind === "pending") {
+          const parsed = parseComposerText(row.text, plugins ?? []);
           return (
             <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
               <View
@@ -121,7 +240,11 @@ export function ConversationList({
                   { backgroundColor: th.brandSoft, borderColor: "transparent", opacity: 0.55 },
                 ]}
               >
-                <Text style={[styles.text, { color: th.ink }]}>{row.text}</Text>
+                <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
+                <MessageTokens tokens={parsed.tokens} plugins={plugins} />
+                {parsed.body.length > 0 ? (
+                  <Text style={[styles.text, { color: th.ink }]}>{parsed.body}</Text>
+                ) : null}
                 <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
               </View>
             </View>
@@ -129,13 +252,63 @@ export function ConversationList({
         }
 
         if (row.kind === "user") {
+          const parsed = parseComposerText(row.text, plugins ?? []);
+          const annotationCount =
+            (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0);
+          const hasQuotes =
+            (row.conversationQuotes ?? []).some((quote) => quote.kind === "annotation");
+          // 注释引用的是用户看到的内容（插件名/命令名 + 正文），不是内核命令标签。
+          const displayText = [
+            parsed.tokens.map((token) => token.label).join(" "),
+            parsed.body,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .trim();
           return (
             <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
-              <View style={[styles.bubble, { backgroundColor: th.brandSoft, borderColor: "transparent" }]}>
-                <Text style={[styles.text, { color: th.ink }]} selectable>
-                  {row.text}
-                </Text>
-              </View>
+              <Pressable
+                onLongPress={
+                  onMessageLongPress
+                    ? (event) =>
+                        onMessageLongPress(
+                          row.key,
+                          displayText || row.text,
+                          {
+                            x: event.nativeEvent.pageX,
+                            y: event.nativeEvent.pageY,
+                            width: 1,
+                            height: 1,
+                          },
+                          "user",
+                        )
+                    : undefined
+                }
+                delayLongPress={350}
+                accessibilityRole="button"
+                accessibilityLabel="用户消息，长按添加注释"
+                style={[
+                  styles.bubble,
+                  hasQuotes && styles.bubbleWide,
+                  { backgroundColor: th.brandSoft, borderColor: "transparent" },
+                ]}
+              >
+                <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
+                <MessageTokens tokens={parsed.tokens} plugins={plugins} />
+                {parsed.body.length > 0 ? (
+                  <Text style={[styles.text, { color: th.ink }]}>
+                    {parsed.body}
+                  </Text>
+                ) : null}
+              </Pressable>
+              {annotationCount > 0 ? (
+                <View style={styles.annotationMark}>
+                  <Icon name="quote" size={10} color={th.brand} />
+                  <Text style={[styles.annotationMarkText, { color: th.brand }]}>
+                    {annotationCount} 条注释
+                  </Text>
+                </View>
+              ) : null}
             </View>
           );
         }
@@ -336,19 +509,25 @@ export function ConversationList({
         }
 
         // assistant
-        const annotationCount = annotationCountFor?.(row.key) ?? 0;
+        const annotationCount =
+          (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0);
         return (
           <View key={row.key} style={[styles.row, { alignItems: "flex-start" }]}>
             <Pressable
               onLongPress={
                 onMessageLongPress
                   ? (event) =>
-                      onMessageLongPress(row.key, row.text, {
-                        x: event.nativeEvent.pageX,
-                        y: event.nativeEvent.pageY,
-                        width: 1,
-                        height: 1,
-                      })
+                      onMessageLongPress(
+                        row.key,
+                        row.text,
+                        {
+                          x: event.nativeEvent.pageX,
+                          y: event.nativeEvent.pageY,
+                          width: 1,
+                          height: 1,
+                        },
+                        "assistant",
+                      )
                   : undefined
               }
               delayLongPress={350}
@@ -367,7 +546,7 @@ export function ConversationList({
                 </View>
               ) : null}
               {row.text.length > 0 ? (
-                <Text style={[styles.text, { color: th.ink }]} selectable>
+                <Text style={[styles.text, { color: th.ink }]}>
                   {row.text}
                 </Text>
               ) : row.reasoning.length === 0 && !row.streaming ? (
@@ -569,7 +748,40 @@ const styles = StyleSheet.create({
     paddingVertical: space(2),
     gap: 4,
   },
+  // 带注释卡片的用户气泡必须给足宽度：卡片的内容是 flex:1，收缩宽度会把正文挤成 0。
+  bubbleWide: { width: "86%" },
   model: { fontSize: 10 },
+  messageTokens: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
+  messageToken: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(1.5),
+    paddingVertical: 2,
+    maxWidth: 160,
+  },
+  messageTokenText: { fontSize: 10.5, fontWeight: "700", flexShrink: 1 },
+  quoteList: { gap: 4, marginBottom: 2 },
+  quoteCard: {
+    width: "100%",
+    flexDirection: "row",
+    gap: space(1.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    padding: space(1.5),
+  },
+  quoteNumber: {
+    width: 18,
+    height: 18,
+    borderRadius: radius.chip,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quoteNumberText: { fontSize: 9.5, fontWeight: "700" },
+  quoteBody: { flex: 1, minWidth: 0, gap: 1 },
+  quoteExcerpt: { fontSize: 11, lineHeight: 15 },
+  quoteNote: { fontSize: 10.5, lineHeight: 14 },
   annotationMark: {
     flexDirection: "row",
     alignItems: "center",
