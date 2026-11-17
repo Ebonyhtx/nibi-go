@@ -8,6 +8,7 @@ export {
   type KernelFileChange,
   type KernelFileChangesReport,
   type KernelSessionClientOptions,
+  type KernelSessionCreateOptions,
 } from "./client";
 export {
   ConversationController,

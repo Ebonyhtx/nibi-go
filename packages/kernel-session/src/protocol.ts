@@ -191,6 +191,8 @@ export const KERNEL_METHODS = {
   sessionResume: "session/resume",
   /** 旧会话面的模式切换（plan/build）；v4 sendText 的 mode 也走同一条 Command::SetMode。 */
   sessionSetMode: "session/setMode",
+  /** 目标管理（show/set/pause/resume/clear）：返回一句人读回执，用来在输入栏上方回显。 */
+  sessionGoal: "session/goal",
   conversationSubscribe: "v4/conversation/subscribe",
   conversationUnsubscribe: "v4/conversation/unsubscribe",
   conversationFrame: "v4/conversation/frame",

@@ -89,7 +89,11 @@ async function createWithDefaultModel(client: KernelSessionClient) {
     if (!(error instanceof KernelProtocolError) || error.code !== -32601) throw error;
   }
   if (!model) throw new Error("没有可用的默认模型：请先在设置里配置 Provider");
-  return client.createSession(workspaceRef(), model, await pluginMcpServers());
+  // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话），
+  // 空草稿不再堆在列表最前面。restore 只翻有消息的会话，不受影响。
+  return client.createSession(workspaceRef(), model, await pluginMcpServers(), {
+    persistence: "deferred",
+  });
 }
 
 /** 恢复会话时也把插件 MCP 交回去（内核不持久化这份配置）。 */
@@ -146,11 +150,12 @@ export interface KernelConversation {
   /** 当前会话快照里的权限模式与计划开关。 */
   sessionMode: "build" | "guarded" | "yolo";
   sessionPlanEnabled: boolean;
-  /** 上下文窗口占用与缓存命中率（会话快照 usage.contextWindow）。 */
+  /** 上下文窗口占用、缓存命中率与构成分项（会话快照 usage.contextWindow）。 */
   contextUsage: {
     usedTokens: number;
     maxTokens: number;
     cacheHitRate: number | null;
+    breakdown: readonly { source: string; chars: number }[];
   } | null;
   ready: boolean;
   sending: boolean;
@@ -162,6 +167,11 @@ export interface KernelConversation {
   send: (text: string, options?: KernelSendOptions) => Promise<void>;
   /** 压缩上下文（内核 `compact`）；返回错误文案，成功为 null。 */
   compact: () => Promise<string | null>;
+  /** 目标管理（内核 `session/goal`）：show/set/pause/resume/clear。 */
+  runGoal: (
+    action: "show" | "set" | "pause" | "resume" | "clear",
+    objective?: string,
+  ) => Promise<{ message: string; startedTurn: boolean }>;
   newSession: () => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
   /** 归档一条会话（隐藏出主列表，可在归档管理里恢复或删除）。 */
@@ -201,6 +211,7 @@ export function useKernelConversation(): KernelConversation {
     usedTokens: number;
     maxTokens: number;
     cacheHitRate: number | null;
+    breakdown: readonly { source: string; chars: number }[];
   } | null>(null);
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
@@ -317,10 +328,23 @@ export function useKernelConversation(): KernelConversation {
       cumulative && cumulative.inputTokens > 0
         ? cumulative.cacheReadTokens / cumulative.inputTokens
         : null;
+    // 内核 /context 分析器的分项（chars 是 4 字符/token 折算）：右侧面板用它回答“上下文由什么组成”。
+    const breakdown = Array.isArray(usage.breakdown)
+      ? usage.breakdown
+          .filter(
+            (item: unknown): item is { source: string; chars: number } =>
+              typeof item === "object" &&
+              item !== null &&
+              typeof (item as { source?: unknown }).source === "string" &&
+              typeof (item as { chars?: unknown }).chars === "number",
+          )
+          .map(({ source, chars }: { source: string; chars: number }) => ({ source, chars }))
+      : [];
     setContextUsage({
       usedTokens: usage.usedTokens,
       maxTokens: usage.maxTokens,
       cacheHitRate: usage.cache?.hitRate ?? fallbackHitRate,
+      breakdown,
     });
   }, []);
 
@@ -682,6 +706,39 @@ export function useKernelConversation(): KernelConversation {
     }
   }, []);
 
+  /**
+   * 目标管理（内核 `session/goal`）。
+   *
+   * 返回内核的人读回执（show 时有目标/没目标都有一句），失败返回错误文案；`set` 会让内核
+   * 自己开一轮，不需要再发一条消息。
+   */
+  const runGoal = useCallback(
+    async (
+      action: "show" | "set" | "pause" | "resume" | "clear",
+      objective?: string,
+    ): Promise<{ message: string; startedTurn: boolean }> => {
+      const client = clientRef.current;
+      if (!client || client.currentSessionId === null) {
+        return { message: "没有可操作的会话", startedTurn: false };
+      }
+      try {
+        const result = await client.goal(action, objective);
+        return {
+          message:
+            result.response.trim() ||
+            (action === "set" ? "目标已设置" : action === "clear" ? "目标已清除" : "已执行"),
+          startedTurn: result.startedTurn,
+        };
+      } catch (error) {
+        return {
+          message: `目标操作失败：${error instanceof Error ? error.message : String(error)}`,
+          startedTurn: false,
+        };
+      }
+    },
+    [],
+  );
+
   const newSession = useCallback(async () => {
     const client = clientRef.current;
     if (!client) return;
@@ -841,6 +898,7 @@ export function useKernelConversation(): KernelConversation {
     activeSessionId,
     send,
     compact,
+    runGoal,
     newSession,
     openSession,
     archiveSession,

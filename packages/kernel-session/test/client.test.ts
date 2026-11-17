@@ -102,6 +102,38 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).resolves.toMatchObject({ sessionId: "sess_mcp" });
   });
 
+  it("createSession：options.persistence=deferred 时随请求带上（草稿不落库）", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const pending = client.createSession(workspace, undefined, undefined, {
+      persistence: "deferred",
+    });
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionCreate,
+      params: { workspace, persistence: "deferred" },
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_draft" } } });
+    await expect(pending).resolves.toMatchObject({ sessionId: "sess_draft" });
+    expect(client.currentSessionId).toBe("sess_draft");
+  });
+
+  it("createSession：没给 options 时请求里不带 persistence 字段", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const pending = client.createSession(workspace, {
+      providerId: "p",
+      modelId: "m",
+    });
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionCreate,
+      params: { workspace, model: { providerId: "p", modelId: "m" } },
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_imm" } } });
+    await pending;
+  });
+
   it("resumeSession：resume 也带上 MCP 服务器（内核不持久化这份配置）", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);
@@ -263,6 +295,66 @@ describe("@nibi-go/kernel-session", () => {
       result: { status: "rejected", reasonCode: "guard.inputRejected", message: "输入被拒绝" },
     });
     await expect(pending).rejects.toThrow("输入被拒绝");
+  });
+
+  it("goal：走 session/goal，回执原样带回；set 带 objective", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_goal" } } });
+    await created;
+
+    const shown = client.goal("show");
+    expect(transport.lastFrame()).toMatchObject({
+      method: KERNEL_METHODS.sessionGoal,
+      params: { sessionId: "sess_goal", action: "show" },
+    });
+    transport.receive({
+      id: 2,
+      result: { response: "No goal is set. Use /goal <objective> to set one.", startedTurn: false },
+    });
+    await expect(shown).resolves.toEqual({
+      response: "No goal is set. Use /goal <objective> to set one.",
+      startedTurn: false,
+    });
+
+    const set = client.goal("set", "把文档写完");
+    expect(transport.lastFrame()).toMatchObject({
+      method: KERNEL_METHODS.sessionGoal,
+      params: { sessionId: "sess_goal", action: "set", objective: "把文档写完" },
+    });
+    transport.receive({ id: 3, result: { response: "", startedTurn: true } });
+    await expect(set).resolves.toEqual({ response: "", startedTurn: true });
+  });
+
+  it("compact：发 v4/command 的 compact，有回合在跑时抛内核原因", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_c" } } });
+    await created;
+
+    const ok = client.compact();
+    const frame = transport.lastFrame();
+    expect(frame).toMatchObject({ method: KERNEL_METHODS.command });
+    expect(frame.params).toMatchObject({
+      sessionId: "sess_c",
+      type: "compact",
+      payload: {},
+    });
+    transport.receive({ id: 2, result: { status: "accepted" } });
+    await expect(ok).resolves.toBeUndefined();
+
+    const busy = client.compact();
+    transport.receive({
+      id: 3,
+      result: {
+        status: "rejected",
+        reasonCode: "fault.command.compactFailed",
+        message: "a turn is running; compact after it finishes",
+      },
+    });
+    await expect(busy).rejects.toThrow("a turn is running");
   });
 
   it("resolveInteraction：发 v4/command 信封，noop（已收口）也算成功", async () => {
