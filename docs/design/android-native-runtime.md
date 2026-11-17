@@ -206,11 +206,11 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 | 插槽 | 位置 | 每插件上限 | 备注 |
 |---|---|---|---|
 | 工具卡 | 对话记录 | 每工具一个 | `presentationMeta` + view |
-| `composer.actions` | 输入框上方胶囊 | 2 | 文字 ≤10 字 |
+| `composer.actions` | COMPOSE 胶囊/加号目录 | 2 | 命令/技能 token，文字 ≤10 字 |
 | `message.actions` | 助手消息长按菜单 | 2 | 按插件分组 |
 | `composer.strip` | 输入框上方状态条 | 1 | 多插件轮流 |
 | `panels` | 对话详情/全部功能/聊天页弹层 | 4 | 视图 + 数据 + 动作 |
-| `composer.tools` | 加号面板 | 2 | 与附件磁贴同网格 |
+| `composer.tools` | 加号面板 | 2 | 命令 token，与附件磁贴同网格 |
 | `session.actions` | 右侧栏「信息」操作行 | 2 | 带 sessionId |
 | `turn.note` | 回合脚注末尾 | 1 | 只读文字 |
 | Web Island | 网页插件的面板 | 按预算 | WebView + 路由守卫 + 降级 |
@@ -331,8 +331,13 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 
 - 先做工具卡 + composer.actions + panels；JSON 视图/数据/动作/错误隔离；
 - 输入 token 对齐 NIBI 客户端：插件引用（`[@名字](plugin://name@inline)`，内核注入
-  `<plugin_reference>`）、命令（`/命令`，内核展开插件命令模板）、技能（`$技能`）；
+  `<plugin_reference>`）、命令（`/命令`，内核展开插件命令模板）、技能（`/技能名`，
+  内核 skill mention；插件技能是 `/plugin:skill`，展开 SKILL.md）；
   `composer.actions`/`composer.tools` 只声明 token + 命令正文，不把长提示词塞进 COMPOSE；
+- 统一 COMPOSE 目录（`app/src/composer/catalog.ts`/`preferences.ts`）：附件、NIBI 命令、
+  插件命令、插件卡片、技能、消息动作共用稳定 id；设置页 `/settings/composer` 分别配置
+  胶囊、加号分组和长按消息菜单的启用/顺序，目录异步加载时保留未知 id；计划模式/退出计划
+  走 `session/setMode` 立即切换；
 - 插件目录除 App 清单外同时生成 `.nibi-plugin/plugin.json` + `commands/` + `skills/`，
   写进 `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；MCP 仍走
   `session/create|resume.mcpServers`；

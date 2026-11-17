@@ -1,54 +1,38 @@
-// COMPOSE 上方的插件快捷动作：多层胶囊卡片折叠成一个按钮，点开向上展开胶囊列表。
+// COMPOSE 上方的快捷动作：多层胶囊卡片折叠成一个按钮，点开向上展开胶囊列表。
 //
-// 这里只放**插件动作**（composer.actions / composer.tools）。每个动作选中的语义是插入
-// 一个 token（命令/技能/插件引用），由内核展开对应模板——不是把动作提示词塞进输入框。
+// 内容由设置页的 COMPOSE 配置决定；每一项是 catalog 里的命令/技能/模式，
+// 选中后只往 COMPOSE 里插入 token，不把提示词塞进输入框。
 
 import type { ComponentRef } from "react";
 import { useRef, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-
-import type { Effect } from "@nibi-go/plugin-contract";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon, type IconName } from "./Icon";
 import { PluginPopup, type PopupAnchor } from "./PluginPopup";
-import type { LoadedPlugin } from "../plugins/store";
-import { pluginCapsules, type CapsuleEntry, type ComposerToken } from "../plugins/tokens";
+import type { ComposerCatalogItem } from "../composer/catalog";
 import { radius, space, useNibiTheme } from "../theme";
 
-function capsuleIcon(entry: CapsuleEntry): IconName {
-  const name = entry.icon;
-  return name === "sparkles" || name === "globe" || name === "doc" || name === "clock"
-    ? name
-    : "puzzle";
+function itemIcon(item: ComposerCatalogItem): IconName {
+  return (item.icon ?? "sparkles") as IconName;
 }
 
-function kindLabel(entry: CapsuleEntry): string {
-  if (entry.token?.kind === "command") return "命令";
-  if (entry.token?.kind === "skill") return "技能";
-  if (entry.token?.kind === "plugin") return "插件";
-  return "动作";
+function kindLabel(item: ComposerCatalogItem): string {
+  if (item.group === "skill") return "技能";
+  if (item.token.kind === "mode") return "模式";
+  return "命令";
 }
 
 export function CapsuleStack({
-  plugins,
-  onToken,
-  onEffects,
+  items,
+  onItem,
 }: {
-  plugins: readonly LoadedPlugin[];
-  onToken: (token: ComposerToken) => void;
-  onEffects: (plugin: LoadedPlugin, action: CapsuleEntry["action"], effects: readonly Effect[]) => void;
+  items: readonly ComposerCatalogItem[];
+  onItem: (item: ComposerCatalogItem) => void;
 }) {
   const t = useNibiTheme();
-  const entries = pluginCapsules(plugins);
   const buttonRef = useRef<ComponentRef<typeof Pressable> | null>(null);
   const [anchor, setAnchor] = useState<PopupAnchor | null>(null);
-  if (entries.length === 0) return null;
+  if (items.length === 0) return null;
 
   const open = () => {
     buttonRef.current?.measureInWindow((x, y, width, height) => {
@@ -62,7 +46,7 @@ export function CapsuleStack({
         ref={buttonRef}
         onPress={open}
         accessibilityRole="button"
-        accessibilityLabel={`插件快捷动作，共 ${entries.length} 个`}
+        accessibilityLabel={`COMPOSE 快捷动作，共 ${items.length} 个`}
         style={({ pressed }) => [styles.stack, { opacity: pressed ? 0.72 : 1 }]}
       >
         <View style={[styles.layer, styles.layerBack, { backgroundColor: t.panel, borderColor: t.hairline }]} />
@@ -74,7 +58,7 @@ export function CapsuleStack({
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
-          <Text style={[styles.count, { color: t.inkSub }]}>快捷 {entries.length}</Text>
+          <Text style={[styles.count, { color: t.inkSub }]}>快捷 {items.length}</Text>
           <Icon name="chevron-down" size={11} color={t.inkFaint} />
         </View>
       </Pressable>
@@ -83,42 +67,53 @@ export function CapsuleStack({
         visible={anchor !== null}
         anchor={anchor}
         onClose={() => setAnchor(null)}
-        width={268}
+        width={280}
       >
-        <Text style={[styles.title, { color: t.ink }]}>插件快捷动作</Text>
+        <Text style={[styles.title, { color: t.ink }]}>快捷动作</Text>
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-          {entries.map((entry) => (
+          {items.map((item) => (
             <Pressable
-              key={`${entry.plugin.parsed.manifest.id}:${entry.action.id}`}
+              key={item.id}
               onPress={() => {
                 setAnchor(null);
-                if (entry.token) onToken(entry.token);
-                else onEffects(entry.plugin, entry.action, entry.effects);
+                onItem(item);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`${entry.title}（${entry.plugin.parsed.manifest.name}）`}
+              accessibilityLabel={`${item.title}（${kindLabel(item)}）`}
               style={({ pressed }) => [
                 styles.row,
                 { borderColor: t.hairline, opacity: pressed ? 0.62 : 1 },
               ]}
             >
-              <View style={[styles.icon, { backgroundColor: t.brandSoft }]}>
-                <Icon name={capsuleIcon(entry)} size={15} color={t.brand} />
+              <View
+                style={[
+                  styles.icon,
+                  {
+                    backgroundColor:
+                      item.source === "plugin" ? t.steelSoft : t.brandSoft,
+                  },
+                ]}
+              >
+                <Icon
+                  name={itemIcon(item)}
+                  size={15}
+                  color={item.source === "plugin" ? t.steel : t.brand}
+                />
               </View>
               <View style={styles.rowText}>
                 <Text style={[styles.rowTitle, { color: t.ink }]} numberOfLines={1}>
-                  {entry.title}
+                  {item.title}
                 </Text>
                 <Text style={[styles.rowSub, { color: t.inkFaint }]} numberOfLines={1}>
-                  {entry.plugin.parsed.manifest.name} · {kindLabel(entry)}
+                  {item.detail ?? kindLabel(item)}
                 </Text>
               </View>
-              <Icon name="chevron-right" size={13} color={t.inkGhost} />
+              <Text style={[styles.kind, { color: t.inkGhost }]}>{kindLabel(item)}</Text>
             </Pressable>
           ))}
         </ScrollView>
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          选中后只在 COMPOSE 里加入动作名，具体提示词/技能由插件在内核侧展开。
+          选中后只在 COMPOSE 里加入动作名；提示词/技能由内核按 token 展开。
         </Text>
       </PluginPopup>
     </>
@@ -182,6 +177,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 1 },
   rowTitle: { fontSize: 12.5, fontWeight: "600" },
   rowSub: { fontSize: 10 },
+  kind: { fontSize: 9.5 },
   footnote: {
     fontSize: 10,
     lineHeight: 14,

@@ -25,6 +25,7 @@ export type IconName =
   | "sparkles"
   | "globe"
   | "doc"
+  | "image"
   | "clock"
   | "quote";
 
@@ -123,6 +124,12 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
             <Circle cx={12} cy={12} r={8.5} {...ring} />
             <Path path="M3.5 12H20.5" {...paint} />
             <Path path="M12 3.5C15.5 6 15.5 18 12 20.5C8.5 18 8.5 6 12 3.5Z" {...paint} />
+          </>
+        ) : name === "image" ? (
+          <>
+            <Path path="M4 5H20V19H4Z" {...paint} />
+            <Circle cx={9} cy={9.5} r={1.6} {...paint} />
+            <Path path="M5.5 17L10 12.5L13.5 16L16 13.5L19 16.5" {...paint} />
           </>
         ) : name === "doc" ? (
           <>

@@ -28,6 +28,8 @@ export interface LoadedPlugin {
   parsed: ParsedPlugin;
   /** 用户启停状态；incompatible/invalid 恒为 false。 */
   enabled: boolean;
+  /** 随包内置（NIBI 官方样例）；未来用户安装的插件为 false。 */
+  bundled: boolean;
   /** MCP 入口的绝对路径（没有 runtime 时为 undefined）。 */
   entryPath?: string;
 }
@@ -289,6 +291,7 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
       root: stripFileScheme(dir.uri),
       parsed,
       enabled: parsed.status === "ready" && !disabled.has(parsed.manifest.id),
+      bundled: true,
       ...(entryPath ? { entryPath } : {}),
     };
   });

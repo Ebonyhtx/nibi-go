@@ -27,6 +27,7 @@ function tokenColor(t: NibiTheme, accent: string | undefined): { bg: string; fg:
 
 function tokenIcon(token: ComposerToken): IconName {
   if (token.kind === "message") return "quote";
+  if (token.kind === "mode") return "doc";
   if (token.kind === "command") return token.icon === "clock" ? "clock" : "sparkles";
   if (token.kind === "skill") return "doc";
   return token.icon === "globe" || token.icon === "doc" || token.icon === "clock"

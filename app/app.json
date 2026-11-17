@@ -33,6 +33,14 @@
         }
       ],
       "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 NIBI-GO 选择图片作为对话附件。",
+          "cameraPermission": "允许 NIBI-GO 使用相机拍摄附件。",
+          "microphonePermission": false
+        }
+      ],
       "expo-secure-store",
       "./plugins/withCmakeVersion",
       "./plugins/withReleaseSigning",
