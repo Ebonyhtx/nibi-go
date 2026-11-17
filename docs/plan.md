@@ -396,17 +396,24 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    - App：内置 3 个面向用户的样例：天气（MCP 工具卡 + 「查天气」命令）、写作助手（总结/润色/
      周报/邮件命令 + 写作检查技能 + 消息注释 + 面板/会话信息/回合脚注）、专注计时
      （Web Island 25 分钟计时器）。插件中心只展示名称、说明、面板/网页入口。
-   - 输入栏语义：
-     - 加号 = **已安装插件选择器**；选中往 COMPOSE 插入有颜色/图标、不可编辑的插件名
-       token，发送时序列化为 `[@名字](plugin://name@inline)`，内核在模型边界注入
-       `<plugin_reference>`（id/skills/mcp_servers/commands，identifiers-only）。
-     - COMPOSE 上方胶囊 = 插件快捷动作，折叠成多层胶囊按钮，点开向上展开纵向列表；
-       选中插入 `/命令` token（或技能/插件引用 token），由内核展开命令模板，不把提示词
-       塞进输入框。
-     - 长按任意用户/助手消息 → 注释/润色/缩写；插件 message.action 声明
+   - 输入栏语义（统一目录，`app/src/composer/`）：
+     - 加号 = **完整能力列表**，按“附件（图片/文件）→ NIBI 命令（compact/goal/plan/
+       build/init/workflow）→ 插件命令（NIBI 原生在用户插件前）→ 插件卡片（NIBI 原生在
+       前）→ 技能（NIBI 原生在用户技能前）”分组；选中命令/技能/插件卡片只往 COMPOSE
+       插入有颜色/图标、不可编辑的 token，插件 token 发送为
+       `[@名字](plugin://name@inline)`，内核注入 `<plugin_reference>`（identifiers-only）。
+     - COMPOSE 上方胶囊 = **快捷触发**（命令/技能），多层胶囊折叠成按钮，点开向上展开；
+       内容与顺序在设置页 `/settings/composer` 配置。加号是完整列表，长按消息是“引用这
+       条消息后触发命令/技能”，三处共用稳定 id，目录异步加载时保留未知 id，避免冷启动
+       把插件项删掉。
+     - 附件走 expo-image-picker/document-picker，发送 `AttachmentRef` 文件引用；内核按
+       mime 生成图片/PDF/文本内容块，不把文件内容塞进 COMPOSE 正文。计划模式/退出计划走
+       `session/setMode` 立即切换，不依赖再发一条消息。
+     - 长按任意用户/助手消息 → 注释/润色/缩写/插件技能；插件 message.action 声明
        `command`/`prompt`，变成**引用这条消息执行插件命令**（发送 `kind=transform`
-       的 conversationQuote，命令只输出改写后的正文）；旧 `instruction` 仍兼容为
-       注释指令。不是把提示词或 SKILL 塞进注释框。
+       的 conversationQuote，命令只输出改写后的正文）；技能走内核 `/技能名` mention
+       （`/plugin:skill`），由内核展开 SKILL.md；旧 `instruction` 仍兼容为注释指令。
+       不是把提示词或 SKILL 塞进注释框。
    - 注释：编辑器按行/按句切出可点选段（长消息纵向滚动，选中段有品牌色高亮和 ✓），
      同时保留系统选择柄；发送走内核 `conversationQuotes`
      （`kind=annotation`、`comment`、`instruction`、`number`、`messageKey`、`messageRole`），

@@ -8,6 +8,7 @@
 import type {
   AssistantTextRow as ProtocolAssistantText,
   ConversationRow as ProtocolRow,
+  AttachmentRef,
   ConversationSelectionText,
   ConversationSnapshot,
   InteractionAutoResolution,
@@ -63,6 +64,7 @@ export interface PendingPrompt {
   text: string;
   /** 发送时带的结构化引用（乐观气泡也画小卡片）。 */
   conversationQuotes?: readonly ConversationSelectionText[];
+  attachments?: readonly AttachmentRef[];
   pluginReferences?: readonly PluginReference[];
 }
 
@@ -101,6 +103,8 @@ export type ChatRow =
       createdAt?: number;
       /** 这条输入携带的结构化引用（注释/选段）；气泡里按小卡片展示，不抄进正文。 */
       conversationQuotes?: readonly ConversationSelectionText[];
+      /** 这条输入带的图片/文件附件。 */
+      attachments?: readonly AttachmentRef[];
       /** 这条输入引用的插件（模型边界的能力元数据）。 */
       pluginReferences?: readonly PluginReference[];
     }
@@ -127,6 +131,7 @@ export type ChatRow =
       key: string;
       text: string;
       conversationQuotes?: readonly ConversationSelectionText[];
+      attachments?: readonly AttachmentRef[];
       pluginReferences?: readonly PluginReference[];
     }
   | {
@@ -553,6 +558,9 @@ export function deriveRows(
             ...(user.conversationQuotes && user.conversationQuotes.length > 0
               ? { conversationQuotes: user.conversationQuotes }
               : {}),
+            ...(user.attachments && user.attachments.length > 0
+              ? { attachments: user.attachments }
+              : {}),
             ...(user.pluginReferences && user.pluginReferences.length > 0
               ? { pluginReferences: user.pluginReferences }
               : {}),
@@ -622,6 +630,9 @@ export function deriveRows(
       text: prompt.text,
       ...(prompt.conversationQuotes && prompt.conversationQuotes.length > 0
         ? { conversationQuotes: prompt.conversationQuotes }
+        : {}),
+      ...(prompt.attachments && prompt.attachments.length > 0
+        ? { attachments: prompt.attachments }
         : {}),
       ...(prompt.pluginReferences && prompt.pluginReferences.length > 0
         ? { pluginReferences: prompt.pluginReferences }

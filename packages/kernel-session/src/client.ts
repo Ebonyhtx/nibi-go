@@ -168,6 +168,7 @@ export class KernelSessionClient {
   ): Promise<{ accepted: boolean; delivery?: string }> {
     const sessionId = this.requireSessionId();
     const commandId = `send-${Date.now()}-${this.sendSeq++}`;
+    const attachments = options.attachments ?? [];
     const quotes = options.conversationQuotes ?? [];
     const pluginReferences = options.pluginReferences ?? [];
     const ack = await this.request<{
@@ -186,6 +187,8 @@ export class KernelSessionClient {
         queueItemId: commandId,
         inputOrigin: options.inputOrigin ?? "mobile",
         requestedDelivery: options.requestedDelivery ?? "startNow",
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(options.mode ? { mode: options.mode } : {}),
         ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
         ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
       },
@@ -215,6 +218,15 @@ export class KernelSessionClient {
       accepted: result?.accepted === true,
       stateRevision: typeof result?.stateRevision === "number" ? result.stateRevision : undefined,
     };
+  }
+
+  /**
+   * 立即切换会话模式（`session/setMode`，plan/build）。加号菜单里的计划模式/退出计划
+   * 用这条命令，而不是等下一次 sendText 的 mode 字段——退出计划不该依赖再发一条消息。
+   */
+  async setMode(mode: "plan" | "build"): Promise<void> {
+    const sessionId = this.requireSessionId();
+    await this.request(KERNEL_METHODS.sessionSetMode, { sessionId, mode });
   }
 
   /**

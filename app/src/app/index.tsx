@@ -10,9 +10,11 @@
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
+  Alert,
   Keyboard,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +28,7 @@ import { ConversationList } from "../components/ConversationList";
 import { AnnotationComposer, type AnnotationDraft } from "../components/AnnotationComposer";
 import { AnnotationManager, type AnnotationItem } from "../components/AnnotationManager";
 import { CapsuleStack } from "../components/CapsuleStack";
+import { ComposerAttachments } from "../components/ComposerAttachments";
 import { ComposerTokens } from "../components/ComposerTokens";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon, type IconName } from "../components/Icon";
@@ -44,7 +47,23 @@ import {
   type LoadedPlugin,
   type PluginCapability,
 } from "../plugins/store";
-import { composePrompt, type CapsuleEntry, type ComposerToken } from "../plugins/tokens";
+import { composePrompt, type ComposerToken } from "../plugins/tokens";
+import {
+  buildComposerCatalog,
+  capsuleEligible,
+  mergeSkillCatalog,
+  messageEligible,
+  PLUS_GROUPS,
+  type ComposerCatalogItem,
+  type ComposerGroup,
+} from "../composer/catalog";
+import {
+  pickFiles,
+  pickImages,
+  toAttachmentRef,
+  type ComposerAttachment,
+} from "../composer/attachments";
+import { useComposerPreferences } from "../composer/useComposerPreferences";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
@@ -64,11 +83,6 @@ interface SheetEntry {
   };
 }
 
-function toolIcon(name: string | undefined): IconName {
-  return name === "sparkles" || name === "globe" || name === "doc" || name === "clock"
-    ? name
-    : "puzzle";
-}
 
 export default function GoHomeScreen() {
   const th = useNibiTheme();
@@ -98,8 +112,42 @@ export default function GoHomeScreen() {
   const [tokens, setTokens] = useState<ComposerToken[]>([]);
   // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const composerCatalog = useMemo(
+    () =>
+      buildComposerCatalog(
+        plugins.enabled,
+        mergeSkillCatalog(conversation.skills, plugins.enabled),
+      ),
+    [conversation.skills, plugins.enabled],
+  );
+  const composerPreferences = useComposerPreferences(composerCatalog);
+  const capsuleItems = useMemo(() => {
+    const ids =
+      composerPreferences?.capsules ??
+      composerCatalog.filter(capsuleEligible).slice(0, 3).map((item) => item.id);
+    return ids
+      .map((id) => composerCatalog.find((item) => item.id === id))
+      .filter((item): item is ComposerCatalogItem => Boolean(item));
+  }, [composerCatalog, composerPreferences]);
+  const plusItemsFor = (group: ComposerGroup): ComposerCatalogItem[] => {
+    const ids =
+      composerPreferences?.plus[group as keyof typeof composerPreferences.plus] ??
+      composerCatalog.filter((item) => item.group === group).map((item) => item.id);
+    return ids
+      .map((id) => composerCatalog.find((item) => item.id === id))
+      .filter((item): item is ComposerCatalogItem => Boolean(item));
+  };
+  const messageMenuItems = useMemo(() => {
+    const ids =
+      composerPreferences?.messageActions ??
+      composerCatalog.filter(messageEligible).map((item) => item.id);
+    return ids
+      .map((id) => composerCatalog.find((item) => item.id === id))
+      .filter((item): item is ComposerCatalogItem => Boolean(item));
+  }, [composerCatalog, composerPreferences]);
   const [popup, setPopup] = useState<
-    | { kind: "plugins"; anchor: PopupAnchor }
+    | { kind: "plus"; anchor: PopupAnchor }
     | {
         kind: "message";
         anchor: PopupAnchor;
@@ -126,7 +174,10 @@ export default function GoHomeScreen() {
   const canSend =
     conversation.ready &&
     !conversation.sending &&
-    (draft.trim().length > 0 || tokens.length > 0 || annotations.length > 0);
+    (draft.trim().length > 0 ||
+      tokens.some((token) => token.kind !== "mode") ||
+      attachments.length > 0 ||
+      annotations.length > 0);
   const [sessionSheet, setSessionSheet] = useState<{
     title: string;
     items: PluginSheetItem[];
@@ -159,13 +210,6 @@ export default function GoHomeScreen() {
   const onPluginAction: PluginActionHandler = (plugin: LoadedPlugin, action) => {
     runAction(plugin, action);
   };
-  const messageActions = useMemo<SheetEntry[]>(
-    () =>
-      plugins.enabled.flatMap((plugin) =>
-        plugin.parsed.manifest.contributes.messageActions.map((action) => ({ plugin, action })),
-      ),
-    [plugins.enabled],
-  );
   const sessionActions = useMemo<SheetEntry[]>(
     () =>
       plugins.enabled.flatMap((plugin) =>
@@ -176,9 +220,9 @@ export default function GoHomeScreen() {
 
   const addToken = (token: ComposerToken) => {
     setTokens((current) => {
-      // 一条消息只认一个命令（内核从正文开头展开）；再选命令就替换。
-      if (token.kind === "command") {
-        return [...current.filter((entry) => entry.kind !== "command"), token];
+      // 命令与模式各只认一个（内核从正文开头展开）；再选就替换。
+      if (token.kind === "command" || token.kind === "mode") {
+        return [...current.filter((entry) => entry.kind !== token.kind), token];
       }
       if (current.some((entry) => entry.id === token.id)) return current;
       return [...current, token];
@@ -216,10 +260,10 @@ export default function GoHomeScreen() {
     }
     return references;
   };
-  const openPluginPicker = () => {
+  const openPlusMenu = () => {
     plusRef.current?.measureInWindow((x, y, measureWidth, measureHeight) => {
       setPopup({
-        kind: "plugins",
+        kind: "plus",
         anchor: { x, y, width: measureWidth, height: measureHeight },
       });
     });
@@ -240,61 +284,123 @@ export default function GoHomeScreen() {
       ...(messageId ? { messageId } : {}),
     });
   };
-  const applyMessageAction = (plugin: LoadedPlugin, action: SheetEntry["action"]) => {
+  const addAttachments = async (kind: "image" | "file") => {
+    try {
+      const picked = kind === "image" ? await pickImages() : await pickFiles();
+      if (picked.length === 0) return;
+      setAttachments((current) => [...current, ...picked]);
+    } catch (error) {
+      setPopup(null);
+      console.warn("[nibigo] 选择附件失败", error);
+    }
+  };
+
+  const addMessageReference = (
+    messageKey: string,
+    messageText: string,
+    messageRole: "user" | "assistant",
+    pluginId: string,
+    pluginName: string,
+  ) => {
+    addToken({
+      id: `message:${messageKey}`,
+      kind: "message",
+      pluginId,
+      pluginName,
+      label: "这条消息",
+      value: messageKey,
+      accent: "default",
+      icon: "quote",
+      messageText,
+      messageRole,
+    });
+  };
+
+  /** 加号/胶囊的统一入口：按 catalog token 插入命令/技能/插件引用/模式，附件走选择器。 */
+  const applyCatalogItem = (item: ComposerCatalogItem) => {
+    setPopup(null);
+    const token = item.token;
+    if (token.kind === "attachment") {
+      void addAttachments(token.value);
+      return;
+    }
+    if (token.kind === "plugin") {
+      const plugin = plugins.enabled.find(
+        (candidate) => candidate.parsed.manifest.id === item.pluginId,
+      );
+      if (plugin) addPluginToken(plugin);
+      return;
+    }
+    const pluginName = item.pluginId
+      ? (plugins.enabled.find(
+          (candidate) => candidate.parsed.manifest.id === item.pluginId,
+        )?.parsed.manifest.name ?? item.detail ?? "NIBI")
+      : "NIBI";
+    if (token.kind === "mode") {
+      void conversation.setMode(token.value).catch((error: unknown) => {
+        Alert.alert(
+          "切换模式失败",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+      return;
+    }
+    if (token.kind === "skill") {
+      addToken({
+        id: `skill:${token.value}`,
+        kind: "skill",
+        pluginId: item.pluginId ?? "nibi",
+        pluginName,
+        label: item.title,
+        value: token.value,
+        accent: item.source === "plugin" ? "default" : "brand",
+        icon: "doc",
+      });
+      return;
+    }
+    addToken({
+      id: `command:${token.value}`,
+      kind: "command",
+      pluginId: item.pluginId ?? "nibi",
+      pluginName,
+      label: item.title,
+      value: token.value,
+      ...(item.accent ? { accent: item.accent } : {}),
+      ...(item.icon ? { icon: item.icon } : {}),
+    });
+  };
+
+  /** 长按消息菜单：先引用消息，再触发命令/技能（不是注释评论）。 */
+  const applyMessageCatalogItem = (item: ComposerCatalogItem) => {
     if (popup?.kind !== "message") return;
     setPopup(null);
-    // 有 command：这是“对这条消息执行命令”（改写/转换），不是注释。
-    // COMPOSE 里放命令 token + 消息引用 token；发送时消息走 kind=transform 的引用。
-    if (action.command) {
+    const token = item.token;
+    const pluginName = item.pluginId
+      ? (plugins.enabled.find(
+          (candidate) => candidate.parsed.manifest.id === item.pluginId,
+        )?.parsed.manifest.name ?? item.detail ?? "插件")
+      : "NIBI";
+    addMessageReference(
+      popup.messageKey,
+      popup.message,
+      popup.messageRole,
+      item.pluginId ?? "nibi",
+      pluginName,
+    );
+    if (token.kind === "command" || token.kind === "skill") {
       addToken({
-        id: `command:${action.command}`,
-        kind: "command",
-        pluginId: plugin.parsed.manifest.id,
-        pluginName: plugin.parsed.manifest.name,
-        label: action.title,
-        value: action.command,
-        ...(plugin.parsed.manifest.accent
-          ? { accent: plugin.parsed.manifest.accent }
-          : {}),
-        ...(action.icon ? { icon: action.icon } : {}),
+        id: `${token.kind}:${token.value}`,
+        kind: token.kind,
+        pluginId: item.pluginId ?? "nibi",
+        pluginName,
+        label: item.title,
+        value: token.value,
+        ...(item.accent ? { accent: item.accent } : {}),
+        ...(item.icon ? { icon: item.icon } : {}),
       });
-      addToken({
-        id: `message:${popup.messageKey}`,
-        kind: "message",
-        pluginId: plugin.parsed.manifest.id,
-        pluginName: plugin.parsed.manifest.name,
-        label: "这条消息",
-        value: popup.messageKey,
-        accent: "default",
-        icon: "quote",
-        messageText: popup.message,
-        messageRole: popup.messageRole,
-      });
-      return;
     }
-    // 旧语义：没有 command 的 instruction 仍然作为“针对这条消息的注释指令”。
-    const instruction =
-      action.instruction?.trim() ||
-      (action.effects ?? [])
-        .filter((effect) => effect.kind === "insert")
-        .map((effect) => (effect.kind === "insert" ? effect.text.trim() : ""))
-        .filter(Boolean)
-        .join("\n");
-    if (instruction) {
-      setAnnotationEditor({
-        messageKey: popup.messageKey,
-        ...(popup.messageId ? { messageId: popup.messageId } : {}),
-        messageRole: popup.messageRole,
-        fullText: popup.message,
-        initialExcerpt: popup.message,
-        comment: "",
-        instruction,
-        instructionLabel: action.title,
-      });
-      return;
-    }
-    runAction(plugin, action);
   };
+
   const openSessionSheet = (sessionId: string) => {
     if (sessionActions.length === 0) return;
     const title = conversation.sessions.find((session) => session.sessionId === sessionId)?.title;
@@ -389,12 +495,17 @@ export default function GoHomeScreen() {
         senderName: token.messageRole === "user" ? "我" : "NIBI",
       }));
     const quotes = [...annotationQuotes, ...transformQuotes];
-    if (!prompt && quotes.length === 0) return;
+    if (!prompt && quotes.length === 0 && attachments.length === 0) return;
     const pluginReferences = pluginReferencesForTokens(tokens);
+    const modeToken = tokens.find((token) => token.kind === "mode");
+    const attachmentRefs = attachments.map(toAttachmentRef);
     setAnnotations([]);
     setTokens([]);
+    setAttachments([]);
     setDraft("");
     void conversation.send(prompt, {
+      ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
+      ...(modeToken?.mode ? { mode: modeToken.mode } : {}),
       ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
       ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
     });
@@ -413,6 +524,7 @@ export default function GoHomeScreen() {
   useEffect(() => {
     setAnnotations([]);
     setTokens([]);
+    setAttachments([]);
     setAnnotationEditor(null);
     setAnnotationManagerOpen(false);
     setPopup(null);
@@ -632,18 +744,7 @@ export default function GoHomeScreen() {
               {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
               <View style={styles.petOverlay} pointerEvents="box-none">
                 <View style={styles.actionsOverlay} pointerEvents="auto">
-                  <CapsuleStack
-                    plugins={plugins.enabled}
-                    onToken={addToken}
-                    onEffects={(plugin, action, effects) => {
-                      // 旧清单只有 insert 效果时，不把提示词塞进草稿：退化成插件引用。
-                      if (effects.length > 0 && effects.every((effect) => effect.kind === "insert")) {
-                        addPluginToken(plugin);
-                        return;
-                      }
-                      runAction(plugin, { id: action.id, effects });
-                    }}
-                  />
+                  <CapsuleStack items={capsuleItems} onItem={applyCatalogItem} />
                 </View>
                 {annotations.length > 0 ? (
                   <View style={{ transform: [{ translateX: petOffset * petRange }] }}>
@@ -708,13 +809,19 @@ export default function GoHomeScreen() {
             >
               <Pressable
                 ref={plusRef}
-                onPress={openPluginPicker}
+                onPress={openPlusMenu}
                 style={[styles.plus, { backgroundColor: th.panel }]}
                 accessibilityRole="button"
                 accessibilityLabel="选择插件"
               >
                 <Icon name="plus" size={13} color={th.inkSub} />
               </Pressable>
+              <ComposerAttachments
+                attachments={attachments}
+                onRemove={(id) =>
+                  setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+                }
+              />
               <ComposerTokens
                 tokens={tokens}
                 onRemove={(id) => setTokens((current) => current.filter((token) => token.id !== id))}
@@ -776,33 +883,29 @@ export default function GoHomeScreen() {
       <SideStatus plugins={plugins.enabled} bottom={statusBottom} />
 
       <PluginPopup
-        visible={popup?.kind === "plugins"}
-        anchor={popup?.kind === "plugins" ? popup.anchor : null}
+        visible={popup?.kind === "plus"}
+        anchor={popup?.kind === "plus" ? popup.anchor : null}
         onClose={() => setPopup(null)}
-        width={286}
+        width={300}
       >
-        <Text style={[styles.popupTitle, { color: th.ink }]}>选择插件</Text>
-        {plugins.enabled.length === 0 ? (
-          <Text style={[styles.menuDetail, { color: th.inkFaint, padding: space(2) }]}>
-            还没有启用的插件。到插件中心启用后，这里会出现插件名。
-          </Text>
-        ) : (
-          plugins.enabled.map((plugin) => {
-            const capability = pluginCapability(plugin);
-            const badges = [
-              ...(capability.mcpServers.length > 0 ? ["MCP"] : []),
-              ...(capability.commands.length > 0 ? [`${capability.commands.length} 个命令`] : []),
-              ...(capability.skills.length > 0 ? [`${capability.skills.length} 个技能`] : []),
-            ];
-            return (
+        <ScrollView
+          style={styles.plusScroll}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+        >
+          {PLUS_GROUPS.map(({ group, title }) => {
+            const items = plusItemsFor(group);
+            if (items.length === 0) return null;
+            const nibi = items.filter((item) => item.source === "nibi");
+            const plugin = items.filter((item) => item.source === "plugin");
+            const split =
+              group === "plugin-command" || group === "plugin" || group === "skill";
+            const row = (item: ComposerCatalogItem) => (
               <Pressable
-                key={plugin.parsed.manifest.id}
-                onPress={() => {
-                  setPopup(null);
-                  addPluginToken(plugin);
-                }}
+                key={item.id}
+                onPress={() => applyCatalogItem(item)}
                 accessibilityRole="button"
-                accessibilityLabel={`引用插件 ${plugin.parsed.manifest.name}`}
+                accessibilityLabel={item.title}
                 style={({ pressed }) => [
                   styles.menuRow,
                   { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
@@ -813,41 +916,49 @@ export default function GoHomeScreen() {
                     styles.toolIconSmall,
                     {
                       backgroundColor:
-                        plugin.parsed.manifest.accent === "ok"
-                          ? th.okSoft
-                          : plugin.parsed.manifest.accent === "warn"
-                            ? th.amberSoft
-                            : th.brandSoft,
+                        item.source === "plugin" ? th.steelSoft : th.brandSoft,
                     },
                   ]}
                 >
                   <Icon
-                    name={toolIcon(plugin.parsed.manifest.contributes.composerActions[0]?.icon)}
+                    name={(item.icon ?? "puzzle") as IconName}
                     size={15}
-                    color={
-                      plugin.parsed.manifest.accent === "ok"
-                        ? th.ok
-                        : plugin.parsed.manifest.accent === "warn"
-                          ? th.amber
-                          : th.brand
-                    }
+                    color={item.source === "plugin" ? th.steel : th.brand}
                   />
                 </View>
                 <View style={styles.menuText}>
                   <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
-                    {plugin.parsed.manifest.name}
+                    {item.title}
                   </Text>
                   <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
-                    {badges.length > 0 ? badges.join(" · ") : "插件能力"}
+                    {item.detail ?? ""}
                   </Text>
                 </View>
-                <Icon name="plus" size={13} color={th.inkGhost} />
+                <Icon
+                  name={item.group === "attachment" ? "plus" : "chevron-right"}
+                  size={13}
+                  color={th.inkGhost}
+                />
               </Pressable>
             );
-          })
-        )}
-        <Text style={[styles.menuDetail, { color: th.inkGhost, paddingHorizontal: space(2), paddingTop: space(2) }]}>
-          选中后只在输入栏加入插件名；模型收到的<Text style={{ fontWeight: "700" }}>只是能力说明</Text>，不会把整段提示词塞进输入框。
+            return (
+              <View key={group} style={styles.plusSection}>
+                <Text style={[styles.plusTitle, { color: th.ink }]}>{title}</Text>
+                {(split ? nibi : items).map(row)}
+                {split && plugin.length > 0 ? (
+                  <>
+                    <Text style={[styles.plusSubtitle, { color: th.inkFaint }]}>
+                      {group === "skill" ? "插件技能" : "用户插件"}
+                    </Text>
+                    {plugin.map(row)}
+                  </>
+                ) : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+        <Text style={[styles.plusFootnote, { color: th.inkGhost }]}>
+          附件只传文件引用；命令/技能只插入 token，由内核展开。设置里可以调整这里的顺序和显示。
         </Text>
       </PluginPopup>
 
@@ -887,39 +998,41 @@ export default function GoHomeScreen() {
           </View>
           <Icon name="chevron-right" size={13} color={th.inkGhost} />
         </Pressable>
-        {messageActions.length > 0 ? (
+        {messageMenuItems.length > 0 ? (
           <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
         ) : null}
-        {messageActions.map(({ plugin, action }) => (
+        {messageMenuItems.map((item) => (
           <Pressable
-            key={`${plugin.parsed.manifest.id}:${action.id}`}
-            onPress={() => {
-              if (popup?.kind === "message") {
-                applyMessageAction(plugin, action);
-              }
-            }}
+            key={item.id}
+            onPress={() => applyMessageCatalogItem(item)}
             accessibilityRole="button"
-            accessibilityLabel={action.title}
+            accessibilityLabel={item.title}
             style={({ pressed }) => [
               styles.menuRow,
               { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
             ]}
           >
+            <View
+              style={[
+                styles.toolIconSmall,
+                { backgroundColor: item.group === "skill" ? th.steelSoft : th.brandSoft },
+              ]}
+            >
+              <Icon
+                name={(item.icon ?? "sparkles") as IconName}
+                size={15}
+                color={item.group === "skill" ? th.steel : th.brand}
+              />
+            </View>
             <View style={styles.menuText}>
-              <Text style={[styles.menuLabel, { color: th.ink }]}>{action.title}</Text>
+              <Text style={[styles.menuLabel, { color: th.ink }]}>{item.title}</Text>
               <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
-                {action.command
-                  ? "引用这条消息执行插件命令"
-                  : action.instruction
-                    ? "针对这条消息的注释指令"
-                    : plugin.parsed.manifest.name}
+                {item.group === "skill"
+                  ? "引用这条消息并使用技能"
+                  : "引用这条消息执行插件命令"}
               </Text>
             </View>
-            <Icon
-              name={action.command ? "sparkles" : "quote"}
-              size={14}
-              color={th.inkGhost}
-            />
+            <Icon name="chevron-right" size={13} color={th.inkGhost} />
           </Pressable>
         ))}
       </PluginPopup>
@@ -1072,6 +1185,28 @@ const styles = StyleSheet.create({
   menuLabel: { fontSize: 12.5, fontWeight: "600" },
   menuDetail: { fontSize: 10 },
   menuDivider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
+  plusScroll: { height: 430 },
+  plusSection: { paddingBottom: space(1.5) },
+  plusTitle: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    paddingHorizontal: space(2),
+    paddingTop: space(1.5),
+    paddingBottom: 2,
+  },
+  plusSubtitle: {
+    fontSize: 9.5,
+    fontWeight: "600",
+    paddingHorizontal: space(2),
+    paddingTop: space(1.5),
+    paddingBottom: 1,
+  },
+  plusFootnote: {
+    fontSize: 9.5,
+    lineHeight: 13,
+    paddingHorizontal: space(2),
+    paddingTop: space(2),
+  },
   // PetView 的方形画布底部有透明留白/飞行云海；裁到输入栏上沿，避免云海盖住 COMPOSE。
   petDock: { alignItems: "center", overflow: "hidden" },
   petTouch: { alignItems: "center", justifyContent: "center" },

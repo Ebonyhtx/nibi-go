@@ -31,6 +31,7 @@ export {
 } from "./rows";
 export { KERNEL_METHODS } from "./protocol";
 export type {
+  KernelAttachmentRef,
   KernelConversationQuote,
   KernelMcpServer,
   KernelMessage,
@@ -39,6 +40,7 @@ export type {
   KernelNotification,
   KernelPluginReference,
   KernelSendTextOptions,
+  KernelSkillReference,
   KernelSessionCreateResult,
   KernelSessionDataPurge,
   KernelSessionSummary,

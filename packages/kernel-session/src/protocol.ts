@@ -78,12 +78,36 @@ export interface KernelPluginReference {
   commands?: string[];
 }
 
+/** `skills/referenceCatalog` 的一条技能（内核 `SkillReference` 的展示子集）。 */
+export interface KernelSkillReference {
+  id: string;
+  name: string;
+  description?: string;
+  path?: string;
+  scope?: "workspace" | "user" | "plugin";
+  pluginName?: string;
+  enabled?: boolean;
+}
+
+export interface KernelAttachmentRef {
+  ref: string;
+  fileName: string;
+  mime: string;
+  bytes: number;
+  sourceKind?: "clipboard-text" | "topic-history";
+  messageCount?: number;
+  previewRef?: string;
+}
+
 export interface KernelSendTextOptions {
+  attachments?: readonly KernelAttachmentRef[];
   conversationQuotes?: readonly KernelConversationQuote[];
   pluginReferences?: readonly KernelPluginReference[];
   /** 新输入默认 `startNow`；排队/引导沿用内核的 `requestedDelivery`。 */
   requestedDelivery?: "startNow" | "queue" | "guide";
   inputOrigin?: "desktop" | "mobile";
+  /** 提交时切换执行模式（计划模式用 `plan`，退出计划用 `build`）。 */
+  mode?: "plan" | "build";
 }
 
 export interface KernelMessagePart {
@@ -156,6 +180,8 @@ export const KERNEL_METHODS = {
   sessionMessages: "session/messages",
   sessionList: "session/list",
   sessionResume: "session/resume",
+  /** 旧会话面的模式切换（plan/build）；v4 sendText 的 mode 也走同一条 Command::SetMode。 */
+  sessionSetMode: "session/setMode",
   conversationSubscribe: "v4/conversation/subscribe",
   conversationUnsubscribe: "v4/conversation/unsubscribe",
   conversationFrame: "v4/conversation/frame",

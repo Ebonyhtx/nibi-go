@@ -5,7 +5,7 @@
 // 只渲染 @nibi-go/kernel-session 的行模型，不碰协议。
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
-import type { ConversationSelectionText } from "@nibi-go/shared-extract";
+import type { AttachmentRef, ConversationSelectionText } from "@nibi-go/shared-extract";
 import { type ComponentRef, type ReactNode, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -21,6 +21,31 @@ import {
   type PluginActionHandler,
 } from "./PluginView";
 import type { PopupAnchor } from "./PluginPopup";
+
+
+/** 用户行携带的图片/文件附件：只显示文件名，不把内容展开到气泡。 */
+function MessageAttachments({ attachments }: { attachments: readonly AttachmentRef[] }) {
+  const th = useNibiTheme();
+  if (attachments.length === 0) return null;
+  return (
+    <View style={styles.messageTokens}>
+      {attachments.map((attachment) => {
+        const image = attachment.mime.startsWith("image/");
+        return (
+          <View
+            key={`${attachment.ref}:${attachment.fileName}`}
+            style={[styles.messageToken, { backgroundColor: th.steelSoft }]}
+          >
+            <Icon name={image ? "image" : "doc"} size={10} color={th.steel} />
+            <Text style={[styles.messageTokenText, { color: th.steel }]} numberOfLines={1}>
+              {attachment.fileName}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 /** 用户行里的插件/命令 token：只画名字，不把提示词展开到气泡。 */
 function MessageTokens({
@@ -254,6 +279,7 @@ export function ConversationList({
                   { backgroundColor: th.brandSoft, borderColor: "transparent", opacity: 0.55 },
                 ]}
               >
+                <MessageAttachments attachments={row.attachments ?? []} />
                 <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
                 <MessageTokens tokens={parsed.tokens} plugins={plugins} />
                 {parsed.body.length > 0 ? (
@@ -269,8 +295,9 @@ export function ConversationList({
           const parsed = parseComposerText(row.text, plugins ?? []);
           const annotationCount =
             (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0);
-          const hasQuotes =
-            (row.conversationQuotes ?? []).some((quote) => quote.kind === "annotation");
+          const hasQuotes = (row.conversationQuotes ?? []).some(
+            (quote) => quote.kind === "annotation" || quote.kind === "transform",
+          );
           // 注释引用的是用户看到的内容（插件名/命令名 + 正文），不是内核命令标签。
           const displayText = [
             parsed.tokens.map((token) => token.label).join(" "),
@@ -307,6 +334,7 @@ export function ConversationList({
                   { backgroundColor: th.brandSoft, borderColor: "transparent" },
                 ]}
               >
+                <MessageAttachments attachments={row.attachments ?? []} />
                 <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
                 <MessageTokens tokens={parsed.tokens} plugins={plugins} />
                 {parsed.body.length > 0 ? (

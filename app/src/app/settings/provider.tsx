@@ -38,16 +38,16 @@ import {
   type ProviderProtocol,
   type ProviderState,
   type ProviderSummary,
-} from "../kernel/providerSettings";
-import { kernelStartEnv } from "../kernel/kernelEnv";
+} from "../../kernel/providerSettings";
+import { kernelStartEnv } from "../../kernel/kernelEnv";
 import {
   loadProviderKeys,
   providerKeysEnv,
   pushProviderKeys,
   removeProviderKey,
   setProviderKey,
-} from "../kernel/providerKeys";
-import { radius, space, type as typeScale, useNibiTheme } from "../theme";
+} from "../../kernel/providerKeys";
+import { radius, space, type as typeScale, useNibiTheme } from "../../theme";
 
 interface EditingState {
   providerId?: string;
@@ -527,7 +527,7 @@ export default function SettingsScreen() {
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <Text style={{ color: t.inkSub, fontSize: typeScale.heading }}>‹ 返回</Text>
         </Pressable>
-        <Text style={[styles.screenTitle, { color: t.ink }]}>设置</Text>
+        <Text style={[styles.screenTitle, { color: t.ink }]}>Provider 与模型</Text>
         <View style={styles.backButton} />
       </View>
       <ScrollView

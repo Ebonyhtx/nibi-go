@@ -3,7 +3,7 @@
 // 语义对齐 NIBI 客户端：
 // - 插件 token 真正发给内核的是 `[@名字](plugin://name@inline)`，只引用插件；
 // - 命令 token 真正发给内核的是 `/命令名`，由内核展开命令模板（可带 skill/MCP）；
-// - 技能 token 是 `$技能名`，由内核按技能提及加载。
+// - 技能 token 是 ` /技能名`（前导空格避免被当成命令），内核按 `/名字` 识别 skill mention。
 //
 // UI 只显示彩色胶囊，不把插件提示词/大段 SKILL 文本塞进输入框。
 
@@ -16,7 +16,7 @@ import type {
 import type { LoadedPlugin } from "./store";
 import { pluginKernelId } from "./store";
 
-export type ComposerTokenKind = "plugin" | "command" | "skill" | "message";
+export type ComposerTokenKind = "plugin" | "command" | "skill" | "mode" | "message";
 
 export interface ComposerToken {
   /** 列表内唯一（同一个插件可选一次；命令只允许一个）。 */
@@ -33,6 +33,8 @@ export interface ComposerToken {
   /** kind=message：被引用消息的原文与角色（作为 transform 引用发送，不是注释）。 */
   messageText?: string;
   messageRole?: "user" | "assistant";
+  /** kind=mode：计划模式/退出计划。 */
+  mode?: "plan" | "build";
 }
 
 export interface ComposerDisplayToken {
@@ -51,7 +53,8 @@ const PLUGIN_LINK = /\[@((?:\\.|[^\]])*)\]\(plugin:\/\/([A-Za-z0-9][A-Za-z0-9._@
 const COMMAND_TAGS =
   /^\s*<command-message>([\s\S]*?)<\/command-message>\s*<command-name>\/?([^<]+)<\/command-name>(?:\s*<command-args>([\s\S]*?)<\/command-args>)?/u;
 const COMMAND_HEAD = /^\/([a-z0-9][a-z0-9._-]{0,63})(?:\s+|$)/u;
-const SKILL_HEAD = /^\$([A-Za-z0-9][A-Za-z0-9._:@/-]{0,127})(?:\s+|$)/u;
+// 兼容旧 token（`$name`）与内核 skill mention（` /name`；命令名不含冒号，`/plugin:skill` 不会被误判成命令）。
+const SKILL_HEAD = /^\s*(?:\$|\/)([A-Za-z0-9][A-Za-z0-9._:@/-]{0,127})(?:\s+|$)/u;
 
 function escapeLabel(label: string): string {
   return label.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
@@ -139,7 +142,7 @@ export function composePrompt(tokens: readonly ComposerToken[], draft: string): 
   if (command) parts.push(`/${command.value}`);
   for (const token of rest) {
     if (token.kind === "plugin") parts.push(`[@${escapeLabel(token.pluginName)}](plugin://${token.value})`);
-    else if (token.kind === "skill") parts.push(`$${token.value}`);
+    else if (token.kind === "skill") parts.push(` /${token.value}`);
   }
   const body = draft.trim();
   if (body) parts.push(body);
@@ -225,7 +228,7 @@ export function parseComposerText(
     } else {
       const skillMatch = SKILL_HEAD.exec(rest);
       if (skillMatch?.[1]) {
-        tokens.push({ kind: "skill", label: `$${skillMatch[1]}`, value: skillMatch[1] });
+        tokens.push({ kind: "skill", label: skillMatch[1], value: skillMatch[1] });
         rest = rest.slice(skillMatch[0].length);
       }
     }

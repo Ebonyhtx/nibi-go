@@ -9,8 +9,10 @@ import {
   KernelSessionClient,
   type ChatFileChange,
   type ChatRow,
+  type KernelAttachmentRef,
   type KernelConversationQuote,
   type KernelPluginReference,
+  type KernelSkillReference,
   type KernelSessionSummary,
   type KernelWorkspaceRef,
   type TurnState,
@@ -106,6 +108,10 @@ async function ensureNotificationPermission(): Promise<void> {
 }
 
 export interface KernelSendOptions {
+  /** 图片/文件附件（内核按内容块注入模型上下文）。 */
+  attachments?: readonly KernelAttachmentRef[];
+  /** 计划模式/退出计划。 */
+  mode?: "plan" | "build";
   /** 注释/选段：只进模型文本与历史引用卡，不进用户气泡正文。 */
   conversationQuotes?: readonly KernelConversationQuote[];
   /** 选中的插件：identifiers-only 能力说明。 */
@@ -118,6 +124,8 @@ export interface KernelConversation {
   status: string;
   /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）。 */
   modelLabel: string;
+  /** 立即切换 plan/build（加号菜单的模式项）。 */
+  setMode: (mode: "plan" | "build") => Promise<void>;
   ready: boolean;
   sending: boolean;
   /** 未归档的会话（抽屉主列表）。 */
@@ -145,6 +153,8 @@ export interface KernelConversation {
   respondInteraction: (interactionId: string, answer: Record<string, unknown>) => Promise<void>;
   /** 轮末改动卡：键是 turn 行的 key（`turn<rowId>`）。 */
   turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
+  /** 当前会话可用的本机/插件技能（Composer 的 $ 技能引用）。 */
+  skills: readonly KernelSkillReference[];
 }
 
 export function useKernelConversation(): KernelConversation {
@@ -159,6 +169,7 @@ export function useKernelConversation(): KernelConversation {
   const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [turnChanges, setTurnChanges] = useState<Record<string, readonly ChatFileChange[]>>({});
+  const [skills, setSkills] = useState<readonly KernelSkillReference[]>([]);
   // 已经请求过明细的轮（stale 水位时才允许重试；其他失败不反复打内核）。
   const requestedChanges = useRef(new Set<string>());
   const clientRef = useRef<KernelSessionClient | null>(null);
@@ -174,6 +185,7 @@ export function useKernelConversation(): KernelConversation {
       id: string;
       text: string;
       baselineRowId: number;
+      attachments?: readonly KernelAttachmentRef[];
       conversationQuotes?: readonly KernelConversationQuote[];
       pluginReferences?: readonly KernelPluginReference[];
     }>
@@ -201,9 +213,10 @@ export function useKernelConversation(): KernelConversation {
     if (remaining.length !== pendingRef.current.length) {
       pendingRef.current = remaining;
       controller.setPending(
-        remaining.map(({ id, text, conversationQuotes, pluginReferences }) => ({
+        remaining.map(({ id, text, attachments, conversationQuotes, pluginReferences }) => ({
           id,
           text,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
           ...(conversationQuotes && conversationQuotes.length > 0
             ? { conversationQuotes }
             : {}),
@@ -279,6 +292,13 @@ export function useKernelConversation(): KernelConversation {
     await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
+    void client
+      .request<{ skills?: KernelSkillReference[] }>("skills/referenceCatalog", {
+        workspace: workspaceRef(),
+        sessionId,
+      })
+      .then((result) => setSkills(Array.isArray(result.skills) ? result.skills : []))
+      .catch(() => setSkills([]));
   }, [syncTurnChanges]);
 
   const refreshSessions = useCallback(async (client: KernelSessionClient) => {
@@ -461,7 +481,12 @@ export function useKernelConversation(): KernelConversation {
       const client = clientRef.current;
       const quotes = options.conversationQuotes ?? [];
       const pluginReferences = options.pluginReferences ?? [];
-      if ((!content && quotes.length === 0) || !client || client.currentSessionId === null) {
+      const attachmentCount = options.attachments?.length ?? 0;
+      if (
+        (!content && quotes.length === 0 && attachmentCount === 0) ||
+        !client ||
+        client.currentSessionId === null
+      ) {
         return;
       }
       setSending(true);
@@ -474,14 +499,18 @@ export function useKernelConversation(): KernelConversation {
         id: pendingId,
         text: content,
         baselineRowId,
+        ...(options.attachments && options.attachments.length > 0
+          ? { attachments: options.attachments }
+          : {}),
         ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
         ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
       });
       controllerRef.current?.setPending(
         pendingRef.current.map(
-          ({ id, text: pendingText, conversationQuotes, pluginReferences: refs }) => ({
+          ({ id, text: pendingText, attachments, conversationQuotes, pluginReferences: refs }) => ({
             id,
             text: pendingText,
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
             ...(conversationQuotes && conversationQuotes.length > 0
               ? { conversationQuotes }
               : {}),
@@ -490,16 +519,24 @@ export function useKernelConversation(): KernelConversation {
         ),
       );
       try {
-        await client.sendText(content, { conversationQuotes: quotes, pluginReferences });
+        await client.sendText(content, {
+          ...(options.attachments && options.attachments.length > 0
+            ? { attachments: options.attachments }
+            : {}),
+          ...(options.mode ? { mode: options.mode } : {}),
+          conversationQuotes: quotes,
+          pluginReferences,
+        });
         await refreshSessions(client);
       } catch (error) {
         // 发送失败时把乐观气泡收掉，避免它一直停在“发送中”。
         pendingRef.current = pendingRef.current.filter((entry) => entry.id !== pendingId);
         controllerRef.current?.setPending(
           pendingRef.current.map(
-            ({ id, text: pendingText, conversationQuotes, pluginReferences: refs }) => ({
+            ({ id, text: pendingText, attachments, conversationQuotes, pluginReferences: refs }) => ({
               id,
               text: pendingText,
+              ...(attachments && attachments.length > 0 ? { attachments } : {}),
               ...(conversationQuotes && conversationQuotes.length > 0
                 ? { conversationQuotes }
                 : {}),
@@ -663,6 +700,10 @@ export function useKernelConversation(): KernelConversation {
     turn,
     status,
     modelLabel,
+    setMode: async (mode) => {
+      if (!clientRef.current || clientRef.current.currentSessionId === null) return;
+      await clientRef.current.setMode(mode);
+    },
     ready,
     sending,
     sessions,
@@ -677,5 +718,6 @@ export function useKernelConversation(): KernelConversation {
     deleteAllArchived,
     respondInteraction,
     turnChanges,
+    skills,
   };
 }
