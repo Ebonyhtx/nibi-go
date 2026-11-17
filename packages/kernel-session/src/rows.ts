@@ -16,6 +16,7 @@ import type {
   PluginReference,
   ReasoningRow as ProtocolReasoning,
   SubagentRow as ProtocolSubagent,
+  TimelineMarkerRow as ProtocolTimelineMarker,
   ToolCallRow as ProtocolToolCall,
   TurnHeaderRow as ProtocolTurnHeader,
   UserInputRow as ProtocolUserInput,
@@ -607,6 +608,34 @@ export function deriveRows(
             summary: subagent.summaryText,
             ...(subagent.childSessionId ? { childSessionId: subagent.childSessionId } : {}),
             ...(subagent.backgrounded ? { backgrounded: true } : {}),
+          });
+          break;
+        }
+        case "timelineMarker": {
+          // 压缩是内核侧的异步动作：手动/自动压缩的状态只在这条 marker 上。
+          // UI 还没有专用卡片，先落成一条 notice（压缩前 token 数可读）。
+          const marker = row as ProtocolTimelineMarker;
+          if (marker.marker.type !== "compact") break;
+          flush();
+          const status = marker.marker.status;
+          const before =
+            typeof marker.marker.tokensBefore === "number"
+              ? ` · 压缩前 ${marker.marker.tokensBefore} tokens`
+              : "";
+          out.push({
+            kind: "notice",
+            key: `m${marker.rowId}`,
+            text:
+              status === "running"
+                ? "正在压缩上下文…"
+                : status === "success"
+                  ? `上下文已压缩${before}`
+                  : status === "noop"
+                    ? "没有需要压缩的内容"
+                    : status === "cancelled"
+                      ? "压缩已取消"
+                      : "压缩失败",
+            tone: status === "failed" ? "warning" : "info",
           });
           break;
         }

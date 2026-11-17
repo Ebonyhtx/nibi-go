@@ -302,6 +302,31 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(rows[2]).toMatchObject({ kind: "turn", state: "failed" });
   });
 
+  it("压缩 marker 落成 notice（压缩前 token 数可读）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 7,
+          kind: "timelineMarker",
+          lane: "assistantWork",
+          marker: { type: "compact", origin: "manual", status: "success", tokensBefore: 10376 },
+        },
+        {
+          ...base,
+          rowId: 8,
+          kind: "timelineMarker",
+          lane: "assistantWork",
+          marker: { type: "compact", origin: "manual", status: "running" },
+        },
+      ]),
+    );
+    const notices = rows.filter((row) => row.kind === "notice");
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toMatchObject({ text: expect.stringContaining("10376"), tone: "info" });
+    expect(notices[1]).toMatchObject({ text: "正在压缩上下文…" });
+  });
+
   it("pending 提示追加在末尾", () => {
     const rows = deriveRows(snapshotWith([]), [{ id: "p1", text: "刚发出的" }]);
     expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);

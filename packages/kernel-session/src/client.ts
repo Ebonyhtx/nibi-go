@@ -91,6 +91,7 @@ export class KernelSessionClient {
   private nextId = 1;
   private sendSeq = 1;
   private resolveSeq = 1;
+  private compactSeq = 1;
   private sessionId: string | null = null;
   private subscribed: { topic: string; connectionId: string } | null = null;
   private closed = false;
@@ -230,6 +231,33 @@ export class KernelSessionClient {
       accepted: result?.accepted === true,
       stateRevision: typeof result?.stateRevision === "number" ? result.stateRevision : undefined,
     };
+  }
+
+  /**
+   * 压缩当前会话上下文（`v4/command` 的 `compact`）。
+   *
+   * 以前 App 把 `/compact` 当普通文本发出去，模型会回“已压缩”而实际没压；内核只认这条
+   * 命令。ACK 只是受理回执，真正的进度/结果走会话投影里的 timelineMarker 行。
+   * 有回合在跑时内核会拒绝（fault.command.compactFailed），这里抛出可读原因。
+   */
+  async compact(): Promise<void> {
+    const sessionId = this.requireSessionId();
+    const ack = await this.request<{ status?: unknown; reasonCode?: unknown; message?: unknown }>(
+      KERNEL_METHODS.command,
+      {
+        commandId: `compact-${Date.now()}-${this.compactSeq++}`,
+        clientId: this.clientId,
+        sessionId,
+        type: "compact",
+        payload: {},
+        issuedAt: Date.now(),
+      },
+    );
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝了压缩（${status}）`);
+    }
   }
 
   /**
