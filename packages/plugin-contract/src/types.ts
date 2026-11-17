@@ -149,7 +149,13 @@ export interface ComposerActionContribution {
 export interface MessageActionContribution {
   id: string;
   title: string;
-  /** 作为“针对这条消息的注释指令”发送；有它时不再执行 effects。 */
+  /** 执行的插件命令（内核展开）；命令正文只输出改写后的消息，不写成注释评论。 */
+  command?: string;
+  /** 命令正文（`command` 必填时必需）。 */
+  prompt?: string;
+  /** 命令展开前要求模型先加载的 skill。 */
+  skills?: string[];
+  /** 旧语义：作为“针对这条消息的注释指令”发送；有 command 时优先 command。 */
   instruction?: string;
   effects?: Effect[];
 }

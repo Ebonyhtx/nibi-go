@@ -58,6 +58,9 @@ interface SheetEntry {
     icon?: string;
     effects?: Effect[];
     instruction?: string;
+    command?: string;
+    prompt?: string;
+    skills?: string[];
   };
 }
 
@@ -201,7 +204,7 @@ export default function GoHomeScreen() {
     const seen = new Set<string>();
     const references: PluginCapability[] = [];
     for (const token of list) {
-      if (token.kind !== "plugin") continue;
+      if (token.kind === "skill") continue;
       const plugin = plugins.enabled.find(
         (candidate) => candidate.parsed.manifest.id === token.pluginId,
       );
@@ -239,7 +242,37 @@ export default function GoHomeScreen() {
   };
   const applyMessageAction = (plugin: LoadedPlugin, action: SheetEntry["action"]) => {
     if (popup?.kind !== "message") return;
-    // 插件消息动作的语义是“针对这条消息的一条注释指令”，不是把提示词塞进草稿。
+    setPopup(null);
+    // 有 command：这是“对这条消息执行命令”（改写/转换），不是注释。
+    // COMPOSE 里放命令 token + 消息引用 token；发送时消息走 kind=transform 的引用。
+    if (action.command) {
+      addToken({
+        id: `command:${action.command}`,
+        kind: "command",
+        pluginId: plugin.parsed.manifest.id,
+        pluginName: plugin.parsed.manifest.name,
+        label: action.title,
+        value: action.command,
+        ...(plugin.parsed.manifest.accent
+          ? { accent: plugin.parsed.manifest.accent }
+          : {}),
+        ...(action.icon ? { icon: action.icon } : {}),
+      });
+      addToken({
+        id: `message:${popup.messageKey}`,
+        kind: "message",
+        pluginId: plugin.parsed.manifest.id,
+        pluginName: plugin.parsed.manifest.name,
+        label: "这条消息",
+        value: popup.messageKey,
+        accent: "default",
+        icon: "quote",
+        messageText: popup.message,
+        messageRole: popup.messageRole,
+      });
+      return;
+    }
+    // 旧语义：没有 command 的 instruction 仍然作为“针对这条消息的注释指令”。
     const instruction =
       action.instruction?.trim() ||
       (action.effects ?? [])
@@ -247,7 +280,6 @@ export default function GoHomeScreen() {
         .map((effect) => (effect.kind === "insert" ? effect.text.trim() : ""))
         .filter(Boolean)
         .join("\n");
-    setPopup(null);
     if (instruction) {
       setAnnotationEditor({
         messageKey: popup.messageKey,
@@ -333,7 +365,7 @@ export default function GoHomeScreen() {
     annotations.filter((annotation) => annotation.messageKey === messageKey).length;
   const sendDraft = () => {
     const prompt = composePrompt(tokens, draft);
-    const quotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
+    const annotationQuotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
       text: annotation.messageText,
       kind: "annotation",
       number: index + 1,
@@ -345,6 +377,18 @@ export default function GoHomeScreen() {
       ...(annotation.comment.trim() ? { comment: annotation.comment.trim() } : {}),
       ...(annotation.instruction ? { instruction: annotation.instruction } : {}),
     }));
+    // 消息动作（润色/缩写）= 命令 + 消息引用；不是注释评论。
+    const transformQuotes: KernelConversationQuote[] = tokens
+      .filter((token) => token.kind === "message" && token.messageText)
+      .map((token, index) => ({
+        text: token.messageText ?? "",
+        kind: "transform",
+        number: index + 1,
+        messageKey: token.value,
+        messageRole: token.messageRole ?? "assistant",
+        senderName: token.messageRole === "user" ? "我" : "NIBI",
+      }));
+    const quotes = [...annotationQuotes, ...transformQuotes];
     if (!prompt && quotes.length === 0) return;
     const pluginReferences = pluginReferencesForTokens(tokens);
     setAnnotations([]);
@@ -864,10 +908,18 @@ export default function GoHomeScreen() {
             <View style={styles.menuText}>
               <Text style={[styles.menuLabel, { color: th.ink }]}>{action.title}</Text>
               <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
-                {action.instruction ? "针对这条消息的注释指令" : plugin.parsed.manifest.name}
+                {action.command
+                  ? "引用这条消息执行插件命令"
+                  : action.instruction
+                    ? "针对这条消息的注释指令"
+                    : plugin.parsed.manifest.name}
               </Text>
             </View>
-            <Icon name="quote" size={14} color={th.inkGhost} />
+            <Icon
+              name={action.command ? "sparkles" : "quote"}
+              size={14}
+              color={th.inkGhost}
+            />
           </Pressable>
         ))}
       </PluginPopup>

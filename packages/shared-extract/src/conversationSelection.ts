@@ -13,7 +13,7 @@ export const conversationQuoteSchema = z.object({
   sentAt: z.string().datetime({ offset: true }).optional(),
   // GO 的注释：引用仍然走 conversationQuotes，但多带一条针对这段原文的评论/指令。
   // 这些字段只影响模型文本与历史回显，不改变 NIBI 客户端的引用契约。
-  kind: z.enum(["annotation", "quote"]).optional(),
+  kind: z.enum(["annotation", "transform", "quote"]).optional(),
   comment: z.string().max(4_000).optional(),
   instruction: z.string().max(2_000).optional(),
   number: z.number().int().positive().optional(),

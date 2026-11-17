@@ -79,14 +79,19 @@ function kernelCommands(manifest: Record<string, unknown>): KernelCommand[] {
   if (!contributes) return [];
   const commands: KernelCommand[] = [];
   const seen = new Set<string>();
-  for (const key of ["composer.actions", "composer.tools"] as const) {
+  for (const key of ["composer.actions", "composer.tools", "message.actions"] as const) {
     const items = contributes[key];
     if (!Array.isArray(items)) continue;
     for (const item of items) {
       const action = record(item);
-      const token = record(action?.token);
-      if (!action || !token || token.kind !== "command") continue;
-      const name = text(token.value);
+      if (!action) continue;
+      const token = record(action.token);
+      const name =
+        key === "message.actions"
+          ? text(action.command)
+          : token?.kind === "command"
+            ? text(token.value)
+            : "";
       if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(name) || seen.has(name)) continue;
       const prompt = text(action.prompt);
       if (!prompt) continue;
@@ -392,6 +397,9 @@ export function pluginCapability(plugin: LoadedPlugin): PluginCapability {
     ...manifest.contributes.composerTools,
   ]) {
     if (action.token?.kind === "command") commands.add(action.token.value);
+  }
+  for (const action of manifest.contributes.messageActions) {
+    if (action.command) commands.add(action.command);
   }
   return {
     id: pluginKernelId(plugin),

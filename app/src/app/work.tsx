@@ -62,6 +62,33 @@ const LOCALE_BOOTSTRAP = `
 true;
 `;
 
+/**
+ * 页面加载后看门狗：远控页卡在品牌 logo/loading 壳时，把诊断回传给原生。
+ *
+ * 2026-11-17 的 NIBI 4.1.1 web-remote 产物把 Vite `--base=/remote/v4/` 在 Git Bash 里
+ * 改写成了 `C:/Program Files/Git/remote/v4/`，JS/CSS 全部 404，页面只剩 logo。
+ * 这不是 GO 的 relay 层问题；WebView 只能识别并解释，不能替桌面修资源。
+ */
+const BOOT_WATCHDOG = `
+(() => {
+  setTimeout(() => {
+    try {
+      if (!document.querySelector('.nibi-boot-loading')) return;
+      const broken = Array.from(document.scripts)
+        .map((script) => script.src || '')
+        .filter((src) => /\\/Program(%20| )Files\\//i.test(src));
+      // 只报已知的发布路径损坏；普通慢网/慢启动不误判。
+      if (broken.length === 0) return;
+      window.ReactNativeWebView &&
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: 'nibi-work-stuck', broken: broken.slice(0, 3) })
+        );
+    } catch {}
+  }, 4000);
+})();
+true;
+`;
+
 export default function WorkScreen() {
   const th = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -147,6 +174,27 @@ export default function WorkScreen() {
           setSupportMultipleWindows={false}
           // 语言与注入口：locale 必须先于文档加载改写，否则站点已按 en-US 渲染
           injectedJavaScriptBeforeContentLoaded={LOCALE_BOOTSTRAP}
+          injectedJavaScript={BOOT_WATCHDOG}
+          onMessage={({ nativeEvent }) => {
+            try {
+              const message = JSON.parse(nativeEvent.data) as {
+                type?: unknown;
+                broken?: unknown;
+              };
+              if (message.type !== "nibi-work-stuck") return;
+              const broken = Array.isArray(message.broken)
+                ? message.broken.filter((item): item is string => typeof item === "string")
+                : [];
+              setPhase("failed");
+              setError(
+                broken.length > 0
+                  ? `桌面端远控页面资源路径损坏（${broken[0]}）。这是 NIBI 桌面端发布问题，不是网络问题；请更新桌面端或等待服务端修复。`
+                  : "桌面远控页面没有启动，请刷新或更新桌面端。",
+              );
+            } catch {
+              // 非本看门狗的消息忽略。
+            }
+          }}
           // 注入口（等 T7）：上游落地 transport 注入后，把 bridge 拼进同一个脚本
           // （同一时机，先 locale 后 bridge）
           onLoadStart={() => {

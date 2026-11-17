@@ -237,12 +237,23 @@ const QUICK_MANIFEST: Record<string, unknown> = {
       {
         id: "polish-message",
         title: "润色",
-        instruction: "把这条消息润色得更清晰、专业，保持事实不变。",
+        command: "nibigo-quick-polish-message",
+        skills: ["nibigo-quick:writing-check"],
+        prompt: [
+          "用户要求润色下面引用的这条消息。",
+          "只输出润色后的正文，不要解释、不要加前后缀；保持事实不变。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
       {
         id: "shorten-message",
         title: "缩写",
-        instruction: "把这条消息缩写得更短，保留关键信息。",
+        command: "nibigo-quick-shorten-message",
+        prompt: [
+          "用户要求缩写下面引用的这条消息。",
+          "只输出缩写后的正文，保留关键信息，不要解释、不要添加原文没有的内容。",
+          "$ARGUMENTS",
+        ].join("\n"),
       },
     ],
     "composer.tools": [

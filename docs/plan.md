@@ -382,10 +382,11 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      徽标/分隔/进度/列表/按钮/间距）、三档预算（工具卡 8KiB/40 节点/6 层、面板
      32KiB/120/8、状态条 2KiB/8/3）、效果白名单（每次 ≤4，`insert` 永不自动发送，
      `link` 只收无凭据 https，`command` 不能叫 permission）、`minApp`/`caps` 协商、
-     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**38 项单测**。
+     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**39 项单测**。
    - 输入 token 语义对齐 NIBI 客户端：`composer.actions`/`composer.tools` 声明
      `token`（`plugin`/`command`/`skill`）+ 生成插件命令用的 `prompt`/`skills`；
-     `message.actions` 声明绑定该消息的 `instruction`。旧 `effects` 清单继续兼容。
+     `message.actions` 声明 `command`/`prompt`/`skills`（引用消息执行命令），旧
+     `instruction`/`effects` 清单继续兼容。
    - 当前渲染全部声明槽：工具卡、`composer.actions`、`composer.strip`、`composer.tools`、
      `message.actions`、`session.actions`、`panels`、`turn.note`、Web Island。
    - 插件运行时：除 App 的 `nibi-go.plugin.json` 外，还生成内核标准
@@ -402,9 +403,12 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      - COMPOSE 上方胶囊 = 插件快捷动作，折叠成多层胶囊按钮，点开向上展开纵向列表；
        选中插入 `/命令` token（或技能/插件引用 token），由内核展开命令模板，不把提示词
        塞进输入框。
-     - 长按任意用户/助手消息 → 注释/润色/缩写；插件 message.action 变成**针对这条消息的
-       注释指令**，不再只往草稿里塞 prompt。
-   - 注释：编辑器支持整条/按行/按句选取和系统选区；发送走内核 `conversationQuotes`
+     - 长按任意用户/助手消息 → 注释/润色/缩写；插件 message.action 声明
+       `command`/`prompt`，变成**引用这条消息执行插件命令**（发送 `kind=transform`
+       的 conversationQuote，命令只输出改写后的正文）；旧 `instruction` 仍兼容为
+       注释指令。不是把提示词或 SKILL 塞进注释框。
+   - 注释：编辑器按行/按句切出可点选段（长消息纵向滚动，选中段有品牌色高亮和 ✓），
+     同时保留系统选择柄；发送走内核 `conversationQuotes`
      （`kind=annotation`、`comment`、`instruction`、`number`、`messageKey`、`messageRole`），
      用户气泡只显示编号引用卡，不复制整条原文；宠物上方数字进入注释管理（编辑/删除），
      消息下方保留「N 条注释」标记；发送后顶部数字消失。

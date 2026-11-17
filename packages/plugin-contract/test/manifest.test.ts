@@ -292,21 +292,49 @@ describe("readPluginManifest", () => {
     );
   });
 
-  it("message action 的 instruction 是绑定消息的注释指令", () => {
+  it("message action 支持命令改写与旧 instruction 注释", () => {
     const plugin = readPluginManifest(
       manifest({
         contributes: {
           "message.actions": [
-            { id: "polish", title: "润色", instruction: "把这条消息润色得更清楚。" },
-            { id: "broken", title: "坏的" },
+            {
+              id: "polish",
+              title: "润色",
+              command: "nibigo-quick-polish-message",
+              prompt: "只输出润色后的正文。",
+              skills: ["nibigo-quick:writing-check"],
+            },
+            { id: "annotate", title: "注释", instruction: "把这条消息润色得更清楚。" },
           ],
         },
       }),
       profile,
     );
-    expect(plugin.manifest.contributes.messageActions).toHaveLength(1);
-    expect(plugin.manifest.contributes.messageActions[0]?.instruction).toContain("润色");
-    expect(plugin.issues.some((issue) => issue.path.includes("/message.actions/1"))).toBe(true);
+    expect(plugin.manifest.contributes.messageActions).toHaveLength(2);
+    expect(plugin.manifest.contributes.messageActions[0]).toMatchObject({
+      command: "nibigo-quick-polish-message",
+      prompt: "只输出润色后的正文。",
+      skills: ["nibigo-quick:writing-check"],
+    });
+    expect(plugin.manifest.contributes.messageActions[1]?.instruction).toContain("润色");
+  });
+
+  it("message action 的 command 缺 prompt 时只丢这一条", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          "message.actions": [
+            { id: "broken", title: "坏的", command: "nibigo-quick-x" },
+            { id: "ok", title: "好的", instruction: "说明一下。" },
+          ],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.manifest.contributes.messageActions.map((action) => action.id)).toEqual(["ok"]);
+    expect(plugin.issues.some((issue) => issue.path.includes("/message.actions/0/prompt"))).toBe(
+      true,
+    );
   });
 
   it("插件级 skills 与 accent 会被保留", () => {
