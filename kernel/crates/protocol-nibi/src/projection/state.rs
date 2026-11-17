@@ -93,18 +93,21 @@ fn denied(reason: &str) -> Value {
     json!({"allowed": false, "reasonCode": reason})
 }
 
-/// 操作是否可用。P1 不支持的命令（fork、compact、立即发送排队项）标成不可用，原因是 `proto.unsupportedCommand`。
-pub fn availability() -> Value {
+/// 操作是否可用。实现过的命令按当前阶段算：`compact` 只在回合运行时不可用（会话 actor 的 `start_compaction` 同样
+/// 拒绝 busy）；`pauseGoal` / `resumeGoal` 始终可用（没有目标时命令本身是幂等的成功，暂停还会中止在跑的回合）。
+/// 还没实现的 fork、立即发送排队项标成不可用，原因是 `proto.unsupportedCommand`。
+pub fn availability(phase: Phase) -> Value {
     let unsupported = "proto.unsupportedCommand";
+    let running = phase == Phase::Running;
     json!({
         "fork": denied(unsupported),
-        "compact": denied(unsupported),
+        "compact": if running { denied("compactRequiresIdle") } else { allowed() },
         "switchModelConfig": allowed(),
         "setFollowupMode": allowed(),
         "queueEdit": allowed(),
         "sendQueuedNow": denied(unsupported),
-        "pauseGoal": denied("noGoalToPause"),
-        "resumeGoal": denied("noGoalToResume"),
+        "pauseGoal": allowed(),
+        "resumeGoal": allowed(),
     })
 }
 
@@ -379,5 +382,50 @@ mod tests {
         );
         assert_eq!(config["modelSelection"]["providerId"], "p");
         assert_eq!(config["modelSelection"]["modelId"], "m");
+    }
+
+    /// FIX 2：`compact`、`pauseGoal`、`resumeGoal` 已经实现，空闲时必须可用；`compact` 只在回合运行时拒绝
+    /// （与 `start_compaction` 的 busy 判定相同）。fork 与 sendQueuedNow 仍未实现。
+    #[test]
+    fn implemented_commands_are_available_when_idle() {
+        for phase in [
+            Phase::Draft,
+            Phase::CompletedSuccess,
+            Phase::CompletedInterrupted,
+            Phase::Error,
+        ] {
+            let available = availability(phase);
+            assert_eq!(available["compact"], json!({"allowed": true}), "{phase:?}");
+            assert_eq!(
+                available["pauseGoal"],
+                json!({"allowed": true}),
+                "{phase:?}"
+            );
+            assert_eq!(
+                available["resumeGoal"],
+                json!({"allowed": true}),
+                "{phase:?}"
+            );
+            assert_eq!(
+                available["fork"],
+                json!({"allowed": false, "reasonCode": "proto.unsupportedCommand"}),
+                "{phase:?}"
+            );
+            assert_eq!(
+                available["sendQueuedNow"],
+                json!({"allowed": false, "reasonCode": "proto.unsupportedCommand"}),
+                "{phase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_is_denied_only_while_a_turn_is_running() {
+        let running = availability(Phase::Running);
+        assert_eq!(running["compact"]["allowed"], false);
+        assert_eq!(running["compact"]["reasonCode"], "compactRequiresIdle");
+        // 暂停/恢复目标在运行中也可用：暂停会中止正在跑的回合（`set_goal_paused`）。
+        assert_eq!(running["pauseGoal"], json!({"allowed": true}));
+        assert_eq!(running["resumeGoal"], json!({"allowed": true}));
     }
 }

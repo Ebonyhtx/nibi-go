@@ -4,8 +4,8 @@
 //! - 可执行的模型都能解析端点；`visibility: hidden` 的 provider 不进目录，但仍能按选择解析；
 //! - 推理档位是 `optionSpecs.reasoningLevel.values`；没指定档位时用最后一个（Node `toModelOption`）；
 //! - 请求补丁 = reasoningLevel map(档位) + maxOutputTokens map(max)；
-//! - 默认选择：Node `resolveInitialModelSelection`——个人配置的 `defaultModelSelection` 可选（档位有效）时用它，
-//!   否则目录第一项、最后一个档位；
+//! - 默认选择：个人配置的 `defaultModelSelection` 指到存在的 provider + model 时总是用它（档位有效时原样用，
+//!   否则用这个模型最后一个档位）；没有配置、或点名的项不存在时才用目录第一项、最后一个档位；
 //! - Team Plan（工作线 F49，platform.md §9.3）：团队 provider 的模型按可用的团队项目展开，每个项目一组，目录项与
 //!   选择带团队项目；按选择找端点时团队项目也要相同（选择没带时取这个模型的第一个团队项目）。
 
@@ -279,25 +279,39 @@ pub(crate) fn configured_model(configured: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Node `resolveInitialModelSelection`（docs/specs/rust-cli/workspace-trust.md §3.1）：配置的缺省“可选”时原样用它
-/// ——provider 不隐藏、模型在目录里、`options.reasoningLevel` 有值且在模型的档位里；否则目录第一项（第一个非隐藏
-/// provider 的第一个有档位的模型）、最后一个档位（Node `completeNewModelSelection`）。
+/// 新会话的默认选择。配置的 `defaultModelSelection` 指到存在的 provider + model 时总是用它——`options.reasoningLevel`
+/// 在这个模型的档位里时原样用，否则（没写、写错）用这个模型的最后一个档位（Node `toModelOption` 的缺省）。
 ///
-/// L31 修正：之前缺省没有档位或档位无效时仍用这个模型（取最后一个档位），与 Node 不同——Node 判它不可选、回到
-/// 目录第一项（登录写的 `{providerId, modelId}` 也是这样），Node CLI 与本工程的新会话会选到不同的模型。
+/// 需求（本仓）：配置的缺省不允许悄悄换成另一个 provider。旧行为照 Node `resolveInitialModelSelection`，只在档位有效
+/// 时认同配置的缺省，否则取目录第一项（第一个非隐藏 provider 的第一个有档位的模型）、最后一个档位；登录与设置页
+/// 写下的 `{providerId, modelId}` 没有 `options.reasoningLevel`，于是启动时换成了目录第一项（FIX 1：用户的
+/// `personal:deepseek/deepseek-flash` 被换成 `personal:mockgateway`，冷启动失败后还会把错的选择写进会话）。现在
+/// 只有没有配置、或点名的 provider + model 不存在时才走目录第一项的兜底。隐藏 provider 的模型也能按显式选择解析
+/// （`find`），所以配置点名它时同样生效。
 fn default_selection(templates: &[Template], configured: &Value) -> Option<ModelSelection> {
     let visible = || templates.iter().filter(|template| !template.hidden);
-    let selectable = visible().find_map(|template| {
-        let level = configured["options"]["reasoningLevel"].as_str()?;
-        (configured["providerId"] == template.provider.as_str()
+    if let Some(template) = templates.iter().find(|template| {
+        configured["providerId"] == template.provider.as_str()
             && configured["modelId"] == template.model.as_str()
-            && template.levels.iter().any(|known| known == level))
-        .then(|| (template, level.to_owned()))
-    });
-    let (template, reasoning) = match selectable {
-        Some(found) => found,
-        None => visible().find_map(|template| Some((template, template.levels.last()?.clone())))?,
-    };
+    }) {
+        let reasoning = configured["options"]["reasoningLevel"]
+            .as_str()
+            .filter(|level| template.levels.iter().any(|known| known == level))
+            .map(str::to_owned)
+            .or_else(|| template.levels.last().cloned());
+        return Some(ModelSelection {
+            provider: template.provider.clone(),
+            model: template.model.clone(),
+            reasoning,
+            // 指向团队 provider 时是这个模型的第一个团队项目（缺省不存团队项目，D-F49-3）。
+            connection: template
+                .connection
+                .as_ref()
+                .map(|connection| Box::new(connection.id.clone())),
+        });
+    }
+    let (template, reasoning) =
+        visible().find_map(|template| Some((template, template.levels.last()?.clone())))?;
     Some(ModelSelection {
         provider: template.provider.clone(),
         model: template.model.clone(),
