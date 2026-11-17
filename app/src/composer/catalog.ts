@@ -81,7 +81,7 @@ const NATIVE_COMMANDS: ReadonlyArray<ComposerCatalogItem> = [
     group: "native-command",
     source: "nibi",
     title: "压缩",
-    detail: "压缩当前对话，可补充说明",
+    detail: "压缩当前对话的上下文（单独发送）",
     icon: "archive",
     token: { kind: "command", value: "compact" },
   },
@@ -121,15 +121,8 @@ const NATIVE_COMMANDS: ReadonlyArray<ComposerCatalogItem> = [
     icon: "sparkles",
     token: { kind: "command", value: "init" },
   },
-  {
-    id: "native:workflow",
-    group: "native-command",
-    source: "nibi",
-    title: "工作流",
-    detail: "为任务设计并启动动态工作流",
-    icon: "puzzle",
-    token: { kind: "command", value: "workflow" },
-  },
+  // 工作流暂不列出：内核的 DWF 引擎与 dynamic-workflows 技能都没打进 Android 包，
+  // 选中只会得到一段无法执行的提示词（假可用比缺功能更糟）。
 ];
 
 const ATTACHMENTS: ReadonlyArray<ComposerCatalogItem> = [

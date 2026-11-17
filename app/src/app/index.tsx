@@ -40,6 +40,7 @@ import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus } from "../components/SideStatus";
 import { PET_STATE } from "../components/petStates";
+import { useConversationPreferences } from "../conversation/useConversationPreferences";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { useProviderCatalog } from "../kernel/useProviderCatalog";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
@@ -122,6 +123,14 @@ export default function GoHomeScreen() {
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
   const conversation = useKernelConversation();
   const [draft, setDraft] = useState("");
+  // 输入栏上方的一次性提示（压缩前置条件、压缩失败等），4 秒后自动收掉。
+  const [hint, setHint] = useState<string | null>(null);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHint = (text: string) => {
+    setHint(text);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setHint(null), 4_000);
+  };
   // COMPOSE 里的不可编辑 token（插件引用 / 命令 / 技能）。
   const [tokens, setTokens] = useState<ComposerToken[]>([]);
   // 权限模式与计划开关是会话草稿意图：发送时随 sendText 一起交给内核；plan 不改变权限模式。
@@ -133,6 +142,7 @@ export default function GoHomeScreen() {
   // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
   const providerCatalog = useProviderCatalog();
+  const { preferences: conversationPrefs } = useConversationPreferences();
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -297,7 +307,8 @@ export default function GoHomeScreen() {
   const addToken = (token: ComposerToken) => {
     setTokens((current) => {
       // 命令与模式各只认一个（内核从正文开头展开）；再选就替换。
-      if (token.kind === "command" || token.kind === "mode") {
+      // 命令、模式、技能各只认一个：内核只展开正文第一个 `/名字`，多选的技能不会生效。
+      if (token.kind === "command" || token.kind === "mode" || token.kind === "skill") {
         return [...current.filter((entry) => entry.kind !== token.kind), token];
       }
       if (current.some((entry) => entry.id === token.id)) return current;
@@ -352,9 +363,15 @@ export default function GoHomeScreen() {
     }
   }, [conversation.activeSessionId]);
 
+  // 空会话不认快照里的模型：内核给空草稿的缺省可能是别的 provider（曾把 mock 写进会话并
+// 一路沿用）。有真实消息后再按会话快照走。
+  const sessionHasMessages = conversation.rows.some(
+    (row) => row.kind === "user" || row.kind === "assistant",
+  );
   useEffect(() => {
+    if (!sessionHasMessages) return;
     if (conversation.currentModelSelection) setModelChoice(conversation.currentModelSelection);
-  }, [conversation.currentModelSelection]);
+  }, [conversation.currentModelSelection, sessionHasMessages]);
 
   const addPluginToken = (plugin: LoadedPlugin) => {
     addToken({
@@ -597,6 +614,27 @@ export default function GoHomeScreen() {
   const annotationCountFor = (messageKey: string): number =>
     annotations.filter((annotation) => annotation.messageKey === messageKey).length;
   const sendDraft = () => {
+    // 压缩是内核动作，不是一条消息：走 `compact` RPC，不留用户气泡、不发文本。
+    // 带别的输入（附件/注释/引用）时不吞掉它们，只提示先单独压缩。
+    const compactToken = tokens.find(
+      (token) => token.kind === "command" && token.value === "compact",
+    );
+    if (compactToken) {
+      const hasOther =
+        draft.trim().length > 0 ||
+        attachments.length > 0 ||
+        annotations.length > 0 ||
+        tokens.some((token) => token.id !== compactToken.id && token.kind !== "mode");
+      if (hasOther) {
+        showHint("压缩需要单独发送：请先清掉其他内容或附件");
+        return;
+      }
+      setTokens((current) => current.filter((token) => token.id !== compactToken.id));
+      void conversation.compact().then((error) => {
+        if (error) showHint(error);
+      });
+      return;
+    }
     const prompt = composePrompt(tokens, draft);
     const annotationQuotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
       text: annotation.messageText,
@@ -886,6 +924,10 @@ export default function GoHomeScreen() {
                   bottomInset={petTarget + (annotations.length > 0 ? space(10) : 0)}
                   onMessageLongPress={openMessagePopup}
                   annotationCountFor={annotationCountFor}
+                  showReasoning={conversationPrefs.showReasoning}
+                  showTools={conversationPrefs.showTools}
+                  autoCollapseThinking={conversationPrefs.autoCollapseReasoning}
+                  autoCollapseTools={conversationPrefs.autoCollapseTools}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
@@ -895,7 +937,9 @@ export default function GoHomeScreen() {
                   </Text>
                   <View style={styles.stageChips}>
                     <View style={[styles.badge, { backgroundColor: th.panel }]}>
-                      <Text style={[styles.badgeText, { color: th.inkFaint }]}>数据不出机</Text>
+                      <Text style={[styles.badgeText, { color: th.inkFaint }]}>
+                        {selectedProvider ? `发往 ${selectedProvider.name}` : "本机内核"}
+                      </Text>
                     </View>
                     <View style={[styles.badge, { backgroundColor: th.steelSoft }]}>
                       <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
@@ -968,6 +1012,15 @@ export default function GoHomeScreen() {
                 </View>
               </View>
             </View>
+
+            {hint ? (
+              <View
+                style={[styles.hint, { backgroundColor: th.panel, borderColor: th.hairline }]}
+                accessibilityRole="alert"
+              >
+                <Text style={[styles.hintText, { color: th.inkSub }]}>{hint}</Text>
+              </View>
+            ) : null}
 
             {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token */}
             <View
@@ -1366,7 +1419,9 @@ const styles = StyleSheet.create({
     paddingBottom: space(1.5),
   },
   topLeft: { flexDirection: "row", alignItems: "center", gap: space(2), flex: 1, minWidth: 0 },
-  topRight: { flexDirection: "row", alignItems: "center", gap: space(2), marginLeft: "auto" },
+  // 不要 marginLeft:"auto"：它会把剩余宽度全吃掉，左组的 flex:1 拿不到空间，
+  // 会话 chip 只剩内容宽 → 标题和权限名一起被截。
+  topRight: { flexDirection: "row", alignItems: "center", gap: space(2), flexShrink: 0 },
   fab: {
     width: TOPBAR_H,
     height: TOPBAR_H,
@@ -1385,34 +1440,36 @@ const styles = StyleSheet.create({
     height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
-    gap: space(1.5),
-    paddingLeft: space(3),
-    paddingRight: space(2.5),
+    gap: space(1),
+    paddingLeft: space(2.5),
+    paddingRight: space(2),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     flexGrow: 1,
     flexShrink: 1,
-    // 权限名（3–4 字）必须完整显示；宽度不够时先截标题，模型名再让位。
-    minWidth: 124,
+    // 不许再给 minWidth：左组一旦超过分到的宽度就会压到模型 chip 上（两 chip 重叠）。
+    // 宽度不够时先截标题（chipTitle 可收缩），权限名靠 chipStatus 不收缩保住。
+    minWidth: 0,
   },
   chipBody: { gap: 1, flexGrow: 1, flexShrink: 1, minWidth: 0 },
   // 标题吃剩余宽度；权限名只有 3–4 字，不参与收缩（否则会变成「完全…」）。
   chipTitle: { fontSize: 13.5, fontWeight: "700", flexShrink: 1 },
   chipStatus: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
-  chipSub: { fontSize: 10, flexShrink: 0 },
+  chipSub: { fontSize: 9.5, flexShrink: 0 },
   modelChip: {
     height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 1,
+    // 模型 chip 按内容定宽、不抢空间；剩余宽度全给会话 chip（标题可截，权限名不截）。
+    flexGrow: 0,
+    flexShrink: 0,
     minWidth: 0,
     gap: 5,
     paddingHorizontal: space(3),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  // 模型名一般 12–15 字符：104 够显示，剩下的宽度留给会话 chip 的权限名。
-  modelText: { fontSize: 11.5, fontWeight: "600", maxWidth: 92 },
+  modelText: { fontSize: 11.5, fontWeight: "600", flexShrink: 1 },
   effortMeter: {
     width: 3,
     height: 16,
@@ -1527,6 +1584,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   annotationBadgeText: { fontSize: 10.5, fontWeight: "700" },
+  hint: {
+    alignSelf: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1.5),
+    marginBottom: space(1.5),
+  },
+  hintText: { fontSize: 11, lineHeight: 15 },
   composer: {
     flexDirection: "row",
     alignItems: "center",

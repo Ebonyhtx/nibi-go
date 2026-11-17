@@ -320,7 +320,8 @@ const QUICK_MANIFEST: Record<string, unknown> = {
         effects: [{ kind: "insert", text: "请总结当前会话的要点、结论和待办。" }],
       },
     ],
-    "turn.note": [{ id: "local-note", text: "本机处理 · 数据不出机", tone: "faint" }],
+    // 这里原本写死“本机处理 · 数据不出机”。接上云端 Provider 后那句话是假的，
+    // 样例插件不再冒充宿主声明；这一槽留给真有话可说的插件。
   },
 };
 
