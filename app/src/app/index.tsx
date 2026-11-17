@@ -832,7 +832,10 @@ export default function GoHomeScreen() {
 
               <View style={styles.topRight}>
                 <Pressable
-                  onPress={() => setModelPickerOpen(true)}
+                  onPress={() => {
+                    setModelPickerOpen(true);
+                    void providerCatalog.reload();
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
                   style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
