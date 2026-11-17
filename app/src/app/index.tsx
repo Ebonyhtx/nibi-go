@@ -635,6 +635,32 @@ export default function GoHomeScreen() {
       });
       return;
     }
+    // 目标也走内核 RPC：`/goal` 当文本发时，设置虽生效但回执走 Meta stdout、界面看不到；
+    // `/goal pause` 还会被内核当成一个叫 “pause” 的新目标。这里明确区分四种动作。
+    const goalToken = tokens.find(
+      (token) => token.kind === "command" && token.value === "goal",
+    );
+    if (goalToken) {
+      const input = draft.trim();
+      const keyword = input.toLowerCase();
+      const action =
+        keyword === ""
+          ? "show"
+          : keyword === "pause"
+            ? "pause"
+            : keyword === "resume" || keyword === "continue"
+              ? "resume"
+              : keyword === "clear" || keyword === "off"
+                ? "clear"
+                : "set";
+      setTokens((current) => current.filter((token) => token.id !== goalToken.id));
+      setDraft("");
+      showHint(action === "show" ? "正在读取目标…" : "正在更新目标…");
+      void conversation
+        .runGoal(action, action === "set" ? input : undefined)
+        .then(({ message }) => showHint(message));
+      return;
+    }
     const prompt = composePrompt(tokens, draft);
     const annotationQuotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
       text: annotation.messageText,

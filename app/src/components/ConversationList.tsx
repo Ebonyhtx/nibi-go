@@ -537,7 +537,20 @@ export function ConversationList({
         }
 
         if (row.kind === "process") {
-          return <TurnProcessCard key={row.key} row={row} renderTool={renderPluginTool} />;
+          // 过程卡里的思考/工具也走顶层同一套折叠件，并尊重 showReasoning/showTools。
+          return (
+            <TurnProcessCard
+              key={row.key}
+              row={row}
+              renderTool={renderPluginTool}
+              isOpen={isOpen}
+              toggleOpen={toggleOpen}
+              showReasoning={showReasoning}
+              showTools={showTools}
+              autoCollapseThinking={autoCollapseThinking}
+              autoCollapseTools={autoCollapseTools}
+            />
+          );
         }
 
         if (row.kind === "approval" || row.kind === "question") {
@@ -826,13 +839,30 @@ function reasoningTail(text: string): string {
   return text.slice(lineStart, end).trim();
 }
 
-/** 一轮的过程摘要（dsh-Go TurnProcess）：默认收起，点开列出思考/工具/中间消息。 */
+/**
+ * 一轮的过程摘要（dsh-Go TurnProcess）：默认收起，点开列出思考/工具/中间消息。
+ * 卡内的思考块/工具行与顶层同一套折叠件，显隐也跟随会话级的 showReasoning/showTools。
+ */
 function TurnProcessCard({
   row,
   renderTool,
+  isOpen,
+  toggleOpen,
+  showReasoning,
+  showTools,
+  autoCollapseThinking,
+  autoCollapseTools,
 }: {
   row: Extract<ChatRow, { kind: "process" }>;
   renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
+  /** 展开态与顶层共用一张 Map：卡内手动展开/收起的行同样被记住。 */
+  isOpen: (id: string, fallback: boolean) => boolean;
+  toggleOpen: (id: string, fallback: boolean) => void;
+  /** 会话级开关同样作用于卡内：思考块 / 工具行按需隐藏。 */
+  showReasoning: boolean;
+  showTools: boolean;
+  autoCollapseThinking: boolean;
+  autoCollapseTools: boolean;
 }) {
   const th = useNibiTheme();
   const [open, setOpen] = useState(false);
@@ -840,6 +870,16 @@ function TurnProcessCard({
   if (row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
   if (row.messages > 0) parts.push(`${row.messages} 条消息`);
   const label = parts.join(" · ");
+  // 先按会话级开关过滤子行：showReasoning 管思考块（正文消息保留），
+  // showTools 管工具/工具组；其余子行（子智能体/通知）不受影响。
+  const visible = row.rows.filter((child) => {
+    if (child.kind === "assistant") {
+      const hasReasoning = showReasoning && child.reasoning.trim().length > 0;
+      return hasReasoning || child.text.length > 0;
+    }
+    if (child.kind === "tool" || child.kind === "toolGroup") return showTools;
+    return true;
+  });
   return (
     <View style={styles.process}>
       <Pressable
@@ -852,10 +892,18 @@ function TurnProcessCard({
         <Text style={[styles.processTitle, { color: th.inkSub }]}>{label}</Text>
         <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color={th.inkFaint} />
       </Pressable>
-      {open ? (
+      {open && visible.length > 0 ? (
         <View style={[styles.processBody, { borderLeftColor: th.hairline }]}>
-          {row.rows.map((child) => (
-            <ProcessChild key={child.key} row={child} renderTool={renderTool} />
+          {visible.map((child) => (
+            <ProcessChild
+              key={child.key}
+              row={child}
+              renderTool={renderTool}
+              isOpen={isOpen}
+              toggleOpen={toggleOpen}
+              autoCollapseThinking={autoCollapseThinking}
+              autoCollapseTools={autoCollapseTools}
+            />
           ))}
         </View>
       ) : null}
@@ -863,20 +911,39 @@ function TurnProcessCard({
   );
 }
 
-/** 折叠里的行：思考、工具行、中间消息；只读，不带交互。 */
+/** 折叠里的行：思考块/工具行与顶层同一套折叠件，中间消息/子智能体/通知保持纯文本。 */
 function ProcessChild({
   row,
   renderTool,
+  isOpen,
+  toggleOpen,
+  autoCollapseThinking,
+  autoCollapseTools,
 }: {
   row: ChatRow;
   renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
+  isOpen: (id: string, fallback: boolean) => boolean;
+  toggleOpen: (id: string, fallback: boolean) => void;
+  autoCollapseThinking: boolean;
+  autoCollapseTools: boolean;
 }) {
   const th = useNibiTheme();
   if (row.kind === "assistant") {
+    // 思考与顶层思考块同款（ThinkingDisclosure + chip 外壳）；中间正文仍用 processText。
+    const thinkingDefault = autoCollapseThinking ? row.streaming : true;
     return (
       <View style={styles.processBlock}>
-        {row.reasoning.length > 0 ? (
-          <Text style={[styles.processReasoning, { color: th.inkFaint }]}>{row.reasoning}</Text>
+        {row.reasoning.trim().length > 0 ? (
+          <View
+            style={[styles.thinkingChip, { backgroundColor: th.card, borderColor: th.hairline }]}
+          >
+            <ThinkingDisclosure
+              reasoning={row.reasoning}
+              streaming={row.streaming}
+              open={isOpen(row.key, thinkingDefault)}
+              onToggle={() => toggleOpen(row.key, thinkingDefault)}
+            />
+          </View>
         ) : null}
         {row.text.length > 0 ? (
           <Text style={[styles.processText, { color: th.inkSub }]}>{row.text}</Text>
@@ -885,33 +952,30 @@ function ProcessChild({
     );
   }
   if (row.kind === "tool") {
+    // 插件卡优先（回合结束后工具卡不消失），否则退回与顶层一致的可折叠工具行。
     const pluginCard = renderTool?.(row);
     if (pluginCard) return pluginCard;
     return (
-      <View style={styles.processBlock}>
-        <Text
-          style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkFaint }]}
-        >
-          {row.name || "tool"} · {row.status}
-          {row.detail ? ` · ${row.detail}` : ""}
-        </Text>
-        {row.output ? (
-          <Text
-            style={[styles.processTool, { color: row.status === "error" ? th.red : th.inkSub }]}
-            numberOfLines={6}
-          >
-            {row.output}
-          </Text>
-        ) : null}
-      </View>
+      <ToolRowView
+        row={row}
+        open={isOpen(row.key, !autoCollapseTools)}
+        onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
+      />
     );
   }
   if (row.kind === "toolGroup") {
+    // 组内每个工具各给一行可折叠摘要，与顶层工具组的展开体一致。
     return (
-      <Text style={[styles.processTool, { color: th.inkFaint }]}>
-        {row.tools.length} 次工具 · {row.tools.slice(0, 4).map((tool) => tool.name || "tool").join(" · ")}
-        {row.tools.length > 4 ? " …" : ""}
-      </Text>
+      <View style={styles.processBlock}>
+        {row.tools.map((tool) => (
+          <ToolRowView
+            key={tool.key}
+            row={tool}
+            open={isOpen(tool.key, !autoCollapseTools)}
+            onToggle={() => toggleOpen(tool.key, !autoCollapseTools)}
+          />
+        ))}
+      </View>
     );
   }
   if (row.kind === "subagent") {
@@ -1083,7 +1147,6 @@ const styles = StyleSheet.create({
     gap: space(2),
   },
   processBlock: { gap: 2 },
-  processReasoning: { fontSize: 11.5, lineHeight: 16 },
   processText: { fontSize: 12.5, lineHeight: 18 },
   processTool: { fontSize: 11, lineHeight: 16 },
   notice: { fontSize: 11.5, textAlign: "center", paddingHorizontal: space(2) },

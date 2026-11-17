@@ -26,7 +26,19 @@ export interface ContextUsage {
   usedTokens: number;
   maxTokens: number;
   cacheHitRate: number | null;
+  /** 内核 /context 分析器的分项（source + chars）；回答“上下文由什么组成”。 */
+  breakdown?: readonly { source: string; chars: number }[];
 }
+
+/** 内核分项来源 → 面板里的短名。未知来源不吞掉，按原字符串显示。 */
+const BREAKDOWN_LABELS: Record<string, string> = {
+  messages: "消息",
+  system_prompt: "系统提示词",
+  system_tool_schemas: "内置工具",
+  mcp_tool_schemas: "MCP 工具",
+  skills: "技能",
+  meta_user_context: "记忆/其它",
+};
 
 function toneColor(t: NibiTheme, tone: ViewTone | undefined): string {
   switch (tone) {
@@ -187,6 +199,16 @@ export function SideStatus({
     usage?.cacheHitRate === null || usage?.cacheHitRate === undefined
       ? "—"
       : `${Math.round(usage.cacheHitRate * 100)}%`;
+  // 分项按字符占比排序，只列前 5 项：面板宽度有限，长尾不值得挤进去。
+  const breakdown = useMemo(() => {
+    const items = usage?.breakdown ?? [];
+    const totalChars = items.reduce((sum, item) => sum + item.chars, 0);
+    if (totalChars <= 0) return [];
+    return [...items]
+      .sort((left, right) => right.chars - left.chars)
+      .slice(0, 5)
+      .map((item) => ({ ...item, share: item.chars / totalChars }));
+  }, [usage?.breakdown]);
   const current = strips[Math.min(index, Math.max(0, strips.length - 1))];
   const pluginText = current
     ? resolveText(
@@ -251,6 +273,33 @@ export function SideStatus({
             <Text style={[styles.pillMeta, { color: t.inkFaint }]}>缓存命中率</Text>
             <Text style={[styles.cacheValue, { color: t.steel }]}>{cache}</Text>
           </View>
+          {breakdown.length > 0 ? (
+            <View style={styles.breakdown}>
+              {breakdown.map((item) => (
+                <View key={item.source} style={styles.breakdownRow}>
+                  <Text style={[styles.breakdownLabel, { color: t.inkFaint }]} numberOfLines={1}>
+                    {BREAKDOWN_LABELS[item.source] ?? item.source}
+                  </Text>
+                  <View style={[styles.breakdownTrack, { backgroundColor: t.hairline }]}>
+                    <View
+                      style={[
+                        styles.breakdownFill,
+                        { width: `${Math.round(item.share * 100)}%`, backgroundColor: meterColor },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.breakdownValue, { color: t.inkSub }]}>
+                    {Math.round(item.share * 100)}%
+                  </Text>
+                </View>
+              ))}
+              {/* 这个数字是内核 /context 的本地估算（工具表按 JSON/2 + 500/个），
+                  通常比供应商实际计费的输入 token 高；说清楚免得当成账单。 */}
+              <Text style={[styles.breakdownNote, { color: t.inkGhost }]}>
+                本地估算，不等于实际计费
+              </Text>
+            </View>
+          ) : null}
           {pluginText ? (
             <View style={styles.pluginRow}>
               <Dot size={5} color={toneColor(t, current?.strip.tone)} />
@@ -354,6 +403,18 @@ const styles = StyleSheet.create({
   pillFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pillMeta: { fontSize: 10 },
   cacheValue: { fontSize: 11, fontWeight: "700" },
+  breakdown: {
+    gap: 3,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.05)",
+    paddingTop: space(1),
+  },
+  breakdownRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  breakdownLabel: { fontSize: 9.5, width: 52 },
+  breakdownTrack: { flex: 1, height: 4, borderRadius: 2, overflow: "hidden" },
+  breakdownFill: { height: "100%", borderRadius: 2 },
+  breakdownValue: { fontSize: 9.5, width: 26, textAlign: "right" },
+  breakdownNote: { fontSize: 9, marginTop: 1 },
   pluginRow: {
     flexDirection: "row",
     alignItems: "center",
