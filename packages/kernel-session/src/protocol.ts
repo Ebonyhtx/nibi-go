@@ -20,6 +20,9 @@ export interface KernelModelSelection {
   thoughtLevel?: string;
 }
 
+/** 会话权限模式（内核 `PermissionMode::from_node_name` 的 Node 名）。plan 不是权限模式，是独立 `planEnabled`。 */
+export type KernelPermissionMode = "build" | "edit" | "guarded" | "yolo";
+
 /** `nibiWorkspaceRefSchema`：创建会话必填。 */
 export interface KernelWorkspaceRef {
   workspacePath: string;
@@ -106,8 +109,14 @@ export interface KernelSendTextOptions {
   /** 新输入默认 `startNow`；排队/引导沿用内核的 `requestedDelivery`。 */
   requestedDelivery?: "startNow" | "queue" | "guide";
   inputOrigin?: "desktop" | "mobile";
-  /** 提交时切换执行模式（计划模式用 `plan`，退出计划用 `build`）。 */
-  mode?: "plan" | "build";
+  /** 提交时切换到哪个权限模式；与 `planEnabled` 独立。 */
+  mode?: KernelPermissionMode;
+  /** 提交时打开/关闭计划模式（不改权限模式）。 */
+  planEnabled?: boolean;
+  /** 提交时切换模型（不在选择时立刻改会话）。 */
+  modelSelection?: Pick<KernelModelSelection, "providerId" | "modelId"> & {
+    reasoningLevel?: string;
+  };
 }
 
 export interface KernelMessagePart {

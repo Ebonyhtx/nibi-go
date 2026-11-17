@@ -11,6 +11,7 @@ import {
   type ChatRow,
   type KernelAttachmentRef,
   type KernelConversationQuote,
+  type KernelPermissionMode,
   type KernelPluginReference,
   type KernelSkillReference,
   type KernelSessionSummary,
@@ -110,8 +111,16 @@ async function ensureNotificationPermission(): Promise<void> {
 export interface KernelSendOptions {
   /** 图片/文件附件（内核按内容块注入模型上下文）。 */
   attachments?: readonly KernelAttachmentRef[];
-  /** 计划模式/退出计划。 */
-  mode?: "plan" | "build";
+  /** 权限模式（变更前确认/自主模式/完全访问）。 */
+  mode?: KernelPermissionMode;
+  /** 计划模式是独立开关，不改权限模式。 */
+  planEnabled?: boolean;
+  /** 下一条消息使用的模型与思考档位。 */
+  modelSelection?: {
+    providerId: string;
+    modelId: string;
+    reasoningLevel?: string;
+  };
   /** 注释/选段：只进模型文本与历史引用卡，不进用户气泡正文。 */
   conversationQuotes?: readonly KernelConversationQuote[];
   /** 选中的插件：identifiers-only 能力说明。 */
@@ -124,8 +133,15 @@ export interface KernelConversation {
   status: string;
   /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）。 */
   modelLabel: string;
-  /** 立即切换 plan/build（加号菜单的模式项）。 */
-  setMode: (mode: "plan" | "build") => Promise<void>;
+  /** 当前会话快照里的模型选择（打开会话时同步给 COMPOSE）。 */
+  currentModelSelection: {
+    providerId: string;
+    modelId: string;
+    reasoningLevel?: string;
+  } | null;
+  /** 当前会话快照里的权限模式与计划开关。 */
+  sessionMode: "build" | "guarded" | "yolo";
+  sessionPlanEnabled: boolean;
   ready: boolean;
   sending: boolean;
   /** 未归档的会话（抽屉主列表）。 */
@@ -162,11 +178,58 @@ export function useKernelConversation(): KernelConversation {
   const [turn, setTurn] = useState<TurnState>("idle");
   const [status, setStatus] = useState("初始化…");
   const [modelLabel, setModelLabel] = useState("未配置模型");
+  const [currentModelSelection, setCurrentModelSelection] = useState<{
+    providerId: string;
+    modelId: string;
+    reasoningLevel?: string;
+  } | null>(null);
+  const [sessionMode, setSessionMode] = useState<"build" | "guarded" | "yolo">("build");
+  const [sessionPlanEnabled, setSessionPlanEnabled] = useState(false);
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
   // 内核返回的全部顶层会话（含已归档）；列表按本地归档集合拆成两份。
   const [allSessions, setAllSessions] = useState<readonly KernelSessionSummary[]>([]);
   const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
+  const rememberSessionSnapshot = useCallback((result: unknown) => {
+    const value = result as
+      | {
+          session?: {
+            mode?: unknown;
+            permissionMode?: unknown;
+            planEnabled?: unknown;
+            model?: { providerId?: unknown; modelId?: unknown };
+          };
+          settings?: { thoughtLevel?: { current?: unknown } };
+        }
+      | null;
+    const session = value?.session;
+    const providerId = session?.model?.providerId;
+    const modelId = session?.model?.modelId;
+    if (typeof providerId === "string" && typeof modelId === "string") {
+      const reasoning = value?.settings?.thoughtLevel?.current;
+      setCurrentModelSelection({
+        providerId,
+        modelId,
+        ...(typeof reasoning === "string" && reasoning ? { reasoningLevel: reasoning } : {}),
+      });
+      setModelLabel(modelId);
+    }
+    const permission =
+      typeof session?.permissionMode === "string"
+        ? session.permissionMode
+        : session?.mode === "plan"
+          ? "build"
+          : session?.mode;
+    if (permission === "guarded" || permission === "yolo" || permission === "build") {
+      setSessionMode(permission);
+    }
+    if (typeof session?.planEnabled === "boolean") {
+      setSessionPlanEnabled(session.planEnabled);
+    } else if (session?.mode === "plan") {
+      setSessionPlanEnabled(true);
+    }
+  }, []);
+
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [turnChanges, setTurnChanges] = useState<Record<string, readonly ChatFileChange[]>>({});
   const [skills, setSkills] = useState<readonly KernelSkillReference[]>([]);
@@ -364,7 +427,7 @@ export function useKernelConversation(): KernelConversation {
         // 启动恢复「最近一条有消息的会话」；全空则停在最新一条，不每次多建。
         let opened = false;
         for (const candidate of list.slice(0, 3)) {
-          await resumeWithPlugins(client, candidate.sessionId);
+          rememberSessionSnapshot(await resumeWithPlugins(client, candidate.sessionId));
           const messages = await client.readMessages({ limit: 1 });
           if (messages.length > 0) {
             opened = true;
@@ -372,8 +435,8 @@ export function useKernelConversation(): KernelConversation {
           }
         }
         if (!opened) {
-          if (list.length > 0) await resumeWithPlugins(client, list[0]!.sessionId);
-          else await createWithDefaultModel(client);
+          if (list.length > 0) rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
+          else rememberSessionSnapshot(await createWithDefaultModel(client));
         }
         const sessionId = client.currentSessionId;
         if (cancelled || !sessionId) return;
@@ -429,16 +492,16 @@ export function useKernelConversation(): KernelConversation {
       let sessionId: string | null = null;
       const preferred = activeSessionIdRef.current;
       if (preferred) {
-        await resumeWithPlugins(client, preferred);
+        rememberSessionSnapshot(await resumeWithPlugins(client, preferred));
         sessionId = client.currentSessionId;
       }
       if (!sessionId) {
         const list = await refreshSessions(client);
         if (list.length > 0) {
-          await resumeWithPlugins(client, list[0]!.sessionId);
+          rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
           sessionId = client.currentSessionId;
         } else {
-          await createWithDefaultModel(client);
+          rememberSessionSnapshot(await createWithDefaultModel(client));
           sessionId = client.currentSessionId;
         }
       }
@@ -524,6 +587,10 @@ export function useKernelConversation(): KernelConversation {
             ? { attachments: options.attachments }
             : {}),
           ...(options.mode ? { mode: options.mode } : {}),
+          ...(typeof options.planEnabled === "boolean"
+            ? { planEnabled: options.planEnabled }
+            : {}),
+          ...(options.modelSelection ? { modelSelection: options.modelSelection } : {}),
           conversationQuotes: quotes,
           pluginReferences,
         });
@@ -556,7 +623,7 @@ export function useKernelConversation(): KernelConversation {
     const client = clientRef.current;
     if (!client) return;
     try {
-      await createWithDefaultModel(client);
+      rememberSessionSnapshot(await createWithDefaultModel(client));
       const sessionId = client.currentSessionId;
       if (!sessionId) return;
       await attach(client, sessionId);
@@ -574,7 +641,7 @@ export function useKernelConversation(): KernelConversation {
       const client = clientRef.current;
       if (!client || sessionId === client.currentSessionId) return;
       try {
-        await resumeWithPlugins(client, sessionId);
+        rememberSessionSnapshot(await resumeWithPlugins(client, sessionId));
         await attach(client, sessionId);
         activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
@@ -617,8 +684,8 @@ export function useKernelConversation(): KernelConversation {
       const visible = (await refreshSessions(client)).filter(
         (session) => session.sessionId !== excluded,
       );
-      if (visible.length > 0) await resumeWithPlugins(client, visible[0]!.sessionId);
-      else await createWithDefaultModel(client);
+      if (visible.length > 0) rememberSessionSnapshot(await resumeWithPlugins(client, visible[0]!.sessionId));
+      else rememberSessionSnapshot(await createWithDefaultModel(client));
       const nextId = client.currentSessionId;
       if (!nextId) throw new Error("没有可用会话");
       await attach(client, nextId);
@@ -700,10 +767,9 @@ export function useKernelConversation(): KernelConversation {
     turn,
     status,
     modelLabel,
-    setMode: async (mode) => {
-      if (!clientRef.current || clientRef.current.currentSessionId === null) return;
-      await clientRef.current.setMode(mode);
-    },
+    currentModelSelection,
+    sessionMode,
+    sessionPlanEnabled,
     ready,
     sending,
     sessions,

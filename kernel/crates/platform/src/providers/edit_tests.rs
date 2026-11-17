@@ -27,6 +27,7 @@ fn draft(name: &str, models: &[&str]) -> Draft {
         api_key: Some(RedactedString::new("sk-test")),
         template: None,
         enabled: true,
+        model_configs: std::collections::BTreeMap::new(),
     }
 }
 
@@ -342,6 +343,7 @@ async fn a_new_provider_becomes_the_default_model() {
             api_key: Some(RedactedString::new("sk-test")),
             template: None,
             enabled: true,
+            model_configs: std::collections::BTreeMap::new(),
         })
         .await
         .unwrap();

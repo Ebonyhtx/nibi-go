@@ -38,6 +38,7 @@ export type {
   KernelMessagePart,
   KernelModelSelection,
   KernelNotification,
+  KernelPermissionMode,
   KernelPluginReference,
   KernelSendTextOptions,
   KernelSkillReference,

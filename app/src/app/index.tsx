@@ -29,6 +29,8 @@ import { AnnotationComposer, type AnnotationDraft } from "../components/Annotati
 import { AnnotationManager, type AnnotationItem } from "../components/AnnotationManager";
 import { CapsuleStack } from "../components/CapsuleStack";
 import { ComposerAttachments } from "../components/ComposerAttachments";
+import { ModelPickerSheet, type ModelChoice } from "../components/ModelPickerSheet";
+import { thinkingLevelLabel } from "../components/ThinkingRail";
 import { ComposerTokens } from "../components/ComposerTokens";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon, type IconName } from "../components/Icon";
@@ -39,6 +41,7 @@ import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus } from "../components/SideStatus";
 import { PET_STATE } from "../components/petStates";
 import { useKernelConversation } from "../kernel/useKernelConversation";
+import { useProviderCatalog } from "../kernel/useProviderCatalog";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
 import { runPluginAction, type PluginActionContext } from "../plugins/actions";
 import { takePendingInsert } from "../plugins/pendingInsert";
@@ -84,6 +87,17 @@ interface SheetEntry {
 }
 
 
+const PERMISSION_OPTIONS: ReadonlyArray<{
+  id: "build" | "guarded" | "yolo";
+  label: string;
+  detail: string;
+  icon: IconName;
+}> = [
+  { id: "build", label: "变更前确认", detail: "改文件前先问我。", icon: "pen" },
+  { id: "guarded", label: "自主模式", detail: "在有风险时询问", icon: "shield" },
+  { id: "yolo", label: "完全访问", detail: "减少确认次数。", icon: "question" },
+];
+
 export default function GoHomeScreen() {
   const th = useNibiTheme();
   const { width, height } = useWindowDimensions();
@@ -110,8 +124,16 @@ export default function GoHomeScreen() {
   const [draft, setDraft] = useState("");
   // COMPOSE 里的不可编辑 token（插件引用 / 命令 / 技能）。
   const [tokens, setTokens] = useState<ComposerToken[]>([]);
+  // 权限模式与计划开关是会话草稿意图：发送时随 sendText 一起交给内核；plan 不改变权限模式。
+  const [permissionMode, setPermissionMode] = useState<"build" | "guarded" | "yolo">("build");
+  const [planEnabled, setPlanEnabled] = useState(false);
+  const [permissionMenu, setPermissionMenu] = useState<PopupAnchor | null>(null);
+  const sessionChipRef = useRef<ComponentRef<typeof Pressable> | null>(null);
   // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
+  const providerCatalog = useProviderCatalog();
+  const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const composerCatalog = useMemo(
     () =>
@@ -122,6 +144,59 @@ export default function GoHomeScreen() {
     [conversation.skills, plugins.enabled],
   );
   const composerPreferences = useComposerPreferences(composerCatalog);
+  // 没有选择时用设置页的默认模型；默认值带档位时优先沿用。
+  useEffect(() => {
+    if (modelChoice) return;
+    const state = providerCatalog.state;
+    const preferred = state.default;
+    if (preferred?.providerId && preferred.modelId) {
+      const provider = state.providers.find((entry) => entry.id === preferred.providerId);
+      const config = provider?.modelInfo?.find((model) => model.id === preferred.modelId)?.config;
+      const levels = config?.optionSpecs?.reasoningLevel?.values ?? [];
+      const fallback = levels[levels.length - 1];
+      const reasoningLevel =
+        preferred.reasoningLevel && (!levels.length || levels.includes(preferred.reasoningLevel))
+          ? preferred.reasoningLevel
+          : fallback;
+      setModelChoice({
+        providerId: preferred.providerId,
+        modelId: preferred.modelId,
+        ...(reasoningLevel ? { reasoningLevel } : {}),
+      });
+      return;
+    }
+    const provider = state.providers.find((entry) => entry.models.length > 0);
+    const modelId = provider?.models[0];
+    if (provider && modelId) {
+      const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
+      const levels = config?.optionSpecs?.reasoningLevel?.values ?? [];
+      setModelChoice({
+        providerId: provider.id,
+        modelId,
+        ...(levels.length > 0 ? { reasoningLevel: levels[levels.length - 1] } : {}),
+      });
+    }
+  }, [modelChoice, providerCatalog.state]);
+
+  const selectedProvider = providerCatalog.state.providers.find(
+    (provider) => provider.id === modelChoice?.providerId,
+  );
+  const selectedModelConfig = selectedProvider?.modelInfo?.find(
+    (model) => model.id === modelChoice?.modelId,
+  )?.config;
+  const selectedLevels = selectedModelConfig?.optionSpecs?.reasoningLevel?.values ?? [];
+  const modelLabel = modelChoice?.modelId ?? conversation.modelLabel;
+  const effortLabel = modelChoice?.reasoningLevel
+    ? thinkingLevelLabel(modelChoice.reasoningLevel)
+    : selectedLevels.length > 0
+      ? thinkingLevelLabel(selectedLevels[selectedLevels.length - 1]!)
+      : "";
+  const effortProgress =
+    modelChoice && selectedLevels.length > 1
+      ? Math.max(0, selectedLevels.indexOf(modelChoice.reasoningLevel ?? "")) /
+        (selectedLevels.length - 1)
+      : 0;
+
   const capsuleItems = useMemo(() => {
     const ids =
       composerPreferences?.capsules ??
@@ -228,6 +303,58 @@ export default function GoHomeScreen() {
       return [...current, token];
     });
   };
+  const setPlanMode = (enabled: boolean) => {
+    setPlanEnabled(enabled);
+    if (enabled) {
+      addToken({
+        id: "mode:plan",
+        kind: "mode",
+        pluginId: "nibi",
+        pluginName: "NIBI",
+        label: "计划模式",
+        value: "plan",
+        mode: "plan",
+        accent: "brand",
+        icon: "doc",
+      });
+    } else {
+      setTokens((current) => current.filter((token) => token.kind !== "mode"));
+    }
+  };
+
+  // 打开/新建会话时同步内核快照里的权限模式、计划与模型；用户改的草稿在发送前不被覆盖。
+  useEffect(() => {
+    setPermissionMode(conversation.sessionMode);
+    if (conversation.sessionPlanEnabled) {
+      setPlanEnabled(true);
+      setTokens((current) =>
+        current.some((token) => token.kind === "mode")
+          ? current
+          : [
+              ...current,
+              {
+                id: "mode:plan",
+                kind: "mode",
+                pluginId: "nibi",
+                pluginName: "NIBI",
+                label: "计划模式",
+                value: "plan",
+                mode: "plan",
+                accent: "brand",
+                icon: "doc",
+              },
+            ],
+      );
+    } else {
+      setPlanEnabled(false);
+      setTokens((current) => current.filter((token) => token.kind !== "mode"));
+    }
+  }, [conversation.activeSessionId]);
+
+  useEffect(() => {
+    if (conversation.currentModelSelection) setModelChoice(conversation.currentModelSelection);
+  }, [conversation.currentModelSelection]);
+
   const addPluginToken = (plugin: LoadedPlugin) => {
     addToken({
       id: `plugin:${plugin.parsed.manifest.id}`,
@@ -337,12 +464,11 @@ export default function GoHomeScreen() {
         )?.parsed.manifest.name ?? item.detail ?? "NIBI")
       : "NIBI";
     if (token.kind === "mode") {
-      void conversation.setMode(token.value).catch((error: unknown) => {
-        Alert.alert(
-          "切换模式失败",
-          error instanceof Error ? error.message : String(error),
-        );
-      });
+      if (token.value === "plan") {
+        setPlanMode(true);
+      } else {
+        setPlanMode(false);
+      }
       return;
     }
     if (token.kind === "skill") {
@@ -497,15 +623,16 @@ export default function GoHomeScreen() {
     const quotes = [...annotationQuotes, ...transformQuotes];
     if (!prompt && quotes.length === 0 && attachments.length === 0) return;
     const pluginReferences = pluginReferencesForTokens(tokens);
-    const modeToken = tokens.find((token) => token.kind === "mode");
     const attachmentRefs = attachments.map(toAttachmentRef);
     setAnnotations([]);
-    setTokens([]);
+    setTokens((current) => current.filter((token) => token.kind === "mode"));
     setAttachments([]);
     setDraft("");
     void conversation.send(prompt, {
       ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
-      ...(modeToken?.mode ? { mode: modeToken.mode } : {}),
+      mode: permissionMode,
+      planEnabled,
+      ...(modelChoice ? { modelSelection: modelChoice } : {}),
       ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
       ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
     });
@@ -529,6 +656,34 @@ export default function GoHomeScreen() {
     setAnnotationManagerOpen(false);
     setPopup(null);
   }, [conversation.activeSessionId]);
+  const permissionLabel =
+    permissionMode === "yolo" ? "完全访问" : permissionMode === "guarded" ? "自主" : "变更前";
+  const choosePermission = (id: "build" | "guarded" | "yolo") => {
+    if (id === permissionMode) {
+      setPermissionMenu(null);
+      return;
+    }
+    if (id === "yolo") {
+      Alert.alert(
+        "切换到完全访问",
+        "完全访问会减少确认次数，模型可以在不逐次询问的情况下修改文件和执行命令。\n\n只在你信任当前任务和模型时使用。",
+        [
+          { text: "取消", style: "cancel" },
+          {
+            text: "切换到完全访问",
+            style: "destructive",
+            onPress: () => {
+              setPermissionMode("yolo");
+              setPermissionMenu(null);
+            },
+          },
+        ],
+      );
+      return;
+    }
+    setPermissionMode(id);
+    setPermissionMenu(null);
+  };
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
       ?.title || "新对话";
@@ -657,29 +812,56 @@ export default function GoHomeScreen() {
                   </Pressable>
                 ) : null}
 
-                <View style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
+                <Pressable
+                  ref={sessionChipRef}
+                  onPress={() => {
+                    sessionChipRef.current?.measureInWindow((x, y, width, height) => {
+                      setPermissionMenu({ x, y, width, height });
+                    });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`会话与权限模式：${permissionLabel}`}
+                  style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                >
                   <View style={styles.chipBody}>
                     <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
                       {activeTitle}
                     </Text>
                     <View style={styles.chipStatus}>
-                      <Dot size={6} color={th.inkGhost} ring={th.inkGhost} />
-                      <Text style={[styles.chipSub, { color: th.inkFaint }]}>
-                        本机 · {conversation.turn === "running" ? "思考中" : conversation.status}
+                      <Dot
+                        size={6}
+                        color={permissionMode === "yolo" ? th.amber : th.brand}
+                        ring={permissionMode === "yolo" ? th.amber : th.brand}
+                      />
+                      <Text style={[styles.chipSub, { color: th.inkFaint }]} numberOfLines={1}>
+                        {permissionLabel}
                       </Text>
                     </View>
                   </View>
                   <Icon name="chevron-down" size={13} color={th.inkFaint} />
-                </View>
+                </Pressable>
               </View>
 
               <View style={styles.topRight}>
-                <View style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}>
-                  <Text style={[styles.modelText, { color: th.inkSub }]}>
-                    {conversation.modelLabel}
+                <Pressable
+                  onPress={() => setModelPickerOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
+                  style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                >
+                  <View style={styles.effortMeter}>
+                    <View
+                      style={[
+                        styles.effortMeterFill,
+                        { height: `${Math.round(effortProgress * 100)}%`, backgroundColor: th.brand },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.modelText, { color: th.inkSub }]} numberOfLines={1}>
+                    {modelLabel}
                   </Text>
                   <Icon name="chevron-down" size={12} color={th.inkGhost} />
-                </View>
+                </Pressable>
 
                 <Pressable
                   style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
@@ -824,7 +1006,11 @@ export default function GoHomeScreen() {
               />
               <ComposerTokens
                 tokens={tokens}
-                onRemove={(id) => setTokens((current) => current.filter((token) => token.id !== id))}
+                onRemove={(id) => {
+                  const removed = tokens.find((token) => token.id === id);
+                  if (removed?.kind === "mode") setPlanEnabled(false);
+                  setTokens((current) => current.filter((token) => token.id !== id));
+                }}
               />
               <TextInput
                 value={draft}
@@ -962,6 +1148,100 @@ export default function GoHomeScreen() {
         </Text>
       </PluginPopup>
 
+      <ModelPickerSheet
+        visible={modelPickerOpen}
+        providers={providerCatalog.state.providers}
+        selection={modelChoice}
+        onSelect={setModelChoice}
+        onClose={() => setModelPickerOpen(false)}
+        onManage={() => {
+          setModelPickerOpen(false);
+          router.push("/settings/provider");
+        }}
+      />
+
+      <PluginPopup
+        visible={permissionMenu !== null}
+        anchor={permissionMenu}
+        onClose={() => setPermissionMenu(null)}
+        width={286}
+      >
+        <Text style={[styles.popupTitle, { color: th.ink }]}>会话权限</Text>
+        <Pressable
+          onPress={() => {
+            setPlanMode(!planEnabled);
+            setPermissionMenu(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={planEnabled ? "关闭计划模式" : "打开计划模式"}
+          style={({ pressed }) => [
+            styles.menuRow,
+            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <View
+            style={[
+              styles.toolIconSmall,
+              { backgroundColor: planEnabled ? th.brandSoft : th.panel },
+            ]}
+          >
+            <Icon name="doc" size={15} color={planEnabled ? th.brand : th.inkSub} />
+          </View>
+          <View style={styles.menuText}>
+            <Text style={[styles.menuLabel, { color: th.ink }]}>计划模式</Text>
+            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>编辑前先出计划。</Text>
+          </View>
+          <Icon
+            name={planEnabled ? "check" : "chevron-right"}
+            size={13}
+            color={planEnabled ? th.brand : th.inkGhost}
+          />
+        </Pressable>
+        <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
+        {PERMISSION_OPTIONS.map((option) => {
+          const active = permissionMode === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              onPress={() => choosePermission(option.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`${option.label}：${option.detail}`}
+              style={({ pressed }) => [
+                styles.menuRow,
+                { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <View
+                style={[
+                  styles.toolIconSmall,
+                  {
+                    backgroundColor:
+                      option.id === "yolo"
+                        ? th.amberSoft
+                        : active
+                          ? th.brandSoft
+                          : th.panel,
+                  },
+                ]}
+              >
+                <Icon
+                  name={option.icon}
+                  size={15}
+                  color={
+                    option.id === "yolo" ? th.amber : active ? th.brand : th.inkSub
+                  }
+                />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuLabel, { color: th.ink }]}>{option.label}</Text>
+                <Text style={[styles.menuDetail, { color: th.inkFaint }]}>{option.detail}</Text>
+              </View>
+              {active ? <Icon name="check" size={13} color={th.brand} /> : null}
+            </Pressable>
+          );
+        })}
+      </PluginPopup>
+
       <PluginPopup
         visible={popup?.kind === "message"}
         anchor={popup?.kind === "message" ? popup.anchor : null}
@@ -1081,7 +1361,7 @@ const styles = StyleSheet.create({
     gap: space(2),
     paddingBottom: space(1.5),
   },
-  topLeft: { flexDirection: "row", alignItems: "center", gap: space(2), flexShrink: 1 },
+  topLeft: { flexDirection: "row", alignItems: "center", gap: space(2), flex: 1, minWidth: 0 },
   topRight: { flexDirection: "row", alignItems: "center", gap: space(2), marginLeft: "auto" },
   fab: {
     width: TOPBAR_H,
@@ -1106,12 +1386,14 @@ const styles = StyleSheet.create({
     paddingRight: space(3),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: "56%",
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: "62%",
   },
-  chipBody: { gap: 1 },
-  chipTitle: { fontSize: 13.5, fontWeight: "700" },
-  chipStatus: { flexDirection: "row", alignItems: "center", gap: 4 },
-  chipSub: { fontSize: 10 },
+  chipBody: { gap: 1, flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  chipTitle: { fontSize: 13.5, fontWeight: "700", flexShrink: 1, maxWidth: 120 },
+  chipStatus: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
+  chipSub: { fontSize: 10, flexShrink: 0 },
   modelChip: {
     height: TOPBAR_H,
     flexDirection: "row",
@@ -1121,7 +1403,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  modelText: { fontSize: 11.5, fontWeight: "600" },
+  modelText: { fontSize: 11.5, fontWeight: "600", maxWidth: 130 },
+  effortMeter: {
+    width: 3,
+    height: 16,
+    borderRadius: 2,
+    backgroundColor: "rgba(74,121,184,0.16)",
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  effortMeterFill: { width: "100%", borderRadius: 2 },
   stage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space(4) },
   stageList: { alignItems: "stretch", justifyContent: "flex-start", paddingHorizontal: 0 },
   stageLandscape: { justifyContent: "flex-start", paddingTop: space(3) },

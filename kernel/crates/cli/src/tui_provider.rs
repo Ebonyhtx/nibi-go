@@ -50,6 +50,7 @@ fn platform_draft(draft: ProviderDraft) -> PlatformDraft {
         api_key: draft.api_key,
         template: draft.template,
         enabled: draft.enabled,
+        model_configs: std::collections::BTreeMap::new(),
     }
 }
 

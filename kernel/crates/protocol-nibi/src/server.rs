@@ -771,6 +771,22 @@ impl Server {
             "provider/testModelConnectivity" => crate::model_connectivity::test(self, &params)
                 .await
                 .map(Reply::new),
+            "provider/resolveModel" => {
+                let admin = self.provider_admin()?;
+                let provider_id = params["providerId"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("providerId is required"))?;
+                let model_id = params["modelId"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
+                let config = admin
+                    .resolve_model_config(provider_id, model_id)
+                    .await
+                    .map_err(RpcError::internal)?;
+                reply(json!({"config": config}))
+            }
             "provider/updateAccountConfig" => reply(json!({
                 "receivedRevision": params["revision"],
                 "providerCount": params["providers"].as_object().map_or(0, serde_json::Map::len),

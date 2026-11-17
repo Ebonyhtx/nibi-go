@@ -407,15 +407,25 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
        条消息后触发命令/技能”，三处共用稳定 id，目录异步加载时保留未知 id，避免冷启动
        把插件项删掉。
      - 附件走 expo-image-picker/document-picker，发送 `AttachmentRef` 文件引用；内核按
-       mime 生成图片/PDF/文本内容块，不把文件内容塞进 COMPOSE 正文。计划模式/退出计划走
-       `session/setMode` 立即切换，不依赖再发一条消息。
+       mime 生成图片/PDF/文本内容块，不把文件内容塞进 COMPOSE 正文。计划模式是
+       COMPOSE 里的独立令牌，发送时随 `planEnabled` 提交，不重置权限模式。
      - 长按任意用户/助手消息 → 注释/润色/缩写/插件技能；插件 message.action 声明
        `command`/`prompt`，变成**引用这条消息执行插件命令**（发送 `kind=transform`
        的 conversationQuote，命令只输出改写后的正文）；技能走内核 `/技能名` mention
        （`/plugin:skill`），由内核展开 SKILL.md；旧 `instruction` 仍兼容为注释指令。
        不是把提示词或 SKILL 塞进注释框。
-   - 注释：编辑器按行/按句切出可点选段（长消息纵向滚动，选中段有品牌色高亮和 ✓），
-     同时保留系统选择柄；发送走内核 `conversationQuotes`
+   - 模型设置与会话内切换（2026-11-18）：设置页 `/settings/provider` 是供应商列表 +
+     模型行；添加模型时可“按模型名匹配”内核内置 `nibi-builtin.json`（上下文、模态、
+     结构化输出/联网/系统消息、思考档位与参数映射），保存为完整 `providerModelRules`。
+     内核新增 `provider/resolveModel` 与 `provider/state.modelInfo`，模型配置可覆盖模板
+     内置模型（含自定义 Provider 的图片/PDF 输入能力）。会话里点模型 chip 打开供应商 →
+     模型 → 思考强度滑轨（绿→蓝渐变、浮叶/流光），选择只作用于下一条消息，随
+     `sendText.modelSelection` 提交；不立刻改运行中的会话。
+   - 权限模式：会话顶栏 chip 显示当前权限（变更前确认/自主/完全访问），点开可切三档；
+     切完全访问有二次确认；计划模式是独立令牌，选中后在 COMPOSE 里显示“计划模式”并可 ×，
+     发送走 `planEnabled`，不把权限模式重置。切会话时从内核快照同步模型/权限/计划。
+   - 注释：编辑器按行/按句切出可点选段（长消息纵向滚动，选中段在预览里同步品牌色
+     高亮，段列表有 ✓）；发送走内核 `conversationQuotes`
      （`kind=annotation`、`comment`、`instruction`、`number`、`messageKey`、`messageRole`），
      用户气泡只显示编号引用卡，不复制整条原文；宠物上方数字进入注释管理（编辑/删除），
      消息下方保留「N 条注释」标记；发送后顶部数字消失。

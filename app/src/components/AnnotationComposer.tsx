@@ -159,7 +159,7 @@ export function AnnotationComposer({
                     : "添加注释"}
               </Text>
               <Text style={[styles.hint, { color: t.inkFaint }]}>
-                长按/拖动选择原文；不选则整条 · 已选 {length} 字
+                点选下面段落，或点「整条」· 已选 {length} 字
               </Text>
             </View>
           </View>
@@ -173,26 +173,35 @@ export function AnnotationComposer({
             </View>
           ) : null}
 
-          <View style={[styles.quote, { backgroundColor: t.panel, borderColor: t.hairline }]}>
-            <TextInput
-              value={fullText}
-              multiline
-              editable={false}
-              showSoftInputOnFocus={false}
-              selection={selection}
-              selectionColor={t.brandSoft}
-              onSelectionChange={(event) => {
-                const { start, end } = event.nativeEvent.selection;
-                setSelection({ start, end });
-                if (end > start) {
-                  const next = fullText.slice(start, end).trim();
-                  if (next) setExcerpt(next);
-                }
-              }}
-              scrollEnabled
-              style={[styles.quoteText, { color: t.inkSub }]}
-            />
-          </View>
+          <ScrollView
+            style={[styles.quote, { backgroundColor: t.panel, borderColor: t.hairline }]}
+            contentContainerStyle={styles.quoteInner}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            <Text style={[styles.quoteText, { color: t.inkSub }]}>
+              {segments.map((segment, index) => {
+                const active =
+                  selection.end > selection.start &&
+                  selection.start < segment.end &&
+                  selection.end > segment.start;
+                return (
+                  <Text
+                    key={`preview:${index}:${segment.start}`}
+                    onPress={() => selectSegment(segment)}
+                    style={
+                      active
+                        ? { backgroundColor: t.brandSoft, color: t.ink, fontWeight: "600" }
+                        : undefined
+                    }
+                  >
+                    {segment.text}
+                    {index < segments.length - 1 ? "\n" : ""}
+                  </Text>
+                );
+              })}
+            </Text>
+          </ScrollView>
 
           {segments.length > 1 ? (
             <View style={styles.segmentWrap}>
@@ -346,9 +355,9 @@ const styles = StyleSheet.create({
   quote: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    padding: space(2),
-    maxHeight: 150,
+    maxHeight: 180,
   },
+  quoteInner: { padding: space(2) },
   quoteText: { fontSize: 12, lineHeight: 17 },
   segmentWrap: { gap: space(1) },
   segmentHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
