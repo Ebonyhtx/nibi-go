@@ -14,8 +14,7 @@ import type {
 import { resolveText } from "@nibi-go/plugin-contract";
 import type { ChatToolRow } from "@nibi-go/kernel-session";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
@@ -25,7 +24,7 @@ import { Dot } from "./Icon";
 /** 可执行动作的最小形状：面板动作有 label，输入胶囊动作有 title。 */
 export interface PluginActionLike {
   id: string;
-  effects: Effect[];
+  effects?: Effect[];
 }
 
 export type PluginActionHandler = (plugin: LoadedPlugin, action: PluginActionLike) => void;
@@ -304,58 +303,6 @@ export function PluginToolCard({
   );
 }
 
-/** 输入框上方的动作胶囊（每插件 ≤2 个，文字 ≤10 字已由 contract 保证）。 */
-export function PluginComposerActions({
-  plugins,
-  onAction,
-  trailingSpace = 0,
-}: {
-  plugins: readonly LoadedPlugin[];
-  onAction: PluginActionHandler;
-  /** 末尾留白：让胶囊栏在宠物下方也有可滚动余量（否则内容刚好放下就滚不动）。 */
-  trailingSpace?: number;
-}) {
-  const t = useNibiTheme();
-  const actions = plugins.flatMap((plugin) =>
-    plugin.parsed.manifest.contributes.composerActions.map((action) => ({ plugin, action })),
-  );
-  if (actions.length === 0) return null;
-  return (
-    <View style={styles.composerWrap}>
-      <ScrollView
-        horizontal
-        nestedScrollEnabled
-        showsHorizontalScrollIndicator={false}
-        // 横向 ScrollView 在弹性列里会吃掉剩余高度（真机表现为胶囊下面半屏空白、宠物被顶到中间），
-        // 这里必须让它按内容高度收缩。
-        style={styles.composerScroll}
-        contentContainerStyle={styles.composerRow}
-      >
-        {actions.map(({ plugin, action }) => (
-          <Pressable
-            key={`${plugin.parsed.manifest.id}:${action.id}`}
-            onPress={() => onAction(plugin, action)}
-            accessibilityRole="button"
-            accessibilityLabel={`${action.title}（${plugin.parsed.manifest.name}）`}
-            style={({ pressed }) => [
-              styles.composerAction,
-              { backgroundColor: t.glass, borderColor: t.glassBorder, opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <Text style={[styles.composerActionText, { color: t.inkSub }]}>{action.title}</Text>
-          </Pressable>
-        ))}
-        {trailingSpace > 0 ? <View style={{ width: trailingSpace }} /> : null}
-      </ScrollView>
-      <LinearGradient
-        colors={["transparent", t.bg]}
-        style={styles.composerFade}
-        pointerEvents="none"
-      />
-    </View>
-  );
-}
-
 /** 输入框上方状态条：多插件轮流，每 5 秒切一条；不改变 COMPOSE 尺寸。 */
 export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugin[] }) {
   const t = useNibiTheme();
@@ -505,16 +452,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   footerText: { fontSize: 10.5, flexShrink: 1 },
-  composerRow: { gap: space(1.5), alignItems: "center" },
-  composerWrap: { position: "relative" },
-  composerScroll: { flexGrow: 0, flexShrink: 0, width: "100%" },
-  composerFade: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 24,
-  },
   stripWrap: { alignItems: "center", paddingBottom: space(1) },
   stripPill: {
     flexDirection: "row",
@@ -527,13 +464,4 @@ const styles = StyleSheet.create({
     maxWidth: "82%",
   },
   stripText: { fontSize: 10.5 },
-  composerAction: {
-    height: 28,
-    borderRadius: radius.chip,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: space(2),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  composerActionText: { fontSize: 11, fontWeight: "600" },
 });

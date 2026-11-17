@@ -121,26 +121,48 @@ export interface ToolCardContribution {
   actions: PanelAction[];
 }
 
+/**
+ * 一个输入 token 的语义（对齐 NIBI 客户端的 mention / 命令，而不是把提示词塞进输入框）：
+ * - `plugin`：插件引用，发送时序列化成 `[@名字](plugin://stable-id)`，内核在回合边界注入能力说明；
+ * - `command`：插件/用户命令，发送时序列化成 `/命令名`，内核展开命令模板（可带 skill/tool/MCP 上下文）；
+ * - `skill`：技能引用，发送时序列化成 `$技能名`，内核按技能提及注入。
+ */
+export interface ComposerTokenContribution {
+  kind: "plugin" | "command" | "skill";
+  value: string;
+}
+
 export interface ComposerActionContribution {
   id: string;
   title: string;
   icon?: string;
-  effects: Effect[];
+  /** 点击后插入 COMPOSE 的 token；缺省表示执行 `effects`（旧清单兼容）。 */
+  token?: ComposerTokenContribution;
+  /** 生成插件命令时使用的正文（只在 `token.kind === "command"` 时有意义）。 */
+  prompt?: string;
+  /** 命令展开前要求模型先加载的 skill（`<插件名>:<技能目录名>`）。 */
+  skills?: string[];
+  effects?: Effect[];
 }
 
 /** 助手消息长按菜单里的一项（每插件 ≤2）。 */
 export interface MessageActionContribution {
   id: string;
   title: string;
-  effects: Effect[];
+  /** 作为“针对这条消息的注释指令”发送；有它时不再执行 effects。 */
+  instruction?: string;
+  effects?: Effect[];
 }
 
-/** 输入栏加号面板里的一项（每插件 ≤2）。 */
+/** 输入栏快捷动作（多层胶囊列表）里的一项（每插件 ≤2）。 */
 export interface ComposerToolContribution {
   id: string;
   title: string;
   icon?: string;
-  effects: Effect[];
+  token?: ComposerTokenContribution;
+  prompt?: string;
+  skills?: string[];
+  effects?: Effect[];
 }
 
 /** 会话操作行里的一项（每插件 ≤2）。 */
@@ -198,6 +220,14 @@ export interface PluginRuntime {
   timeoutMs?: number;
 }
 
+/** 插件自带的技能：App 写成 `<插件根>/skills/<id>/SKILL.md`，内核按插件技能发现。 */
+export interface PluginSkillContribution {
+  id: string;
+  name?: string;
+  description?: string;
+  body: string;
+}
+
 export interface PluginManifest {
   schemaVersion: 1;
   id: string;
@@ -205,8 +235,11 @@ export interface PluginManifest {
   version: string;
   description?: string;
   minApp?: string;
+  /** 输入 token 的强调色（只能选语义色，不能写任意色值）。 */
+  accent?: ViewTone;
   caps: string[];
   runtime?: PluginRuntime;
+  skills?: PluginSkillContribution[];
   contributes: {
     toolCards: ToolCardContribution[];
     composerActions: ComposerActionContribution[];

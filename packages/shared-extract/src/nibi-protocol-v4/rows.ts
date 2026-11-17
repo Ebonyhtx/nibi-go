@@ -1,5 +1,8 @@
 // 来源: nibi-client@ff1c5f4f packages/shared/src/nibi-protocol-v4/rows.ts（未改写语义；仅 import 路径按本包布局调整）
-import { conversationQuotesSchema } from "../conversationSelection";
+import {
+  conversationQuotesSchema,
+  pluginReferencesSchema,
+} from "../conversationSelection";
 import { botGroupInputSourceSchema } from "../bots";
 // ConversationRow：行类型自包含。
 // 三条结构性规则：row 自包含（渲染任一行不需看别的行）；
@@ -116,6 +119,7 @@ export const userInputRowSchema = z.object({
   inputOrigin: z.enum(["desktop", "mobile"]).optional(),
   botGroupSource: botGroupInputSourceSchema.optional(),
   conversationQuotes: conversationQuotesSchema.optional(),
+  pluginReferences: pluginReferencesSchema.optional(),
   text: z.string(),
   // text 从此下标起是引擎附加文本（dwf ask 尾注 /
   // nudge），GUI 把它折进默认收起的披露；0 = 整条都是；缺席 = 无（老转录、非工作流会话）。

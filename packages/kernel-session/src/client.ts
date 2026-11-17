@@ -4,6 +4,7 @@ import {
   type KernelMessage,
   type KernelModelSelection,
   type KernelNotification,
+  type KernelSendTextOptions,
   type KernelSessionCreateResult,
   type KernelSessionDataPurge,
   type KernelSessionSummary,
@@ -88,6 +89,7 @@ export class KernelSessionClient {
   private readonly listeners = new Set<(notification: KernelNotification) => void>();
   private readonly offLine: () => void;
   private nextId = 1;
+  private sendSeq = 1;
   private resolveSeq = 1;
   private sessionId: string | null = null;
   private subscribed: { topic: string; connectionId: string } | null = null;
@@ -154,7 +156,52 @@ export class KernelSessionClient {
     return { ...result, sessionId: id };
   }
 
-  /** 发一条用户提示（`session/send`）。 */
+  /**
+   * 发一条用户提示（`v4/command` 的 `sendText`）。
+   *
+   * 和 legacy `session/send` 的区别：这条命令能带结构化引用（注释/选段）与插件引用，
+   * 内核把引用/能力说明只注入模型文本，用户行仍显示原文。
+   */
+  async sendText(
+    content: string,
+    options: KernelSendTextOptions = {},
+  ): Promise<{ accepted: boolean; delivery?: string }> {
+    const sessionId = this.requireSessionId();
+    const commandId = `send-${Date.now()}-${this.sendSeq++}`;
+    const quotes = options.conversationQuotes ?? [];
+    const pluginReferences = options.pluginReferences ?? [];
+    const ack = await this.request<{
+      status?: unknown;
+      reasonCode?: unknown;
+      message?: unknown;
+      result?: { delivery?: unknown };
+    }>(KERNEL_METHODS.command, {
+      commandId,
+      clientId: this.clientId,
+      sessionId,
+      type: "sendText",
+      payload: {
+        text: content,
+        clientId: this.clientId,
+        queueItemId: commandId,
+        inputOrigin: options.inputOrigin ?? "mobile",
+        requestedDelivery: options.requestedDelivery ?? "startNow",
+        ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
+        ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
+      },
+      issuedAt: Date.now(),
+    });
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝了这次发送（${status}）`);
+    }
+    const delivery =
+      typeof ack?.result?.delivery === "string" ? ack.result.delivery : undefined;
+    return { accepted: true, ...(delivery ? { delivery } : {}) };
+  }
+
+  /** 发一条用户提示（`session/send`，legacy；不带结构化引用）。 */
   async sendPrompt(
     content: string,
     extra?: Record<string, unknown>,

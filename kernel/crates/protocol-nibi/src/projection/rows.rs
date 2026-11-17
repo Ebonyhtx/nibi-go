@@ -83,7 +83,12 @@ impl Projection {
                 if let Some(intent) = intent {
                     // 中枢启动/设置轮优先（同为 Node `mapUserInputOrigin` 的次序）。
                     if turn.launch.is_none() {
-                        for key in ["botGroupSource", "conversationQuotes", "source"] {
+                        for key in [
+                            "botGroupSource",
+                            "conversationQuotes",
+                            "pluginReferences",
+                            "source",
+                        ] {
                             if let Some(value) = intent.get(key).filter(|value| !value.is_null()) {
                                 row.insert(key.to_owned(), value.clone());
                             }

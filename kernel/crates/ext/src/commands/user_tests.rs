@@ -359,3 +359,32 @@ async fn disabled_command_paths_are_hidden_and_not_expanded() {
         Expansion::NotCommand
     );
 }
+
+#[tokio::test]
+async fn session_plugin_commands_are_found() {
+    let env = with_files(&[(
+        "/Users/dev/plugins/math/commands/mathmodel.md",
+        "---\ndescription: 数模工作台\n---\n打开工作台。\n\n$ARGUMENTS",
+    )]);
+    let custom = commands(env.clone());
+    custom.set_session_plugin_roots(
+        nibi_kernel_api::ids::SessionId::new("sess_1"),
+        vec![PluginCommandRoot {
+            plugin: "math-modeling".to_owned(),
+            dir: "/Users/dev/plugins/math/commands".to_owned(),
+            root: "/Users/dev/plugins/math".to_owned(),
+            data: None,
+            official: false,
+        }],
+    );
+    let expansion = custom
+        .expand(
+            "/mathmodel 这道题",
+            tool_context(env.clone(), PermissionMode::DontAsk),
+        )
+        .await;
+    assert_eq!(
+        text_of(&expansion, 1),
+        "Run custom command /mathmodel.\nCommand source: user/plugin.\n\n打开工作台。\n\n这道题"
+    );
+}

@@ -377,32 +377,48 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 
 ### Phase 4–6
 
-4. ✅ **UI slots 契约 + 渲染（2026-11-17，真机已验证）**：
+4. ✅ **UI slots 契约 + 渲染（2026-11-17，真机已验证；插件语义/注释第二轮返工）**：
    - `packages/plugin-contract`：`nibi-go.plugin.json` v1、受限 view v1（文字/行/列/卡/
      徽标/分隔/进度/列表/按钮/间距）、三档预算（工具卡 8KiB/40 节点/6 层、面板
      32KiB/120/8、状态条 2KiB/8/3）、效果白名单（每次 ≤4，`insert` 永不自动发送，
      `link` 只收无凭据 https，`command` 不能叫 permission）、`minApp`/`caps` 协商、
-     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**35 项单测**。
+     `tabs`/`gallery`/未知组件的 v1 替身与逐条错误隔离；**38 项单测**。
+   - 输入 token 语义对齐 NIBI 客户端：`composer.actions`/`composer.tools` 声明
+     `token`（`plugin`/`command`/`skill`）+ 生成插件命令用的 `prompt`/`skills`；
+     `message.actions` 声明绑定该消息的 `instruction`。旧 `effects` 清单继续兼容。
    - 当前渲染全部声明槽：工具卡、`composer.actions`、`composer.strip`、`composer.tools`、
      `message.actions`、`session.actions`、`panels`、`turn.note`、Web Island。
-   - App：内置 3 个面向用户的样例：天气（MCP 工具卡 + 「查天气」）、写作助手（输入胶囊/
-     状态条/加号工具/消息引用/写作检查面板/会话信息/回合脚注）、专注计时（Web Island
-     25 分钟计时器）。插件中心只展示名称、说明、面板/网页入口，不再把 caps/运行协议当
-     主视觉。会话 `session/create|resume` 带插件 MCP（`mcpServers`），工具行透传
-     `display` 并渲染插件工具卡（折叠后的过程行也保留）。
-   - 交互：加号工具和长按消息用锚定气泡浮层（缩放入场），不再用全屏底部弹窗；长按消息
-     始终带内置「注释」：可写评论、生成编号注释、宠物上方显示注释数、点开注释管理可编辑/
-     删除，发送时把原文+评论一起交给模型，消息下方保留「已注释」标记。插件 message.actions
-     只把 prompt 放进草稿。状态改成贴右侧的呼吸状态点，点击展开完整状态条、再点收起。
+   - 插件运行时：除 App 的 `nibi-go.plugin.json` 外，还生成内核标准
+     `.nibi-plugin/plugin.json` + `commands/*.md` + `skills/*/SKILL.md`，把每个插件目录写进
+     `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；内核按会话解析插件快照，
+     命令由内核展开，技能进入 Skill 目录。MCP 仍由 `session/create|resume.mcpServers` 带入。
+   - App：内置 3 个面向用户的样例：天气（MCP 工具卡 + 「查天气」命令）、写作助手（总结/润色/
+     周报/邮件命令 + 写作检查技能 + 消息注释 + 面板/会话信息/回合脚注）、专注计时
+     （Web Island 25 分钟计时器）。插件中心只展示名称、说明、面板/网页入口。
+   - 输入栏语义：
+     - 加号 = **已安装插件选择器**；选中往 COMPOSE 插入有颜色/图标、不可编辑的插件名
+       token，发送时序列化为 `[@名字](plugin://name@inline)`，内核在模型边界注入
+       `<plugin_reference>`（id/skills/mcp_servers/commands，identifiers-only）。
+     - COMPOSE 上方胶囊 = 插件快捷动作，折叠成多层胶囊按钮，点开向上展开纵向列表；
+       选中插入 `/命令` token（或技能/插件引用 token），由内核展开命令模板，不把提示词
+       塞进输入框。
+     - 长按任意用户/助手消息 → 注释/润色/缩写；插件 message.action 变成**针对这条消息的
+       注释指令**，不再只往草稿里塞 prompt。
+   - 注释：编辑器支持整条/按行/按句选取和系统选区；发送走内核 `conversationQuotes`
+     （`kind=annotation`、`comment`、`instruction`、`number`、`messageKey`、`messageRole`），
+     用户气泡只显示编号引用卡，不复制整条原文；宠物上方数字进入注释管理（编辑/删除），
+     消息下方保留「N 条注释」标记；发送后顶部数字消失。
+   - 其它交互：侧边状态改成贴右缘的圆形呼吸点，可上下拖动，点击展开/收起完整状态条；
+     去掉了宠物左缘的常驻白色渐隐，宠物整只可拖动（包含下半身）；抽屉打开时宠物保持
+     挂载、抽屉覆盖在上层，遮罩降到很淡，不再出现右侧大片阴影。
    - Web Island：`url` 只允许 https，或内联 `html` ≤16KiB；WebView 路由守卫只放行
      `about:blank` 与同源 https，8s 超时/加载失败显示可重试降级页；样例是可交互的
      专注计时器（开始/暂停/重置）。
    - 验证：MCP stdio 手测（initialize/tools/list/tools/call）通过；内核 CLI
      `--mcp-config` 端到端调用成功；Metro Android bundle 200。真机（PHK110 / Android 16）：
-     插件中心 3 个样例与启停、输入胶囊（可横向滚动）、加号气泡工具、消息长按气泡、
-     内置注释（添加/管理/发送）、会话信息里的「总结本会话」、写作检查面板、天气 MCP 工具卡、
-     专注计时器开始/暂停、Web Island 超时降级；抽屉打开时宠物保持挂载、抽屉覆盖在上层，
-     不遮侧栏也不延迟恢复。
+     插件中心 3 个样例与启停、加号插件 token、插件引用 reminder、胶囊命令展开（含 skill
+     列表）、注释（用户/助手、局部选取、发送、管理、删除）、侧边状态展开/收起/拖动、
+     抽屉层级、宠物拖动、天气 MCP 工具卡、专注计时器、Web Island 超时降级。
    - 未做：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）；`copy`/
      `command` 效果当前只提示“暂不支持”；插件设置/命令面、市场与签名/Ed25519 仍属 C2。
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。

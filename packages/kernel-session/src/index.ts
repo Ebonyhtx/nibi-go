@@ -31,11 +31,14 @@ export {
 } from "./rows";
 export { KERNEL_METHODS } from "./protocol";
 export type {
+  KernelConversationQuote,
   KernelMcpServer,
   KernelMessage,
   KernelMessagePart,
   KernelModelSelection,
   KernelNotification,
+  KernelPluginReference,
+  KernelSendTextOptions,
   KernelSessionCreateResult,
   KernelSessionDataPurge,
   KernelSessionSummary,

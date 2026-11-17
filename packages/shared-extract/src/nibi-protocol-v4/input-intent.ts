@@ -1,5 +1,8 @@
 // 来源: nibi-client@ff1c5f4f packages/shared/src/nibi-protocol-v4/input-intent.ts（未改写语义；仅 import 路径按本包布局调整）
-import { conversationQuotesSchema } from "../conversationSelection";
+import {
+  conversationQuotesSchema,
+  pluginReferencesSchema,
+} from "../conversationSelection";
 import { botGroupInputSourceSchema } from "../bots";
 // CLI admission 后的自包含输入事实。
 // queue / guide / runtime / transcript 只能携带同一个 intent，不允许各层重建字段。
@@ -67,6 +70,7 @@ export const conversationInputIntentSchema = z
     inputOrigin: z.enum(["desktop", "mobile"]).optional(),
     botGroupSource: botGroupInputSourceSchema.optional(),
     conversationQuotes: conversationQuotesSchema.optional(),
+    pluginReferences: pluginReferencesSchema.optional(),
     sourceCommandId: z.string().min(1),
     queueItemId: z.string().min(1),
     clientId: z.string().min(1),

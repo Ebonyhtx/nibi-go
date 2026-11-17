@@ -261,4 +261,70 @@ describe("readPluginManifest", () => {
     expect(plugin.manifest.runtime).toBeUndefined();
     expect(plugin.issues.some((issue) => issue.path === "/runtime")).toBe(true);
   });
+
+  it("composer action 可以是命令/skill token，不需要 effects", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          "composer.actions": [
+            {
+              id: "weather",
+              title: "查天气",
+              token: { kind: "command", value: "nibigo-weather-weather" },
+              prompt: "查询天气。\n$ARGUMENTS",
+              skills: ["nibigo-weather:forecast"],
+            },
+            { id: "noprompt", title: "无正文", token: { kind: "command", value: "x" } },
+          ],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.status).toBe("ready");
+    expect(plugin.manifest.contributes.composerActions).toHaveLength(1);
+    expect(plugin.manifest.contributes.composerActions[0]).toMatchObject({
+      id: "weather",
+      token: { kind: "command", value: "nibigo-weather-weather" },
+      skills: ["nibigo-weather:forecast"],
+    });
+    expect(plugin.issues.some((issue) => issue.path.includes("/composer.actions/1/prompt"))).toBe(
+      true,
+    );
+  });
+
+  it("message action 的 instruction 是绑定消息的注释指令", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        contributes: {
+          "message.actions": [
+            { id: "polish", title: "润色", instruction: "把这条消息润色得更清楚。" },
+            { id: "broken", title: "坏的" },
+          ],
+        },
+      }),
+      profile,
+    );
+    expect(plugin.manifest.contributes.messageActions).toHaveLength(1);
+    expect(plugin.manifest.contributes.messageActions[0]?.instruction).toContain("润色");
+    expect(plugin.issues.some((issue) => issue.path.includes("/message.actions/1"))).toBe(true);
+  });
+
+  it("插件级 skills 与 accent 会被保留", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        accent: "ok",
+        skills: [
+          {
+            id: "writing-check",
+            name: "写作检查",
+            description: "检查事实、结构、语气、长度。",
+            body: "# 写作检查\n\n先看事实。",
+          },
+        ],
+      }),
+      profile,
+    );
+    expect(plugin.manifest.accent).toBe("ok");
+    expect(plugin.manifest.skills?.[0]?.id).toBe("writing-check");
+  });
 });

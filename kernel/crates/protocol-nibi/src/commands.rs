@@ -953,15 +953,27 @@ async fn send_text(
         .as_array()
         .cloned()
         .unwrap_or_default();
-    // 规范意图（原文 + 机器人来源 + 引用 + 插件来源）：模型文本按 Node `withConversationQuotes`
-    // 注入，行上仍显示原文。没有意图时不发那条命令（普通输入不写这个键）。
+    // 规范意图（原文 + 机器人来源 + 引用 + 插件引用 + 插件来源）：模型文本按 Node
+    // `withConversationQuotes` / `plugin_reference` 注入，行上仍显示原文。
+    // 没有意图时不发那条命令（普通输入不写这个键）。
     let source = payload.get("botGroupSource").filter(|value| value.is_object());
     let quotes = payload
         .get("conversationQuotes")
         .filter(|value| value.as_array().is_some_and(|items| !items.is_empty()));
+    let plugin_references = payload
+        .get("pluginReferences")
+        .filter(|value| value.as_array().is_some_and(|items| !items.is_empty()));
     let input_source = payload.get("source").filter(|value| !value.is_null());
-    let intent = conversation_intent::canonical(&text, command, source, quotes, input_source);
-    let model_text = conversation_intent::model_text(&text, quotes, source);
+    let intent = conversation_intent::canonical(
+        &text,
+        command,
+        source,
+        quotes,
+        input_source,
+        plugin_references,
+    );
+    let model_text =
+        conversation_intent::model_text(&text, quotes, plugin_references, source);
     if intent.is_some() {
         // 先记意图再提交：消息落库时按开启本回合的命令取走（同一事务写进消息元数据）。
         send(
@@ -2497,6 +2509,10 @@ async fn edit_user_query(
         .payload
         .get("conversationQuotes")
         .filter(|quotes| quotes.as_array().is_some_and(|items| !items.is_empty()));
+    let plugin_references = envelope
+        .payload
+        .get("pluginReferences")
+        .filter(|references| references.as_array().is_some_and(|items| !items.is_empty()));
     let Some(new_text) = envelope.payload["newText"].as_str().map(str::to_owned) else {
         return Ack::refused(
             command,
@@ -2581,7 +2597,8 @@ async fn edit_user_query(
     }
     // 带附件时连同图片内容块重发（attachment-only 的改写也在这里落成同一条写路径）。
     // 行上仍是原文，模型拿注入后的文本。
-    let model_text = conversation_intent::model_text(&new_text, quotes, None);
+    let model_text =
+        conversation_intent::model_text(&new_text, quotes, plugin_references, None);
     let submit = if refs.is_empty() {
         Command::Submit {
             text: model_text,
