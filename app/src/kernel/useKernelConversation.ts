@@ -142,6 +142,12 @@ export interface KernelConversation {
   /** 当前会话快照里的权限模式与计划开关。 */
   sessionMode: "build" | "guarded" | "yolo";
   sessionPlanEnabled: boolean;
+  /** 上下文窗口占用与缓存命中率（会话快照 usage.contextWindow）。 */
+  contextUsage: {
+    usedTokens: number;
+    maxTokens: number;
+    cacheHitRate: number | null;
+  } | null;
   ready: boolean;
   sending: boolean;
   /** 未归档的会话（抽屉主列表）。 */
@@ -185,6 +191,11 @@ export function useKernelConversation(): KernelConversation {
   } | null>(null);
   const [sessionMode, setSessionMode] = useState<"build" | "guarded" | "yolo">("build");
   const [sessionPlanEnabled, setSessionPlanEnabled] = useState(false);
+  const [contextUsage, setContextUsage] = useState<{
+    usedTokens: number;
+    maxTokens: number;
+    cacheHitRate: number | null;
+  } | null>(null);
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
   // 内核返回的全部顶层会话（含已归档）；列表按本地归档集合拆成两份。
@@ -289,6 +300,24 @@ export function useKernelConversation(): KernelConversation {
     }
   }, []);
 
+  const syncContextUsage = useCallback((controller: ConversationController) => {
+    const usage = controller.snapshot?.usage.contextWindow;
+    if (!usage) {
+      setContextUsage(null);
+      return;
+    }
+    const cumulative = controller.snapshot?.usage.cumulative;
+    const fallbackHitRate =
+      cumulative && cumulative.inputTokens > 0
+        ? cumulative.cacheReadTokens / cumulative.inputTokens
+        : null;
+    setContextUsage({
+      usedTokens: usage.usedTokens,
+      maxTokens: usage.maxTokens,
+      cacheHitRate: usage.cache?.hitRate ?? fallbackHitRate,
+    });
+  }, []);
+
   // 轮末改动卡：对最近结束的几轮取 `v4/conversation/fileChanges`（按轮头行 + 快照水位）。
   // 只取最近 3 轮，避免会话一打开就对几十条历史轮各发一次 RPC。
   const syncTurnChanges = useCallback((controller: ConversationController) => {
@@ -343,6 +372,7 @@ export function useKernelConversation(): KernelConversation {
     controller.subscribe(() => {
       setRows([...controller.rows]);
       setTurn(controller.turn);
+      syncContextUsage(controller);
       syncPending(controller);
       syncTurnChanges(controller);
     });
@@ -355,6 +385,7 @@ export function useKernelConversation(): KernelConversation {
     await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
+    setContextUsage(null);
     void client
       .request<{ skills?: KernelSkillReference[] }>("skills/referenceCatalog", {
         workspace: workspaceRef(),
@@ -770,6 +801,7 @@ export function useKernelConversation(): KernelConversation {
     currentModelSelection,
     sessionMode,
     sessionPlanEnabled,
+    contextUsage,
     ready,
     sending,
     sessions,

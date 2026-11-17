@@ -1,6 +1,7 @@
 // 思考强度滑轨：对齐 NIBI 客户端的组合模型菜单里的效果。
 //
-// 轨道是绿→蓝渐变，白色圆钮可拖；填充上方有 slow sheen，底部有少量浮叶。
+// 轨道按 NIBI 客户端的思考条：蓝紫→橙渐变、透明拖拽区（不画可见圆钮）、
+// 4px 白色停靠点、流光和浮叶；到最高档时填充铺满整条轨道。
 // 全部用 Animated 实现，不引 Reanimated；层数控制在小屏可接受的范围。
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -46,7 +47,7 @@ export function thinkingLevelLabel(value: string): string {
   return LEVEL_LABELS[value] ?? value;
 }
 
-const LEAF_COLORS = ["#3f8f6a", "#5a86b8", "#756df3", "#d99554", "#6aa27a", "#527bb0"];
+const LEAF_COLORS = ["#e88238", "#756df3", "#68a071", "#587ba8", "#c57a45", "#948cff"];
 
 function Leaf({ index }: { index: number }) {
   const drift = useRef(new Animated.Value(0)).current;
@@ -126,7 +127,6 @@ export function ThinkingRail({
 }) {
   const t = useNibiTheme();
   const [width, setWidth] = useState(0);
-  const progress = useRef(new Animated.Value(0)).current;
   const sheen = useRef(new Animated.Value(0)).current;
   const currentIndex = Math.max(
     0,
@@ -134,16 +134,6 @@ export function ThinkingRail({
   );
   const ratio = levels.length > 1 ? currentIndex / (levels.length - 1) : 0;
   const current = levels[currentIndex];
-
-  useEffect(() => {
-    Animated.spring(progress, {
-      toValue: ratio,
-      useNativeDriver: true,
-      damping: 16,
-      stiffness: 180,
-      mass: 0.7,
-    }).start();
-  }, [progress, ratio]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -181,25 +171,38 @@ export function ThinkingRail({
 
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
 
+  const peak = ratio >= 0.995;
   return (
     <View style={styles.root}>
+      <View style={styles.caption}>
+        <Text style={[styles.captionLabel, { color: t.inkFaint }]}>思考强度</Text>
+        <Text style={[styles.captionValue, { color: t.ink }]}>
+          {current ? thinkingLevelLabel(current.value) : "—"}
+        </Text>
+      </View>
       <View
-        style={[styles.track, { borderColor: t.hairline, backgroundColor: t.panel }]}
+        style={[styles.track, { borderColor: t.hairline }]}
         onLayout={onLayout}
         {...responder.panHandlers}
       >
         <LinearGradient
-          colors={["#2f9e6f", "#2f7fb8", "#5b6ee1", "#7a6cf0"]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
+          colors={["rgba(117,109,243,0.05)", "rgba(236,130,56,0.04)", "rgba(104,160,113,0.04)"]}
+          locations={[0, 0.46, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
           style={styles.trackTint}
         />
         <View style={styles.fillClip}>
           <LinearGradient
-            colors={["#2f9e6f", "#2f7fb8", "#5b6ee1", "#7a6cf0"]}
+            colors={["rgba(88,123,168,0.68)", "rgba(117,109,243,0.54)", "rgba(236,130,56,0.56)"]}
+            locations={[0, 0.45, 1]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
-            style={[styles.fill, { width: `${Math.max(3, ratio * 100)}%` }]}
+            style={[
+              styles.fill,
+              peak ? styles.fillPeak : null,
+              { width: peak ? "100%" : `${Math.max(2, ratio * 100)}%` },
+            ]}
           />
         </View>
         <Animated.View
@@ -207,9 +210,14 @@ export function ThinkingRail({
           style={[
             styles.sheen,
             {
-              opacity: 0.55,
+              opacity: 0.42,
               transform: [
-                { translateX: sheen.interpolate({ inputRange: [0, 1], outputRange: [-24, Math.max(24, width * ratio)] }) },
+                {
+                  translateX: sheen.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-32, Math.max(24, width * ratio)],
+                  }),
+                },
               ],
             },
           ]}
@@ -223,42 +231,17 @@ export function ThinkingRail({
                 style={[
                   styles.stop,
                   {
-                    backgroundColor: active ? "#ffffff" : "rgba(255,255,255,0.55)",
-                    opacity: active ? 1 : 0.65,
-                    transform: [{ scale: index === currentIndex ? 1.45 : 1 }],
+                    opacity: index === currentIndex ? 1 : active ? 0.75 : 0.45,
+                    transform: [{ scale: index === currentIndex ? 1.55 : 1 }],
                   },
                 ]}
               />
             );
           })}
         </View>
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.knob,
-            {
-              backgroundColor: t.card,
-              borderColor: "rgba(255,255,255,0.8)",
-              transform: [
-                {
-                  translateX: progress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, Math.max(0, width - 22)],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        {Array.from({ length: 8 }, (_, index) => (
+        {Array.from({ length: 20 }, (_, index) => (
           <Leaf key={index} index={index} />
         ))}
-      </View>
-      <View style={styles.caption}>
-        <Text style={[styles.captionLabel, { color: t.inkFaint }]}>思考强度</Text>
-        <Text style={[styles.captionValue, { color: t.ink }]}>
-          {current ? thinkingLevelLabel(current.value) : "—"}
-        </Text>
       </View>
     </View>
   );
@@ -267,22 +250,23 @@ export function ThinkingRail({
 const styles = StyleSheet.create({
   root: { gap: space(1.5) },
   track: {
-    height: 34,
+    height: 36,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     justifyContent: "center",
   },
   trackTint: { ...StyleSheet.absoluteFill, opacity: 0.08 },
-  fillClip: { ...StyleSheet.absoluteFill, justifyContent: "center", paddingHorizontal: 4 },
-  fill: { height: 22, borderRadius: radius.chip },
+  fillClip: { ...StyleSheet.absoluteFill, justifyContent: "center" },
+  fill: { height: 6, borderRadius: 3, opacity: 0.56 },
+  fillPeak: { height: 36, borderRadius: 0, opacity: 0.56 },
   sheen: {
     position: "absolute",
-    top: 11,
+    top: 16,
     height: 4,
-    width: 22,
+    width: 44,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.55)",
+    backgroundColor: "rgba(255,255,255,0.8)",
   },
   stops: {
     ...StyleSheet.absoluteFill,
@@ -291,21 +275,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
   },
-  stop: { width: 4, height: 4, borderRadius: 2 },
-  knob: {
+  stop: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#ffffff" },
+  leaf: {
     position: "absolute",
-    left: 3,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    bottom: 10,
+    borderTopLeftRadius: 7,
+    borderBottomRightRadius: 7,
+    borderTopRightRadius: 2,
+    borderBottomLeftRadius: 2,
+    transform: [{ rotate: "-14deg" }],
   },
-  leaf: { position: "absolute", bottom: 9, borderRadius: 4, transform: [{ rotate: "-12deg" }] },
   caption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   captionLabel: { fontSize: 10.5 },
   captionValue: { fontSize: 12, fontWeight: "700" },
