@@ -336,8 +336,8 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   `composer.actions`/`composer.tools` 只声明 token + 命令正文，不把长提示词塞进 COMPOSE；
 - 统一 COMPOSE 目录（`app/src/composer/catalog.ts`/`preferences.ts`）：附件、NIBI 命令、
   插件命令、插件卡片、技能、消息动作共用稳定 id；设置页 `/settings/composer` 分别配置
-  胶囊、加号分组和长按消息菜单的启用/顺序，目录异步加载时保留未知 id；计划模式/退出计划
-  走 `session/setMode` 立即切换；
+  胶囊、加号分组和长按消息菜单的启用/顺序，目录异步加载时保留未知 id；计划模式是
+  COMPOSE 内的独立令牌，发送时随 `planEnabled` 提交，不重置权限模式；
 - 插件目录除 App 清单外同时生成 `.nibi-plugin/plugin.json` + `commands/` + `skills/`，
   写进 `~/.nibi/cli/config.json` 的 `plugins.dirs`/`enabledPlugins`；MCP 仍走
   `session/create|resume.mcpServers`；
