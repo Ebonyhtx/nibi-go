@@ -96,6 +96,13 @@ export default function SettingsHomeScreen() {
             detail="胶囊、加号菜单、长按消息菜单的启用与排序"
             onPress={() => router.push("/settings/composer")}
           />
+          <Row
+            icon="sparkles"
+            title="会话"
+            detail="思考与工具调用的显示方式"
+            onPress={() => router.push("/settings/conversation")}
+            last
+          />
         </Section>
 
         <Section title="模型">
@@ -122,7 +129,7 @@ export default function SettingsHomeScreen() {
           <View style={styles.about}>
             <Text style={[styles.aboutTitle, { color: t.ink }]}>NIBI-GO</Text>
             <Text style={[styles.aboutDetail, { color: t.inkFaint }]}>
-              版本 {version} · 本机内核 · 数据不出机
+              版本 {version} · 本机内核 · 模型请求按当前 Provider 发出
             </Text>
           </View>
         </Section>

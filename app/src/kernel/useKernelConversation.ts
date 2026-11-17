@@ -6,6 +6,7 @@ import { Paths } from "expo-file-system";
 import {
   ConversationController,
   ConversationFeed,
+  KernelProtocolError,
   KernelSessionClient,
   type ChatFileChange,
   type ChatRow,
@@ -82,9 +83,12 @@ async function createWithDefaultModel(client: KernelSessionClient) {
           : {}),
       };
     }
-  } catch {
-    // 老内核没有 provider/state：按内核自己的缺省建会话。
+  } catch (error) {
+    // 只有“老内核没有这条 RPC”才允许交给内核缺省；冷启动超时/通道被顶掉时必须让调用方
+    // 看到失败，否则会静默建出一个内核默认模型（曾因此把 mock 写进会话并一路沿用）。
+    if (!(error instanceof KernelProtocolError) || error.code !== -32601) throw error;
   }
+  if (!model) throw new Error("没有可用的默认模型：请先在设置里配置 Provider");
   return client.createSession(workspaceRef(), model, await pluginMcpServers());
 }
 
@@ -156,6 +160,8 @@ export interface KernelConversation {
   archivedSessions: readonly KernelSessionSummary[];
   activeSessionId: string | null;
   send: (text: string, options?: KernelSendOptions) => Promise<void>;
+  /** 压缩上下文（内核 `compact`）；返回错误文案，成功为 null。 */
+  compact: () => Promise<string | null>;
   newSession: () => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
   /** 归档一条会话（隐藏出主列表，可在归档管理里恢复或删除）。 */
@@ -457,17 +463,25 @@ export function useKernelConversation(): KernelConversation {
         if (cancelled) return;
         // 启动恢复「最近一条有消息的会话」；全空则停在最新一条，不每次多建。
         let opened = false;
-        for (const candidate of list.slice(0, 3)) {
-          rememberSessionSnapshot(await resumeWithPlugins(client, candidate.sessionId));
+        // 空草稿会堆在列表最前面；只翻前 3 条会停在空草稿上。这里多翻一些，
+        // 优先恢复“最近一条有消息的会话”。
+        for (const candidate of list.slice(0, 12)) {
+          const snapshot = await resumeWithPlugins(client, candidate.sessionId);
           const messages = await client.readMessages({ limit: 1 });
           if (messages.length > 0) {
+            // 只有真的有消息的会话才认它的模型/模式；空草稿的模型可能是内核旧缺省，
+            // 认下来会把“默认模型”永久顶掉（mockgateway 就是这样写进会话的）。
+            rememberSessionSnapshot(snapshot);
             opened = true;
             break;
           }
         }
         if (!opened) {
-          if (list.length > 0) rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
-          else rememberSessionSnapshot(await createWithDefaultModel(client));
+          if (list.length > 0) {
+            rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
+          } else {
+            rememberSessionSnapshot(await createWithDefaultModel(client));
+          }
         }
         const sessionId = client.currentSessionId;
         if (cancelled || !sessionId) return;
@@ -650,6 +664,24 @@ export function useKernelConversation(): KernelConversation {
     [refreshSessions],
   );
 
+  /**
+   * 压缩上下文（内核 `compact` 命令）。
+   *
+   * 不走发送链路：没有用户气泡，进度与结果由内核的 timelineMarker 行给出。
+   */
+  const compact = useCallback(async (): Promise<string | null> => {
+    const client = clientRef.current;
+    if (!client || client.currentSessionId === null) return "没有可以压缩的会话";
+    try {
+      await client.compact();
+      return null;
+    } catch (error) {
+      const message = `压缩失败：${error instanceof Error ? error.message : String(error)}`;
+      setStatus(message);
+      return message;
+    }
+  }, []);
+
   const newSession = useCallback(async () => {
     const client = clientRef.current;
     if (!client) return;
@@ -808,6 +840,7 @@ export function useKernelConversation(): KernelConversation {
     archivedSessions,
     activeSessionId,
     send,
+    compact,
     newSession,
     openSession,
     archiveSession,
