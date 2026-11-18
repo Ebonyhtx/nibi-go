@@ -581,6 +581,7 @@ fn admin_summary(
         personal: summary.personal,
         enabled: summary.enabled,
         template: summary.template,
+        logo_key: summary.logo_key,
         default_reasoning: summary.default_reasoning,
         model_info,
     }
@@ -593,6 +594,7 @@ fn admin_preset(preset: ProviderPreset) -> ProviderAdminPreset {
         base_url: preset.base_url,
         protocol: preset.protocol,
         models: preset.models,
+        logo_key: preset.logo_key,
     }
 }
 

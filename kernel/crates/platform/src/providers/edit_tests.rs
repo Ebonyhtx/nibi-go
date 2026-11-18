@@ -101,6 +101,13 @@ fn the_preset_list_covers_third_party_apis_and_upstream_model_endpoints() {
     // 上游的模型端点也保留（用户可以用自己的 key 用它的模型），只是不接账号与会员。
     assert!(presets.iter().any(|preset| preset.id == "zai-api"));
     assert!(presets.iter().any(|preset| preset.id == "bigmodel-api"));
+    // 内置品牌标志的 key 从模板的 config.logo 带出来（bigmodel 只有 SVG，不在 App 的 PNG 表里，
+    // 但内核照样如实给出）。
+    let deepseek = presets
+        .iter()
+        .find(|preset| preset.id == "deepseek")
+        .unwrap();
+    assert_eq!(deepseek.logo_key.as_deref(), Some("deepseek"));
 }
 
 #[tokio::test]
@@ -132,6 +139,49 @@ async fn a_preset_inherits_the_template_models() {
         .unwrap();
     assert!(summary.models.contains(&"deepseek-v4-pro".to_owned()));
     assert_eq!(summary.template.as_deref(), Some("deepseek"));
+    // 个人规则只存 templateId：标志从模板预设补出来。
+    assert_eq!(summary.logo_key.as_deref(), Some("deepseek"));
+}
+
+#[test]
+fn a_personal_rule_inherits_its_template_logo_when_merging_an_existing_provider() {
+    let mut builtin = builtin();
+    builtin["providerConfigRules"]["providerRules"] = serde_json::json!([{
+        "providerId": "shared",
+        "providerName": "Shared",
+        "config": {
+            "api": {"type": "openai-chat-completions", "baseUrl": "https://example.com/v1"},
+            "logo": {"type": "builtin", "key": "deepseek"},
+        },
+    }]);
+    let personal = |rule: Value| {
+        serde_json::json!({"providerConfigRules": {"providerRules": [rule]}})
+    };
+    let logo_of = |personal: &Value| {
+        summaries(&builtin, personal)
+            .into_iter()
+            .find(|entry| entry.id == "shared")
+            .unwrap()
+            .logo_key
+    };
+
+    // 没有 templateId、自己也没 logo：保留内置规则已有的标志。
+    assert_eq!(
+        logo_of(&personal(serde_json::json!({
+            "providerId": "shared",
+            "config": {},
+        }))),
+        Some("deepseek".to_owned())
+    );
+    // 带 templateId：标志从模板预设补出来。
+    assert_eq!(
+        logo_of(&personal(serde_json::json!({
+            "providerId": "shared",
+            "templateId": "openai",
+            "config": {},
+        }))),
+        Some("openai".to_owned())
+    );
 }
 
 #[tokio::test]
