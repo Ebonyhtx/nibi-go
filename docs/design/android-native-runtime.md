@@ -239,12 +239,20 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   替身并标记“已降级”，单条过坏只丢该条。
 - **效果**：`insert/toast/copy/open/link/command/refresh`，每次 ≤4；`insert` 只改草稿、
   永不自动发送；`link` 只收无凭据 https；`command` 不能叫 permission；3 秒点按窗口由
-  App 执行。`copy`/`command` 当前没有原生桥，执行时如实提示暂不支持。
+  App 执行。`copy` 写系统剪贴板（失败如实提示）；`command` 走宿主命令白名单
+  （`newSession`/`openPlugins`/`openProvider`/`openComposerSettings`/
+  `openConversationSettings`/`openSessions`/`compact`），表外命令与当前页面不支持的
+  动作都如实提示，权限/模式切换不在白名单内。
 - **工具卡路径（不改内核协议）**：插件 MCP 工具在 `tools/list` 的
   `_meta.ui.resourceUri` 让内核投影出 `display.kind="mcp_tool"`；结果里的
   `structuredContent` 与 `_meta` 分别进 `display.ui.structuredContent` /
   `display.ui.widgetMeta`。App 用 `display.ui.pluginId`（= 服务器名）与 `toolName`
   匹配清单里的 `toolCards`，数据绑定到 `data.tool.structured`。
+- **槽数据推送（v1，2026-11-18）**：插件在 MCP 工具结果的 `_meta.nibiGo.push` 里带一份
+  ≤16KiB、≤16 个顶层键的 JSON；App 按轮收集（工具行、toolGroup、process 里的都算），
+  作为该插件槽的 `data.push`（`turn.note` 用 `{{data.push.note.label}}` 绑定）。数据随
+  工具结果落库，重启后仍在；同一轮后到的结果覆盖同名键，坏 JSON 只丢该条。没有请求的
+  主动推送（计时器类每秒更新）仍开放，需要一条从插件进程到 App 的常驻通道。
 - **宿主**：内置插件首次启动写到 `filesDir/plugins/<dir>/`；MCP 入口用随包 Node 以
   `node server.mjs` 启动，经 `session/create|resume.mcpServers` 交给内核（内核不持久化
   这份配置，恢复时要再带一次）。MCP 子进程走内核的环境白名单，拿不到 Provider key。
@@ -266,8 +274,12 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   会话信息里的「总结本会话」、写作检查面板、天气 MCP 工具经审批后工具卡渲染（折叠过程行
   里也保留）、专注计时器开始/暂停、Web Island 超时降级、抽屉打开时宠物保持挂载。x86_64
   模拟器跑不了 arm64 内核，不作为验收环境。
-- **未做**：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）、`copy`/
-  `command` 的原生桥、插件设置/命令面、插件市场与签名。
+- **插件设置与命令面（2026-11-18）**：清单顶层 `settings`（≤8，text/toggle/select，
+  逐条隔离）在插件中心展开成表单；保存进 `filesDir/nibi-plugin-settings.json`，生效值
+  同时进 MCP 启动 env `NIBIGO_SETTINGS` 与槽数据 `data.host.settings`。同一处只读列出
+  插件的命令（`/名字`）与技能，运行仍走对话里的命令/技能入口。
+- **未做**：无请求的常驻数据推送（v1 只做工具结果随推 `_meta.nibiGo.push`）、插件市场
+  与签名/Ed25519（C2）。
 
 ## 8. 手机操控
 

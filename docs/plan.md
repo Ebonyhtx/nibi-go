@@ -442,8 +442,9 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      插件中心 3 个样例与启停、加号插件 token、插件引用 reminder、胶囊命令展开（含 skill
      列表）、注释（用户/助手、局部选取、发送、管理、删除）、侧边状态展开/收起/拖动、
      抽屉层级、宠物拖动、天气 MCP 工具卡、专注计时器、Web Island 超时降级。
-   - 未做：动态数据推送（当前槽数据来自宿主/工具结果，没有插件推送通道）；`copy`/
-     `command` 效果当前只提示“暂不支持”；插件设置/命令面、市场与签名/Ed25519 仍属 C2。
+   - 未做：主动数据推送（v1 已支持工具结果随推 `_meta.nibiGo.push` → 槽的 `data.push`；
+     无请求的常驻推送仍开放）；插件市场与签名/Ed25519 仍属 C2。插件设置（text/toggle/select，
+     随 MCP 启动 env 与 `data.host.settings` 生效）与命令/技能面已在插件中心落地。
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
 6. workspace/策略/指标：配额、路径策略、cwd/env、审批、50 命令矩阵。
 

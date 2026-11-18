@@ -20,6 +20,7 @@ import type {
   ParsedPlugin,
   PluginManifest,
   PluginRuntime,
+  PluginSetting,
   PluginSkillContribution,
   SessionActionContribution,
   StripContribution,
@@ -626,6 +627,112 @@ function readTurnNotes(raw: unknown, issues: ContractIssue[]): TurnNoteContribut
   return notes;
 }
 
+const SETTINGS_LIMIT = 8;
+
+/** 插件设置项：逐条隔离，坏的一项只丢这一项（其余槽照旧）。 */
+function readSettings(raw: unknown, issues: ContractIssue[]): PluginSetting[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/settings", message: "settings 必须是数组" });
+    return undefined;
+  }
+  if (raw.length > SETTINGS_LIMIT) {
+    issues.push({
+      path: "/settings",
+      message: `settings 最多 ${SETTINGS_LIMIT} 项，已丢弃多出的 ${raw.length - SETTINGS_LIMIT} 项`,
+    });
+  }
+  const settings: PluginSetting[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, SETTINGS_LIMIT).entries()) {
+    const path = `/settings/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "设置项必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || !title || [...title].length > 64) {
+      issues.push({ path, message: "设置项需要合法 id 与 ≤64 字标题" });
+      continue;
+    }
+    if (seen.has(id)) {
+      issues.push({ path, message: `重复的设置 id：${id}` });
+      continue;
+    }
+    const description =
+      typeof value.description === "string" && value.description.trim()
+        ? [...value.description.trim()].slice(0, 120).join("")
+        : undefined;
+    const base = { id, title, ...(description ? { description } : {}) };
+    if (value.type === "toggle") {
+      settings.push({
+        ...base,
+        type: "toggle",
+        ...(typeof value.default === "boolean" ? { default: value.default } : {}),
+      });
+      seen.add(id);
+      continue;
+    }
+    if (value.type === "text") {
+      const placeholder =
+        typeof value.placeholder === "string" && value.placeholder.trim()
+          ? [...value.placeholder.trim()].slice(0, 64).join("")
+          : undefined;
+      const maxLength =
+        typeof value.maxLength === "number" &&
+        Number.isInteger(value.maxLength) &&
+        value.maxLength > 0 &&
+        value.maxLength <= 2_000
+          ? value.maxLength
+          : undefined;
+      const fallback =
+        typeof value.default === "string"
+          ? [...value.default].slice(0, maxLength ?? 256).join("")
+          : undefined;
+      settings.push({
+        ...base,
+        type: "text",
+        ...(fallback ? { default: fallback } : {}),
+        ...(placeholder ? { placeholder } : {}),
+        ...(maxLength ? { maxLength } : {}),
+      });
+      seen.add(id);
+      continue;
+    }
+    if (value.type === "select") {
+      const options: Array<{ value: string; label: string }> = [];
+      for (const option of Array.isArray(value.options) ? value.options : []) {
+        const entry =
+          typeof option === "object" && option !== null
+            ? (option as Record<string, unknown>)
+            : {};
+        const optionValue = typeof entry.value === "string" ? entry.value.trim() : "";
+        const label = typeof entry.label === "string" ? entry.label.trim() : "";
+        if (!optionValue || !label || optionValue.length > 64 || label.length > 64) continue;
+        if (options.some((existing) => existing.value === optionValue)) continue;
+        options.push({ value: optionValue, label });
+        if (options.length === 8) break;
+      }
+      if (options.length === 0) {
+        issues.push({ path, message: "select 设置需要至少一个选项" });
+        continue;
+      }
+      const fallback =
+        typeof value.default === "string" &&
+        options.some((option) => option.value === value.default)
+          ? value.default
+          : options[0]!.value;
+      settings.push({ ...base, type: "select", default: fallback, options });
+      seen.add(id);
+      continue;
+    }
+    issues.push({ path, message: "设置类型只能是 text/toggle/select" });
+  }
+  return settings.length > 0 ? settings : undefined;
+}
+
 function readWebIslands(raw: unknown, issues: ContractIssue[]): WebIslandContribution[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
@@ -759,6 +866,7 @@ export function readPluginManifest(
   const strips = readStrips(contributesRaw["composer.strip"], issues);
   const turnNotes = readTurnNotes(contributesRaw["turn.note"], issues);
   const webIslands = readWebIslands(contributesRaw.webIslands, issues);
+  const settings = readSettings(raw.settings, issues);
 
   const manifest: PluginManifest = {
     schemaVersion: 1,
@@ -773,6 +881,7 @@ export function readPluginManifest(
       ? { skills: basicsValue.skills as PluginSkillContribution[] }
       : {}),
     ...(runtime.runtime ? { runtime: runtime.runtime } : {}),
+    ...(settings ? { settings } : {}),
     contributes: {
       toolCards,
       composerActions,

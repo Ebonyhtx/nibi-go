@@ -344,6 +344,7 @@ export function PluginComposerStrip({ plugins }: { plugins: readonly LoadedPlugi
         name: current.plugin.parsed.manifest.name,
         version: current.plugin.parsed.manifest.version,
       },
+      settings: current.plugin.settings,
     }),
   );
   if (text.trim().length === 0) return null;

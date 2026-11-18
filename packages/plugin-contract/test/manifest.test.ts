@@ -355,4 +355,58 @@ describe("readPluginManifest", () => {
     expect(plugin.manifest.accent).toBe("ok");
     expect(plugin.manifest.skills?.[0]?.id).toBe("writing-check");
   });
+
+  it("settings：保留 text/toggle/select，坏项只丢该条", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        settings: [
+          { id: "city", title: "默认城市", type: "text", default: "北京", maxLength: 20 },
+          { id: "verbose", title: "详细输出", type: "toggle", default: true },
+          {
+            id: "mode",
+            title: "模式",
+            type: "select",
+            options: [
+              { value: "quick", label: "快速" },
+              { value: "deep", label: "深入" },
+            ],
+          },
+          { id: "Bad Id", title: "坏 id", type: "text" },
+          { id: "empty", title: "空选择", type: "select", options: [] },
+          { id: "weird", title: "未知类型", type: "slider" },
+        ],
+      }),
+      profile,
+    );
+    expect(plugin.manifest.settings).toEqual([
+      { id: "city", title: "默认城市", type: "text", default: "北京", maxLength: 20 },
+      { id: "verbose", title: "详细输出", type: "toggle", default: true },
+      {
+        id: "mode",
+        title: "模式",
+        type: "select",
+        default: "quick",
+        options: [
+          { value: "quick", label: "快速" },
+          { value: "deep", label: "深入" },
+        ],
+      },
+    ]);
+    expect(plugin.issues.filter((issue) => issue.path.startsWith("/settings"))).toHaveLength(3);
+  });
+
+  it("settings 超过 8 项只保留前 8 项", () => {
+    const plugin = readPluginManifest(
+      manifest({
+        settings: Array.from({ length: 10 }, (_, index) => ({
+          id: `s${index}`,
+          title: `设置 ${index}`,
+          type: "toggle",
+        })),
+      }),
+      profile,
+    );
+    expect(plugin.manifest.settings).toHaveLength(8);
+    expect(plugin.issues.some((issue) => issue.path === "/settings")).toBe(true);
+  });
 });

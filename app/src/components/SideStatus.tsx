@@ -220,6 +220,7 @@ export function SideStatus({
             name: current.plugin.parsed.manifest.name,
             version: current.plugin.parsed.manifest.version,
           },
+          settings: current.plugin.settings,
         }),
       ).trim()
     : "";

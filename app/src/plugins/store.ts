@@ -32,6 +32,8 @@ export interface LoadedPlugin {
   bundled: boolean;
   /** MCP 入口的绝对路径（没有 runtime 时为 undefined）。 */
   entryPath?: string;
+  /** 生效的设置值（清单默认值 + 用户保存值；已按类型收敛）。 */
+  settings: Record<string, string | boolean>;
 }
 
 interface PluginState {
@@ -39,8 +41,15 @@ interface PluginState {
   disabled: string[];
 }
 
+/** 插件设置：`{ "<manifest id>": { "<setting id>": value } }`；只存用户改过的值。 */
+interface PluginSettingsState {
+  version: 1;
+  plugins: Record<string, Record<string, unknown>>;
+}
+
 const PLUGINS_DIR = "plugins";
 const STATE_FILE = "nibi-plugins.json";
+const SETTINGS_FILE = "nibi-plugin-settings.json";
 const KERNEL_MANIFEST_DIR = ".nibi-plugin";
 const KERNEL_COMMANDS_DIR = "commands";
 const KERNEL_SKILLS_DIR = "skills";
@@ -267,10 +276,79 @@ async function writeDisabled(disabled: Set<string>): Promise<void> {
   );
 }
 
+function settingsFile(): File {
+  return new File(Paths.document, SETTINGS_FILE);
+}
+
+async function readSettings(): Promise<Record<string, Record<string, unknown>>> {
+  try {
+    const file = settingsFile();
+    if (!file.exists) return {};
+    const parsed = JSON.parse(await file.text()) as PluginSettingsState | null;
+    const plugins = record(parsed?.plugins) ?? {};
+    const result: Record<string, Record<string, unknown>> = {};
+    for (const [id, values] of Object.entries(plugins)) {
+      const entry = record(values);
+      if (entry) result[id] = entry;
+    }
+    return result;
+  } catch (error) {
+    console.warn("[nibigo] 读取插件设置失败", error);
+    return {};
+  }
+}
+
+async function writeSettings(plugins: Record<string, Record<string, unknown>>): Promise<void> {
+  await settingsFile().write(
+    `${JSON.stringify({ version: 1, plugins }, null, 2)}\n`,
+  );
+}
+
+/** 生效值：清单默认值被用户保存值覆盖，并收敛到声明类型（坏值退回默认）。 */
+function effectiveSettings(
+  manifest: ParsedPlugin["manifest"],
+  stored: Record<string, unknown> | undefined,
+): Record<string, string | boolean> {
+  const values: Record<string, string | boolean> = {};
+  for (const setting of manifest.settings ?? []) {
+    const raw = stored?.[setting.id];
+    if (setting.type === "toggle") {
+      values[setting.id] =
+        typeof raw === "boolean" ? raw : (setting.default ?? false);
+      continue;
+    }
+    if (setting.type === "text") {
+      values[setting.id] =
+        typeof raw === "string"
+          ? raw.slice(0, setting.maxLength ?? 256)
+          : (setting.default ?? "");
+      continue;
+    }
+    const allowed = setting.options.some((option) => option.value === raw);
+    values[setting.id] =
+      typeof raw === "string" && allowed
+        ? raw
+        : (setting.default ?? setting.options[0]?.value ?? "");
+  }
+  return values;
+}
+
+/** 保存一项设置（按 manifest id 存）；未知插件的写入忽略。 */
+export async function setPluginSetting(
+  id: string,
+  key: string,
+  value: string | boolean,
+): Promise<void> {
+  const plugins = await readSettings();
+  plugins[id] = { ...(plugins[id] ?? {}), [key]: value };
+  await writeSettings(plugins);
+}
+
 /** 读全部内置插件（含 incompatible/invalid，插件中心要能解释为什么不可用）。 */
 export async function loadPlugins(): Promise<LoadedPlugin[]> {
   await ensurePluginFiles();
   const disabled = await readDisabled();
+  const stored = await readSettings();
   const profile = hostProfile();
   return BUNDLED_PLUGINS.map((spec) => {
     const dir = new Directory(Paths.document, PLUGINS_DIR, spec.dir);
@@ -292,6 +370,7 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
       parsed,
       enabled: parsed.status === "ready" && !disabled.has(parsed.manifest.id),
       bundled: true,
+      settings: effectiveSettings(parsed.manifest, stored[parsed.manifest.id]),
       ...(entryPath ? { entryPath } : {}),
     };
   });
@@ -318,10 +397,15 @@ export function pluginMcpServers(plugins: readonly LoadedPlugin[]): KernelMcpSer
     const runtime = plugin.parsed.manifest.runtime;
     if (!runtime || !plugin.entryPath || seen.has(runtime.serverName)) continue;
     seen.add(runtime.serverName);
+    const keys = Object.keys(plugin.settings);
     servers.push({
       name: runtime.serverName,
       command: "node",
       args: [plugin.entryPath],
+      // 设置随启动 env 给 MCP 子进程（不含凭据；值来自插件中心）。
+      ...(keys.length > 0
+        ? { env: [{ name: "NIBIGO_SETTINGS", value: JSON.stringify(plugin.settings) }] }
+        : {}),
       alwaysLoad: runtime.alwaysLoad ?? true,
       ...(runtime.timeoutMs === undefined ? {} : { timeoutMs: runtime.timeoutMs }),
     });

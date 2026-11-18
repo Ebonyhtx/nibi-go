@@ -11,12 +11,17 @@ export interface HostDataOptions {
   enabledPlugins: number;
   plugin?: { id: string; name: string; version: string };
   session?: { title?: string; model?: string; rows?: number };
+  /** 插件设置在槽里的绑定：`data.host.settings.*`。 */
+  settings?: Record<string, string | boolean>;
+  /** 插件随工具结果推给槽的数据（`_meta.nibiGo.push`），槽里绑定 `data.push.*`。 */
+  push?: Record<string, unknown>;
 }
 
 export function hostSlotData(options: HostDataOptions): SlotData {
   const now = new Date();
   return {
     data: {
+      ...(options.push ? { push: options.push } : {}),
       host: {
         appVersion: Constants.expoConfig?.version ?? "0.0.0",
         host: "local",
@@ -24,6 +29,7 @@ export function hostSlotData(options: HostDataOptions): SlotData {
         now: `${now.toISOString().replace("T", " ").slice(0, 19)} UTC`,
         capabilities: [...APP_CAPABILITIES],
         enabledPlugins: options.enabledPlugins,
+        ...(options.settings ? { settings: options.settings } : {}),
         ...(options.plugin
           ? {
               plugin: options.plugin,

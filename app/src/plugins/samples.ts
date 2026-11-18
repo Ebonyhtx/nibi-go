@@ -23,6 +23,20 @@ import { createInterface } from "node:readline";
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 
+// 插件中心保存的设置随启动 env 进来（NIBIGO_SETTINGS）；坏 JSON 退回默认值。
+const SETTINGS = (() => {
+  try {
+    return JSON.parse(process.env.NIBIGO_SETTINGS ?? "{}");
+  } catch {
+    return {};
+  }
+})();
+const DEFAULT_CITY =
+  typeof SETTINGS.default_city === "string" && SETTINGS.default_city.trim()
+    ? SETTINGS.default_city.trim()
+    : "北京";
+const SHOW_ADVICE = SETTINGS.show_advice !== false;
+
 const CITIES = {
   "北京": { summary: "晴", temperature: "24°C", advice: "样例数据：适合出门散步。" },
   "上海": { summary: "多云", temperature: "22°C", advice: "样例数据：带把伞更稳妥。" },
@@ -44,8 +58,8 @@ const TOOL = {
 };
 
 function forecast(args) {
-  const city = typeof args?.city === "string" && args.city.trim() ? args.city.trim() : "北京";
-  return {
+  const city = typeof args?.city === "string" && args.city.trim() ? args.city.trim() : DEFAULT_CITY;
+  const found = {
     city,
     ...(CITIES[city] ?? {
       summary: "多云",
@@ -53,6 +67,7 @@ function forecast(args) {
       advice: "样例数据：这个城市没有内置记录，返回默认值。"
     })
   };
+  return SHOW_ADVICE ? found : { ...found, advice: "" };
 }
 
 rl.on("line", (line) => {
@@ -95,7 +110,7 @@ rl.on("line", (line) => {
       result: {
         content: [{ type: "text", text: structured.city + " " + structured.summary + " " + structured.temperature }],
         structuredContent: structured,
-        _meta: { nibiGo: { card: "forecast", server: "nibigo_weather" } }
+        _meta: { nibiGo: { card: "forecast", server: "nibigo_weather", push: { note: { label: "天气插件 · " + structured.city + " " + structured.summary } } } }
       }
     });
     return;
@@ -119,6 +134,23 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
   minApp: "0.1.0",
   accent: "brand",
   caps: ["view.v1", "slots.v1", "effects.v1", "mcp.v1"],
+  settings: [
+    {
+      id: "default_city",
+      title: "默认城市",
+      type: "text",
+      default: "北京",
+      placeholder: "例如 上海",
+      maxLength: 20,
+      description: "用户没有说城市时用它；保存后新会话的 MCP 进程生效。",
+    },
+    {
+      id: "show_advice",
+      title: "显示穿衣建议",
+      type: "toggle",
+      default: true,
+    },
+  ],
   runtime: {
     type: "mcp",
     serverName: "nibigo_weather",
@@ -174,9 +206,32 @@ const WEATHER_MANIFEST: Record<string, unknown> = {
         prompt: [
           "用户从天气插件的快捷动作发起了天气查询。",
           "该插件提供 MCP 工具 `mcp__nibigo_weather__weather_get`；需要真实天气数据时调用它，不要编造。",
-          "如果用户没有说城市，先问清楚城市再查询。",
+          "如果用户没有说城市，直接用插件设置里的默认城市调用工具，不要追问。",
           "$ARGUMENTS",
         ].join("\n"),
+      },
+    ],
+    // 会话信息里的动作：演示 copy 与 command 两个宿主桥（复制固定说明、打开插件中心）。
+    "session.actions": [
+      {
+        id: "copy-note",
+        title: "复制插件说明",
+        effects: [
+          {
+            kind: "copy",
+            text: "天气来自 NIBI-GO 样例插件（MCP stdio 子进程，不是写死的 UI）。",
+          },
+        ],
+      },
+      { id: "open-plugins", title: "打开插件中心", effects: [{ kind: "command", name: "openPlugins" }] },
+    ],
+    // 回合脚注：天气工具返回时把“这一轮用的是插件数据”写进 `_meta.nibiGo.push`，
+    // 槽里用 `data.push.*` 绑定；没有推送的回合解析为空，不显示脚注。
+    "turn.note": [
+      {
+        id: "weather-source",
+        text: "{{data.push.note.label}}",
+        tone: "faint",
       },
     ],
   },

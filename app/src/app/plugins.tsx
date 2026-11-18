@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,9 +34,11 @@ function statusOf(plugin: LoadedPlugin): { label: string; tone: "ok" | "warn" | 
 function PluginCard({
   plugin,
   onToggle,
+  onSetting,
 }: {
   plugin: LoadedPlugin;
   onToggle: (enabled: boolean) => void;
+  onSetting: (key: string, value: string | boolean) => void;
 }) {
   const t = useNibiTheme();
   const manifest = plugin.parsed.manifest;
@@ -52,6 +55,38 @@ function PluginCard({
   const panels = manifest.contributes.panels;
   const webIslands = manifest.contributes.webIslands;
   const canEnable = plugin.parsed.status === "ready" && plugin.parsed.slotsAvailable;
+
+  // 设置与命令面：设置值本地先行（文本失焦时保存），命令只读展示（在对话里用 /名字 触发）。
+  const [values, setValues] = useState(plugin.settings);
+  useEffect(() => {
+    setValues(plugin.settings);
+  }, [plugin.settings]);
+  const [textDrafts, setTextDrafts] = useState<Record<string, string>>({});
+  const [showDetails, setShowDetails] = useState(false);
+  const settings = manifest.settings ?? [];
+  const commands: Array<{ key: string; title: string; name: string }> = [];
+  const commandNames = new Set<string>();
+  const addCommand = (key: string, title: string, name: string) => {
+    if (!name || commandNames.has(name)) return;
+    commandNames.add(name);
+    commands.push({ key, title: title.trim() || name, name });
+  };
+  for (const action of manifest.contributes.composerActions) {
+    if (action.token?.kind === "command") addCommand(`a:${action.id}`, action.title, action.token.value);
+  }
+  for (const action of manifest.contributes.composerTools) {
+    if (action.token?.kind === "command") addCommand(`t:${action.id}`, action.title, action.token.value);
+  }
+  for (const action of manifest.contributes.messageActions) {
+    if (action.command) addCommand(`m:${action.id}`, action.title, action.command);
+  }
+  const skills = manifest.skills ?? [];
+  const hasDetails = settings.length > 0 || commands.length > 0 || skills.length > 0;
+
+  const commit = (key: string, value: string | boolean) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    onSetting(key, value);
+  };
 
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
@@ -180,6 +215,138 @@ function PluginCard({
           ))}
         </View>
       ) : null}
+
+      {hasDetails ? (
+        <View style={[styles.details, { borderTopColor: t.hairline }]}>
+          <Pressable
+            onPress={() => setShowDetails((current) => !current)}
+            accessibilityRole="button"
+            accessibilityLabel={`${showDetails ? "收起" : "展开"} ${manifest.name} 的设置与命令`}
+            style={styles.detailsHead}
+          >
+            <Text style={[styles.detailsTitle, { color: t.inkSub }]}>
+              设置与命令
+              {settings.length > 0 ? ` · ${settings.length} 项设置` : ""}
+              {commands.length > 0 ? ` · ${commands.length} 个命令` : ""}
+            </Text>
+            <View style={showDetails ? { transform: [{ rotate: "180deg" }] } : undefined}>
+              <Icon name="chevron-down" size={13} color={t.inkFaint} />
+            </View>
+          </Pressable>
+          {showDetails ? (
+            <View style={styles.detailsBody}>
+              {settings.map((setting) => (
+                <View key={setting.id} style={styles.settingRow}>
+                  <View style={styles.settingText}>
+                    <Text style={[styles.settingTitle, { color: t.ink }]}>{setting.title}</Text>
+                    {setting.description ? (
+                      <Text style={[styles.settingDesc, { color: t.inkFaint }]}>
+                        {setting.description}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {setting.type === "toggle" ? (
+                    <Switch
+                      value={values[setting.id] === true}
+                      onValueChange={(value) => commit(setting.id, value)}
+                      trackColor={{ true: t.brand, false: t.hairline }}
+                      thumbColor={values[setting.id] === true ? t.brandFg : undefined}
+                      accessibilityLabel={setting.title}
+                    />
+                  ) : setting.type === "select" ? (
+                    <View style={styles.selectRow}>
+                      {setting.options.map((option) => {
+                        const active = values[setting.id] === option.value;
+                        return (
+                          <Pressable
+                            key={option.value}
+                            onPress={() => commit(setting.id, option.value)}
+                            style={[
+                              styles.selectChip,
+                              {
+                                backgroundColor: active ? t.brandSoft : t.panel,
+                                borderColor: active ? t.brand : t.hairline,
+                              },
+                            ]}
+                          >
+                            <Text style={{ color: active ? t.brand : t.inkSub, fontSize: 11 }}>
+                              {option.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {setting.type === "text" ? (
+                    <TextInput
+                      value={textDrafts[setting.id] ?? String(values[setting.id] ?? "")}
+                      onChangeText={(text) =>
+                        setTextDrafts((current) => ({ ...current, [setting.id]: text }))
+                      }
+                      onBlur={() => {
+                        const draft = textDrafts[setting.id];
+                        if (draft !== undefined && draft !== values[setting.id]) {
+                          commit(setting.id, draft);
+                        }
+                        setTextDrafts((current) => {
+                          const next = { ...current };
+                          delete next[setting.id];
+                          return next;
+                        });
+                      }}
+                      placeholder={setting.placeholder}
+                      placeholderTextColor={t.inkFaint}
+                      maxLength={setting.maxLength}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      accessibilityLabel={setting.title}
+                      style={[
+                        styles.settingInput,
+                        { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel },
+                      ]}
+                    />
+                  ) : null}
+                </View>
+              ))}
+
+              {commands.length > 0 ? (
+                <View style={styles.commands}>
+                  <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>命令</Text>
+                  {commands.map((command) => (
+                    <View key={command.key} style={styles.commandRow}>
+                      <Text style={[styles.commandTitle, { color: t.inkSub }]} numberOfLines={1}>
+                        {command.title}
+                      </Text>
+                      <Text style={[styles.commandName, { color: t.inkFaint }]} numberOfLines={1}>
+                        /{command.name}
+                      </Text>
+                    </View>
+                  ))}
+                  <Text style={[styles.detailsHint, { color: t.inkGhost }]}>
+                    在对话里输入 /命令名 或从加号菜单触发。
+                  </Text>
+                </View>
+              ) : null}
+
+              {skills.length > 0 ? (
+                <View style={styles.commands}>
+                  <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>技能</Text>
+                  {skills.map((skill) => (
+                    <View key={skill.id} style={styles.commandRow}>
+                      <Text style={[styles.commandTitle, { color: t.inkSub }]} numberOfLines={1}>
+                        {skill.name ?? skill.id}
+                      </Text>
+                      <Text style={[styles.commandName, { color: t.inkFaint }]} numberOfLines={1}>
+                        {skill.id}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -233,6 +400,13 @@ export default function PluginsScreen() {
           <PluginCard
             key={plugin.dir}
             plugin={plugin}
+            onSetting={(key, value) => {
+              const id = plugin.parsed.manifest.id;
+              void plugins.setSetting(id, key, value).catch((error: unknown) => {
+                plugins.reload().catch(() => undefined);
+                console.warn("[nibigo] 插件设置保存失败", error);
+              });
+            }}
             onToggle={(enabled) => {
               const id = plugin.parsed.manifest.id;
               void plugins.setEnabled(id, enabled).catch((error: unknown) => {
@@ -301,6 +475,47 @@ const styles = StyleSheet.create({
   issues: { gap: 2 },
   issueTitle: { fontSize: 11, fontWeight: "600" },
   issue: { fontSize: 10.5, lineHeight: 14 },
+  details: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space(2),
+    gap: space(2),
+  },
+  detailsHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 30,
+  },
+  detailsTitle: { fontSize: 11.5, fontWeight: "700" },
+  detailsBody: { gap: space(2.5) },
+  detailsLabel: { fontSize: 10, fontWeight: "700" },
+  detailsHint: { fontSize: 10, lineHeight: 14 },
+  settingRow: { gap: space(1.5) },
+  settingText: { gap: 1 },
+  settingTitle: { fontSize: 12.5, fontWeight: "600" },
+  settingDesc: { fontSize: 10.5, lineHeight: 14 },
+  settingInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1.5),
+    fontSize: 12.5,
+  },
+  selectRow: { flexDirection: "row", flexWrap: "wrap", gap: space(1.5) },
+  selectChip: {
+    paddingHorizontal: space(2.5),
+    paddingVertical: 4,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  commands: { gap: space(1) },
+  commandRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: space(2),
+  },
+  commandTitle: { flex: 1, fontSize: 11.5 },
+  commandName: { fontSize: 10.5, maxWidth: "55%" },
   panels: { gap: space(1.5) },
   panelsTitle: { fontSize: 10.5, fontWeight: "700" },
   panelRow: {
