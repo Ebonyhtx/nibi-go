@@ -149,6 +149,12 @@ impl Live {
         state.projection.seed_context_analysis(analysis);
     }
 
+    /// 冷打开时播种会话的累计用量（缓存命中率来自它）；只在开 live 时调用，不产生增量。
+    pub fn seed_cumulative_usage(&self, usage: nibi_kernel_api::message::Usage) {
+        let mut state = self.state();
+        state.projection.seed_cumulative_usage(usage);
+    }
+
     /// 有父会话：执行偏好已在建会话时继承，Host 的物化偏好不再覆盖。
     pub(crate) fn has_parent(&self) -> bool {
         self.has_parent

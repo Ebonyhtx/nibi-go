@@ -49,6 +49,8 @@ export interface ProviderSummary {
   personal: boolean;
   enabled: boolean;
   template?: string;
+  /** 内核 `config.logo` 的 builtin key；没有时 UI 用 monogram。 */
+  logoKey?: string;
   defaultReasoning?: string;
   modelInfo?: ProviderModelInfo[];
 }
@@ -59,6 +61,8 @@ export interface ProviderPreset {
   baseUrl: string;
   protocol: ProviderProtocol;
   models: string[];
+  /** 内核 `config.logo` 的 builtin key；没有时 UI 用 monogram。 */
+  logoKey?: string;
 }
 
 export interface ModelSelection {
@@ -156,7 +160,17 @@ export async function setDefaultProvider(
   client: KernelRpc,
   selection: ModelSelection,
 ): Promise<void> {
-  await client.request("provider/setDefault", { selection });
+  // 内核的 `commands::selection` 读 Node/App 形状（档位在 `options.reasoningLevel`）；
+  // 设置页内部的 `ModelSelection` 是扁平的，发请求前转一次，避免档位被丢掉。
+  await client.request("provider/setDefault", {
+    selection: {
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+      ...(selection.reasoningLevel
+        ? { options: { reasoningLevel: selection.reasoningLevel } }
+        : {}),
+    },
+  });
 }
 
 export async function testProvider(

@@ -304,6 +304,12 @@ impl Projection {
         }
     }
 
+    /// 冷打开时播种会话的累计用量：App 的缓存命中率来自 `usage.cumulative`，投影的 `total`
+    /// 只在本进程的 `ModelCalled` 事件里累加，重启后不播种就会显示“—”。
+    pub fn seed_cumulative_usage(&mut self, usage: nibi_kernel_api::message::Usage) {
+        self.total = usage;
+    }
+
     /// 按 rowId 找行（row-targeting 命令解析 target 用）；没有时 None。
     pub fn row(&self, row_id: u64) -> Option<&Map<String, Value>> {
         self.rows

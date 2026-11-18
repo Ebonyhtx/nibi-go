@@ -388,6 +388,17 @@ impl Server {
         {
             live.sink.seed_context_analysis(analysis);
         }
+        // 冷打开：累计用量也要播种，否则 App 的缓存命中率在重启后显示“—”。
+        if cold
+            && let Ok(usage) = self.kernel.session_usage(session).await
+        {
+            live.sink.seed_cumulative_usage(nibi_kernel_api::message::Usage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_creation_input_tokens: usage.cache_creation_tokens,
+                cache_read_input_tokens: usage.cache_read_tokens,
+            });
+        }
         // 冷打开时问一次 Host 的启动偏好（Node 在会话物化时问）：先应用，再挂计时任务。
         if cold
             && self
@@ -752,15 +763,20 @@ impl Server {
             }
             "provider/setDefault" => {
                 let admin = self.provider_admin()?;
-                let selection: ModelSelection = serde_json::from_value(params["selection"].clone())
-                    .map_err(|error| {
-                        RpcError::invalid_params(format!("invalid model selection: {error}"))
-                    })?;
+                // App 发的是 Node/protocol 形状 `{providerId, modelId, options.reasoningLevel}`，
+                // 与其它 provider RPC 用同一个解析器；内核的 `ModelSelection` 是 snake_case，
+                // 直接 `from_value` 会报 missing field 'provider' 并让设置静默失败。
+                let selection = crate::commands::selection(&params["selection"]).ok_or_else(|| {
+                    RpcError::invalid_params(
+                        "invalid model selection: expected {providerId, modelId, \
+                         options?: {reasoningLevel}}",
+                    )
+                })?;
                 admin
                     .set_default_model(selection.clone())
                     .await
                     .map_err(RpcError::internal)?;
-                reply(json!({"default": selection}))
+                reply(json!({"default": crate::projection::state::selection(&selection)}))
             }
             "provider/setKeys" => {
                 let admin = self.provider_admin()?;
@@ -1207,5 +1223,208 @@ mod presentation_tests {
         assert!(enabled.iter().all(|command| command["source"] == "builtin"));
         let disabled = presentation_builtins(false);
         assert_eq!(names(&disabled), ["goal", "compact", "init"]);
+    }
+}
+
+/// `provider/setDefault` 的回归测试：App 发的是 camelCase 的 `{providerId, modelId, options}`，
+/// 不能按内核的 snake_case `ModelSelection` 反序列化（曾经因此静默失败、默认模型永远写不进去）。
+#[cfg(test)]
+mod provider_admin_tests {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use nibi_kernel_api::clock::Clock;
+    use nibi_kernel_api::ids::EnvironmentId;
+    use nibi_kernel_api::model::ModelSelection;
+    use nibi_kernel_api::permission::PermissionMode;
+    use nibi_kernel_api::provider::{ProviderAdmin, ProviderAdminDraft, ProviderAdminState};
+    use nibi_kernel_api::session_api::{CreateSession, Kernel, KernelError, SessionHandle};
+    use nibi_kernel_api::store::{SessionFilter, SessionSummary};
+    use nibi_kernel_base::TaskScope;
+    use nibi_kernel_protocol_core::connection::{self, Options, Service};
+    use nibi_kernel_protocol_core::rpc::RpcError;
+    use serde_json::{Value, json};
+
+    use crate::context::Context;
+    use crate::server::{Defaults, Handler, Server};
+
+    struct FakeKernel;
+
+    #[async_trait]
+    impl Kernel for FakeKernel {
+        async fn create_session(
+            &self,
+            _request: CreateSession,
+        ) -> Result<nibi_kernel_api::ids::SessionId, KernelError> {
+            Err(KernelError::Unsupported {
+                what: "session creation".to_owned(),
+            })
+        }
+
+        async fn open_session(
+            &self,
+            _session: &nibi_kernel_api::ids::SessionId,
+        ) -> Result<Arc<dyn SessionHandle>, KernelError> {
+            Err(KernelError::Unsupported {
+                what: "session".to_owned(),
+            })
+        }
+
+        async fn list_sessions(
+            &self,
+            _filter: SessionFilter,
+        ) -> Result<Vec<SessionSummary>, KernelError> {
+            Err(KernelError::Unsupported {
+                what: "sessions".to_owned(),
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingAdmin {
+        selection: Mutex<Option<ModelSelection>>,
+    }
+
+    impl RecordingAdmin {
+        fn selection(&self) -> Option<ModelSelection> {
+            self.selection
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+    }
+
+    #[async_trait]
+    impl ProviderAdmin for RecordingAdmin {
+        async fn provider_state(&self) -> Result<ProviderAdminState, String> {
+            Err("unused".to_owned())
+        }
+
+        async fn save_provider(&self, _draft: ProviderAdminDraft) -> Result<String, String> {
+            Err("unused".to_owned())
+        }
+
+        async fn remove_provider(&self, _provider_id: &str) -> Result<(), String> {
+            Err("unused".to_owned())
+        }
+
+        async fn set_default_model(&self, selection: ModelSelection) -> Result<(), String> {
+            *self
+                .selection
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(selection);
+            Ok(())
+        }
+
+        async fn set_provider_keys(&self, _keys: BTreeMap<String, String>) -> Result<(), String> {
+            Err("unused".to_owned())
+        }
+
+        async fn resolve_model_config(
+            &self,
+            _provider_id: &str,
+            _model_id: &str,
+        ) -> Result<Value, String> {
+            Err("unused".to_owned())
+        }
+    }
+
+    struct FixedClock;
+
+    impl Clock for FixedClock {
+        fn now_ms(&self) -> u64 {
+            1_760_000_000_000
+        }
+
+        fn time_zone(&self) -> String {
+            "UTC".to_owned()
+        }
+    }
+
+    fn server(admin: Arc<RecordingAdmin>) -> Arc<Server> {
+        let scope = TaskScope::root("provider-admin-test", |_| {});
+        let (out, _host_in) = tokio::io::duplex(1 << 16);
+        let (peer, _writer) = connection::start(out, &scope.spawner(), Options::default());
+        let clock: Arc<dyn Clock> = Arc::new(FixedClock);
+        Arc::new(
+            Server::new(
+                Arc::new(Context::new(peer, clock)),
+                Arc::new(FakeKernel),
+                scope.spawner(),
+                Defaults {
+                    selection: ModelSelection {
+                        provider: "p".into(),
+                        model: "m".into(),
+                        reasoning: None,
+                        connection: None,
+                    },
+                    mode: PermissionMode::Default,
+                    environment: EnvironmentId::new("env"),
+                },
+                None,
+            )
+            .with_provider_admin(admin),
+        )
+    }
+
+    async fn call(server: &Arc<Server>, params: Value) -> Result<Value, RpcError> {
+        Handler(server.clone())
+            .request("provider/setDefault", params)
+            .await
+            .map(|reply| reply.result)
+    }
+
+    #[tokio::test]
+    async fn set_default_parses_the_app_selection_and_echoes_camel_case() {
+        let admin = Arc::new(RecordingAdmin::default());
+        let server = server(admin.clone());
+        let result = call(
+            &server,
+            json!({
+                "selection": {
+                    "providerId": "zai-api",
+                    "modelId": "glm-5",
+                    "options": {"reasoningLevel": "max"},
+                },
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result,
+            json!({"default": {
+                "providerId": "zai-api",
+                "modelId": "glm-5",
+                "options": {"reasoningLevel": "max"},
+            }})
+        );
+        assert_eq!(
+            admin.selection(),
+            Some(ModelSelection {
+                provider: "zai-api".to_owned(),
+                model: "glm-5".to_owned(),
+                reasoning: Some("max".to_owned()),
+                connection: None,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wrong_selection_shape_is_invalid_params_and_writes_nothing() {
+        let admin = Arc::new(RecordingAdmin::default());
+        let server = server(admin.clone());
+        // 旧实现反序列化的是内核的 snake_case 形状；这里明确拒绝，而不是静默存一个空选择。
+        let error = call(
+            &server,
+            json!({"selection": {"provider": "p", "model": "m"}}),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("expected {providerId, modelId"),
+            "{error}"
+        );
+        assert!(admin.selection().is_none());
     }
 }
