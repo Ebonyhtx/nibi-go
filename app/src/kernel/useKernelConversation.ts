@@ -167,6 +167,8 @@ export interface KernelConversation {
   send: (text: string, options?: KernelSendOptions) => Promise<void>;
   /** 压缩上下文（内核 `compact`）；返回错误文案，成功为 null。 */
   compact: () => Promise<string | null>;
+  /** 重试最后一轮（内核 `retryTurn`）；返回错误文案，成功为 null。 */
+  retryTurn: (target: { rowId: number; entityId: string }) => Promise<string | null>;
   /** 目标管理（内核 `session/goal`）：show/set/pause/resume/clear。 */
   runGoal: (
     action: "show" | "set" | "pause" | "resume" | "clear",
@@ -706,6 +708,28 @@ export function useKernelConversation(): KernelConversation {
     }
   }, []);
 
+  /** 重试最后一轮（内核 `retryTurn`）；返回错误文案，成功为 null。 */
+  const retryTurn = useCallback(
+    async (target: { rowId: number; entityId: string }): Promise<string | null> => {
+      const client = clientRef.current;
+      if (!client || client.currentSessionId === null) return "没有可重试的会话";
+      const snapshot = controllerRef.current?.snapshot;
+      if (!snapshot) return "会话还没准备好";
+      try {
+        await client.retryTurn(target, {
+          revision: snapshot.revision,
+          logEpoch: snapshot.logEpoch,
+        });
+        return null;
+      } catch (error) {
+        const message = `重试失败：${error instanceof Error ? error.message : String(error)}`;
+        setStatus(message);
+        return message;
+      }
+    },
+    [],
+  );
+
   /**
    * 内核 `session/goal` 的回执是英文短句（`goal_summary` 里写死的），这里按同一组格式
    * 换成中文；认不出的原样返回，不吞信息。
@@ -920,6 +944,7 @@ function localizeGoalReply(response: string): string {
     activeSessionId,
     send,
     compact,
+    retryTurn,
     runGoal,
     newSession,
     openSession,

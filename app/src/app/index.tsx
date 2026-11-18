@@ -629,6 +629,15 @@ export default function GoHomeScreen() {
         showHint("压缩需要单独发送：请先清掉其他内容或附件");
         return;
       }
+      // 对话还很短时压缩不划算：摘要会把“消息”换成一段比它更长的话，上下文反而变大。
+      const messageChars =
+        conversation.contextUsage?.breakdown?.find((item) => item.source === "messages")
+          ?.chars ?? 0;
+      const messageTokens = Math.round(messageChars / 4);
+      if (messageTokens > 0 && messageTokens < 2_000) {
+        showHint(`当前对话只有约 ${messageTokens} tokens，压缩不会更省`);
+        return;
+      }
       setTokens((current) => current.filter((token) => token.id !== compactToken.id));
       void conversation.compact().then((error) => {
         if (error) showHint(error);
@@ -954,6 +963,11 @@ export default function GoHomeScreen() {
                   showTools={conversationPrefs.showTools}
                   autoCollapseThinking={conversationPrefs.autoCollapseReasoning}
                   autoCollapseTools={conversationPrefs.autoCollapseTools}
+                  onRetryTurn={(target) => {
+                    void conversation.retryTurn(target).then((error) => {
+                      if (error) showHint(error);
+                    });
+                  }}
                 />
               ) : (
                 <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>

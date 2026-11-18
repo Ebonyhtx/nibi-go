@@ -357,6 +357,37 @@ describe("@nibi-go/kernel-session", () => {
     await expect(busy).rejects.toThrow("a turn is running");
   });
 
+  it("retryTurn：发 v4/command 的 retryTurn，拒绝时抛内核原因", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_r" } } });
+    await created;
+
+    const target = { rowId: 7, entityId: "turn_abc" };
+    const bases = { revision: 12, logEpoch: "epoch-1" };
+    const ok = client.retryTurn(target, bases);
+    expect(transport.lastFrame()).toMatchObject({
+      method: KERNEL_METHODS.command,
+      params: {
+        sessionId: "sess_r",
+        type: "retryTurn",
+        payload: { target },
+        baseRevision: 12,
+        baseLogEpoch: "epoch-1",
+      },
+    });
+    transport.receive({ id: 2, result: { status: "accepted" } });
+    await expect(ok).resolves.toBeUndefined();
+
+    const rejected = client.retryTurn(target, bases);
+    transport.receive({
+      id: 3,
+      result: { status: "rejected", reasonCode: "guard.retryNotLatest", message: "只有最后一轮能重试" },
+    });
+    await expect(rejected).rejects.toThrow("只有最后一轮能重试");
+  });
+
   it("resolveInteraction：发 v4/command 信封，noop（已收口）也算成功", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

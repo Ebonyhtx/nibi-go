@@ -327,6 +327,50 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(notices[1]).toMatchObject({ text: "正在压缩上下文…" });
   });
 
+  it("失败回合只有用户气泡时仍保留失败脚注", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "failed",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        { ...base, rowId: 2, kind: "userInput", text: "hi", origin: "realUser" },
+      ]),
+    );
+    expect(rows.map((row) => row.kind)).toEqual(["user", "turn"]);
+    expect(rows[1]).toMatchObject({ kind: "turn", state: "failed" });
+  });
+
+  it("只有压缩 marker 的轮次不产生轮末脚注", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "completedSuccess",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        {
+          ...base,
+          rowId: 2,
+          kind: "timelineMarker",
+          lane: "assistantWork",
+          marker: { type: "compact", origin: "manual", status: "success", tokensBefore: 1234 },
+        },
+      ]),
+    );
+    expect(rows.map((row) => row.kind)).toEqual(["notice"]);
+    expect(rows[0]).toMatchObject({ text: expect.stringContaining("1234") });
+  });
+
   it("pending 提示追加在末尾", () => {
     const rows = deriveRows(snapshotWith([]), [{ id: "p1", text: "刚发出的" }]);
     expect(rows).toEqual([{ kind: "pending", key: "p1", text: "刚发出的" }]);

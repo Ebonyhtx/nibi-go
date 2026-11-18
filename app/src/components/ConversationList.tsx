@@ -181,6 +181,7 @@ export function ConversationList({
   showTools = true,
   autoCollapseThinking = true,
   autoCollapseTools = true,
+  onRetryTurn,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -210,6 +211,8 @@ export function ConversationList({
   autoCollapseThinking?: boolean;
   /** 工具行/工具组默认收起（默认 true）；false 时默认展开。 */
   autoCollapseTools?: boolean;
+  /** 失败/中断回合的「重试」入口（内核 retryTurn 重发最后一轮，target 取自轮头行）。 */
+  onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
 }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -479,6 +482,21 @@ export function ConversationList({
                 {stateLabel && parts.length > 0 ? " · " : ""}
                 {parts.join(" · ")}
               </Text>
+              {/* 失败/中断的回合给一个重试入口：内核 retryTurn 会截到这一轮的用户输入前重发。 */}
+              {!ok && onRetryTurn && row.entityId ? (
+                <Pressable
+                  onPress={() => onRetryTurn({ rowId: row.rowId, entityId: row.entityId! })}
+                  accessibilityRole="button"
+                  accessibilityLabel="重试这一轮"
+                  style={[
+                    styles.retry,
+                    { backgroundColor: th.panel, borderColor: th.hairline },
+                  ]}
+                >
+                  <Icon name="refresh" size={11} color={th.inkSub} />
+                  <Text style={[styles.retryText, { color: th.inkSub }]}>重试</Text>
+                </Pressable>
+              ) : null}
               {files.length > 0 ? <ChangeCard files={files} /> : null}
               {note ? (
                 <Text style={[styles.turnNote, { color: th.inkFaint }]} numberOfLines={2}>
@@ -1129,6 +1147,18 @@ const styles = StyleSheet.create({
   toolRowMeta: { fontSize: 10.5 },
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
+  retry: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: 3,
+    marginTop: 2,
+  },
+  retryText: { fontSize: 10.5, fontWeight: "600" },
   turnNote: { fontSize: 10.5, textAlign: "center" },
   turnBlock: { gap: space(2) },
   process: { gap: 2 },

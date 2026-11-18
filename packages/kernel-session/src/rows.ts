@@ -139,6 +139,9 @@ export type ChatRow =
       /** 轮末脚注：用时 / 工具数 / token / 文件改动。 */
       kind: "turn";
       key: string;
+      /** 轮头 rowId 与 entityId：`retryTurn` 等命令的 target 需要（失败回合的重试入口）。 */
+      rowId: number;
+      entityId?: string;
       state: string;
       durationMs?: number;
       toolCalls: number;
@@ -293,6 +296,8 @@ function turnFootnote(turn: ProtocolTurnHeader): ChatRow | null {
   return {
     kind: "turn",
     key: `turn${turn.rowId}`,
+    rowId: turn.rowId,
+    ...(turn.entityId ? { entityId: turn.entityId } : {}),
     state: turn.state,
     ...(durationMs === undefined ? {} : { durationMs }),
     toolCalls: 0,
@@ -479,15 +484,22 @@ export function deriveRows(
       turnStart = null;
       turnAwaitingUser = false;
       const footnote = turnFootnote(turn);
+      // 只有 notice 的轮次（典型是压缩轮）没有用户/助手/工具内容：它已经有自己的 notice，
+      // 再挂一条「✓ 已完成 · 用时 Ns · M tokens」只会是噪音（而且 token 数还会串上一轮）。
+      // 注意用户气泡不算这一轮的 rows（turnStart 在气泡之后），所以“rows 为空”不能被当成
+      // 无内容——失败回合就是「只有气泡、没有回答」，它的脚注必须留着报失败。
+      const onlyNotices = rows.length > 0 && rows.every((row) => row.kind === "notice");
       const folded =
-        footnote && turn.state === "completedSuccess" ? foldTurnRows(rows, turn.rowId) : null;
+        !onlyNotices && footnote && turn.state === "completedSuccess"
+          ? foldTurnRows(rows, turn.rowId)
+          : null;
       if (folded) {
         out.push(folded.process);
         if (folded.answer) out.push(folded.answer);
         out.push({ ...footnote, toolCalls: turnToolCount, folded: true } as ChatRow);
       } else {
         out.push(...rows);
-        if (footnote) {
+        if (!onlyNotices && footnote) {
           out.push({ ...footnote, toolCalls: turnToolCount } as ChatRow);
         }
       }
