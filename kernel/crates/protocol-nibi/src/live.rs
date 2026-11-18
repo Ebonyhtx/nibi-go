@@ -139,6 +139,16 @@ impl Live {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// 冷打开时给投影播种会话句柄的最后一次完整 `/context` 分析（上下文环与分项）。
+    /// 不产生增量：快照由投影状态生成，订阅者拿到的是播种后的值。
+    pub fn seed_context_analysis(
+        &self,
+        analysis: nibi_kernel_api::context_usage::ContextUsageRecord,
+    ) {
+        let mut state = self.state();
+        state.projection.seed_context_analysis(analysis);
+    }
+
     /// 有父会话：执行偏好已在建会话时继承，Host 的物化偏好不再覆盖。
     pub(crate) fn has_parent(&self) -> bool {
         self.has_parent

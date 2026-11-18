@@ -193,6 +193,9 @@ pub struct SessionState {
     /// 所有以错误结束的轮次（冷加载的 `LoadedSession.failed_turns`）：`view()` 带给冷投影，
     /// 让重启后的失败回合仍显示为 failed。
     pub failed_turns: Vec<nibi_kernel_api::ids::MessageId>,
+    /// 最后一次 `/context` 分析（冷加载的 `LoadedSession.context_usage`）：`view()` 优先用它算
+    /// 上下文占用与分项，避免重启后退回压缩器只数消息的估算。
+    pub context_usage: Option<nibi_kernel_api::context_usage::ContextUsageRecord>,
     /// 工作流控制轮（冷加载的 `LoadedSession.launches`，launch.md）：会话 actor 在 `write_launch` 时追加，
     /// `view()` 带给冷投影。
     pub launches: Vec<SessionLaunchTurn>,
@@ -222,6 +225,9 @@ pub struct Session {
     /// 草稿（`persistence: "deferred"`）：第一条用户输入之前还没有会话行，列表类投影不显示它。actor
     /// 提交首条输入时把它置为 false（[`Actor::promote`]），这里与 actor 共用同一个旗标。
     draft: Arc<std::sync::atomic::AtomicBool>,
+    /// 最后一次 `/context` 分析（与 actor 共用）：协议层冷投影用它给 App 的上下文环与分项播种，
+    /// 不能退回压缩器只数消息的估算（系统提示词与工具会漏掉）。
+    analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
     /// 每台远端机器上一份的后台命令（远端执行 F96，remote-exec.md §23.3）：快照的唯一 owner 是会话；重连中的机器用它。
     last_remote: tasks::LastSeen,
     /// 关闭的进度（[`closing`]）：None 还没关；Some 关闭任务已经起了，令牌在它结束时取消。
@@ -234,6 +240,7 @@ impl Session {
         let id = state.meta.id.clone();
         let log = Arc::new(EventLog::new());
         let draft = Arc::new(std::sync::atomic::AtomicBool::new(state.draft));
+        let analysis = Arc::new(std::sync::Mutex::new(state.context_usage.clone()));
         let mut pending = Vec::new();
         match opened {
             Opened::Created => {
@@ -271,6 +278,7 @@ impl Session {
             requests.downgrade(),
             pending,
             draft.clone(),
+            analysis.clone(),
         );
         let task = spawner.spawn_resident("session-actor", async move {
             if let Some(history) = resume {
@@ -284,6 +292,7 @@ impl Session {
             log,
             deps,
             draft,
+            analysis,
             last_remote: tasks::LastSeen::default(),
             closing: Mutex::default(),
             _actor: task,
@@ -293,6 +302,15 @@ impl Session {
     /// 这个会话还是草稿（还没有会话行）：列表类投影（工作区面板、项目页）不把它算进去。
     pub fn is_draft(&self) -> bool {
         self.draft.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// 最后一次 `/context` 分析（每轮结束更新、打开会话时来自存储）：协议层冷投影用它给
+    /// App 的上下文环与分项播种；没有分析过的会话为 None。
+    pub fn context_analysis(&self) -> Option<nibi_kernel_api::context_usage::ContextUsageRecord> {
+        self.analysis
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// 草稿的外部活动（Node `ensureSessionPersistedForExternalActivity`）：让 actor 现在写会话行与
@@ -405,6 +423,10 @@ impl SessionHandle for Session {
 
     fn is_draft(&self) -> bool {
         Session::is_draft(self)
+    }
+
+    fn context_analysis(&self) -> Option<nibi_kernel_api::context_usage::ContextUsageRecord> {
+        Session::context_analysis(self)
     }
 
     /// actor 退出后接收端被丢弃：常驻池回收会话不会通知协议桥，桥里的旧条目据此失效重开。

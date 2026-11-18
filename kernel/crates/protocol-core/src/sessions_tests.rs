@@ -143,6 +143,8 @@ fn view(last_seq: u64) -> SessionView {
         last_seq,
         revision: 0,
         running: false,
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage: None,

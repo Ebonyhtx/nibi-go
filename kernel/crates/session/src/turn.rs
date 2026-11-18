@@ -585,26 +585,9 @@ impl Actor {
             );
         }
         let usage = turn_usage(&self.messages, running.prompt.as_ref());
-        // 每轮结束算一次上下文分项（与 `/context` 同一个分析器）：contextUsage 面板的消息/系统/
-        // 工具/MCP/技能占比从这里来。分析失败只少分项，不改回合结果。
-        if let Some(source) = self.deps.context_usage.clone() {
-            let query = nibi_kernel_api::context_usage::ContextUsageQuery {
-                session: Some(self.meta.id.clone()),
-                workspace: self.meta.workspace.clone(),
-                selection: self.selection.clone(),
-                mode: self.mode(),
-            };
-            if let Ok(context) = source.analyze(query, &self.messages).await
-                && context.total_tokens > 0
-            {
-                self.log.append(KernelEvent::ContextUsage {
-                    used_tokens: context.total_tokens,
-                    max_tokens: context.raw_max_tokens,
-                    window_tokens: Some(context.raw_max_tokens),
-                    breakdown: nibi_kernel_api::context_usage::breakdown(&context.categories),
-                });
-            }
-        }
+        // 每轮结束算一次完整上下文（与 `/context` 同一个分析器）：上下文环、分项与冷恢复都用它。
+        // 分析失败只少这一次更新，不改回合结果。
+        self.refresh_context_usage().await;
         let succeeded = matches!(outcome, TurnOutcome::Success);
         self.log.append(KernelEvent::TurnFinished {
             turn: running.turn,
@@ -663,6 +646,55 @@ impl Actor {
         // 会再次送达。
         if let Err(reason) = self.start_turn(input).await {
             tracing::warn!(%reason, "queued input could not start a turn");
+        }
+    }
+
+    /// 跑一次完整上下文分析（本地估算，不发模型请求），更新视图字段、发一条 `ContextUsage` 事件，
+    /// 并把结果写成 `nibi-kernel/context_usage` entry（冷恢复的上下文环与分项用它）。
+    ///
+    /// 调用处：每轮结束。压缩器自己的 `context_usage` 只数消息，不含系统提示词与工具，
+    /// 不能拿来当 App 的上下文占用。
+    pub(crate) async fn refresh_context_usage(&mut self) {
+        let Some(source) = self.deps.context_usage.clone() else {
+            return;
+        };
+        let query = nibi_kernel_api::context_usage::ContextUsageQuery {
+            session: Some(self.meta.id.clone()),
+            workspace: self.meta.workspace.clone(),
+            selection: self.selection.clone(),
+            mode: self.mode(),
+        };
+        let Ok(context) = source.analyze(query, &self.messages).await else {
+            return;
+        };
+        if context.total_tokens == 0 {
+            return;
+        }
+        let record = nibi_kernel_api::context_usage::ContextUsageRecord {
+            used_tokens: context.total_tokens,
+            max_tokens: context.raw_max_tokens,
+            window_tokens: Some(context.raw_max_tokens),
+            breakdown: nibi_kernel_api::context_usage::breakdown(&context.categories),
+        };
+        *self
+            .analysis
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(record.clone());
+        self.log.append(KernelEvent::ContextUsage {
+            used_tokens: record.used_tokens,
+            max_tokens: record.max_tokens,
+            window_tokens: record.window_tokens,
+            breakdown: record.breakdown.clone(),
+        });
+        // 观测值：写不进去只记日志，不改变回合/压缩的结果。
+        let data = serde_json::to_value(&record).unwrap_or(Value::Null);
+        let fact = Fact::Entry {
+            kind: "context_usage".to_owned(),
+            id: "latest".to_owned(),
+            data,
+        };
+        if let Err(reason) = self.commit(None, vec![fact]).await {
+            tracing::warn!(%reason, "the context usage could not be stored");
         }
     }
 }

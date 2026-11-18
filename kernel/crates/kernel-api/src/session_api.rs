@@ -685,6 +685,12 @@ pub trait SessionHandle: Send + Sync {
         false
     }
 
+    /// 最后一次 `/context` 分析（每轮结束更新、冷加载来自存储）：协议层冷投影用它给 App 的
+    /// 上下文环与分项播种。缺省没有（投影退回压缩器估算）。
+    fn context_analysis(&self) -> Option<crate::context_usage::ContextUsageRecord> {
+        None
+    }
+
     /// actor 已经退出（句柄是关闭后留下的旧实例）。协议桥据此丢弃缓存的打开结果、重新冷加载：
     /// 常驻池回收会话时不会通知协议层，桥里的旧条目必须自己失效。
     fn is_closed(&self) -> bool {

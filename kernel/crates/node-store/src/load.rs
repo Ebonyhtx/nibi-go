@@ -120,8 +120,35 @@ pub fn load(
             .into_iter()
             .map(nibi_kernel_api::ids::MessageId::new)
             .collect(),
+        // 最后一次 /context 分析（每轮结束落库）：冷恢复的上下文环与分项用它，
+        // 不能用压缩器「只数消息」的估算冒充（系统提示词与工具会漏掉）。
+        context_usage: stored_context_usage(conn, session.as_str())?,
     };
     Ok((loaded, crate::rewind::active_checkpoints(conn, session)?))
+}
+
+/// 会话里最后一次 `/context` 分析（会话 actor 每轮结束经 `Fact::Entry` 写，id 固定 `latest`）。
+///
+/// 冷恢复没有分析器可跑：以前 `view()` 退回压缩器的 `context_usage`，它只数消息，
+/// 系统提示词与工具都不在里头，App 的上下文环会从 17K 掉到 1.8K。
+fn stored_context_usage(
+    conn: &Connection,
+    session: &str,
+) -> Result<Option<nibi_kernel_api::context_usage::ContextUsageRecord>, StoreError> {
+    // `Fact::Entry` 写出的 kind 带 `nibi-kernel/` 前缀，id 是 `<会话>:<kind>:<id>`。
+    const KIND: &str = "nibi-kernel/context_usage";
+    const ID: &str = "latest";
+    let entry = format!("{session}:{KIND}:{ID}");
+    let data: Option<String> = conn
+        .prepare_cached("select data from session_entry where id = ? and session_id = ?")
+        .storage()?
+        .query_row([entry.as_str(), session], |row| row.get(0))
+        .optional()
+        .storage()?;
+    match data {
+        Some(text) => Ok(Some(serde_json::from_str(&text).storage()?)),
+        None => Ok(None),
+    }
 }
 
 /// 会话里每条消息的持久时间：旧协议快照的 `info.time.created/completed` 用它。

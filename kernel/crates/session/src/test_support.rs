@@ -167,6 +167,8 @@ pub(crate) struct Setup {
     pub last_turn_failed: bool,
     /// 工作流控制轮（launch_tests.rs）；缺省没有。
     pub launches: Vec<nibi_kernel_api::store::SessionLaunchTurn>,
+    /// 冷加载时最后一次 `/context` 分析；缺省没有（视图退回压缩器估算）。
+    pub context_usage: Option<nibi_kernel_api::context_usage::ContextUsageRecord>,
     /// 跨会话（peers_tests.rs）；缺省关闭。
     pub peers: crate::PeerDeps,
     /// 父会话关闭之后的询问入口（detached_tests.rs）；缺省没有。
@@ -209,6 +211,7 @@ impl Setup {
             turn: None,
             last_turn_failed: false,
             launches: Vec::new(),
+            context_usage: None,
             peers: crate::PeerDeps::off(),
             detached: None,
             blocked: None,
@@ -305,6 +308,7 @@ impl Setup {
                 turn: self.turn,
                 last_turn_failed: self.last_turn_failed,
                 failed_turns: Vec::new(),
+                context_usage: self.context_usage,
                 launches: self.launches,
                 model_turns: Vec::new(),
                 input_intents: Vec::new(),

@@ -48,6 +48,18 @@ pub struct ContextBreakdownItem {
     pub chars: u64,
 }
 
+/// 落库的最后一次 `/context` 结果：会话 view 与冷投影用它，避免重启后把压缩器「只数消息」的估算当成
+/// 上下文占用（系统提示词与工具没算进去，数字会明显偏小），分项也不会丢。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextUsageRecord {
+    pub used_tokens: u64,
+    pub max_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breakdown: Vec<ContextBreakdownItem>,
+}
+
 /// 按 `UsageCategory` 的固定名字换成 UI 的分项来源。延迟工具、空闲空间与缓冲不是「已用上下文」，
 /// 不放进分项（否则占比会被空闲空间稀释）。
 pub fn breakdown(categories: &[UsageCategory]) -> Vec<ContextBreakdownItem> {

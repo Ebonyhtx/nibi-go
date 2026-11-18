@@ -32,6 +32,8 @@ fn snapshot(messages: Vec<Message>, running: bool) -> SessionView {
         last_seq: 0,
         revision: 0,
         running,
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage: None,

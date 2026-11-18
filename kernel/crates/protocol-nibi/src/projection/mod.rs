@@ -243,7 +243,7 @@ impl Projection {
             followup,
             levels,
             // App 的「总量」用模型的原始窗口（Node `usage.contextWindow.maxTokens`）；旧视图只带
-            // 有效窗口时退回它。
+            // 有效窗口时退回它。分项由 `seed_context_analysis` 从落库的完整分析播种。
             breakdown: Vec::new(),
             context: view.context_usage.as_ref().map(|usage| {
                 (
@@ -287,6 +287,21 @@ impl Projection {
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// 冷打开时用会话句柄的最后一次 `/context` 分析给 App 的上下文环与分项播种：
+    /// `SessionView.context_usage` 是压缩器只数消息的估算，不能当完整上下文（系统提示词与工具会漏掉）。
+    pub fn seed_context_analysis(
+        &mut self,
+        analysis: nibi_kernel_api::context_usage::ContextUsageRecord,
+    ) {
+        self.context = Some((
+            analysis.used_tokens,
+            analysis.window_tokens.unwrap_or(analysis.max_tokens),
+        ));
+        if !analysis.breakdown.is_empty() {
+            self.breakdown = analysis.breakdown;
+        }
     }
 
     /// 按 rowId 找行（row-targeting 命令解析 target 用）；没有时 None。

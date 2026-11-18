@@ -316,6 +316,8 @@ impl SessionStore for MemoryStore {
             last_turn_failed: last_turn_failed(facts),
             // 测试存储只拼一条“最后失败”；逐轮失败集合由用例自己往视图里塞。
             failed_turns: Vec::new(),
+            // 兼容读取：测试存储不落 `/context` 结果，冷视图退回压缩器估算。
+            context_usage: None,
             // 工作流控制轮（launch.md）：事实里带 WorkflowLaunchMessage 的消息，冷视图带给投影。
             launches: facts
                 .iter()

@@ -117,6 +117,7 @@ pub(crate) async fn session_on_machines<E: nibi_kernel_api::testing::AllPorts + 
             turn: None,
             last_turn_failed: false,
             failed_turns: Vec::new(),
+            context_usage: None,
             launches: Vec::new(),
             model_turns: Vec::new(),
             input_intents: Vec::new(),

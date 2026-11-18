@@ -381,6 +381,13 @@ impl Server {
                 )
             })
             .await?;
+        // 冷打开：用会话句柄的最后一次完整 `/context` 分析给 App 的上下文环/分项播种。
+        // 不能用 `view.context_usage`（压缩器只数消息，系统提示词与工具会漏掉，读数会明显偏小）。
+        if cold
+            && let Some(analysis) = live.handle.context_analysis()
+        {
+            live.sink.seed_context_analysis(analysis);
+        }
         // 冷打开时问一次 Host 的启动偏好（Node 在会话物化时问）：先应用，再挂计时任务。
         if cold
             && self
