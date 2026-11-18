@@ -262,6 +262,10 @@ pub(crate) struct Actor {
     /// 最后一次 `/context` 分析（冷加载来自存储，本进程每轮结束更新）：与 `Session` 句柄共用，
     /// 协议层冷投影用它给 App 的上下文环/分项播种；`view()` 仍给压缩器估算（footer 的口径）。
     pub(crate) analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
+    /// 工具结果的展示载荷（与 `Session` 句柄共用）：本进程 `ToolDone` 时更新，
+    /// 协议层冷投影用它恢复工具卡与随推槽数据。
+    pub(crate) tool_displays:
+        Arc<std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>>,
     /// 每轮输入的模型选择（冷加载的 `LoadedSession.model_turns` + 本进程提交的用户输入）：
     /// `view()` 带给冷投影补模型切换分隔线。锁不跨 await（与 `turn` 同一写法）。
     pub(crate) model_turns: std::sync::Mutex<Vec<nibi_kernel_api::store::SessionModelTurn>>,
@@ -347,6 +351,9 @@ impl Actor {
         resume_pending: Vec<MessageId>,
         draft: Arc<AtomicBool>,
         analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
+        tool_displays: Arc<
+            std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>,
+        >,
     ) -> Self {
         // 本机与连上的远端机器的通知（R3，remote-exec.md §20.7.2）。
         let stream = Notices::new(nibi_kernel_api::machine_notices::all_shell_notices(
@@ -392,6 +399,7 @@ impl Actor {
             failed_turns: state.failed_turns,
             last_turn_failed: state.last_turn_failed,
             analysis,
+            tool_displays,
             model_turns: std::sync::Mutex::new(state.model_turns),
             input_intents: state.input_intents,
             pending_intents: HashMap::new(),

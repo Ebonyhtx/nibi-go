@@ -443,11 +443,12 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
      列表）、注释（用户/助手、局部选取、发送、管理、删除）、侧边状态展开/收起/拖动、
      抽屉层级、宠物拖动、天气 MCP 工具卡、专注计时器、Web Island 超时降级。
    - 未做：插件市场与签名/Ed25519 仍属 C2。槽数据两条通道都已落地：工具结果随推
-     `_meta.nibiGo.push` → `data.push`（live 内按轮重算；display 未持久化，冷恢复后消失），
-     以及常驻推送 `notifications/nibiGo/slot` → `pluginSlot.data`（live-only、会话级连接）。
-     插件设置（text/toggle/select，随 MCP 启动 env 与 `data.host.settings` 生效）与
-     命令/技能面已在插件中心落地；供应商 logo 从 NIBI Client 的 `provider-icons` 原样复制
-     PNG（bigmodel/openrouter/opencode 仅 SVG，仍用字标回退），模型行可单独设默认。
+     `_meta.nibiGo.push` → `data.push`（display 随结果落库为 `tool_display` entry，冷恢复
+     后工具卡与随推脚注仍在），以及常驻推送 `notifications/nibiGo/slot` →
+     `pluginSlot.data`（live-only、会话级连接）。插件设置（text/toggle/select，随 MCP 启动
+     env 与 `data.host.settings` 生效）与命令/技能面已在插件中心落地；供应商 logo 从
+     NIBI Client 的 `provider-icons` 原样复制 PNG（bigmodel/openrouter/opencode 仅 SVG，
+     仍用字标回退），模型行可单独设默认。
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
 6. workspace/策略/指标：配额、路径策略、cwd/env、审批、50 命令矩阵。
 

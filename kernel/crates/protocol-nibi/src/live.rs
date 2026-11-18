@@ -107,12 +107,13 @@ impl Live {
             side_chat: view.meta.kind == SessionKind::SelectionSideChat,
             has_parent: view.meta.parent.is_some(),
             state: Mutex::new(State {
-                projection: Projection::from_view_with_auto_resolution(
+                projection: Projection::from_view_with_tool_displays(
                     view,
                     followup,
                     levels,
                     auto_resolution_enabled,
                     now,
+                    handle.tool_displays(),
                 ),
                 log: TopicLog::new(epoch),
                 summary: None,

@@ -104,6 +104,8 @@ pub struct Projection {
     input_intents: HashMap<String, Value>,
     /// 用户拒绝了的工具调用：结果投成 cancelled。
     denied: std::collections::HashSet<String>,
+    /// 冷打开时来自会话存储的工具展示载荷（tool_use_id → display）：工具卡与插件随推靠它恢复。
+    tool_displays: HashMap<String, Value>,
     /// 助手回复的赞/踩（NIBI setAssistantFeedback），按 assistant 消息 id：行落定时带上。
     feedback: std::collections::BTreeMap<String, String>,
     /// 待审的工作区钩子评审请求（NIBI `workspaceHookReview` 交互的 payload，`requestWorkspaceHookReview`）。
@@ -225,6 +227,26 @@ impl Projection {
         auto_resolution_enabled: bool,
         now: u64,
     ) -> Self {
+        Self::from_view_with_tool_displays(
+            view,
+            followup,
+            levels,
+            auto_resolution_enabled,
+            now,
+            HashMap::new(),
+        )
+    }
+
+    /// 冷打开时另给工具结果的展示载荷（`tool_use_id` → display）：冷恢复的工具卡与插件随推
+    /// 只存了文本，必须把当时的 display 补回来。
+    pub fn from_view_with_tool_displays(
+        view: &SessionView,
+        followup: Followup,
+        levels: Vec<String>,
+        auto_resolution_enabled: bool,
+        now: u64,
+        tool_displays: HashMap<String, Value>,
+    ) -> Self {
         let mut projection = Self {
             session: view.meta.id.as_str().to_owned(),
             rows: Vec::new(),
@@ -270,6 +292,7 @@ impl Projection {
                 .map(|(message, intent)| (message.as_str().to_owned(), intent.clone()))
                 .collect(),
             denied: std::collections::HashSet::new(),
+            tool_displays,
             created_at: view.meta.created_at_ms,
         };
         cold::rows(&mut projection, view);

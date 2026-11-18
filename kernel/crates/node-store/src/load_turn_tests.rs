@@ -107,3 +107,40 @@ async fn the_last_context_analysis_survives_a_cold_read() {
     let loaded = t.store.load(&session).await.unwrap();
     assert_eq!(loaded.context_usage.unwrap().used_tokens, 19_100);
 }
+
+/// 工具结果的展示载荷（`tool_display` entry）冷读取带回：工具卡与插件随推靠它恢复。
+#[tokio::test]
+async fn tool_displays_survive_a_cold_read() {
+    let t = TestStore::new();
+    started(&t, "sess_1").await;
+    let session = SessionId::new("sess_1");
+    t.store
+        .commit(
+            &session,
+            batch(
+                vec![
+                    user("msg_u1", "one"),
+                    Fact::Entry {
+                        kind: "tool_display".to_owned(),
+                        id: "toolu_1".to_owned(),
+                        data: serde_json::json!({
+                            "kind": "mcp_tool",
+                            "ui": {"pluginId": "nibigo_weather"}
+                        }),
+                    },
+                ],
+                "msg_u1",
+                "turn_1",
+            ),
+        )
+        .await
+        .unwrap();
+    let loaded = t.store.load(&session).await.unwrap();
+    assert_eq!(
+        loaded.tool_displays,
+        vec![(
+            "toolu_1".to_owned(),
+            serde_json::json!({"kind": "mcp_tool", "ui": {"pluginId": "nibigo_weather"}})
+        )]
+    );
+}

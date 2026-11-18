@@ -691,6 +691,12 @@ pub trait SessionHandle: Send + Sync {
         None
     }
 
+    /// 工具结果的展示载荷（`tool_use_id` → `display`）：协议层冷投影用它恢复工具卡与随推槽数据。
+    /// 缺省没有（测试/嵌入实现不需要提供）。
+    fn tool_displays(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        std::collections::HashMap::new()
+    }
+
     /// actor 已经退出（句柄是关闭后留下的旧实例）。协议桥据此丢弃缓存的打开结果、重新冷加载：
     /// 常驻池回收会话时不会通知协议层，桥里的旧条目必须自己失效。
     fn is_closed(&self) -> bool {

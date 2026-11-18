@@ -123,6 +123,8 @@ pub fn load(
         // 最后一次 /context 分析（每轮结束落库）：冷恢复的上下文环与分项用它，
         // 不能用压缩器「只数消息」的估算冒充（系统提示词与工具会漏掉）。
         context_usage: stored_context_usage(conn, session.as_str())?,
+        // 工具结果的展示载荷：冷恢复的工具卡与插件随推靠它。
+        tool_displays: operations::kind_entries(conn, session.as_str(), "tool_display")?,
     };
     Ok((loaded, crate::rewind::active_checkpoints(conn, session)?))
 }

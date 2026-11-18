@@ -135,6 +135,7 @@ fn loaded_sessions_round_trip_with_open_work() {
         failed_turns: Vec::new(),
         earlier: vec![assistant()],
         context_usage: None,
+        tool_displays: Vec::new(),
     };
     round_trip(&loaded);
     // 没有这些字段的旧结果也能读，读出来是空清单。
@@ -147,6 +148,7 @@ fn loaded_sessions_round_trip_with_open_work() {
         "earlier",
         "failed_turns",
         "context_usage",
+        "tool_displays",
     ] {
         old.as_object_mut().unwrap().remove(key);
     }
@@ -156,6 +158,7 @@ fn loaded_sessions_round_trip_with_open_work() {
     assert!(!old.last_turn_failed);
     assert!(old.earlier.is_empty());
     assert!(old.context_usage.is_none());
+    assert!(old.tool_displays.is_empty());
 }
 
 #[test]
