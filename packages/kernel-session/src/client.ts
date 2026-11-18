@@ -101,6 +101,7 @@ export class KernelSessionClient {
   private sendSeq = 1;
   private resolveSeq = 1;
   private compactSeq = 1;
+  private retrySeq = 1;
   private sessionId: string | null = null;
   private subscribed: { topic: string; connectionId: string } | null = null;
   private closed = false;
@@ -272,6 +273,39 @@ export class KernelSessionClient {
     if (status === "rejected" || status === "failed") {
       const message = typeof ack?.message === "string" ? ack.message : "";
       throw new Error(message.length > 0 ? message : `内核拒绝了压缩（${status}）`);
+    }
+  }
+
+  /**
+   * 重试最后一轮（`v4/command` 的 `retryTurn`）：内核把历史截到最后一条用户输入之前，
+   * 再重新提交一次。
+   *
+   * `target` 是协议必填（`{rowId, entityId}`，取自轮头行）：内核只认“最后一轮”，但 schema
+   * 缺了它会回 `payload: missing required property target`。
+   */
+  async retryTurn(
+    target: { rowId: number; entityId: string },
+    bases: { revision: number; logEpoch: string },
+  ): Promise<void> {
+    const sessionId = this.requireSessionId();
+    const ack = await this.request<{ status?: unknown; reasonCode?: unknown; message?: unknown }>(
+      KERNEL_METHODS.command,
+      {
+        commandId: `retry-${Date.now()}-${this.retrySeq++}`,
+        clientId: this.clientId,
+        sessionId,
+        type: "retryTurn",
+        payload: { target },
+        // retryTurn 是 CAS 命令：缺这两个内核直接回 “CAS commands require baseRevision and baseLogEpoch”。
+        baseRevision: bases.revision,
+        baseLogEpoch: bases.logEpoch,
+        issuedAt: Date.now(),
+      },
+    );
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝了重试（${status}）`);
     }
   }
 
