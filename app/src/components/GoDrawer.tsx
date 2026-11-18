@@ -45,6 +45,8 @@ export interface NavProps {
   insetTop?: number;
   insetBottom?: number;
   onNavigate?: () => void;
+  /** 离屏导航前的清理：首页用它 blur 输入框，避免输入法在设置页闪一下又收起。 */
+  onBeforeNavigate?: () => void;
   /** 桌面端在线设备数（0 = 未登录 / 无在线）。 */
   onlineDevices?: number;
   /** 本机会话列表（session/list）；空数组显示空态。 */
@@ -93,6 +95,7 @@ export function GoNavContent({
   insetTop = 0,
   insetBottom = 0,
   onNavigate,
+  onBeforeNavigate,
   onlineDevices = 0,
   sessions = [],
   archivedSessions = [],
@@ -418,6 +421,7 @@ export function GoNavContent({
             accessibilityLabel="插件"
             onPress={() => {
               Keyboard.dismiss();
+              onBeforeNavigate?.();
               onNavigate?.();
               router.push("/plugins");
             }}
@@ -429,6 +433,7 @@ export function GoNavContent({
             accessibilityLabel="设置"
             onPress={() => {
               Keyboard.dismiss();
+              onBeforeNavigate?.();
               onNavigate?.();
               router.push("/settings");
             }}
@@ -457,6 +462,7 @@ export function GoDrawer({
   onDeleteSession,
   onDeleteAllArchived,
   onSessionActions,
+  onBeforeNavigate,
 }: {
   open: boolean;
   onClose: () => void;
@@ -478,6 +484,8 @@ export function GoDrawer({
   }>;
   /** 会话行菜单里的插件动作入口（有 session.actions 时由首页提供）。 */
   onSessionActions?: (sessionId: string) => void;
+  /** 离屏导航前的清理（blur 首页输入框）。 */
+  onBeforeNavigate?: () => void;
 }) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
@@ -520,6 +528,7 @@ export function GoDrawer({
           insetTop={0}
           insetBottom={insets.bottom}
           onNavigate={onClose}
+          onBeforeNavigate={onBeforeNavigate}
           onlineDevices={onlineDevices}
           sessions={sessions}
           archivedSessions={archivedSessions}
