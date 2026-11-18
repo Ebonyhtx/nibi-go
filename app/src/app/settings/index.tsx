@@ -3,8 +3,9 @@
 // 模型/Provider、COMPOSE 快捷动作、插件、关于分开；后续新设置按入口加，不继续往下堆。
 
 import Constants from "expo-constants";
-import { router } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback } from "react";
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon, type IconName } from "../../components/Icon";
@@ -71,6 +72,13 @@ export default function SettingsHomeScreen() {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const version = Constants.expoConfig?.version ?? "0.0.0";
+
+  // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入设置先明确收起。
+  useFocusEffect(
+    useCallback(() => {
+      Keyboard.dismiss();
+    }, []),
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
