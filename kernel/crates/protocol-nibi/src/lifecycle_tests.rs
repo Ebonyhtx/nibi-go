@@ -166,6 +166,8 @@ impl SessionHandle for TestHandle {
 
 fn view(session: &SessionId) -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: session.clone(),
             kind: SessionKind::Interactive,

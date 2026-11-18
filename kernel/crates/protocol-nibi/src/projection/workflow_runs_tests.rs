@@ -205,6 +205,8 @@ fn a_cold_open_seeds_the_run_directory_from_journal_rows() {
 
 fn view() -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new("session_1"),
             kind: SessionKind::Interactive,

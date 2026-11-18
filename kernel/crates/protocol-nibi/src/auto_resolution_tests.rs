@@ -120,6 +120,8 @@ impl Harness {
         let context = Arc::new(Context::new(peer, clock.clone()));
         let topics = Arc::new(Topics::new(context.clone(), &scope.spawner()));
         let view = SessionView {
+            last_turn_failed: false,
+            failed_turns: Vec::new(),
             meta: SessionMeta {
                 id: SessionId::new("session-1"),
                 kind: SessionKind::Interactive,

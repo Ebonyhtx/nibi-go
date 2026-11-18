@@ -304,6 +304,7 @@ impl Setup {
                 start: self.start,
                 turn: self.turn,
                 last_turn_failed: self.last_turn_failed,
+                failed_turns: Vec::new(),
                 launches: self.launches,
                 model_turns: Vec::new(),
                 input_intents: Vec::new(),

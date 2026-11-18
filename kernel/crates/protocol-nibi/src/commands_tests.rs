@@ -113,7 +113,7 @@ fn retry_target_resolves_the_latest_turn_and_rejects_history() {
         user("u2", "second"),
         assistant("a2"),
     ];
-    let target = retry_target(&messages).unwrap();
+    let target = retry_target(&messages, false).unwrap();
     assert_eq!(target.user_message, "u2");
     assert_eq!(target.text, "second");
 
@@ -125,7 +125,7 @@ fn retry_target_resolves_the_latest_turn_and_rejects_history() {
         assistant("a2"),
         user("u3", "follow-up"),
     ];
-    let error = retry_target(&with_tail).unwrap_err();
+    let error = retry_target(&with_tail, false).unwrap_err();
     assert!(
         error.starts_with("guard.latestAssistantRetryOnly"),
         "{error}"
@@ -133,11 +133,11 @@ fn retry_target_resolves_the_latest_turn_and_rejects_history() {
 
     // 空会话。
     let empty: Vec<nibi_kernel_api::message::Message> = vec![];
-    assert!(retry_target(&empty).is_err());
+    assert!(retry_target(&empty, false).is_err());
 
     // assistant 前没有 user 输入。
     let messages = vec![assistant("a1")];
-    assert!(retry_target(&messages).is_err());
+    assert!(retry_target(&messages, false).is_err());
 
     // user 消息没有文本：不能重发空输入。
     let empty = Message::User(UserMessage {
@@ -146,8 +146,42 @@ fn retry_target_resolves_the_latest_turn_and_rejects_history() {
         origin: UserOrigin::Human,
     });
     let messages = vec![empty, assistant("a1")];
-    let error = retry_target(&messages).unwrap_err();
+    let error = retry_target(&messages, false).unwrap_err();
     assert!(error.contains("no text"), "{error}");
+
+    // 失败回合（没有 assistant 回复）：最后一条真人输入可重试。
+    let failed = vec![user("u1", "first"), assistant("a1"), user("u2", "again")];
+    let target = retry_target(&failed, true).unwrap();
+    assert_eq!(target.user_message, "u2");
+    assert_eq!(target.text, "again");
+
+    // 同样的形状但这一轮不是失败：仍然按 latest 守卫拒绝。
+    assert!(retry_target(&failed, false).is_err());
+
+    // 失败回合后面可能跟合成提醒（`<total_tokens>` 等）：从尾部往前找真人输入。
+    let synthetic = Message::User(UserMessage {
+        id: MessageId::new("r1"),
+        content: vec![ContentBlock::Text {
+            text: "<system-reminder>env</system-reminder>".to_owned(),
+        }],
+        origin: UserOrigin::Meta {
+            source: "environment".to_owned(),
+            origin_meta: None,
+        },
+    });
+    let messages = vec![
+        user("u1", "first"),
+        assistant("a1"),
+        user("u2", "again"),
+        synthetic.clone(),
+    ];
+    let target = retry_target(&messages, true).unwrap();
+    assert_eq!(target.user_message, "u2");
+    assert_eq!(target.text, "again");
+
+    // 一条真人输入都没有：失败也没得重试。
+    let only_synthetic = vec![assistant("a1"), synthetic];
+    assert!(retry_target(&only_synthetic, true).is_err());
 }
 
 #[test]

@@ -302,6 +302,10 @@ pub struct LoadedSession {
     /// 没有回答的 user 消息要不要补一条 assistant（docs/specs/rust-cli/session-lifecycle.md §6.3.1）。serde 缺省 false。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub last_turn_failed: bool,
+    /// 所有以错误结束的轮次（`turn_usage.status = error` 对应的 `user_message_id`）：冷投影按它
+    /// 逐轮还原 `failed`，而不是只认最后一轮。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_turns: Vec<MessageId>,
     /// 只供显示的、最后一个压缩点之前的消息（工作线 F102，docs/specs/rust-cli/compact.md §5.1）：应用回退之后的完整链里
     /// 排在 `messages` 之前、不在 `messages` 里的那些，按存储顺序；不含最后一个压缩点的保留段（它们在 `messages` 里）。
     /// 模型侧的历史只是 `messages`；界面显示 `earlier ++ messages`。没有压缩点时为空（serde 缺省为空、为空时不写出）。

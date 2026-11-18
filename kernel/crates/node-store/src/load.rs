@@ -115,6 +115,11 @@ pub fn load(
             }
             None => false,
         },
+        // 逐轮的失败终态：冷投影据此把每一轮收成 failed。
+        failed_turns: crate::repo::usage::failed_turns(conn, session.as_str())?
+            .into_iter()
+            .map(nibi_kernel_api::ids::MessageId::new)
+            .collect(),
     };
     Ok((loaded, crate::rewind::active_checkpoints(conn, session)?))
 }

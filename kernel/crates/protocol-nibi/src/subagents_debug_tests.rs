@@ -54,6 +54,8 @@ fn selection() -> ModelSelection {
 
 fn view() -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new("sess_a"),
             kind: SessionKind::Interactive,

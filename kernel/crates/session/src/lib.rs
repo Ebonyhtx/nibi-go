@@ -190,6 +190,9 @@ pub struct SessionState {
     /// 当前轮以错误结束（冷加载的 `LoadedSession.last_turn_failed`）：续写时不补 assistant（session-lifecycle.md
     /// §6.3.1）。
     pub last_turn_failed: bool,
+    /// 所有以错误结束的轮次（冷加载的 `LoadedSession.failed_turns`）：`view()` 带给冷投影，
+    /// 让重启后的失败回合仍显示为 failed。
+    pub failed_turns: Vec<nibi_kernel_api::ids::MessageId>,
     /// 工作流控制轮（冷加载的 `LoadedSession.launches`，launch.md）：会话 actor 在 `write_launch` 时追加，
     /// `view()` 带给冷投影。
     pub launches: Vec<SessionLaunchTurn>,

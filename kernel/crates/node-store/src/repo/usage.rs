@@ -5,6 +5,8 @@
 use anyhow::Result;
 use rusqlite::{Connection, params};
 
+use crate::{OrStorage, StoreError};
+
 /// Node `USAGE_RETENTION_DAYS`。
 pub const RETENTION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
@@ -533,4 +535,22 @@ pub fn turn_failed(conn: &Connection, session: &str, user_message: &str) -> Resu
         .query_row([session, user_message], |r| r.get(0))
         .optional()?;
     Ok(status.as_deref() == Some("error"))
+}
+
+/// 这个会话里所有以错误结束的轮次（`turn_usage.status = 'error'` 的 `user_message_id`）。
+///
+/// 冷投影用它把每一轮的终态还原成 `failed`：只记“最后一轮失败”会让更早的失败回合在重启后
+/// 被显示成“已完成”。
+pub fn failed_turns(conn: &Connection, session: &str) -> Result<Vec<String>, StoreError> {
+    // `StoreError`/`OrStorage` 见 `crate::lib`；调用方（load）直接 `?` 到 StoreError。
+    let mut statement = conn
+        .prepare_cached(
+            "select distinct user_message_id from turn_usage \
+             where session_id = ? and status = 'error' and user_message_id is not null",
+        )
+        .storage()?;
+    let rows = statement
+        .query_map([session], |row| row.get::<_, String>(0))
+        .storage()?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().storage()
 }

@@ -126,6 +126,8 @@ impl Kernel for FakeKernel {
     ) -> Result<Arc<dyn SessionHandle>, KernelError> {
         Ok(Arc::new(FakeHandle {
             view: SessionView {
+                last_turn_failed: false,
+                failed_turns: Vec::new(),
                 meta: SessionMeta {
                     id: session.clone(),
                     kind: SessionKind::Interactive,
@@ -401,6 +403,8 @@ async fn session_list_degrades_to_an_empty_list_when_the_store_cannot_answer() {
         ) -> Result<Arc<dyn SessionHandle>, KernelError> {
             Ok(Arc::new(FakeHandle {
                 view: SessionView {
+                    last_turn_failed: false,
+                    failed_turns: Vec::new(),
                     meta: SessionMeta {
                         id: session.clone(),
                         kind: SessionKind::Interactive,
