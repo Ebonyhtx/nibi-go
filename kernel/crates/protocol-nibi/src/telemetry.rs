@@ -52,6 +52,9 @@ pub struct TelemetryPorts {
     pub mcp_resource: Option<McpResourcePorts>,
     /// MCP Apps 的 UI 事件（`pluginUi.*` 增量，141 审计 §9 第 6 项）：按会话投进 live 投影。
     pub mcp_ui_events: Option<tokio::sync::mpsc::UnboundedReceiver<McpUiEvent>>,
+    /// 插件主动推的槽数据（`pluginSlot.data` 增量）：按会话投进 live 投影。
+    pub mcp_slot_events:
+        Option<tokio::sync::mpsc::UnboundedReceiver<nibi_kernel_api::mcp_slot::McpSlotEvent>>,
 }
 
 /// `process/mcpResourceSamples` 需要的东西：进程表读数与本机事实（平台、核数、内存总量）。

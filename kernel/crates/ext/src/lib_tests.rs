@@ -27,6 +27,7 @@ fn ext(env: MemoryEnvironment, fake: Arc<FakeMcp>, scope: &TaskScope, servers: M
         clock: crate::clock_tests::TokioClock::new(),
         mcp_telemetry: None,
         mcp_ui_events: None,
+        mcp_slot_events: None,
         sampling: None,
         mcp_oauth: None,
     };

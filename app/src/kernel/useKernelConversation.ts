@@ -17,6 +17,7 @@ import {
   type KernelSkillReference,
   type KernelSessionSummary,
   type KernelWorkspaceRef,
+  type PluginSlotData,
   type TurnState,
 } from "@nibi-go/kernel-session";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -195,6 +196,8 @@ export interface KernelConversation {
   turnChanges: Readonly<Record<string, readonly ChatFileChange[]>>;
   /** 当前会话可用的本机/插件技能（Composer 的 $ 技能引用）。 */
   skills: readonly KernelSkillReference[];
+  /** 插件主动推的槽数据（serverName → slotId → data）；live-only，切会话即清空。 */
+  pluginSlotData: PluginSlotData;
 }
 
 export function useKernelConversation(): KernelConversation {
@@ -263,6 +266,8 @@ export function useKernelConversation(): KernelConversation {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [turnChanges, setTurnChanges] = useState<Record<string, readonly ChatFileChange[]>>({});
   const [skills, setSkills] = useState<readonly KernelSkillReference[]>([]);
+  // 插件槽的实时数据：只在当前订阅代际里有效，切会话/重连必须清空。
+  const [pluginSlotData, setPluginSlotData] = useState<PluginSlotData>({});
   // 已经请求过明细的轮（stale 水位时才允许重试；其他失败不反复打内核）。
   const requestedChanges = useRef(new Set<string>());
   const clientRef = useRef<KernelSessionClient | null>(null);
@@ -404,6 +409,7 @@ export function useKernelConversation(): KernelConversation {
     controller.subscribe(() => {
       setRows([...controller.rows]);
       setTurn(controller.turn);
+      setPluginSlotData(controller.pluginSlots);
       syncContextUsage(controller);
       syncPending(controller);
       syncTurnChanges(controller);
@@ -414,6 +420,7 @@ export function useKernelConversation(): KernelConversation {
     controller.setPending([]);
     requestedChanges.current.clear();
     setTurnChanges({});
+    setPluginSlotData({});
     await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
@@ -603,6 +610,7 @@ export function useKernelConversation(): KernelConversation {
         feedRef.current = null;
         setRows([]);
         setTurn("idle");
+        setPluginSlotData({});
         return;
       }
       void reconnect();
@@ -955,5 +963,6 @@ function localizeGoalReply(response: string): string {
     respondInteraction,
     turnChanges,
     skills,
+    pluginSlotData,
   };
 }

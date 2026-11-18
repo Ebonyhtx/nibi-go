@@ -153,6 +153,15 @@ export const conversationDeltaSchema = z.discriminatedUnion("op", [
     toolName: z.string(),
     arguments: z.record(z.string(), z.unknown()),
   }),
+  // 插件进程主动推的会话槽数据（`notifications/nibiGo/slot`）。与 `pluginUi.*` 同一条路：
+  // live-only，不改快照、不进冷恢复；App 的 ConversationFeed 另行收集成 serverName → slot → data。
+  z.object({
+    op: z.literal("pluginSlot.data"),
+    pluginId: z.string(),
+    serverName: z.string().min(1),
+    slot: z.string().min(1),
+    data: z.record(z.string(), z.unknown()),
+  }),
   /**
    * 一条 dwf run 的键级增量。`revision` 是**这次变化之后**的 `workflowRuns.revision`（绝对值）；
    * 一条引擎事件最多产生一条本 op（节点相位、派生的 actor 状态、用量、水位一起落地，原子）。
@@ -195,6 +204,8 @@ export type PluginUiResourceDelta = Extract<
   { op: "pluginUi.resourceUpdated" | "pluginUi.resourceListChanged" }
 >;
 export type PluginUiAppToolCallDelta = Extract<ConversationDelta, { op: "pluginUi.appToolCall" }>;
+/** 插件主动推的槽数据（live-only；由宿主收集，不改变快照）。 */
+export type PluginSlotDataDelta = Extract<ConversationDelta, { op: "pluginSlot.data" }>;
 /** 按沙箱实例投递的全部 live-only 增量。 */
 export type PluginUiInstanceDelta =
   | Extract<ConversationDelta, { op: "pluginUi.instanceClosed" }>

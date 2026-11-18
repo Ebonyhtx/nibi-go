@@ -156,6 +156,12 @@ pub(crate) struct Inner {
     subscriptions: Mutex<BTreeMap<(String, String), BTreeMap<String, McpAppInstance>>>,
     /// UI 事件出口（`pluginUi.*` 增量）：入口接上；None 时（TUI、测试）什么都不发。
     ui_events: OnceLock<tokio::sync::mpsc::UnboundedSender<McpUiEvent>>,
+    /// 插件主动推槽数据的出口（`pluginSlot.data` 增量）与它所属的会话。只有会话级 manager 能装
+    /// （工作区级连接没有会话可投），没装时通知直接丢弃。
+    slot_events: OnceLock<(
+        tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>,
+        SessionId,
+    )>,
     /// 一个服务器的连接断了（含重连前的换代）：让 MCP Apps 的实例凭证失效并取消进行中的调用/采样。
     connection_lost: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
     /// 令牌端口（Node 的 `AuthProvider`）：入口装上；没有时带 `oauth` 的服务器连上只会得到 401。
@@ -555,6 +561,18 @@ impl Inner {
                 Notice::ResourceUpdated(uri) => {
                     self.resource_signal(name, McpResourceSignal::Updated(uri));
                 }
+                // 插件主动推槽数据：会话级 manager 才转出去，工作区级连接没有会话可投。
+                Notice::SlotData { slot, data } => {
+                    if let Some((sender, session)) = self.slot_events.get() {
+                        let _ = sender.send(nibi_kernel_api::mcp_slot::McpSlotEvent {
+                            session: session.clone(),
+                            plugin_id: self.plugin_id_of(name),
+                            server: name.to_owned(),
+                            slot,
+                            data,
+                        });
+                    }
+                }
                 // 其余 list_changed 不缓存清单：工具每次实时拉取。
                 Notice::ListChanged(_) => {}
                 Notice::Closed {
@@ -888,6 +906,7 @@ impl McpManager {
             startup_reported: AtomicBool::new(false),
             subscriptions: Mutex::default(),
             ui_events: OnceLock::new(),
+            slot_events: OnceLock::new(),
             connection_lost: Mutex::default(),
             oauth: OnceLock::new(),
             paid_gate: OnceLock::new(),
@@ -939,6 +958,15 @@ impl McpManager {
         sender: tokio::sync::mpsc::UnboundedSender<McpUiEvent>,
     ) {
         let _ = self.0.ui_events.set(sender);
+    }
+
+    /// 装上插件槽推送的出口与会话：只有会话级 manager 装，工作区级连接没有会话可投。
+    pub(crate) fn attach_slot_events(
+        &self,
+        sender: tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>,
+        session: SessionId,
+    ) {
+        let _ = self.0.slot_events.set((sender, session));
     }
 
     /// 装上“连接断了”的通知：MCP Apps 的实例凭证随连接作废（Node 连接换代同样关闭页面）。

@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ConversationDelta,
-  ConversationSnapshot,
-  ConversationTopicFrame,
+import {
+  assistantTextRowSchema,
+  type ConversationDelta,
+  type ConversationSnapshot,
+  type ConversationTopicFrame,
 } from "@nibi-go/shared-extract";
 
-import { applyConversationFrame } from "../src/index";
+import {
+  ConversationFeed,
+  applyConversationFrame,
+  type ConversationFeedClient,
+  type KernelNotification,
+} from "../src/index";
 
 const base = { turnId: "turn_1", createdAt: 1000, createdAtSeq: 1 };
 
@@ -55,5 +61,183 @@ describe("applyConversationFrame", () => {
   it("没有快照时增量丢弃（返回 null）", () => {
     const delta: ConversationDelta = { op: "row.delta", rowId: 7, path: "text", append: "x" };
     expect(applyConversationFrame(null, frame({ kind: "deltas", deltas: [delta] }))).toBeNull();
+  });
+});
+
+/** 一份能通过 wire schema 的最小快照（feed 会先做 zod 校验才 apply）。 */
+function liveSnapshot(text = "hi", state: "streaming" | "complete" = "complete"): ConversationSnapshot {
+  return {
+    protocolVersion: 1,
+    sessionId: "sess_1",
+    logEpoch: "epoch-1",
+    seq: 1,
+    revision: 1,
+    control: {
+      phase: "draft",
+      sessionEnded: false,
+      canStop: false,
+      stopState: "idle",
+      stopTargetKind: "unknown",
+      activeWorks: [],
+      lastError: null,
+      apiRetry: null,
+    },
+    availability: {
+      fork: { allowed: true },
+      compact: { allowed: true },
+      switchModelConfig: { allowed: true },
+      setFollowupMode: { allowed: true },
+      queueEdit: { allowed: true },
+      sendQueuedNow: { allowed: true },
+      pauseGoal: { allowed: true },
+      resumeGoal: { allowed: true },
+    },
+    inputRouting: { mode: "startNow" },
+    meta: { title: "", titleSource: "default" },
+    config: {
+      provider: "provider_1",
+      model: "model_1",
+      thought: "medium",
+      thoughtLevels: [],
+      followupMode: "queue",
+      mode: "build",
+    },
+    modelTransition: null,
+    usage: {
+      contextWindow: null,
+      cumulative: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    },
+    queue: { items: [], autoDrain: true },
+    pendingInteractions: [],
+    pendingCommands: [],
+    backgroundWorks: [],
+    goal: null,
+    plan: null,
+    workspaceHookAdmission: null,
+    rows: {
+      window: [
+        assistantTextRowSchema.parse({
+          rowId: 7,
+          turnId: "turn_1",
+          createdAt: 1000,
+          createdAtSeq: 1,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text,
+          state,
+        }),
+      ],
+      totalCount: 1,
+      firstRowId: 7,
+    },
+  };
+}
+
+/** 假客户端：把 logical frame 包成 `v4/conversation/frame` 通知（与内核同一条装配）。 */
+class FakeFeedClient implements ConversationFeedClient {
+  private readonly listeners = new Set<(notification: KernelNotification) => void>();
+  private ordinal = 0;
+
+  async subscribeConversation(): Promise<{ topic: string; connectionId: string }> {
+    return { topic: "conversation/sess_1", connectionId: "conn_1" };
+  }
+
+  async unsubscribeConversation(): Promise<void> {}
+
+  onNotification(listener: (notification: KernelNotification) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(payload: ConversationTopicFrame["payload"]): void {
+    const ordinal = (this.ordinal += 1);
+    const topic = "conversation/sess_1";
+    const notification: KernelNotification = {
+      method: "v4/conversation/frame",
+      params: {
+        wireVersion: 3,
+        kind: "complete",
+        deliveryKind: "online",
+        logicalFrameId: `lf-${ordinal}`,
+        logicalFrameOrdinal: ordinal,
+        topic,
+        subscriptionId: "sub_1",
+        frame: {
+          topic,
+          subscriptionId: "sub_1",
+          fromSeq: payload.kind === "snapshot" ? 0 : ordinal - 1,
+          toSeq: ordinal,
+          sentAt: 1000 + ordinal,
+          payload,
+        },
+      },
+    };
+    for (const listener of this.listeners) listener(notification);
+  }
+}
+
+const slotPush = (status: string): ConversationDelta =>
+  ({
+    op: "pluginSlot.data",
+    pluginId: "nibigo_focus",
+    serverName: "nibigo_focus",
+    slot: "focus-live",
+    data: { status },
+  }) as ConversationDelta;
+
+describe("ConversationFeed pluginSlots", () => {
+  it("pluginSlot.data 更新槽数据，同时行增量照常 apply", async () => {
+    const client = new FakeFeedClient();
+    const feed = new ConversationFeed(client);
+    await feed.start("sess_1");
+
+    client.emit({ kind: "snapshot", snapshot: liveSnapshot("he", "streaming") });
+    client.emit({
+      kind: "deltas",
+      deltas: [
+        slotPush("专注插件在线 · 5s"),
+        { op: "row.delta", rowId: 7, path: "text", append: "llo" },
+      ],
+    });
+
+    expect(feed.pluginSlots).toEqual({
+      nibigo_focus: { "focus-live": { status: "专注插件在线 · 5s" } },
+    });
+    expect((feed.snapshot?.rows.window[0] as { text?: string }).text).toBe("hello");
+    await feed.stop();
+  });
+
+  it("同一槽后到的推送覆盖先到的", async () => {
+    const client = new FakeFeedClient();
+    const feed = new ConversationFeed(client);
+    await feed.start("sess_1");
+
+    client.emit({ kind: "snapshot", snapshot: liveSnapshot() });
+    client.emit({ kind: "deltas", deltas: [slotPush("专注插件在线 · 5s")] });
+    client.emit({ kind: "deltas", deltas: [slotPush("专注插件在线 · 10s")] });
+
+    expect(feed.pluginSlots.nibigo_focus?.["focus-live"]).toEqual({
+      status: "专注插件在线 · 10s",
+    });
+    await feed.stop();
+  });
+
+  it("新快照清空槽数据（live-only，冷开不复活旧推送）", async () => {
+    const client = new FakeFeedClient();
+    const feed = new ConversationFeed(client);
+    await feed.start("sess_1");
+
+    client.emit({ kind: "snapshot", snapshot: liveSnapshot() });
+    client.emit({ kind: "deltas", deltas: [slotPush("专注插件在线 · 5s")] });
+    expect(feed.pluginSlots.nibigo_focus?.["focus-live"]).toBeDefined();
+
+    client.emit({ kind: "snapshot", snapshot: liveSnapshot("reopened", "complete") });
+    expect(feed.pluginSlots).toEqual({});
+    await feed.stop();
   });
 });

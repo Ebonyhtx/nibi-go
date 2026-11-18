@@ -136,6 +136,9 @@ export function applyConversationDelta(
     case "pluginUi.appToolCall":
       // live-only 通知 / 信箱投递：不改变快照，由 renderer 另行派发。
       return snapshot;
+    case "pluginSlot.data":
+      // 插件主动推的槽数据：live-only，由宿主（ConversationFeed）另行收集，不改变快照。
+      return snapshot;
     // workflowRuns 是唯一开了增量口子的状态键（delta.ts 的注释讲了为什么）。规则整份住在
     // workflow-runs-delta.ts：两个 twin 都只转调它，两边的语义因此没有走散的余地。
     case "workflowRun.updated":
@@ -218,6 +221,9 @@ export function applyConversationDeltaMutable(
       return;
     case "pluginUi.resourceUpdated":
     case "pluginUi.resourceListChanged":
+      return;
+    case "pluginSlot.data":
+      // 与不可变实现一致：槽数据由宿主另行收集，不进快照。
       return;
     // 与不可变实现调同一个纯函数：workflowRuns 是状态键不是 rows 窗口，没有「原地追加」可优化，
     // 而 accumulator.snapshot 本来就是候选快照自己的对象，赋一个新容器不会碰到已发布的快照。

@@ -4,14 +4,18 @@
 // 行主键稳定，流式文本靠 `row.delta` 追加，UI 不需要自己拼增量。
 import type { ConversationSnapshot } from "@nibi-go/shared-extract";
 
-import type { ConversationFeed } from "./feed";
+import type { ConversationFeed, PluginSlotData } from "./feed";
 import { deriveRows, type ChatRow, type PendingPrompt } from "./rows";
 
 /** 控制器只依赖“有快照、能订阅”这一面；测试里用假实现。 */
 export interface ConversationSource {
   readonly snapshot: ConversationSnapshot | null;
+  /** 插件槽实时数据（可选：没有实时订阅面的实现不需要提供）。 */
+  readonly pluginSlots?: PluginSlotData;
   subscribe(listener: () => void): () => void;
 }
+
+const EMPTY_PLUGIN_SLOTS: PluginSlotData = {};
 
 export type TurnState = "idle" | "running";
 
@@ -53,6 +57,11 @@ export class ConversationController {
   /** 当前快照（hook 用它判断乐观气泡是否已被内核回显）。 */
   get snapshot(): ConversationSnapshot | null {
     return this.source.snapshot;
+  }
+
+  /** 插件槽实时数据（serverName → slotId → data）；源没有这一面时为空。 */
+  get pluginSlots(): PluginSlotData {
+    return this.source.pluginSlots ?? EMPTY_PLUGIN_SLOTS;
   }
 
   /** 本机已发出、还没回显的提示（dsh-Go PendingRow）。 */

@@ -291,6 +291,9 @@ pub(crate) struct SessionMcp {
     telemetry: Option<Arc<McpTelemetry>>,
     /// MCP Apps 的事件出口（`pluginUi.*` 增量）：每套 manager 装同一份。
     ui_events: Option<tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_ui::McpUiEvent>>,
+    /// 插件槽推送的出口（`pluginSlot.data` 增量）：只给会话级 manager 装（工作区级没有会话）。
+    slot_events:
+        Option<tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>>,
     /// 令牌端口（Node 的 `AuthProvider`）：会话级服务器同样走它。
     oauth: Option<Arc<dyn nibi_kernel_api::mcp::McpOAuthPort>>,
     /// MCP Apps 的实例账本：连接断了时按（会话, 服务器）作废页面凭证。`Ext::new` 建好之后装上。
@@ -312,6 +315,9 @@ impl SessionMcp {
         clock: Arc<dyn Clock>,
         telemetry: Option<Arc<McpTelemetry>>,
         ui_events: Option<tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_ui::McpUiEvent>>,
+        slot_events: Option<
+            tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>,
+        >,
         oauth: Option<Arc<dyn nibi_kernel_api::mcp::McpOAuthPort>>,
     ) -> Self {
         Self {
@@ -321,6 +327,7 @@ impl SessionMcp {
             clock,
             telemetry,
             ui_events,
+            slot_events,
             oauth,
             app_instances: std::sync::OnceLock::new(),
             paid_gate: RwLock::new(None),
@@ -525,6 +532,10 @@ impl SessionMcp {
         }
         if let Some(events) = self.ui_events.clone() {
             manager.attach_ui_events(events);
+        }
+        if let (Some(events), Some(session)) = (self.slot_events.clone(), session.cloned()) {
+            // 只有会话级 manager 能投递：工作区级连接不属于任何会话。
+            manager.attach_slot_events(events, session);
         }
         if let Some(instances) = self.app_instances.get().cloned() {
             // 共享服务器断线时，所有会话的页面凭证都要作废（server 维度，不按会话过滤）。

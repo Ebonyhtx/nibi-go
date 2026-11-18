@@ -47,6 +47,7 @@ fn pools(fake: Arc<FakeMcp>, scope: &TaskScope) -> SessionMcp {
         None,
         None,
         None,
+        None,
     )
 }
 

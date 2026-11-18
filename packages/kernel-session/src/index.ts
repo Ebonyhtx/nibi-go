@@ -19,6 +19,7 @@ export {
   ConversationFeed,
   applyConversationFrame,
   type ConversationFeedClient,
+  type PluginSlotData,
 } from "./feed";
 export {
   deriveRows,

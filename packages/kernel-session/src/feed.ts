@@ -32,8 +32,19 @@ interface WireLike {
 }
 
 /**
+ * 插件槽的实时数据：serverName → slotId → 槽数据（`pluginSlot.data` 推送的当前值）。
+ *
+ * 推送是 live-only：只在当前订阅代际里有效，快照到达即清空，不参与冷恢复。
+ */
+export type PluginSlotData = Record<string, Record<string, Record<string, unknown>>>;
+
+/**
  * 一帧 → 新快照（纯函数，便于单测）：
  * snapshot 帧整体替换；deltas 帧逐条 apply（`row.delta` 就是流式文本追加）。
+ *
+ * 调用方必须先滤掉 `pluginSlot.data`：它不是快照状态。协议侧若尚未认识这个 op，
+ * 未知 op 会落到 `applyConversationDelta` 的 switch 之外返回 undefined，
+ * 进而把整个快照变成 undefined。
  */
 export function applyConversationFrame(
   current: ConversationSnapshot | null,
@@ -61,6 +72,7 @@ export class ConversationFeed {
   private readonly offNotification: () => void;
   private readonly pendingWires = new Map<string, unknown[]>();
   private snapshotValue: ConversationSnapshot | null = null;
+  private pluginSlotsValue: PluginSlotData = {};
   private disposed = false;
 
   constructor(client: ConversationFeedClient) {
@@ -72,6 +84,11 @@ export class ConversationFeed {
 
   get snapshot(): ConversationSnapshot | null {
     return this.snapshotValue;
+  }
+
+  /** 插件主动推的槽数据；快照帧会把它清空（live-only）。 */
+  get pluginSlots(): PluginSlotData {
+    return this.pluginSlotsValue;
   }
 
   subscribe(listener: () => void): () => void {
@@ -120,10 +137,44 @@ export class ConversationFeed {
   }
 
   private apply(frame: ConversationTopicFrame): void {
-    const next = applyConversationFrame(this.snapshotValue, frame);
-    if (!next) return;
-    this.snapshotValue = next;
-    this.emit();
+    const payload = frame.payload;
+    if (payload.kind === "snapshot") {
+      // 槽推送是 live-only：冷开/重订阅的快照不能把上一代际的推送复活。
+      this.pluginSlotsValue = {};
+      this.snapshotValue = payload.snapshot as ConversationSnapshot;
+      this.emit();
+      return;
+    }
+
+    // `pluginSlot.data` 不属于会话快照：先收集到 pluginSlots，再把它从快照增量里滤掉。
+    // （shared-extract 已把它注册成 no-op；滤掉是为了让 live-only 推送不参与快照归约。）
+    const deltas = payload.deltas as ConversationDelta[];
+    const slotsChanged = this.applyPluginSlotDeltas(deltas);
+    const conversationDeltas = deltas.filter((delta) => delta.op !== "pluginSlot.data");
+    const next = applyConversationFrame(this.snapshotValue, {
+      ...frame,
+      payload: { kind: "deltas", deltas: conversationDeltas },
+    });
+    if (next) this.snapshotValue = next;
+    // 纯槽帧也要通知订阅者；没有快照且只有被丢弃的增量时保持安静。
+    if (next || slotsChanged) this.emit();
+  }
+
+  /** 把一帧里的槽推送合并进 map；同一 server/slot 的后到值覆盖先到的。 */
+  private applyPluginSlotDeltas(deltas: readonly ConversationDelta[]): boolean {
+    let changed = false;
+    for (const delta of deltas) {
+      if (delta.op !== "pluginSlot.data") continue;
+      this.pluginSlotsValue = {
+        ...this.pluginSlotsValue,
+        [delta.serverName]: {
+          ...(this.pluginSlotsValue[delta.serverName] ?? {}),
+          [delta.slot]: delta.data,
+        },
+      };
+      changed = true;
+    }
+    return changed;
   }
 
   private emit(): void {

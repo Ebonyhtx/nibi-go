@@ -105,10 +105,13 @@ export function SideStatus({
   plugins,
   usage,
   bottom,
+  slotData,
 }: {
   plugins: readonly LoadedPlugin[];
   usage: ContextUsage | null;
   bottom: number;
+  /** 插件主动推的槽数据：serverName → slotId → data（槽里绑定 `data.push.*`）。 */
+  slotData?: Record<string, Record<string, unknown>>;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -210,6 +213,16 @@ export function SideStatus({
       .map((item) => ({ ...item, share: item.chars / totalChars }));
   }, [usage?.breakdown]);
   const current = strips[Math.min(index, Math.max(0, strips.length - 1))];
+  // 槽推送按 manifest 的 runtime.serverName 匹配（内核只认服务器名）；没有 runtime 时退回插件 id。
+  const serverName = current
+    ? (current.plugin.parsed.manifest.runtime?.serverName ?? current.plugin.parsed.manifest.id)
+    : undefined;
+  const pushValue = current && serverName ? slotData?.[serverName]?.[current.strip.id] : undefined;
+  // prop 的 data 是 unknown：只有对象才当 `data.push`（数组/标量不往槽里塞）。
+  const push =
+    typeof pushValue === "object" && pushValue !== null && !Array.isArray(pushValue)
+      ? (pushValue as Record<string, unknown>)
+      : undefined;
   const pluginText = current
     ? resolveText(
         current.strip.text,
@@ -221,6 +234,7 @@ export function SideStatus({
             version: current.plugin.parsed.manifest.version,
           },
           settings: current.plugin.settings,
+          push,
         }),
       ).trim()
     : "";
