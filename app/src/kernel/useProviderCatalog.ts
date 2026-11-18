@@ -35,7 +35,7 @@ export function useProviderCatalog(): {
 
   const ensureClient = useCallback(async (): Promise<KernelSessionClient | null> => {
     if (clientRef.current) return clientRef.current;
-    const env = { ...(kernelStartEnv() ?? {}), ...(await providerKeysEnv()) };
+    const env = { ...((await kernelStartEnv()) ?? {}), ...(await providerKeysEnv()) };
     const started =
       (await startKernelHost(Object.keys(env).length > 0 ? env : undefined, {
         useService: true,

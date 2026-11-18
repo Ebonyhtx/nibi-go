@@ -133,7 +133,7 @@ export default function SettingsScreen() {
     let cancelled = false;
     void (async () => {
       // 设置页可能从冷启动直接进入：服务模式是幂等的，已在跑时 start 直接返回 true。
-      const env = { ...(kernelStartEnv() ?? {}), ...(await providerKeysEnv()) };
+      const env = { ...((await kernelStartEnv()) ?? {}), ...(await providerKeysEnv()) };
       const startEnv = Object.keys(env).length > 0 ? env : undefined;
       const started =
         (await startKernelHost(startEnv, { useService: true })) ||

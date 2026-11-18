@@ -457,7 +457,7 @@ export function useKernelConversation(): KernelConversation {
         setArchivedIds(archivedIdsRef.current);
         // 默认模型在 app-server 启动时就算，Keystore 的 key 必须进启动 env；启动后的
         // 新增/删除再用 provider/setKeys 补。
-        const env = { ...(kernelStartEnv() ?? {}), ...(await providerKeysEnv()) };
+        const env = { ...((await kernelStartEnv()) ?? {}), ...(await providerKeysEnv()) };
         const startEnv = Object.keys(env).length > 0 ? env : undefined;
         let started = await startKernelHost(startEnv, { useService: KERNEL_MODE === "service" });
         if (!started && KERNEL_MODE === "service") {
@@ -707,6 +707,28 @@ export function useKernelConversation(): KernelConversation {
   }, []);
 
   /**
+   * 内核 `session/goal` 的回执是英文短句（`goal_summary` 里写死的），这里按同一组格式
+   * 换成中文；认不出的原样返回，不吞信息。
+   */
+function localizeGoalReply(response: string): string {
+  const text = response.trim();
+  if (text.startsWith("No goal is set")) return "当前没有目标。用「目标」命令设定一个。";
+  const matched = /^Goal (active|achieved|paused|failed)\nObjective: ([\s\S]*)$/.exec(text);
+  if (matched) {
+    const label =
+      matched[1] === "active"
+        ? "目标进行中"
+        : matched[1] === "achieved"
+          ? "目标已达成"
+          : matched[1] === "paused"
+            ? "目标已暂停"
+            : "目标未达成";
+    return `${label}：${matched[2]?.trim() ?? ""}`;
+  }
+  return text;
+}
+
+  /**
    * 目标管理（内核 `session/goal`）。
    *
    * 返回内核的人读回执（show 时有目标/没目标都有一句），失败返回错误文案；`set` 会让内核
@@ -723,10 +745,10 @@ export function useKernelConversation(): KernelConversation {
       }
       try {
         const result = await client.goal(action, objective);
+        const reply = localizeGoalReply(result.response);
         return {
           message:
-            result.response.trim() ||
-            (action === "set" ? "目标已设置" : action === "clear" ? "目标已清除" : "已执行"),
+            reply || (action === "set" ? "目标已设置" : action === "clear" ? "目标已清除" : "已执行"),
           startedTurn: result.startedTurn,
         };
       } catch (error) {
