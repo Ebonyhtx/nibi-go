@@ -308,6 +308,7 @@ async fn asking_session_with(
             turn: None,
             last_turn_failed: false,
             failed_turns: Vec::new(),
+            context_usage: None,
             launches: Vec::new(),
             model_turns: Vec::new(),
             input_intents: Vec::new(),
@@ -375,6 +376,25 @@ async fn a_tool_question_is_persisted_answered_and_resumes_the_tool() {
         kinds,
         vec!["intent", "pending_interaction", "interaction_resolved"]
     );
+}
+
+/// 冷恢复的上下文读数：有最后一次 `/context` 分析时句柄把它交给协议层播种（含分项），
+/// 不能用压缩器只数消息的估算冒充完整上下文。
+#[tokio::test]
+async fn a_cold_session_exposes_the_last_full_context_analysis() {
+    let record = nibi_kernel_api::context_usage::ContextUsageRecord {
+        used_tokens: 17_300,
+        max_tokens: 1_000_000,
+        window_tokens: Some(1_000_000),
+        breakdown: vec![nibi_kernel_api::context_usage::ContextBreakdownItem {
+            source: "system_prompt".to_owned(),
+            chars: 8_000,
+        }],
+    };
+    let mut setup = crate::test_support::Setup::new(Arc::new(ScriptedModel::new(Vec::new())));
+    setup.context_usage = Some(record.clone());
+    let built = setup.build().await;
+    assert_eq!(built.session.context_analysis(), Some(record));
 }
 
 #[path = "steer_tests.rs"]

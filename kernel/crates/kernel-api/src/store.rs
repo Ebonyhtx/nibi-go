@@ -306,6 +306,10 @@ pub struct LoadedSession {
     /// 逐轮还原 `failed`，而不是只认最后一轮。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub failed_turns: Vec<MessageId>,
+    /// 最后一次 `/context` 分析结果（每轮结束落库）：冷恢复时 App 的上下文环与分项用它，
+    /// 不能用压缩器的「只数消息」估算冒充（会把系统提示词与工具漏掉）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<crate::context_usage::ContextUsageRecord>,
     /// 只供显示的、最后一个压缩点之前的消息（工作线 F102，docs/specs/rust-cli/compact.md §5.1）：应用回退之后的完整链里
     /// 排在 `messages` 之前、不在 `messages` 里的那些，按存储顺序；不含最后一个压缩点的保留段（它们在 `messages` 里）。
     /// 模型侧的历史只是 `messages`；界面显示 `earlier ++ messages`。没有压缩点时为空（serde 缺省为空、为空时不写出）。

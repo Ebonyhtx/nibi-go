@@ -152,6 +152,7 @@ fn spawn(
             turn: None,
             last_turn_failed: false,
             failed_turns: Vec::new(),
+            context_usage: None,
             launches: Vec::new(),
             model_turns: Vec::new(),
             input_intents: Vec::new(),

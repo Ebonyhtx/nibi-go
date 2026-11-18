@@ -131,6 +131,8 @@ fn subagent_view(mode: PermissionMode, plan: bool, stats: bool) -> Transcript {
         last_seq: 0,
         revision: 0,
         running: true,
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage: stats.then_some(ContextOccupancy {
@@ -492,6 +494,8 @@ fn snapshot_of(view: Transcript) -> SessionView {
         last_seq: 0,
         revision: 0,
         running: view.running(),
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage: view.context_usage(),

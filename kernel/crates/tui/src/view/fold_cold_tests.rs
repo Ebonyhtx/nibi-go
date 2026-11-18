@@ -101,6 +101,8 @@ fn a_cold_view_rebuilds_rows_with_tool_results() {
         last_seq: 7,
         revision: 0,
         running: false,
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage: None,

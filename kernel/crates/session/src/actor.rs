@@ -259,6 +259,9 @@ pub(crate) struct Actor {
     pub(crate) failed_turns: Vec<nibi_kernel_api::ids::MessageId>,
     /// 最后一轮以错误结束（打开会话时来自存储，本进程按 TurnEnded 更新）：retryTurn 与冷投影都用它。
     pub(crate) last_turn_failed: bool,
+    /// 最后一次 `/context` 分析（冷加载来自存储，本进程每轮结束更新）：与 `Session` 句柄共用，
+    /// 协议层冷投影用它给 App 的上下文环/分项播种；`view()` 仍给压缩器估算（footer 的口径）。
+    pub(crate) analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
     /// 每轮输入的模型选择（冷加载的 `LoadedSession.model_turns` + 本进程提交的用户输入）：
     /// `view()` 带给冷投影补模型切换分隔线。锁不跨 await（与 `turn` 同一写法）。
     pub(crate) model_turns: std::sync::Mutex<Vec<nibi_kernel_api::store::SessionModelTurn>>,
@@ -343,6 +346,7 @@ impl Actor {
         asks: mpsc::WeakSender<Request>,
         resume_pending: Vec<MessageId>,
         draft: Arc<AtomicBool>,
+        analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
     ) -> Self {
         // 本机与连上的远端机器的通知（R3，remote-exec.md §20.7.2）。
         let stream = Notices::new(nibi_kernel_api::machine_notices::all_shell_notices(
@@ -387,6 +391,7 @@ impl Actor {
             launches: state.launches,
             failed_turns: state.failed_turns,
             last_turn_failed: state.last_turn_failed,
+            analysis,
             model_turns: std::sync::Mutex::new(state.model_turns),
             input_intents: state.input_intents,
             pending_intents: HashMap::new(),
@@ -1099,6 +1104,8 @@ impl Actor {
             failed_turns: self.failed_turns.clone(),
             background: [self.background().await, self.background_agents().await].concat(),
             peer_held: self.peers.views(),
+            // 冷加载后不用等下一条回复（F27）。有最后一次完整分析时优先用它：压缩器的估算只数消息，
+            // 系统提示词与工具都没算，重启后读数会从 17K 掉到 1.8K。窗口仍按当前模型重算。
             // 冷加载后不用等下一条回复（F27）：与 `context_changed` 同样两个函数。
             context_usage: self.context_occupancy(),
             context_notice: self.context_notice().unwrap_or_default(),

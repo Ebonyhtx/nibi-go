@@ -1155,11 +1155,30 @@ fn the_context_window_display_prefers_the_raw_window() {
         max_tokens: 127_000,
         window_tokens: Some(128_000),
     });
-    let projection = Projection::from_view(&cold, Followup::Queue, Vec::new());
+    let mut projection = Projection::from_view(&cold, Followup::Queue, Vec::new());
+    // 冷恢复的上下文环与分项来自落库的完整分析（`seed_context_analysis`），
+    // 不是压缩器只数消息的估算。
+    projection.seed_context_analysis(nibi_kernel_api::context_usage::ContextUsageRecord {
+        used_tokens: 17_300,
+        max_tokens: 127_000,
+        window_tokens: Some(128_000),
+        breakdown: vec![nibi_kernel_api::context_usage::ContextBreakdownItem {
+            source: "system_prompt".to_owned(),
+            chars: 8_000,
+        }],
+    });
     let snapshot = projection.snapshot(0, "epoch");
     assert_eq!(
         snapshot["usage"]["contextWindow"]["maxTokens"],
         serde_json::json!(128_000)
+    );
+    assert_eq!(
+        snapshot["usage"]["contextWindow"]["usedTokens"],
+        serde_json::json!(17_300)
+    );
+    assert_eq!(
+        snapshot["usage"]["contextWindow"]["breakdown"][0]["source"],
+        serde_json::json!("system_prompt")
     );
 }
 
