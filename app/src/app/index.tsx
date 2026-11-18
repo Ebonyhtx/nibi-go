@@ -269,6 +269,8 @@ export default function GoHomeScreen() {
     items: PluginSheetItem[];
   } | null>(null);
   const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
+  // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
+  const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
   const pluginContext: PluginActionContext = {
     insertText: (text, mode) => {
@@ -855,10 +857,12 @@ export default function GoHomeScreen() {
             onMenu={() => setSidebarOpen(true)}
             onSearch={() => undefined}
             onSettings={() => {
+              composerInputRef.current?.blur();
               Keyboard.dismiss();
               router.push("/settings");
             }}
             onPlugins={() => {
+              composerInputRef.current?.blur();
               Keyboard.dismiss();
               router.push("/plugins");
             }}
@@ -1110,6 +1114,7 @@ export default function GoHomeScreen() {
                 }}
               />
               <TextInput
+                ref={composerInputRef}
                 value={draft}
                 onChangeText={setDraft}
                 placeholder={tokens.length > 0 ? "继续输入…" : "给 NIBI 发消息…"}
@@ -1159,7 +1164,8 @@ export default function GoHomeScreen() {
           onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
           onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
           onDeleteAllArchived={conversation.deleteAllArchived}
-            onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
+          onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
+          onBeforeNavigate={() => composerInputRef.current?.blur()}
         />
       ) : null}
 
