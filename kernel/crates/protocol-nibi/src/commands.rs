@@ -1501,28 +1501,38 @@ struct RetryTarget {
 /// assistant 行 → 该轮 user 消息：视图里定位 assistant 消息，向前找最近的 user 消息。
 /// Node 的守护（`guard.latestAssistantRetryOnly`）：只许重试最后一轮 assistant 回复——
 /// 历史回复 retry 会回退 active branch，直接拒绝；合成消息（Attachment/System）跳过。
-fn retry_target(messages: &[nibi_kernel_api::message::Message]) -> Result<RetryTarget, String> {
-    // latest 守卫：最后一条消息必须是 assistant（有回复才能重试）。
+///
+/// 另外允许一种情形：最后一轮以错误结束、没有 assistant 回复（`last_turn_failed`）。
+/// 这时“重试”就是重新提交最后一条真人输入，语义与 assistant 路径一致（截断后重发）。
+fn retry_target(
+    messages: &[nibi_kernel_api::message::Message],
+    last_turn_failed: bool,
+) -> Result<RetryTarget, String> {
     let position = messages
         .len()
         .checked_sub(1)
         .ok_or("the conversation is empty")?;
-    if !matches!(
-        messages[position],
-        nibi_kernel_api::message::Message::Assistant(_)
-    ) {
+    let user = match &messages[position] {
+        nibi_kernel_api::message::Message::Assistant(_) => messages[..position]
+            .iter()
+            .rev()
+            .find(|message| matches!(message, nibi_kernel_api::message::Message::User(_))),
+        // 失败回合：最后一条真人输入之后没有 assistant 回复。它后面可能还跟了
+        // `<total_tokens>` 之类的合成提醒，所以从尾部往前找真人输入，而不是只看最后一条。
+        _ if last_turn_failed => messages[..=position].iter().rev().find(|message| {
+            matches!(
+                message,
+                nibi_kernel_api::message::Message::User(user)
+                    if user.origin == nibi_kernel_api::message::UserOrigin::Human
+            )
+        }),
+        _ => None,
+    };
+    let Some(nibi_kernel_api::message::Message::User(user_message)) = user else {
         return Err(
             "guard.latestAssistantRetryOnly: retryTurn only retries the latest assistant reply"
                 .to_owned(),
         );
-    }
-    let user = messages[..position]
-        .iter()
-        .rev()
-        .find(|message| matches!(message, nibi_kernel_api::message::Message::User(_)))
-        .ok_or("no user input before the assistant reply")?;
-    let nibi_kernel_api::message::Message::User(user_message) = user else {
-        return Err("no user input before the assistant reply".to_owned());
     };
     let text = user_message
         .content
@@ -1702,7 +1712,7 @@ async fn retry_turn(
     }
     // target {rowId, entityId} 只是客户端的 UI 提示；latest 守卫保证只重试最后一轮。
     // 直接从 transcript 解析（不经投影行——rewind 后投影行可能还没重放）。
-    let retry = match retry_target(&view.messages) {
+    let retry = match retry_target(&view.messages, view.last_turn_failed) {
         Ok(retry) => retry,
         Err(reason) => {
             let code = reason.split(':').next().unwrap_or_default().to_owned();

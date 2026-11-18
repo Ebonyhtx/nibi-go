@@ -577,6 +577,12 @@ impl Actor {
             if let Err(reason) = self.commit(None, vec![Fact::TurnEnded { status }]).await {
                 tracing::warn!(%reason, "the turn usage could not be stored");
             }
+            // 视图上的“最后一轮失败”：retryTurn 用它允许重试没有 assistant 回复的失败回合，
+            // 冷投影也用它兜底。
+            self.last_turn_failed = matches!(
+                status,
+                nibi_kernel_api::metering::CallStatus::Error
+            );
         }
         let usage = turn_usage(&self.messages, running.prompt.as_ref());
         // 每轮结束算一次上下文分项（与 `/context` 同一个分析器）：contextUsage 面板的消息/系统/

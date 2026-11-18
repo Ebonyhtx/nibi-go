@@ -620,6 +620,13 @@ pub struct SessionView {
     /// 有回合正在运行。
     #[serde(default)]
     pub running: bool,
+    /// 当前轮以错误结束（冷加载的 `LoadedSession.last_turn_failed`，Node `turn_usage.status = error`）。
+    /// 冷投影据此把最后一个回合收成 `failed`，而不是默认成功。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last_turn_failed: bool,
+    /// 所有以错误结束的轮次（冷加载的 `LoadedSession.failed_turns`）：冷投影逐轮还原 `failed`。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_turns: Vec<crate::ids::MessageId>,
     /// 执行环境里还没有处理完的后台命令（`ShellState::background`）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background: Vec<ShellTaskId>,

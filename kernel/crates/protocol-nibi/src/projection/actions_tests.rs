@@ -14,6 +14,8 @@ use super::super::{PermissionMode, Projection};
 
 fn view(messages: Vec<Message>) -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new("session_1"),
             kind: SessionKind::Interactive,

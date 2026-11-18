@@ -24,6 +24,11 @@ pub(super) fn rows(projection: &mut Projection, view: &SessionView) {
     let mut out = Vec::new();
     let mut turns = 0u64;
     let mut interrupted = false;
+    // 当前这轮的用户消息 id：收口时拿它查 `failed_turns`，把失败终态逐轮还原。
+    let mut prompt: Option<&str> = None;
+    let failed_now = |prompt: Option<&str>| {
+        prompt.is_some_and(|id| view.failed_turns.iter().any(|failed| failed.as_str() == id))
+    };
     // 每轮用户输入时刻的模型选择：与上一轮不同才画 `modelChange` 分隔线（Node transcript hydration 同判据）。
     let selections: std::collections::HashMap<&str, &nibi_kernel_api::model::ModelSelection> =
         view.model_turns
@@ -61,9 +66,16 @@ pub(super) fn rows(projection: &mut Projection, view: &SessionView) {
                     && !INTERRUPT_TEXTS.contains(&super::text_of(&user.content).as_str()) =>
             {
                 if projection.turn.is_some() {
-                    projection.close_cold_turn(interrupted, current_end.unwrap_or(at), &mut out);
+                    // 被新回合顶掉的旧回合：按它自己的 user 消息查失败。
+                    projection.close_cold_turn(
+                        interrupted,
+                        failed_now(prompt),
+                        current_end.unwrap_or(at),
+                        &mut out,
+                    );
                 }
                 interrupted = false;
+                prompt = Some(user.id.as_str());
                 turns += 1;
                 let turn = format!("{}:turn:{turns}", user.id.as_str());
                 let timing = timings.get(user.id.as_str());
@@ -119,11 +131,13 @@ pub(super) fn rows(projection: &mut Projection, view: &SessionView) {
                     if projection.turn.is_some() {
                         projection.close_cold_turn(
                             interrupted,
+                            failed_now(prompt),
                             current_end.unwrap_or(at),
                             &mut out,
                         );
                     }
                     interrupted = false;
+                    prompt = Some(user.id.as_str());
                     turns += 1;
                     let turn = format!("{}:turn:{turns}", user.id.as_str());
                     let started = started.unwrap_or(at);
@@ -200,7 +214,9 @@ pub(super) fn rows(projection: &mut Projection, view: &SessionView) {
         if view.running {
             projection.phase = Phase::Running;
         } else {
-            projection.close_cold_turn(interrupted, current_end.unwrap_or(at), &mut out);
+            // 最后一个回合的终态：逐轮失败集合优先；拿不到（老库/没记）时退回 last_turn_failed。
+            let failed = failed_now(prompt) || view.last_turn_failed;
+            projection.close_cold_turn(interrupted, failed, current_end.unwrap_or(at), &mut out);
         }
     }
 }
@@ -229,9 +245,13 @@ fn model_change(
 
 impl Projection {
     /// `ended_at` 是这一轮的真实结束时刻（`turn_usage.completed_at`）；没有计时时退回会话创建时间。
+    ///
+    /// `failed` 来自会话行持久化的“当前轮以错误结束”（`LoadedSession.last_turn_failed`）：
+    /// 没有它，重启后失败回合会被收成成功并显示“已完成”。
     fn close_cold_turn(
         &mut self,
         interrupted: bool,
+        failed: bool,
         ended_at: u64,
         out: &mut Vec<serde_json::Value>,
     ) {
@@ -243,6 +263,11 @@ impl Projection {
         });
         let outcome = if interrupted {
             nibi_kernel_api::session_api::TurnOutcome::Interrupted
+        } else if failed {
+            // 具体错误原因没有落库（只存了 status），这里给出可读的兜底文案。
+            nibi_kernel_api::session_api::TurnOutcome::Failed {
+                message: "the previous turn ended with an error".to_owned(),
+            }
         } else {
             nibi_kernel_api::session_api::TurnOutcome::Success
         };

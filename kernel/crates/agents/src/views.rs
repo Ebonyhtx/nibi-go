@@ -163,6 +163,9 @@ pub(crate) async fn view(
         last_seq: 0,
         revision: 0,
         running: matches!(found.state, AgentState::Running { .. }),
+        // 子会话的回合状态同样来自冷投影：沿用存储里的逐轮失败标记。
+        last_turn_failed: loaded.last_turn_failed,
+        failed_turns: loaded.failed_turns,
         background: Vec::new(),
         peer_held: Vec::new(),
         context_usage,

@@ -63,6 +63,8 @@ fn plan_result(id: &str, is_error: bool) -> Message {
 
 fn view(id: &str) -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new(id),
             kind: SessionKind::Interactive,

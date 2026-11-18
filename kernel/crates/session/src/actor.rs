@@ -254,6 +254,11 @@ pub(crate) struct Actor {
     /// 已落的工作流控制轮（冷加载的 `LoadedSession.launches` + 本进程落的）：`view()` 带给冷投影
     /// （`Message::User` 不带消息元数据，冷投影靠这份清单认 controlOnly 轮）。
     pub(crate) launches: Vec<SessionLaunchTurn>,
+    /// 以错误结束的轮次（冷加载的 `LoadedSession.failed_turns`）：`view()` 带给冷投影，
+    /// 让重启后的失败回合仍收成 failed 而不是“已完成”。
+    pub(crate) failed_turns: Vec<nibi_kernel_api::ids::MessageId>,
+    /// 最后一轮以错误结束（打开会话时来自存储，本进程按 TurnEnded 更新）：retryTurn 与冷投影都用它。
+    pub(crate) last_turn_failed: bool,
     /// 每轮输入的模型选择（冷加载的 `LoadedSession.model_turns` + 本进程提交的用户输入）：
     /// `view()` 带给冷投影补模型切换分隔线。锁不跨 await（与 `turn` 同一写法）。
     pub(crate) model_turns: std::sync::Mutex<Vec<nibi_kernel_api::store::SessionModelTurn>>,
@@ -380,6 +385,8 @@ impl Actor {
             held_records: Vec::new(),
             pending_launch: VecDeque::new(),
             launches: state.launches,
+            failed_turns: state.failed_turns,
+            last_turn_failed: state.last_turn_failed,
             model_turns: std::sync::Mutex::new(state.model_turns),
             input_intents: state.input_intents,
             pending_intents: HashMap::new(),
@@ -1087,6 +1094,9 @@ impl Actor {
             last_seq: self.log.last_seq(),
             revision: self.log.revision(),
             running: self.running.is_some(),
+            // 恢复会话时投影是拿 actor 的 view 建的（不是冷快照），这两个字段必须带上。
+            last_turn_failed: self.last_turn_failed,
+            failed_turns: self.failed_turns.clone(),
             background: [self.background().await, self.background_agents().await].concat(),
             peer_held: self.peers.views(),
             // 冷加载后不用等下一条回复（F27）：与 `context_changed` 同样两个函数。

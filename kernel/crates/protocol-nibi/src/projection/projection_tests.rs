@@ -17,6 +17,8 @@ use super::*;
 
 fn view(messages: Vec<Message>) -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new("session_1"),
             kind: SessionKind::Interactive,
@@ -366,6 +368,50 @@ fn a_cold_view_rebuilds_the_rows_of_finished_turns() {
     assert_eq!(snapshot["control"]["phase"], "completedSuccess");
     assert_eq!(snapshot["inputRouting"]["mode"], "startNow");
     assert_eq!(snapshot["config"]["followupMode"], "guide");
+}
+
+/// 逐轮失败集合：更早的失败回合也要还原（只记最后一轮会让它在重启后变“已完成”）。
+#[test]
+fn a_cold_view_maps_persisted_failures_per_turn() {
+    let mut cold = view(vec![
+        user("msg_u1", "first"),
+        assistant("msg_a1", vec![ContentBlock::Text { text: "one".into() }]),
+        user("msg_u2", "second"),
+        assistant("msg_a2", vec![ContentBlock::Text { text: "two".into() }]),
+    ]);
+    cold.failed_turns = vec![nibi_kernel_api::ids::MessageId::new("msg_u1")];
+    let projection = Projection::from_view(&cold, Followup::Queue, Vec::new());
+    let snapshot = projection.snapshot(0, "epoch");
+    let states: Vec<&str> = snapshot["rows"]["window"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["kind"] == "turnHeader")
+        .map(|row| row["state"].as_str().unwrap())
+        .collect();
+    assert_eq!(states, ["failed", "completedSuccess"]);
+}
+
+/// 冷加载时“当前轮以错误结束”必须来自持久化标记：否则重启后失败回合会显示成“已完成”。
+#[test]
+fn a_cold_view_maps_the_persisted_failure_to_a_failed_turn() {
+    let mut cold = view(vec![
+        user("msg_u1", "first"),
+        assistant("msg_a1", vec![ContentBlock::Text { text: "one".into() }]),
+        user("msg_u2", "second"),
+    ]);
+    cold.last_turn_failed = true;
+    let projection = Projection::from_view(&cold, Followup::Queue, Vec::new());
+    let snapshot = projection.snapshot(0, "epoch");
+    let states: Vec<&str> = snapshot["rows"]["window"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["kind"] == "turnHeader")
+        .map(|row| row["state"].as_str().unwrap())
+        .collect();
+    assert_eq!(states, ["completedSuccess", "failed"]);
+    assert_eq!(projection.phase(), Phase::Error);
 }
 
 /// 冷投影没有流式 response 编号：同一轮多条 assistant 消息的同类块不能互相覆盖，

@@ -334,6 +334,8 @@ async fn a_grant_refreshes_the_banner_of_the_other_open_sessions_in_the_workspac
 
     fn view(workspace: &str) -> SessionView {
         SessionView {
+            last_turn_failed: false,
+            failed_turns: Vec::new(),
             meta: SessionMeta {
                 id: SessionId::new("unset"),
                 kind: SessionKind::Interactive,

@@ -314,6 +314,8 @@ impl SessionStore for MemoryStore {
                 .get(session)
                 .and_then(|turns| turns.iter().rev().find_map(Clone::clone)),
             last_turn_failed: last_turn_failed(facts),
+            // 测试存储只拼一条“最后失败”；逐轮失败集合由用例自己往视图里塞。
+            failed_turns: Vec::new(),
             // 工作流控制轮（launch.md）：事实里带 WorkflowLaunchMessage 的消息，冷视图带给投影。
             launches: facts
                 .iter()

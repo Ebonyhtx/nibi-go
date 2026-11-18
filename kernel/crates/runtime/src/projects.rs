@@ -320,6 +320,9 @@ impl LocalKernel {
             last_seq: 0,
             revision: 0,
             running: false,
+            // 冷加载的回合终态：投影据此收成 failed（否则重启后失败回合显示“已完成”）。
+            last_turn_failed: loaded.last_turn_failed,
+            failed_turns: loaded.failed_turns,
             background: Vec::new(),
             peer_held: Vec::new(),
             context_usage: None,

@@ -112,6 +112,8 @@ fn view() -> SessionView {
 
 fn view_with_kind(kind: SessionKind) -> SessionView {
     SessionView {
+        last_turn_failed: false,
+        failed_turns: Vec::new(),
         meta: SessionMeta {
             id: SessionId::new("sess_1"),
             kind,
