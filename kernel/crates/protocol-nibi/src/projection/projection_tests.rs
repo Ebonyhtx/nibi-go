@@ -1182,6 +1182,40 @@ fn the_context_window_display_prefers_the_raw_window() {
     );
 }
 
+/// 冷打开播种累计用量：App 的缓存命中率来自 `usage.cumulative`，不播种时重启后显示“—”。
+#[test]
+fn a_cold_projection_seeds_the_cumulative_usage() {
+    let mut cold = view(Vec::new());
+    // 真实冷打开时 context_usage 由 `seed_context_analysis` 播种；这里给一份占位，
+    // 好让 `contextWindow.cache` 跟着累计用量一起生成。
+    cold.context_usage = Some(nibi_kernel_api::compaction::ContextOccupancy {
+        used_tokens: 1_000,
+        max_tokens: 1_000_000,
+        window_tokens: Some(1_000_000),
+    });
+    let mut projection = Projection::from_view(&cold, Followup::Queue, Vec::new());
+    projection.seed_cumulative_usage(nibi_kernel_api::message::Usage {
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 700,
+    });
+    let snapshot = projection.snapshot(0, "epoch");
+    assert_eq!(
+        snapshot["usage"]["cumulative"]["inputTokens"],
+        serde_json::json!(100)
+    );
+    assert_eq!(
+        snapshot["usage"]["cumulative"]["cacheReadTokens"],
+        serde_json::json!(700)
+    );
+    // 命中率 = cache_read / (input + cache_read + cache_creation)。
+    assert_eq!(
+        snapshot["usage"]["contextWindow"]["cache"]["hitRate"],
+        serde_json::json!(700.0 / 1100.0)
+    );
+}
+
 /// AskUserQuestion 与 ExitPlanMode 也进 pendingInteractions：Node 把两者投影成 `userInput`
 /// （结构化 questions / `schema.interaction = plan_approval`），不是允许/拒绝弹窗。
 #[test]
