@@ -234,6 +234,27 @@ export interface PluginSkillContribution {
   body: string;
 }
 
+/** 插件设置项：插件中心渲染成表单，值进 MCP 启动 env（`NIBIGO_SETTINGS`）与槽数据（`data.host.settings`）。 */
+export type PluginSetting =
+  | {
+      id: string;
+      title: string;
+      type: "text";
+      description?: string;
+      default?: string;
+      placeholder?: string;
+      maxLength?: number;
+    }
+  | { id: string; title: string; type: "toggle"; description?: string; default?: boolean }
+  | {
+      id: string;
+      title: string;
+      type: "select";
+      description?: string;
+      default?: string;
+      options: Array<{ value: string; label: string }>;
+    };
+
 export interface PluginManifest {
   schemaVersion: 1;
   id: string;
@@ -246,6 +267,8 @@ export interface PluginManifest {
   caps: string[];
   runtime?: PluginRuntime;
   skills?: PluginSkillContribution[];
+  /** 设置项（≤8）：见 [`PluginSetting`]。 */
+  settings?: PluginSetting[];
   contributes: {
     toolCards: ToolCardContribution[];
     composerActions: ComposerActionContribution[];
@@ -288,7 +311,7 @@ export interface SlotActionContext {
   toolCallId?: string;
 }
 
-/** 数据绑定求值用到的数据根：`{ data: { host, tool, plugin } }`。 */
+/** 数据绑定求值用到的数据根：`{ data: { host, tool, plugin, push } }`。 */
 export interface SlotData {
   data: Record<string, unknown>;
 }

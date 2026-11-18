@@ -44,7 +44,7 @@ import { useConversationPreferences } from "../conversation/useConversationPrefe
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { useProviderCatalog } from "../kernel/useProviderCatalog";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
-import { runPluginAction, type PluginActionContext } from "../plugins/actions";
+import { runPluginAction, toast, type PluginActionContext } from "../plugins/actions";
 import { takePendingInsert } from "../plugins/pendingInsert";
 import {
   pluginCapability,
@@ -281,6 +281,13 @@ export default function GoHomeScreen() {
     },
     refresh: () => {
       void plugins.reload();
+    },
+    command: {
+      // "/" 用 dismissTo：首页自己发起命令时不会压出第二份首页（否则会再起一个内核客户端）。
+      navigate: (path) => (path === "/" ? router.dismissTo("/") : router.push(path)),
+      toast,
+      newSession: conversation.newSession,
+      compact: conversation.compact,
     },
   };
   const runAction = (

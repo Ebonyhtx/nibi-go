@@ -4,8 +4,10 @@
 // 或反复插入文本。`insert` 永远只改草稿，不自动发送。
 
 import type { Effect } from "@nibi-go/plugin-contract";
+import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, Platform, ToastAndroid } from "react-native";
 
+import { runHostCommand, type HostCommandContext } from "./commands";
 import type { LoadedPlugin } from "./store";
 
 export interface RunnableAction {
@@ -20,12 +22,15 @@ export interface PluginActionContext {
   openPanel: (pluginId: string, panelId: string) => void;
   /** 重新计算宿主数据/重绘当前槽。 */
   refresh: () => void;
+  /** 宿主命令（`command` 效果）；白名单与可用性在 commands.ts 内裁决。 */
+  command: HostCommandContext;
 }
 
 const TAP_WINDOW_MS = 3_000;
 const lastRun = new Map<string, number>();
 
-function toast(text: string): void {
+/** 插件相关的轻提示；命令分发也复用它（Android Toast / iOS Alert）。 */
+export function toast(text: string): void {
   if (Platform.OS === "android") {
     ToastAndroid.show(text, ToastAndroid.SHORT);
     return;
@@ -66,11 +71,13 @@ export function runPluginAction(
         context.refresh();
         break;
       case "copy":
-        // 当前切片没有剪贴板桥：如实降级，不假装成功。
-        toast("当前版本还不支持插件复制");
+        // 写剪贴板是异步的；抛错或平台返回 false 都如实提示，绝不假装成功。
+        void Clipboard.setStringAsync(effect.text)
+          .then((saved) => toast(saved ? "已复制" : "复制失败，请手动选择文本"))
+          .catch(() => toast("复制失败，请手动选择文本"));
         break;
       case "command":
-        toast("当前版本还不支持插件命令");
+        runHostCommand(effect.name, effect.args, context.command);
         break;
     }
   }

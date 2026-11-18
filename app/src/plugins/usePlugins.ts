@@ -7,6 +7,7 @@ import {
   enabledPlugins as filterEnabled,
   loadPlugins,
   setPluginEnabled,
+  setPluginSetting,
   type LoadedPlugin,
 } from "./store";
 
@@ -18,6 +19,7 @@ export interface PluginsState {
   error: string | null;
   reload: () => Promise<readonly LoadedPlugin[]>;
   setEnabled: (id: string, enabled: boolean) => Promise<void>;
+  setSetting: (id: string, key: string, value: string | boolean) => Promise<void>;
 }
 
 export function usePlugins(): PluginsState {
@@ -63,5 +65,14 @@ export function usePlugins(): PluginsState {
 
   const enabled = useMemo(() => filterEnabled(plugins), [plugins]);
 
-  return { plugins, enabled, loading, error, reload, setEnabled };
+  // 设置保存后重读：MCP 服务器在下一个会话拿到新的启动 env，槽里的 `data.host.settings` 也同步。
+  const setSetting = useCallback(
+    async (id: string, key: string, value: string | boolean) => {
+      await setPluginSetting(id, key, value);
+      await reload();
+    },
+    [reload],
+  );
+
+  return { plugins, enabled, loading, error, reload, setEnabled, setSetting };
 }

@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components/Icon";
 import { PluginPanelView } from "../components/PluginView";
-import { runPluginAction } from "../plugins/actions";
+import { runPluginAction, toast } from "../plugins/actions";
 import { hostSlotData } from "../plugins/data";
 import { setPendingInsert } from "../plugins/pendingInsert";
 import { usePlugins } from "../plugins/usePlugins";
@@ -40,6 +40,7 @@ export default function PluginPanelScreen() {
             name: plugin.parsed.manifest.name,
             version: plugin.parsed.manifest.version,
           },
+          settings: plugin.settings,
         }
       : {}),
   });
@@ -133,6 +134,11 @@ export default function PluginPanelScreen() {
                     router.push({ pathname: "/panel", params: { pluginId, panelId } });
                   },
                   refresh: () => setTick((value) => value + 1),
+                  command: {
+                    // 面板只有导航能力；newSession/compact 由 dispatcher 如实提示不可用。
+                    navigate: (path) => router.push(path),
+                    toast,
+                  },
                 });
               }}
             />

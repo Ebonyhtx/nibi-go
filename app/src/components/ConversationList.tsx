@@ -17,6 +17,7 @@ import {
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { hostSlotData, toolSlotData } from "../plugins/data";
+import { collectTurnPushes } from "../plugins/push";
 import type { LoadedPlugin } from "../plugins/store";
 import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
 import { radius, space, type NibiTheme, useNibiTheme } from "../theme";
@@ -240,6 +241,9 @@ export function ConversationList({
     return counts;
   }, [rows]);
 
+  // 插件随工具结果推到槽的数据（`_meta.nibiGo.push`）：按轮收集，turn.note 用 `data.push.*` 绑定。
+  const turnPushes = useMemo(() => collectTurnPushes(rows), [rows]);
+
   /**
    * 工具行 → 插件卡（没有匹配/插件停用时 undefined，调用方退回普通工具行）。
    * 折叠后的过程行也用它，保证回合结束后工具卡不会消失。
@@ -254,6 +258,7 @@ export function ConversationList({
         name: match.plugin.parsed.manifest.name,
         version: match.plugin.parsed.manifest.version,
       },
+      settings: match.plugin.settings,
     });
     const data = toolSlotData({
       host,
@@ -468,6 +473,14 @@ export function ConversationList({
                             name: plugin.parsed.manifest.name,
                             version: plugin.parsed.manifest.version,
                           },
+                          settings: plugin.settings,
+                          // 推送按 MCP 服务器名收（display.ui.pluginId 是服务器名），槽按 manifest id 找。
+                          push: turnPushes
+                            .get(row.key)
+                            ?.get(
+                              plugin.parsed.manifest.runtime?.serverName ??
+                                plugin.parsed.manifest.id,
+                            ),
                         }),
                       ).trim(),
                     )
