@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../../components/Icon";
+import { MonogramAvatar } from "../../components/ProviderAvatar";
 
 import { KernelSessionClient } from "@nibi-go/kernel-session";
 
@@ -104,6 +105,7 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [presetQuery, setPresetQuery] = useState("");
   const [modelEditor, setModelEditor] = useState<{
     provider: ProviderSummary;
     modelId?: string;
@@ -167,10 +169,22 @@ export default function SettingsScreen() {
   const defaultProviderId = state.default?.providerId;
   const defaultModelId = state.default?.modelId;
 
+  // 预设过滤：名称 / Base URL / 模板 id，大小写不敏感。
+  const presetFilter = presetQuery.trim().toLowerCase();
+  const visiblePresets = presetFilter
+    ? state.presets.filter(
+        (preset) =>
+          preset.name.toLowerCase().includes(presetFilter) ||
+          preset.baseUrl.toLowerCase().includes(presetFilter) ||
+          preset.id.toLowerCase().includes(presetFilter),
+      )
+    : state.presets;
+
   const beginEdit = (provider?: ProviderSummary) => {
     setNote(null);
     setApiKey("");
     if (!provider) {
+      setPresetQuery("");
       setEditing({ ...EMPTY_DRAFT });
       return;
     }
@@ -254,8 +268,10 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const usableSelection = (provider: ProviderSummary): ModelSelection | null => {
-    const modelId = provider.models[0];
+  const usableSelection = (
+    provider: ProviderSummary,
+    modelId = provider.models[0],
+  ): ModelSelection | null => {
     if (!modelId) return null;
     return {
       providerId: provider.id,
@@ -299,6 +315,24 @@ export default function SettingsScreen() {
     })();
   };
 
+  // 单模型设默认：走与供应商级按钮同一条 setDefaultProvider 链路。
+  const makeModelDefault = (provider: ProviderSummary, modelId: string) => {
+    const selection = usableSelection(provider, modelId);
+    if (!selection) return;
+    setBusy(`default:${provider.id}:${modelId}`);
+    void (async () => {
+      try {
+        await setDefaultProvider(client(), selection);
+        setNote(`默认模型：${provider.name} / ${modelId}（重启 App 后新会话生效）`);
+        await reload();
+      } catch (cause) {
+        setNote(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(null);
+      }
+    })();
+  };
+
   const saveModel = async (
     provider: ProviderSummary,
     modelId: string,
@@ -330,31 +364,51 @@ export default function SettingsScreen() {
           {!editing.providerId && state.presets.length > 0 && (
             <>
               <Text style={[styles.label, { color: t.inkSub }]}>从预设开始</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
-                {state.presets.map((preset) => {
-                  const active = editing.template === preset.id;
-                  return (
-                    <Pressable
-                      key={preset.id}
-                      onPress={() => applyPreset(preset)}
-                      style={[
-                        styles.presetCard,
-                        {
-                          backgroundColor: active ? t.brandSoft : t.panel,
-                          borderColor: active ? t.brand : t.hairline,
-                        },
-                      ]}
-                    >
-                      <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                        {preset.name}
-                      </Text>
-                      <Text style={{ color: t.inkFaint, fontSize: 8.5 }} numberOfLines={1}>
-                        {preset.baseUrl.replace(/^https?:\/\//u, "")}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+              {state.presets.length > 6 && (
+                <TextInput
+                  value={presetQuery}
+                  onChangeText={setPresetQuery}
+                  placeholder="搜索预设：名称 / 地址 / 模板 ID"
+                  placeholderTextColor={t.inkFaint}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel="搜索预设"
+                  style={[
+                    styles.input,
+                    styles.presetSearch,
+                    { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel },
+                  ]}
+                />
+              )}
+              {visiblePresets.length === 0 ? (
+                <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>没有匹配的预设</Text>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
+                  {visiblePresets.map((preset) => {
+                    const active = editing.template === preset.id;
+                    return (
+                      <Pressable
+                        key={preset.id}
+                        onPress={() => applyPreset(preset)}
+                        style={[
+                          styles.presetCard,
+                          {
+                            backgroundColor: active ? t.brandSoft : t.panel,
+                            borderColor: active ? t.brand : t.hairline,
+                          },
+                        ]}
+                      >
+                        <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                          {preset.name}
+                        </Text>
+                        <Text style={{ color: t.inkFaint, fontSize: 8.5 }} numberOfLines={1}>
+                          {preset.baseUrl.replace(/^https?:\/\//u, "")}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
             </>
           )}
 
@@ -482,11 +536,7 @@ export default function SettingsScreen() {
               style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
             >
               <View style={styles.rowBetween}>
-                <View style={[styles.providerAvatar, { backgroundColor: provider.hasKey ? t.brandSoft : t.panel }]}>
-                  <Text style={[styles.providerAvatarText, { color: provider.hasKey ? t.brand : t.inkFaint }]}>
-                    {provider.name.trim().slice(0, 1).toUpperCase() || "N"}
-                  </Text>
-                </View>
+                <MonogramAvatar id={provider.id} name={provider.name} />
                 <View style={styles.titleColumn}>
                   <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
                   <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
@@ -530,11 +580,14 @@ export default function SettingsScreen() {
                     const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
                     const input = config?.properties?.inputFormat;
                     const window = config?.properties?.contextWindow;
+                    const isDefaultModel =
+                      provider.id === defaultProviderId && modelId === defaultModelId;
                     return (
                       <View
                         key={modelId}
                         style={[styles.modelRow, { borderColor: t.hairline }]}
                       >
+                        <MonogramAvatar id={modelId} name={modelId} size={20} />
                         <View style={styles.modelInfo}>
                           <Text style={[styles.modelName, { color: t.ink }]} numberOfLines={1}>
                             {modelId}
@@ -561,6 +614,37 @@ export default function SettingsScreen() {
                             ) : null}
                           </View>
                         </View>
+                        {isDefaultModel ? (
+                          <View
+                            style={[
+                              styles.smallButton,
+                              styles.modelDefault,
+                              { borderColor: t.brand, backgroundColor: t.brandSoft },
+                            ]}
+                          >
+                            <Icon name="check" size={9} color={t.brand} strokeWidth={2.6} />
+                            <Text style={{ color: t.brand, fontSize: 10, fontWeight: "700" }}>
+                              默认
+                            </Text>
+                          </View>
+                        ) : (
+                          <Pressable
+                            onPress={() => makeModelDefault(provider, modelId)}
+                            disabled={busy !== null}
+                            hitSlop={6}
+                            accessibilityRole="button"
+                            accessibilityLabel={`将 ${modelId} 设为默认模型`}
+                            style={[
+                              styles.smallButton,
+                              styles.modelDefault,
+                              { borderColor: t.hairline, backgroundColor: t.panel },
+                            ]}
+                          >
+                            <Text style={{ color: t.inkSub, fontSize: 10 }}>
+                              {busy === `default:${provider.id}:${modelId}` ? "设置中…" : "设为默认"}
+                            </Text>
+                          </Pressable>
+                        )}
                         {provider.personal ? (
                           <Pressable
                             onPress={() =>
@@ -707,15 +791,13 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, alignItems: "center", gap: 1 },
   headerSpacer: { width: 40, height: 40 },
   headerSub: { fontSize: 9.5 },
-  providerAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  providerAvatarText: { fontSize: 16, fontWeight: "700" },
   presetRow: { gap: space(2), paddingVertical: 2 },
+  presetSearch: {
+    paddingVertical: space(1.5),
+    fontSize: typeScale.small,
+    marginBottom: space(2),
+  },
+  presetEmpty: { fontSize: typeScale.micro, paddingVertical: space(1.5) },
   presetCard: {
     width: 148,
     minHeight: 52,
@@ -770,6 +852,13 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
+  },
+  modelDefault: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: space(2),
+    paddingVertical: space(1),
   },
   addModel: {
     flexDirection: "row",
