@@ -6,6 +6,8 @@
 // 样例故意包含两处降级演示：
 // - `nibigo.usage` 的 `tabs` 是 v2 组件，v1 宿主会摊平并标记“已降级”；
 // - 远端主机会话没有插件槽（见 contract 的 host profile），插件中心如实显示原因。
+// 专注样例另有一条 live-only 演示：MCP 进程每 5 秒主动推 `focus-live` 槽数据，
+// `composer.strip` 用 `{{data.push.status}}` 绑定，服务器没连上时自然为空。
 
 export interface BundledPlugin {
   /** 插件目录名（稳定，不随 manifest 的 id 改动）。 */
@@ -113,6 +115,67 @@ rl.on("line", (line) => {
         _meta: { nibiGo: { card: "forecast", server: "nibigo_weather", push: { note: { label: "天气插件 · " + structured.city + " " + structured.summary } } } }
       }
     });
+    return;
+  }
+  if (method === "ping") {
+    send({ jsonrpc: "2.0", id, result: {} });
+    return;
+  }
+  send({ jsonrpc: "2.0", id, error: { code: -32601, message: "unknown method: " + method } });
+});
+
+rl.on("close", () => process.exit(0));
+`;
+
+/** 专注样例的 MCP stdio 服务器：初始化 + 空工具表 + 每 5 秒推一条槽数据。 */
+const FOCUS_SERVER = `#!/usr/bin/env node
+// NIBI-GO 样例插件：带常驻状态推送的最小 MCP stdio 服务器（不依赖任何 npm 包）。
+import { createInterface } from "node:readline";
+
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+const startedAt = Date.now();
+
+// 主动推槽数据：不需要模型回合，App 收到 pluginSlot.data 后绑定到 composer.strip。
+// stdout 只写 JSON-RPC；调试信息一律走 stderr。
+setInterval(() => {
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  send({
+    jsonrpc: "2.0",
+    method: "notifications/nibiGo/slot",
+    params: {
+      slot: "focus-live",
+      data: { status: "专注插件在线 · " + seconds + "s" }
+    }
+  });
+}, 5_000);
+
+rl.on("line", (line) => {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (!message || typeof message !== "object") return;
+  const { id, method, params } = message;
+  // 通知（没有 id）不需要回应。
+  if (id === undefined) return;
+
+  if (method === "initialize") {
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: params?.protocolVersion ?? "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "nibigo-focus", version: "0.1.0" }
+      }
+    });
+    return;
+  }
+  if (method === "tools/list") {
+    send({ jsonrpc: "2.0", id, result: { tools: [] } });
     return;
   }
   if (method === "ping") {
@@ -390,7 +453,15 @@ const FOCUS_MANIFEST: Record<string, unknown> = {
   description: "Web Island 样例：一个可交互的 25 分钟专注计时器。",
   minApp: "0.1.0",
   accent: "warn",
-  caps: ["view.v1", "slots.v1", "effects.v1"],
+  caps: ["view.v1", "slots.v1", "effects.v1", "mcp.v1"],
+  // 常驻 MCP 服务器：模型没有回合时也能每 5 秒把在线状态推进会话槽。
+  runtime: {
+    type: "mcp",
+    serverName: "nibigo_focus",
+    entry: "server.mjs",
+    alwaysLoad: true,
+    timeoutMs: 20_000,
+  },
   contributes: {
     "composer.actions": [
       {
@@ -405,6 +476,8 @@ const FOCUS_MANIFEST: Record<string, unknown> = {
         ].join("\n"),
       },
     ],
+    // 由插件进程主动推送的实时状态；服务器未连接/未推送时解析为空，不显示。
+    "composer.strip": [{ id: "focus-live", text: "{{data.push.status}}", tone: "faint" }],
     webIslands: [{ id: "timer", title: "专注计时器", html: FOCUS_HTML }],
   },
 };
@@ -412,7 +485,7 @@ const FOCUS_MANIFEST: Record<string, unknown> = {
 export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
   { dir: "nibigo-weather", manifest: WEATHER_MANIFEST, files: { "server.mjs": WEATHER_SERVER } },
   { dir: "nibigo-quick", manifest: QUICK_MANIFEST, files: {} },
-  { dir: "nibigo-focus", manifest: FOCUS_MANIFEST, files: {} },
+  { dir: "nibigo-focus", manifest: FOCUS_MANIFEST, files: { "server.mjs": FOCUS_SERVER } },
 ];
 
 export const MANIFEST_FILE = "nibi-go.plugin.json";

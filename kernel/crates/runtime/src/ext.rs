@@ -47,6 +47,10 @@ pub struct Extensions {
     /// MCP Apps 的 UI 事件出口（`pluginUi.*` 增量，141 审计 §9 第 6 项）：入口把另一头交给协议层；
     /// None 时（TUI、嵌入、测试）什么都不发。
     pub mcp_ui: Option<tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_ui::McpUiEvent>>,
+    /// 插件主动推槽数据的出口（`pluginSlot.data` 增量）：入口把另一头交给协议层；
+    /// None 时（TUI、嵌入、测试）丢弃。
+    pub mcp_slot:
+        Option<tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>>,
     /// MCP 的 OAuth 令牌端口（Node 的 `AuthProvider`）：入口用共享凭据文件与网络出口实现；
     /// None 时带 `oauth` 的服务器按 401 失败（测试、嵌入）。
     pub mcp_oauth: Option<Arc<dyn nibi_kernel_api::mcp::McpOAuthPort>>,
@@ -81,6 +85,7 @@ impl Extensions {
             monitor: false,
             mcp_telemetry: None,
             mcp_ui: None,
+            mcp_slot: None,
             mcp_oauth: None,
             node_repl_env: None,
             topic: None,

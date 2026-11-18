@@ -854,8 +854,14 @@ export default function GoHomeScreen() {
             petState={petState}
             onMenu={() => setSidebarOpen(true)}
             onSearch={() => undefined}
-            onSettings={() => router.push("/settings")}
-            onPlugins={() => router.push("/plugins")}
+            onSettings={() => {
+              Keyboard.dismiss();
+              router.push("/settings");
+            }}
+            onPlugins={() => {
+              Keyboard.dismiss();
+              router.push("/plugins");
+            }}
           />
         ) : null}
 
@@ -1157,7 +1163,12 @@ export default function GoHomeScreen() {
         />
       ) : null}
 
-      <SideStatus plugins={plugins.enabled} usage={conversation.contextUsage} bottom={statusBottom} />
+      <SideStatus
+        plugins={plugins.enabled}
+        usage={conversation.contextUsage}
+        slotData={conversation.pluginSlotData}
+        bottom={statusBottom}
+      />
 
       <PluginPopup
         visible={popup?.kind === "plus"}

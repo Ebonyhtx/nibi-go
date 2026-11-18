@@ -465,6 +465,9 @@ where
     // 按会话投进 live 投影。
     let (mcp_ui_events, mcp_ui_receiver) = tokio::sync::mpsc::unbounded_channel();
     extensions.mcp_ui = Some(mcp_ui_events);
+    // 插件主动推槽数据（`pluginSlot.data` 增量）：与 UI 事件同一条装配，按会话投进 live 投影。
+    let (mcp_slot_events, mcp_slot_receiver) = tokio::sync::mpsc::unbounded_channel();
+    extensions.mcp_slot = Some(mcp_slot_events);
     // MCP 的 OAuth 令牌端口（Node 的 `AuthProvider`）：与登录共用一份凭据文件。
     extensions.mcp_oauth = Some(setup::mcp_oauth(
         setup::nibi_store(
@@ -580,6 +583,7 @@ where
                 tool_exec: Some(tool_exec_channel),
                 mcp_events: Some(mcp_events),
                 mcp_ui_events: Some(mcp_ui_receiver),
+                mcp_slot_events: Some(mcp_slot_receiver),
                 mcp_resource: Some(nibi_kernel_protocol_nibi::telemetry::McpResourcePorts {
                     sampler: Arc::new(nibi_kernel_env_local::process_sampler::LocalProcessSampler::new()),
                     metrics: process_metrics,

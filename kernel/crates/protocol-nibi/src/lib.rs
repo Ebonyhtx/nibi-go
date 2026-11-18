@@ -26,6 +26,7 @@ mod nibi_commands;
 mod nibi_workflows;
 mod plugin_catalog;
 mod plugin_ui;
+mod plugin_slots;
 mod skill_catalog;
 mod projection;
 mod row_target;
@@ -211,6 +212,7 @@ where
         mcp_events,
         mcp_resource,
         mcp_ui_events,
+        mcp_slot_events,
     } = ports;
     let mut server = server::Server::new(
         context,
@@ -245,6 +247,10 @@ where
     if let Some(events) = mcp_ui_events {
         // MCP Apps 的资源通知与实例关闭 → 会话的 `pluginUi.*` 增量（141 审计 §9 第 6 项）。
         plugin_ui::forward(server.clone(), &spawner, events);
+    }
+    if let Some(events) = mcp_slot_events {
+        // 插件主动推的槽数据 → 会话的 `pluginSlot.data` 增量。
+        plugin_slots::forward(server.clone(), &spawner, events);
     }
     if let Some(resource) = mcp_resource {
         // 五分钟 MCP 资源采样 → `process/mcpResourceSamples`。

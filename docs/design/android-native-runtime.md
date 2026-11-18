@@ -250,16 +250,25 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   匹配清单里的 `toolCards`，数据绑定到 `data.tool.structured`。
 - **槽数据推送（v1，2026-11-18）**：插件在 MCP 工具结果的 `_meta.nibiGo.push` 里带一份
   ≤16KiB、≤16 个顶层键的 JSON；App 按轮收集（工具行、toolGroup、process 里的都算），
-  作为该插件槽的 `data.push`（`turn.note` 用 `{{data.push.note.label}}` 绑定）。数据随
-  工具结果落库，重启后仍在；同一轮后到的结果覆盖同名键，坏 JSON 只丢该条。没有请求的
-  主动推送（计时器类每秒更新）仍开放，需要一条从插件进程到 App 的常驻通道。
+  作为该插件槽的 `data.push`（`turn.note` 用 `{{data.push.note.label}}` 绑定）。同一轮后到
+  的结果覆盖同名键，坏 JSON 只丢该条。**注意**：工具结果的 `_meta`/display 目前不落库
+  （`part` 只存文本与结构化正文），所以随推槽数据与插件工具卡都只活在 live 会话里；
+  冷恢复后消失，这是 display 持久化的独立缺口。
+- **槽数据实时推送（v2，2026-11-18）**：会话级 MCP 子进程可随时发
+  `notifications/nibiGo/slot`，params `{slot, data}`（slot 匹配 `[a-z0-9][a-z0-9._-]*`，
+  data 是对象、≤16KiB）。内核按会话投成 live 增量 `pluginSlot.data`
+  （`pluginId`/`serverName`/`slot`/`data`），App 的 `ConversationFeed` 收集成
+  serverName → slot → data，槽用 `data.push.*` 绑定（样例：专注插件的
+  `composer.strip` 每 5 秒推在线秒数）。推送是 **live-only**：不进快照、不进冷恢复，
+  切会话/重连清空；连接任务忙时按槽合并只留最新一条、最多积压 32 个槽。工作区级 MCP
+  连接没有会话可投，通知直接丢弃。
 - **宿主**：内置插件首次启动写到 `filesDir/plugins/<dir>/`；MCP 入口用随包 Node 以
   `node server.mjs` 启动，经 `session/create|resume.mcpServers` 交给内核（内核不持久化
   这份配置，恢复时要再带一次）。MCP 子进程走内核的环境白名单，拿不到 Provider key。
 - **样例**：`nibigo.weather`（MCP 工具 + 天气卡 + 查天气）、`nibigo.quick`（写作助手：
   输入胶囊/状态条/加号工具/消息引用/写作检查面板/会话信息/回合脚注）、`nibigo.focus`
-  （专注计时：Web Island 25 分钟计时器）。插件中心只展示用户能看懂的说明与面板/网页
-  入口，不把 caps/运行协议当主视觉。
+  （专注计时：Web Island 25 分钟计时器 + 常驻 MCP 状态推送）。插件中心只展示用户能看懂
+  的说明与面板/网页入口，不把 caps/运行协议当主视觉。
 - **Web Island**：清单 `webIslands` 支持 `url`（仅 https、无凭据）或内联 `html`
   （≤16KiB），每插件 ≤2；App 用 WebView 渲染，只放行 `about:blank` 与同源 https 导航，
   8s 未完成或加载失败显示可重试降级页。样例是可交互的专注计时器（开始/暂停/重置）。
@@ -278,8 +287,8 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   逐条隔离）在插件中心展开成表单；保存进 `filesDir/nibi-plugin-settings.json`，生效值
   同时进 MCP 启动 env `NIBIGO_SETTINGS` 与槽数据 `data.host.settings`。同一处只读列出
   插件的命令（`/名字`）与技能，运行仍走对话里的命令/技能入口。
-- **未做**：无请求的常驻数据推送（v1 只做工具结果随推 `_meta.nibiGo.push`）、插件市场
-  与签名/Ed25519（C2）。
+- **未做**：插件市场与签名/Ed25519（C2）。无请求的常驻推送已由
+  `notifications/nibiGo/slot` → `pluginSlot.data` 落地（live-only，会话级连接）。
 
 ## 8. 手机操控
 

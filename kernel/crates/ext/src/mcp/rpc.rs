@@ -35,12 +35,14 @@ pub(crate) enum RpcError {
 }
 
 /// 交给连接任务的事件。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Notice {
     /// `notifications/<kind>/list_changed`：`tools`、`resources`、`prompts`。
     ListChanged(String),
     /// `notifications/resources/updated`：订阅的资源变了（按 URI 合并）。
     ResourceUpdated(String),
+    /// `notifications/nibiGo/slot`：插件主动推给会话槽的一条数据（无回合）。
+    SlotData { slot: String, data: serde_json::Value },
     Closed {
         reason: Option<String>,
         session_expired: bool,
@@ -410,6 +412,15 @@ impl Reader {
     }
 
     fn notification(&self, method: &str, message: &Value) {
+        // 插件主动推槽数据（无回合）：坏形状只丢这一条，不影响连接。
+        if method == "notifications/nibiGo/slot" {
+            let params = message.get("params").unwrap_or(&Value::Null);
+            match nibi_kernel_api::mcp_slot::read_slot(params) {
+                Ok((slot, data)) => self.notices.send(Notice::SlotData { slot, data }),
+                Err(reason) => tracing::debug!(%reason, "ignored an invalid plugin slot push"),
+            }
+            return;
+        }
         if method == "notifications/resources/updated"
             && let Some(uri) = message
                 .pointer("/params/uri")

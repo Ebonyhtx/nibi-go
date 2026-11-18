@@ -87,6 +87,10 @@ pub struct ExtPorts {
     pub mcp_ui_events: Option<
         tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_ui::McpUiEvent>,
     >,
+    /// 插件主动推槽数据的出口（`pluginSlot.data` 增量）：只装到会话级 manager；None 时丢弃。
+    pub mcp_slot_events: Option<
+        tokio::sync::mpsc::UnboundedSender<nibi_kernel_api::mcp_slot::McpSlotEvent>,
+    >,
     /// 回合外的一次模型请求（MCP Apps 采样）：runtime 用会话当前的模型选择实现；None 时
     /// `mcp/uiSampling` 如实报不支持（TUI、测试）。
     pub sampling: Option<Arc<dyn nibi_kernel_api::mcp_ui::McpUiSamplingPort>>,
@@ -219,6 +223,7 @@ impl Ext {
             ports.clock.clone(),
             telemetry.clone(),
             ports.mcp_ui_events.clone(),
+            ports.mcp_slot_events.clone(),
             ports.mcp_oauth.clone(),
         ));
         // `mcp/list` 的状态检查（141 审计 §9 第 6 项）：每工作区一套独立连接，与上面两套都不混。

@@ -106,6 +106,7 @@ pub mod mcp;
 pub mod mcp_session;
 pub mod mcp_state;
 pub mod mcp_status;
+pub mod mcp_slot;
 pub mod mcp_telemetry;
 pub mod mcp_ui;
 pub mod mcp_vars;

@@ -20,8 +20,13 @@ struct Pending {
     changed: Vec<String>,
     /// 还没取走的 `resources/updated` 的 URI（同一个 URI 只留一条：页面收到后重新读，不丢内容）。
     updated: Vec<String>,
+    /// 还没取走的插件槽推送：同一个槽只留最新一条（状态条语义），总数有界。
+    slots: Vec<(String, serde_json::Value)>,
     closed: Option<Notice>,
 }
+
+/// 同时积压的槽上限：超过时丢最旧的一条（推送是可重建的瞬时状态）。
+const MAX_PENDING_SLOTS: usize = 32;
 
 fn lock(pending: &Mutex<Pending>) -> MutexGuard<'_, Pending> {
     pending.lock().unwrap_or_else(PoisonError::into_inner)
@@ -69,6 +74,16 @@ impl NoticeSender {
                         pending.updated.push(uri);
                     }
                 }
+                Notice::SlotData { slot, data } => {
+                    if let Some(entry) = pending.slots.iter_mut().find(|(name, _)| *name == slot) {
+                        entry.1 = data;
+                    } else {
+                        if pending.slots.len() >= MAX_PENDING_SLOTS {
+                            pending.slots.remove(0);
+                        }
+                        pending.slots.push((slot, data));
+                    }
+                }
                 closed @ Notice::Closed { .. } => pending.closed = Some(closed),
             }
         }
@@ -86,6 +101,10 @@ impl NoticeReceiver {
         if let Some(uri) = pending.updated.first().cloned() {
             pending.updated.remove(0);
             return Some(Notice::ResourceUpdated(uri));
+        }
+        if !pending.slots.is_empty() {
+            let (slot, data) = pending.slots.remove(0);
+            return Some(Notice::SlotData { slot, data });
         }
         pending.closed.take()
     }
