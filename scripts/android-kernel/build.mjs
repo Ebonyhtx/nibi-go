@@ -18,8 +18,16 @@
 // 与上游 4.1.0 的分发链不同：这里没有 npm 平台包、没有 build.json，产物来源可追溯到本仓提交。
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -375,6 +383,19 @@ function main() {
     `Android 内核产物就绪：${join("app/modules/kernel-host/android/prebuilt/jniLibs", ABI)}（API ${args.api}）`,
   );
   console.log(`sha256 ${CDYLIB} = ${stamp.artifacts[CDYLIB].sha256}`);
+  invalidateGradleNativeLibs();
+}
+
+/// Gradle 会把 jniLibs 合并进 intermediates 并自己做 up-to-date 判定：替换 `.so` 之后直接
+/// `assembleDebug` 可能被判“无变化”，打出来的 APK 里仍是旧内核（真机验收会对着旧行为查半天）。
+/// 这里删掉合并产物，逼下一次打包重新合并。
+function invalidateGradleNativeLibs() {
+  for (const name of ["merged_native_libs", "stripped_native_libs"]) {
+    const dir = join(ROOT, "app/android/app/build/intermediates", name);
+    if (!existsSync(dir)) continue;
+    rmSync(dir, { recursive: true, force: true });
+    console.log(`[android-kernel] 已清理 ${relative(ROOT, dir)}（下次打包重新合并）`);
+  }
 }
 
 try {
