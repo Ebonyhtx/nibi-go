@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../../components/Icon";
 import { MonogramAvatar } from "../../components/ProviderAvatar";
+import { ProviderLogo } from "../../components/ProviderLogo";
 
 import { KernelSessionClient } from "@nibi-go/kernel-session";
 
@@ -398,9 +399,17 @@ export default function SettingsScreen() {
                           },
                         ]}
                       >
-                        <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                          {preset.name}
-                        </Text>
+                        <View style={styles.presetTitle}>
+                          <ProviderLogo
+                            logoKey={preset.logoKey}
+                            id={preset.id}
+                            name={preset.name}
+                            size={20}
+                          />
+                          <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                            {preset.name}
+                          </Text>
+                        </View>
                         <Text style={{ color: t.inkFaint, fontSize: 8.5 }} numberOfLines={1}>
                           {preset.baseUrl.replace(/^https?:\/\//u, "")}
                         </Text>
@@ -536,7 +545,12 @@ export default function SettingsScreen() {
               style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
             >
               <View style={styles.rowBetween}>
-                <MonogramAvatar id={provider.id} name={provider.name} />
+                <ProviderLogo
+                  logoKey={provider.logoKey}
+                  id={provider.id}
+                  name={provider.name}
+                  size={38}
+                />
                 <View style={styles.titleColumn}>
                   <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
                   <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
@@ -798,6 +812,7 @@ const styles = StyleSheet.create({
     marginBottom: space(2),
   },
   presetEmpty: { fontSize: typeScale.micro, paddingVertical: space(1.5) },
+  presetTitle: { flexDirection: "row", alignItems: "center", gap: 5 },
   presetCard: {
     width: 148,
     minHeight: 52,

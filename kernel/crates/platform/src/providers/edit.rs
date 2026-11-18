@@ -39,6 +39,8 @@ pub struct Summary {
     pub enabled: bool,
     /// 继承的内置模板（选预设时写进去的 `templateId`）。
     pub template: Option<String>,
+    /// 内置品牌标志的 key（`config.logo.key`，`type = "builtin"`）；没有标志时为 None。
+    pub logo_key: Option<String>,
     /// 第一个可执行模型的最后一个档位：`/provider use` 写默认模型时要带上它（Node 只认带档位的选择）。
     /// 没有可执行模型（缺 key、端点无效）时为空。
     pub default_reasoning: Option<String>,
@@ -52,6 +54,19 @@ pub struct Preset {
     pub base_url: String,
     pub protocol: WireProtocol,
     pub models: Vec<String>,
+    /// 内置品牌标志的 key（`config.logo.key`，`type = "builtin"`）；没有标志时为 None。
+    pub logo_key: Option<String>,
+}
+
+/// 配置里的内置品牌标志（`config.logo = {type: "builtin", key: "..."}`）。
+fn logo_key(config: &Value) -> Option<String> {
+    if config["logo"]["type"].as_str() != Some("builtin") {
+        return None;
+    }
+    config["logo"]["key"]
+        .as_str()
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
 }
 
 /// 新建或修改一个 Provider。
@@ -140,6 +155,7 @@ fn templates(builtin: &Value) -> Vec<Preset> {
                 base_url,
                 protocol,
                 models: ids(&config["builtinModelIds"]),
+                logo_key: logo_key(config),
             })
         })
         .collect()
@@ -169,7 +185,7 @@ pub fn summaries(builtin: &Value, personal: &Value) -> Vec<Summary> {
         }
         if let Some(known) = out.iter_mut().find(|entry| entry.id == id) {
             // 个人规则盖在内置之上：只更新能覆盖的字段。
-            merge_summary(known, rule, base, personal);
+            merge_summary(known, rule, base, personal, &templates);
             return;
         }
         let mut config = base
@@ -209,6 +225,13 @@ pub fn summaries(builtin: &Value, personal: &Value) -> Vec<Summary> {
                 models.push(model);
             }
         }
+        // 自己的 config.logo 优先；个人规则通常只存 templateId，标志从模板预设来。
+        let logo_key = logo_key(&config).or_else(|| {
+            template
+                .as_deref()
+                .and_then(template_of)
+                .and_then(|preset| preset.logo_key.clone())
+        });
         out.push(Summary {
             id: id.to_owned(),
             name,
@@ -222,6 +245,7 @@ pub fn summaries(builtin: &Value, personal: &Value) -> Vec<Summary> {
             personal,
             enabled: rule["enabled"] != false,
             template,
+            logo_key,
             default_reasoning: None,
         });
     };
@@ -234,7 +258,13 @@ pub fn summaries(builtin: &Value, personal: &Value) -> Vec<Summary> {
     out
 }
 
-fn merge_summary(entry: &mut Summary, rule: &Value, _base: Option<&Value>, personal: bool) {
+fn merge_summary(
+    entry: &mut Summary,
+    rule: &Value,
+    _base: Option<&Value>,
+    personal: bool,
+    templates: &[Preset],
+) {
     let config = &rule["config"];
     if let Some(name) = rule["providerName"]
         .as_str()
@@ -270,6 +300,16 @@ fn merge_summary(entry: &mut Summary, rule: &Value, _base: Option<&Value>, perso
     }
     if let Some(template) = rule["templateId"].as_str() {
         entry.template = Some(template.to_owned());
+    }
+    // 个人规则自己的标志优先；只有模板时从模板预设补。都没有时保留已有值（内置规则可能已带标志）。
+    if let Some(key) = logo_key(config) {
+        entry.logo_key = Some(key);
+    } else if let Some(preset) = rule["templateId"]
+        .as_str()
+        .and_then(|id| templates.iter().find(|preset| preset.id == id))
+        && preset.logo_key.is_some()
+    {
+        entry.logo_key = preset.logo_key.clone();
     }
 }
 

@@ -291,6 +291,9 @@ pub struct ProviderAdminSummary {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
+    /// 内置品牌标志的 key（`config.logo.key`）；App 用它选官方 logo。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_reasoning: Option<String>,
     /// 每个模型的生效能力（目录解析后的 `ModelConfig`；未列出的模型为空）。
@@ -316,6 +319,9 @@ pub struct ProviderAdminPreset {
     pub base_url: String,
     pub protocol: WireProtocol,
     pub models: Vec<String>,
+    /// 内置品牌标志的 key（`config.logo.key`）；App 用它选官方 logo。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo_key: Option<String>,
 }
 
 /// 新建或修改一个个人 Provider。API key 不在这里：Host 存在 Android Keystore，启动内核时经
