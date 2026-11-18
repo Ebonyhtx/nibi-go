@@ -251,9 +251,9 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - **槽数据推送（v1，2026-11-18）**：插件在 MCP 工具结果的 `_meta.nibiGo.push` 里带一份
   ≤16KiB、≤16 个顶层键的 JSON；App 按轮收集（工具行、toolGroup、process 里的都算），
   作为该插件槽的 `data.push`（`turn.note` 用 `{{data.push.note.label}}` 绑定）。同一轮后到
-  的结果覆盖同名键，坏 JSON 只丢该条。**注意**：工具结果的 `_meta`/display 目前不落库
-  （`part` 只存文本与结构化正文），所以随推槽数据与插件工具卡都只活在 live 会话里；
-  冷恢复后消失，这是 display 持久化的独立缺口。
+  的结果覆盖同名键，坏 JSON 只丢该条。工具结果的 display（含 `_meta`）随结果同批写成
+  `nibi-kernel/tool_display` entry，冷恢复由 `SessionHandle::tool_displays` 播种回投影，
+  所以插件工具卡与随推脚注在重启后仍在。
 - **槽数据实时推送（v2，2026-11-18）**：会话级 MCP 子进程可随时发
   `notifications/nibiGo/slot`，params `{slot, data}`（slot 匹配 `[a-z0-9][a-z0-9._-]*`，
   data 是对象、≤16KiB）。内核按会话投成 live 增量 `pluginSlot.data`

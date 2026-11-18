@@ -124,12 +124,16 @@ impl Actor {
         if let Some(reason) = self.running.as_ref().and_then(|r| r.failure.clone()) {
             return Err(StoreError::Storage { message: reason });
         }
-        let facts = messages
+        let mut facts: Vec<Fact> = messages
             .iter()
             .map(|message| Fact::MessageAppended {
                 message: message.clone(),
             })
             .collect();
+        // 工具结果的展示载荷（工具卡/插件随推）与结果同批落库：冷恢复只靠文本无法还原卡片。
+        for message in &messages {
+            facts.extend(self.display_facts(message));
+        }
         if let Err(reason) = self.commit(None, facts).await {
             if let Some(running) = &mut self.running {
                 running

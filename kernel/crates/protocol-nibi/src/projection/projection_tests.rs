@@ -5,7 +5,8 @@ use nibi_kernel_api::ids::{
     CommandId, EnvironmentId, InteractionId, MessageId, SessionId, ToolUseId, TraceId, TurnId,
 };
 use nibi_kernel_api::message::{
-    AssistantMessage, Message, UserMessage, UserOrigin, TASK_NOTIFICATION_SOURCE,
+    AssistantMessage, ContentBlock, Message, ToolResultContent, UserMessage, UserOrigin,
+    TASK_NOTIFICATION_SOURCE,
 };
 use nibi_kernel_api::model::BlockDelta;
 use nibi_kernel_api::orchestration::InteractionRequest;
@@ -1213,6 +1214,75 @@ fn a_cold_projection_seeds_the_cumulative_usage() {
     assert_eq!(
         snapshot["usage"]["contextWindow"]["cache"]["hitRate"],
         serde_json::json!(700.0 / 1100.0)
+    );
+}
+
+/// 冷恢复：工具结果的展示载荷单独落库（`tool_display`），冷投影把它补回工具行，
+/// 工具卡与插件随推（`_meta.nibiGo.push`）才能在重启后还原。
+#[test]
+fn a_cold_projection_restores_tool_displays() {
+    let messages = vec![
+        Message::User(UserMessage {
+            id: MessageId::new("u0"),
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+            origin: UserOrigin::Human,
+        }),
+        Message::Assistant(AssistantMessage {
+            id: MessageId::new("a1"),
+            content: vec![ContentBlock::ToolUse {
+                id: ToolUseId::new("toolu_1"),
+                name: "mcp__nibigo_weather__weather_get".into(),
+                input: serde_json::json!({"city": "北京"}),
+            }],
+            model: "scripted".into(),
+            stop_reason: None,
+            usage: None,
+        }),
+        Message::User(UserMessage {
+            id: MessageId::new("u1"),
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: ToolUseId::new("toolu_1"),
+                content: vec![ToolResultContent::Text { text: "ok".into() }],
+                is_error: false,
+            }],
+            origin: UserOrigin::ToolResult {
+                assistant: MessageId::new("a1"),
+            },
+        }),
+    ];
+    let cold = view(messages);
+    let mut displays = std::collections::HashMap::new();
+    displays.insert(
+        "toolu_1".to_owned(),
+        serde_json::json!({
+            "kind": "mcp_tool",
+            "ui": {
+                "pluginId": "nibigo_weather",
+                "structuredContent": "{\"city\":\"北京\"}",
+                "widgetMeta": "{\"nibiGo\":{\"push\":{\"note\":{\"label\":\"天气\"}}}}"
+            }
+        }),
+    );
+    let projection = Projection::from_view_with_tool_displays(
+        &cold,
+        Followup::Queue,
+        Vec::new(),
+        false,
+        cold.meta.created_at_ms,
+        displays,
+    );
+    let snapshot = projection.snapshot(0, "epoch");
+    let row = snapshot["rows"]["window"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["kind"] == "toolCall")
+        .expect("a tool row");
+    assert_eq!(row["display"]["kind"], "mcp_tool");
+    assert_eq!(row["display"]["ui"]["pluginId"], "nibigo_weather");
+    assert_eq!(
+        row["display"]["ui"]["widgetMeta"],
+        serde_json::json!("{\"nibiGo\":{\"push\":{\"note\":{\"label\":\"天气\"}}}}")
     );
 }
 

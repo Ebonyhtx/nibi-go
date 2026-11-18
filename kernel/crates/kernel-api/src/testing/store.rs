@@ -318,6 +318,7 @@ impl SessionStore for MemoryStore {
             failed_turns: Vec::new(),
             // 兼容读取：测试存储不落 `/context` 结果，冷视图退回压缩器估算。
             context_usage: None,
+            tool_displays: Vec::new(),
             // 工作流控制轮（launch.md）：事实里带 WorkflowLaunchMessage 的消息，冷视图带给投影。
             launches: facts
                 .iter()

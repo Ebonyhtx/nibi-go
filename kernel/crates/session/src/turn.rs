@@ -400,6 +400,31 @@ impl Actor {
         self.record_with(message, Vec::new()).await
     }
 
+    /// 这条消息里工具结果对应的展示载荷（`tool_display` entry）：与工具结果同批落库，
+    /// 冷恢复的工具卡与插件随推靠它。
+    pub(crate) fn display_facts(&self, message: &Message) -> Vec<Fact> {
+        let Message::User(user) = message else {
+            return Vec::new();
+        };
+        let displays = self
+            .tool_displays
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        user.content
+            .iter()
+            .filter_map(|block| {
+                let ContentBlock::ToolResult { tool_use_id, .. } = block else {
+                    return None;
+                };
+                displays.get(tool_use_id.as_str()).map(|display| Fact::Entry {
+                    kind: "tool_display".to_owned(),
+                    id: tool_use_id.as_str().to_owned(),
+                    data: display.clone(),
+                })
+            })
+            .collect()
+    }
+
     /// 同 [`Self::record`]，`usage` 是同一批里的计量事实（排在消息与 checkpoint 之后，usage.md §2.5）。
     async fn record_with(&mut self, message: Message, usage: Vec<Fact>) -> Result<(), StoreError> {
         if let Some(error) = self.failure() {
@@ -441,10 +466,10 @@ impl Actor {
             .messages
             .iter()
             .any(|m| matches!(m, Message::User(user) if !crate::local_record::is_record(user)));
-        if let Err(reason) = self
-            .commit(command, [facts, extra, usage].concat())
-            .await
-        {
+        let mut batch = [facts, extra, usage].concat();
+        // 展示载荷排在最后：checkpoint 必须紧跟工具结果消息（rewind 的顺序断言），不能夹在中间。
+        batch.extend(self.display_facts(&message));
+        if let Err(reason) = self.commit(command, batch).await {
             return Err(self.fail(&reason));
         }
         if let Some(intent) = intent {
@@ -526,6 +551,13 @@ impl Actor {
                 KernelEvent::ToolProgress { tool_use, progress }
             }
             QueryEvent::ToolFinished { tool_use, output } => {
+                // 展示载荷（工具卡/插件随推）要能冷恢复：记在会话状态里，随工具结果同批落库。
+                if !output.display.is_null() {
+                    self.tool_displays
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(tool_use.as_str().to_owned(), output.display.clone());
+                }
                 self.unsettle(&tool_use, &output);
                 KernelEvent::ToolDone { tool_use, output }
             }

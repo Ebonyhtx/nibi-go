@@ -183,7 +183,12 @@ pub(super) fn rows(projection: &mut Projection, view: &SessionView) {
                         let output = nibi_kernel_api::tool::ToolOutput {
                             content: content.clone(),
                             is_error: *is_error,
-                            display: serde_json::Value::Null,
+                            // 冷恢复：display 单独落库（tool_display entry），这里补回工具卡/插件随推。
+                            display: projection
+                                .tool_displays
+                                .get(tool_use_id.as_str())
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
                         };
                         let event = SequencedEvent {
                             seq: 0,

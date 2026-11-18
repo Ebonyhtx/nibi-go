@@ -196,6 +196,9 @@ pub struct SessionState {
     /// 最后一次 `/context` 分析（冷加载的 `LoadedSession.context_usage`）：`view()` 优先用它算
     /// 上下文占用与分项，避免重启后退回压缩器只数消息的估算。
     pub context_usage: Option<nibi_kernel_api::context_usage::ContextUsageRecord>,
+    /// 工具结果的展示载荷（冷加载的 `LoadedSession.tool_displays`）：`SessionHandle::tool_displays`
+    /// 交给协议层冷投影，恢复工具卡与插件随推；本进程每轮 `ToolDone` 也更新。
+    pub tool_displays: Vec<(String, serde_json::Value)>,
     /// 工作流控制轮（冷加载的 `LoadedSession.launches`，launch.md）：会话 actor 在 `write_launch` 时追加，
     /// `view()` 带给冷投影。
     pub launches: Vec<SessionLaunchTurn>,
@@ -228,6 +231,8 @@ pub struct Session {
     /// 最后一次 `/context` 分析（与 actor 共用）：协议层冷投影用它给 App 的上下文环与分项播种，
     /// 不能退回压缩器只数消息的估算（系统提示词与工具会漏掉）。
     analysis: Arc<std::sync::Mutex<Option<nibi_kernel_api::context_usage::ContextUsageRecord>>>,
+    /// 工具结果的展示载荷（与 actor 共用）：协议层冷投影用它恢复工具卡与随推槽数据。
+    tool_displays: Arc<std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>>,
     /// 每台远端机器上一份的后台命令（远端执行 F96，remote-exec.md §23.3）：快照的唯一 owner 是会话；重连中的机器用它。
     last_remote: tasks::LastSeen,
     /// 关闭的进度（[`closing`]）：None 还没关；Some 关闭任务已经起了，令牌在它结束时取消。
@@ -241,6 +246,9 @@ impl Session {
         let log = Arc::new(EventLog::new());
         let draft = Arc::new(std::sync::atomic::AtomicBool::new(state.draft));
         let analysis = Arc::new(std::sync::Mutex::new(state.context_usage.clone()));
+        let tool_displays = Arc::new(std::sync::Mutex::new(
+            state.tool_displays.iter().cloned().collect(),
+        ));
         let mut pending = Vec::new();
         match opened {
             Opened::Created => {
@@ -279,6 +287,7 @@ impl Session {
             pending,
             draft.clone(),
             analysis.clone(),
+            tool_displays.clone(),
         );
         let task = spawner.spawn_resident("session-actor", async move {
             if let Some(history) = resume {
@@ -293,6 +302,7 @@ impl Session {
             deps,
             draft,
             analysis,
+            tool_displays,
             last_remote: tasks::LastSeen::default(),
             closing: Mutex::default(),
             _actor: task,
@@ -308,6 +318,14 @@ impl Session {
     /// App 的上下文环与分项播种；没有分析过的会话为 None。
     pub fn context_analysis(&self) -> Option<nibi_kernel_api::context_usage::ContextUsageRecord> {
         self.analysis
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// 工具结果的展示载荷（工具调用 id → `ToolOutput.display`）：冷投影用它恢复工具卡。
+    pub fn tool_displays(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        self.tool_displays
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
@@ -427,6 +445,10 @@ impl SessionHandle for Session {
 
     fn context_analysis(&self) -> Option<nibi_kernel_api::context_usage::ContextUsageRecord> {
         Session::context_analysis(self)
+    }
+
+    fn tool_displays(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        Session::tool_displays(self)
     }
 
     /// actor 退出后接收端被丢弃：常驻池回收会话不会通知协议桥，桥里的旧条目据此失效重开。
