@@ -182,10 +182,18 @@ fork 的优势放进内核，而不是只靠 shell：
 
 ## 6. Workspace 定义
 
-> 实施状态（2026-11-19）：App 目前把 `filesDir` 作为 workspace 交给内核；本节的
-> `filesDir/workspaces/<sessionId>/` 按会话根与切换/重命名/删除尚未实现。内核侧已加
-> workspace 边界（解析符号链接；越界写入询问，完全访问放行）与单次 Write 16 MiB 上限。
-> 为不阻断“想写哪里都能写”的能力，不引入 workspace 总量与命令并发的硬上限；
+> 实施状态（2026-11-20）：按会话根已落地。新会话创建前由 Host 生成会话 ID 并建立
+> `filesDir/workspaces/<sessionId>/`，`session/create` 同时带上该 workspace 与 sessionId；
+> 文件工具、shell cwd 与路径策略都以它为边界。删除会话只有在 `purgeSessionData` 确认
+> 未保留后才回收目录；启动时清理草稿崩溃留下的空目录。旧会话（workspace 仍是 `filesDir`）
+> 保持原样、不迁移（内核 resume 不改持久化的 workspace）。
+> Android 宿主设置 `NIBI_SESSION_HOME=1` 与 `NIBI_SESSION_TMP_ROOT=<cacheDir>/sessions`，
+> 内核把用户命令的 `HOME` 指向会话 workspace、`TMPDIR` 指向 `cacheDir/sessions/<sessionId>`
+> （删会话时一并回收）；桌面入口不设这两个变量，行为不变。
+> 会话切换跟随会话已持久化的 workspace；目录名就是会话 ID，重命名会话不移动目录
+> （App 目前也没有会话重命名入口）。
+> 内核侧 workspace 边界（解析符号链接；越界写入询问，完全访问放行）与单次 Write 16 MiB
+> 上限不变；为不阻断“想写哪里都能写”的能力，不引入 workspace 总量与命令并发的硬上限，
 > 现有命令超时、输出截断、进程树回收保持不变。
 
 - 默认根：`filesDir/workspaces/<sessionId>/`；新会话自动创建；可切换/重命名/删除。
