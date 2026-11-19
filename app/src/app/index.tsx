@@ -783,10 +783,17 @@ export default function GoHomeScreen() {
   // 顶栏 ≡ 键：侧栏 → 折叠；rail → 展开；无栏 → 开抽屉
   const onMenu = () => {
     if (layout.menuAction === "collapse") setSidebarOpen(false);
-    else if (layout.menuAction === "expand") setSidebarOpen(true);
-    else {
-      Keyboard.dismiss();
-      setDrawerOpen(true);
+    else if (layout.menuAction === "expand") {
+      // 展开侧栏也先清掉输入框焦点：否则随后点设置时转场会把输入法再弹一下。
+      composerInputRef.current?.blur();
+      setSidebarOpen(true);
+    } else {
+      // 开抽屉前就 blur：抽屉本身会收键盘，但焦点还在输入框，点设置时输入法会闪。
+      leaveComposerForNavigation({
+        blur: () => composerInputRef.current?.blur(),
+        dismiss: Keyboard.dismiss,
+        navigate: () => setDrawerOpen(true),
+      });
     }
   };
 
@@ -856,7 +863,13 @@ export default function GoHomeScreen() {
         {hasRail ? (
           <GoRail
             petState={petState}
-            onMenu={() => setSidebarOpen(true)}
+            onMenu={() => {
+              leaveComposerForNavigation({
+                blur: () => composerInputRef.current?.blur(),
+                dismiss: Keyboard.dismiss,
+                navigate: () => setSidebarOpen(true),
+              });
+            }}
             onSearch={() => undefined}
             onSettings={() => {
               leaveComposerForNavigation({

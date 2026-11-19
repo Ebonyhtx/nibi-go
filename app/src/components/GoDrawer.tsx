@@ -12,7 +12,7 @@
 //   5. 位置：GO 的双形态落地点——本机 AGENT（当前）与桌面电脑（可立即用）
 //   6. 更多：插件市场（D13 独立生态）、设置
 // 底栏不重复"本机"（状态卡已说），改为版本标识。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import {
   Alert,
   Animated,
@@ -48,6 +48,8 @@ export interface NavProps {
   onNavigate?: () => void;
   /** 离屏导航前的清理：首页用它 blur 输入框，避免输入法在设置页闪一下又收起。 */
   onBeforeNavigate?: () => void;
+  /** 抽屉是否可见；隐藏后清掉搜索焦点，避免抽屉关掉后键盘还留在屏幕上。 */
+  active?: boolean;
   /** 桌面端在线设备数（0 = 未登录 / 无在线）。 */
   onlineDevices?: number;
   /** 本机会话列表（session/list）；空数组显示空态。 */
@@ -97,6 +99,7 @@ export function GoNavContent({
   insetBottom = 0,
   onNavigate,
   onBeforeNavigate,
+  active = true,
   onlineDevices = 0,
   sessions = [],
   archivedSessions = [],
@@ -113,6 +116,33 @@ export function GoNavContent({
   const router = useRouter();
   const suspended = petState === PET_STATE.sleeping;
   const [search, setSearch] = useState("");
+  // 抽屉/侧栏出现时搜索框会被系统自动聚焦；转场前必须 blur，否则输入法会闪一下。
+  const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
+  useEffect(() => {
+    searchRef.current?.blur();
+  }, []);
+  // 抽屉滑走时搜索框仍是 IME 的 served view：不主动清焦点，键盘会一直留在首页上。
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (wasActive.current && !active) {
+      searchRef.current?.blur();
+      Keyboard.dismiss();
+    }
+    wasActive.current = active;
+  }, [active]);
+  const leaveFor = (path: "/settings" | "/plugins") => {
+    leaveComposerForNavigation({
+      blur: () => {
+        onBeforeNavigate?.();
+        searchRef.current?.blur();
+      },
+      dismiss: Keyboard.dismiss,
+      navigate: () => {
+        onNavigate?.();
+        router.push(path);
+      },
+    });
+  };
   // 会话列表 / 归档管理（NIBI 客户端的「归档任务 → 归档管理里删除」同一套流程）。
   const [view, setView] = useState<"sessions" | "archived">("sessions");
   const groups = useMemo(
@@ -225,6 +255,7 @@ export function GoNavContent({
       <View style={[styles.search, { backgroundColor: t.panel }]}>
         <Icon name="search" size={13} color={t.inkFaint} />
         <TextInput
+          ref={searchRef}
           value={search}
           onChangeText={setSearch}
           placeholder="搜索对话"
@@ -420,32 +451,14 @@ export function GoNavContent({
           <Pressable
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="插件"
-            onPress={() => {
-              leaveComposerForNavigation({
-                blur: onBeforeNavigate,
-                dismiss: Keyboard.dismiss,
-                navigate: () => {
-                  onNavigate?.();
-                  router.push("/plugins");
-                },
-              });
-            }}
+            onPress={() => leaveFor("/plugins")}
           >
             <Icon name="puzzle" size={16} color={t.inkSub} />
           </Pressable>
           <Pressable
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="设置"
-            onPress={() => {
-              leaveComposerForNavigation({
-                blur: onBeforeNavigate,
-                dismiss: Keyboard.dismiss,
-                navigate: () => {
-                  onNavigate?.();
-                  router.push("/settings");
-                },
-              });
-            }}
+            onPress={() => leaveFor("/settings")}
           >
             <Icon name="sliders" size={16} color={t.inkSub} />
           </Pressable>
@@ -536,6 +549,7 @@ export function GoDrawer({
           petState={petState}
           insetTop={0}
           insetBottom={insets.bottom}
+          active={open}
           onNavigate={onClose}
           onBeforeNavigate={onBeforeNavigate}
           onlineDevices={onlineDevices}
