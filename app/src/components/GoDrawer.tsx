@@ -569,6 +569,7 @@ export function GoSidebar({
   onDeleteSession,
   onDeleteAllArchived,
   onSessionActions,
+  onBeforeNavigate,
 }: {
   petState?: PetStateId;
   onlineDevices?: number;
@@ -588,6 +589,8 @@ export function GoSidebar({
   }>;
   /** 会话行菜单里的插件动作入口（有 session.actions 时由首页提供）。 */
   onSessionActions?: (sessionId: string) => void;
+  /** 离屏导航前的清理（blur 首页输入框）。 */
+  onBeforeNavigate?: () => void;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -613,6 +616,7 @@ export function GoSidebar({
         onDeleteSession={onDeleteSession}
         onDeleteAllArchived={onDeleteAllArchived}
         onSessionActions={onSessionActions}
+        onBeforeNavigate={onBeforeNavigate}
       />
     </View>
   );
