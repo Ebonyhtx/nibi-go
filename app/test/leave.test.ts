@@ -80,6 +80,8 @@ describe("入口接线（防回归）", () => {
     expect(drawer).toContain('router.push("/settings")');
     expect(drawer).toContain('router.push("/plugins")');
     expect(drawer).not.toMatch(/Keyboard\.dismiss\(\);\s*onBeforeNavigate\?\.\(\)/);
+    // 展开侧栏（GoSidebar）与抽屉共用同一份导航内容，也必须把 blur 透传下去。
+    expect(drawer).toContain("onBeforeNavigate={onBeforeNavigate}");
   });
 
   it("首屏 rail 的设置/插件入口走统一 helper", () => {

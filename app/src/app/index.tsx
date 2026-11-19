@@ -850,6 +850,7 @@ export default function GoHomeScreen() {
             onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
             onDeleteAllArchived={conversation.deleteAllArchived}
             onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
+            onBeforeNavigate={() => composerInputRef.current?.blur()}
           />
         ) : null}
         {hasRail ? (
