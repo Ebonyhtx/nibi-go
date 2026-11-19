@@ -8,7 +8,7 @@ use nibi_kernel_api::model::{ModelSelection, QuerySource};
 use nibi_kernel_api::store::{Fact, SessionKind, SessionStore};
 
 use super::{days_sql, sessions_sql};
-use crate::tests::{TestStore, batch, meta, started, user};
+use crate::tests::{batch, meta, started, user, TestStore};
 
 const DAY: u64 = 86_400_000;
 
@@ -328,7 +328,13 @@ async fn app_usage_aggregates_across_sessions_by_day() {
     facts(
         &t,
         "sess_u2",
-        vec![call("msg_u3", "haiku", 2 * DAY + 5_000, 700, CallStatus::Completed)],
+        vec![call(
+            "msg_u3",
+            "haiku",
+            2 * DAY + 5_000,
+            700,
+            CallStatus::Completed,
+        )],
     )
     .await;
     t.connection()
@@ -341,8 +347,8 @@ async fn app_usage_aggregates_across_sessions_by_day() {
         .unwrap();
     t.connection()
         .execute(
-            "insert into tool_usage (id, session_id, tool_call_id, tool_name, status, started_at, duration_ms)
-             values ('tool_1', 'sess_u1', 'tc_1', 'read', 'error', ?1, 30)",
+            "insert into tool_usage (id, session_id, tool_call_id, tool_name, status, started_at, duration_ms, exit_code, error_type)
+             values ('tool_1', 'sess_u1', 'tc_1', 'read', 'error', ?1, 30, 2, 'failed')",
             [DAY as i64 + 1_500],
         )
         .unwrap();
@@ -370,6 +376,9 @@ async fn app_usage_aggregates_across_sessions_by_day() {
     assert_eq!(usage.tool_error_count, 1);
     assert_eq!(usage.tools[0].tool_name, "read");
     assert_eq!(usage.tools[0].avg_duration_ms, Some(30.0));
+    // 这一行是 error：成功数为 0，失败分类按 error_type 分组。
+    assert_eq!(usage.tools[0].success_count, 0);
+    assert_eq!(usage.tools[0].error_types.get("failed"), Some(&1));
     assert_eq!(usage.total_sessions, 1);
     assert_eq!(usage.total_turns, 1);
     // 按本地日：第 0 天两行、第 1 天一行。
@@ -399,7 +408,11 @@ async fn session_usage_accounts_input_side_incrementally_per_source() {
     let t = TestStore::new();
     started(&t, "sess_t1").await;
     // hand-written rows：三行同源，输入侧 1000 → 1500 → 800（压缩）。
-    for (id, at, input) in [("r1", DAY, 1_000), ("r2", DAY + 1_000, 1_500), ("r3", DAY + 2_000, 800)] {
+    for (id, at, input) in [
+        ("r1", DAY, 1_000),
+        ("r2", DAY + 1_000, 1_500),
+        ("r3", DAY + 2_000, 800),
+    ] {
         t.connection()
             .execute(
                 "insert into model_usage (id, logical_request_id, session_id, query_source,

@@ -213,6 +213,14 @@ pub fn file_edit_denied(path: &str) -> String {
     format!("Permission to edit {path} has been denied.")
 }
 
+/// workspace 边界（Phase 6）：写入目标在会话工作目录之外。
+/// 仍然是询问，不是拒绝；完全访问模式由判决链放行，保持“想写哪里都能写”的能力。
+pub fn file_write_outside_workspace(path: &str, dirs: &str) -> String {
+    format!(
+        "NIBI requested permissions to write to {path}, but it is outside the workspace and additional directories for this session ({dirs}). Allowing runs the write as requested."
+    )
+}
+
 /// 危险删除的询问都以这一句收尾（shell-permissions.md §4.5.3）。
 const REMOVAL_TAIL: &str =
     "This requires explicit approval and cannot be auto-allowed by permission rules.";

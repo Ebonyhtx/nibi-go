@@ -1,0 +1,30 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.nibiphone'
+version = '0.1.0'
+
+dependencies {
+  // 开关 2（高级手机操控）：Shizuku API/provider，MIT；provider 的 authority 由模块 manifest 合并。
+  implementation "dev.rikka.shizuku:api:13.1.5"
+  implementation "dev.rikka.shizuku:provider:13.1.5"
+
+  testImplementation "junit:junit:4.13.2"
+  // 本地单测跑 JVM；运行时用 Android 内置 org.json。
+  testImplementation "org.json:json:20240303"
+}
+
+android {
+  namespace "expo.modules.nibiphone"
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+
+  testOptions {
+    unitTests.returnDefaultValues = true
+  }
+}

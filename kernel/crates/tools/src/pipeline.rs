@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nibi_kernel_base::js::string::utf16_prefix;
 use nibi_kernel_api::message::ToolResultContent;
 use nibi_kernel_api::orchestration::{
     HookEventName, HookRunner, InteractionRequest, PermissionAnswer, PermissionGate, ToolExecution,
@@ -19,6 +18,7 @@ use nibi_kernel_api::tool::{
     Tool, ToolCallOutput, ToolError, ToolOutput, ToolProgress, ToolUseContext, Validation,
 };
 use nibi_kernel_api::unparsed_input;
+use nibi_kernel_base::js::string::utf16_prefix;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -346,7 +346,7 @@ impl Pipeline {
         Ok((input, call))
     }
 
-    /// 执行并跑 PostToolUse / PostToolUseFailure hooks。
+    /// 执行并跑 PostToolUse / PostToolUseFailure hooks；另外交出 Bash 的退出码与失败分类。
     async fn call(
         &self,
         tool: &dyn Tool,
@@ -354,7 +354,7 @@ impl Pipeline {
         call: Routed,
         progress: mpsc::Sender<ToolProgress>,
         messages: &mut HookMessages,
-    ) -> ToolOutput {
+    ) -> (ToolOutput, Option<i32>, Option<String>) {
         let Routed {
             context,
             hooks: session,
@@ -383,17 +383,29 @@ impl Pipeline {
                     hooks::replace_output(&mut output, replacement);
                 }
                 // hook 看到的是原始结果；给模型的结果再按预算落盘（在 hook 之后持久化）。
-                budget::apply(
+                let output = budget::apply(
                     output,
                     tool.name(),
                     tool.max_result_size_chars(),
                     &context.session,
                     context.artifacts.as_ref(),
                 )
-                .await
+                .await;
+                // Bash 成功时退出码必为 0；其他工具没有退出码。
+                let exit_code = (tool.name() == "Bash" && !output.is_error).then_some(0);
+                let error_class = output.is_error.then(|| "tool_error".to_owned());
+                (output, exit_code, error_class)
             }
             Err(failure) => {
                 let interrupted = matches!(failure, ToolError::Cancelled);
+                let exit_code = failure.exit_code();
+                let error_class = match &failure {
+                    ToolError::InvalidInput { .. } => "invalid_input",
+                    ToolError::Cancelled => "cancelled",
+                    ToolError::Environment(_) => "environment",
+                    ToolError::Failed { .. } => "failed",
+                    ToolError::Unsupported { .. } => "unsupported",
+                };
                 let text = if interrupted {
                     INTERRUPT_FOR_TOOL_USE.to_owned()
                 } else {
@@ -407,7 +419,7 @@ impl Pipeline {
                     hooks::event(HookEventName::PostToolUseFailure, &session, payload).await;
                 let mut post = self.hooks.run(event, context.cancel.clone()).await;
                 messages.after.append(&mut post.messages);
-                error(text)
+                (error(text), exit_code, Some(error_class.to_owned()))
             }
         }
     }
@@ -440,13 +452,13 @@ impl ToolExecutor for Pipeline {
             .await
         {
             Ok(admitted) => admitted,
-            Err(Rejection::ByHook(output)) => return messages.finish(output, true),
-            Err(Rejection::Other(output)) => return messages.finish(output, false),
+            Err(Rejection::ByHook(output)) => return messages.finish(output, true, None, None),
+            Err(Rejection::Other(output)) => return messages.finish(output, false, None, None),
         };
-        let output = self
+        let (output, exit_code, error_class) = self
             .call(tool.as_ref(), input, call, progress, &mut messages)
             .await;
-        messages.finish(output, true)
+        messages.finish(output, true, exit_code, error_class)
     }
 
     /// 审批链的前半（Node `authorizeAppTool`）：schema → `validate_input` → PreToolUse hooks →

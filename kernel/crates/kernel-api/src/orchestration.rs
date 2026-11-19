@@ -454,6 +454,12 @@ pub struct ToolExecution {
     /// hook 要求这批工具结束后停止本轮（`continue: false`）。
     #[serde(default)]
     pub prevent_continuation: bool,
+    /// Bash 的退出码：成功为 0，失败从 `Exit code N` 里解析；其他工具为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// 失败分类（见 [`crate::metering::ToolCall::error_class`]）；成功为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_class: Option<String>,
 }
 
 impl ToolExecution {
@@ -463,6 +469,8 @@ impl ToolExecution {
             before: Vec::new(),
             after: Vec::new(),
             prevent_continuation: false,
+            exit_code: None,
+            error_class: None,
         }
     }
 }

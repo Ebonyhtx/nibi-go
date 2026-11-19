@@ -41,7 +41,7 @@ async fn relative_rules_follow_the_machine_working_directory() {
         edit(&gate, &remote(mode), "/home/dev/proj/src/a.rs").await,
         allow()
     );
-    // 同一个路径在本机（工作区 /w）不在规则里。
+    // 同一个路径在本机（工作区 /w）不在规则里，也在工作区外：询问。
     assert!(matches!(
         edit(&gate, &context(mode), "/home/dev/proj/src/a.rs").await,
         PermissionDecision::Ask { .. }
@@ -55,6 +55,7 @@ async fn local_additional_directories_do_not_reach_a_remote_machine() {
     let gate = PolicyGate::new(base);
     let mode = PermissionMode::AcceptEdits;
     assert_eq!(edit(&gate, &context(mode), "/extra/a.txt").await, allow());
+    // 本机的附加目录不带过去；远端工作区外仍然询问。
     assert!(matches!(
         edit(&gate, &remote(mode), "/extra/a.txt").await,
         PermissionDecision::Ask { .. }
@@ -85,7 +86,7 @@ async fn session_additional_directories_are_allowed_per_session() {
     first.session = SessionId::new("sess_first");
     let mut second = context(mode);
     second.session = SessionId::new("sess_second");
-    // 没有附加目录时，工作区之外要问。
+    // 没有附加目录时，工作区之外仍然询问。
     assert!(matches!(
         edit(&gate, &first, "/extra/scoped.txt").await,
         PermissionDecision::Ask { .. }

@@ -65,6 +65,13 @@ pub struct ToolCall {
     /// 结果里文字的 UTF-8 字节数。
     #[serde(default)]
     pub output_bytes: u64,
+    /// Bash 的退出码：成功为 0，失败从 `Exit code N` 里解析；其他工具为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// 失败分类：`invalid_input` / `cancelled` / `environment` / `failed` / `unsupported` /
+    /// `tool_error` / `no_such_tool`；成功为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_class: Option<String>,
 }
 
 /// [`crate::orchestration::RunSink::commit_metered`] 的计量部分。

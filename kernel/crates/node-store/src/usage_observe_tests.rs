@@ -1,13 +1,13 @@
 //! 用量是观测（usage.md §2.5，工作线 F77）：用量行写不进去时只回退它自己，同批的消息、工具结果与回合结果照常提交，
 //! 记一条带原因的 warn。现场：库跑过开发分支的迁移，`model_usage` 没有 `variant` 列。
-use std::collections::BTreeMap;
-use std::fmt::Debug;
 use nibi_kernel_api::ids::{MessageId, SessionId, ToolUseId};
 use nibi_kernel_api::message::{ContentBlock, Message, StopReason, UserMessage, UserOrigin};
 use nibi_kernel_api::metering::{CallStatus, ModelCall, ToolCall};
 use nibi_kernel_api::model::QuerySource;
 use nibi_kernel_api::store::{Fact, SessionStore};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::fmt::Debug;
 use tracing::field::Field;
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
@@ -175,6 +175,8 @@ async fn a_tool_usage_row_that_cannot_be_written_keeps_the_result() {
         completed_at_ms: 3_100,
         status: CallStatus::Completed,
         output_bytes: 5,
+        exit_code: None,
+        error_class: None,
     };
     commit(
         &t,
@@ -224,9 +226,8 @@ async fn the_skipped_usage_is_logged_with_its_reason() {
     // 同步调用提交（存储平时在阻塞线程里调它），收集只作用于当前线程。
     let mut conn = t.connection();
     let ids = fixed_ids(&t.source);
-    let (committed, logged) = capture(|| {
-        crate::facts::commit(&mut conn, &sid(), &batch(None, facts), &ids)
-    });
+    let (committed, logged) =
+        capture(|| crate::facts::commit(&mut conn, &sid(), &batch(None, facts), &ids));
     assert!(committed.is_ok(), "{committed:?}");
     assert_eq!(logged.len(), 1, "{logged:?}");
     assert_eq!(logged[0]["event"], "\"usage.model.write.failed\"");

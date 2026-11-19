@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use nibi_kernel_base::TaskScope;
 use nibi_kernel_api::ids::SessionId;
+use nibi_kernel_api::manage::McpServerState;
 use nibi_kernel_api::mcp::McpTransportConfig;
 use nibi_kernel_api::mcp_session::{McpIsolation, SessionMcpServer};
+use nibi_kernel_base::TaskScope;
 use serde_json::json;
 
 use super::*;
@@ -136,6 +137,122 @@ async fn a_later_start_merges_the_previous_set() {
         .collect();
     assert!(tools.iter().any(|name| name == "mcp__files__echo"), "{tools:?}");
     assert!(tools.iter().any(|name| name == "mcp__web__echo"), "{tools:?}");
+    pools.stop(&session);
+}
+
+/// dev reload / 宿主重连时 `session/resume` 重复给同一份 `mcpServers`：复用上一次的连接
+/// （同一份 `Arc`），不新建 manager，也不 stop_all 旧的（旧工具对象还会用）。
+#[tokio::test]
+async fn an_unchanged_set_reuses_the_previous_connections() {
+    let fake = Arc::new(FakeMcp::default().with("files", echo_server()));
+    let scope = TaskScope::root("test", |_| {});
+    let pools = pools(fake.clone(), &scope);
+    let session = SessionId::new("sess_resume");
+    let first = pools.start(&session, &workspace(), vec![stdio("files")]);
+    first.wait_ready().await;
+    let second = pools.start(&session, &workspace(), vec![stdio("files")]);
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "an unchanged server set rebuilt the session MCP"
+    );
+    // 连接只建立了一次：既没有新建 manager，也没有释放旧的再建。
+    assert_eq!(fake.roots().len(), 1);
+    let tools: Vec<String> = second
+        .tools()
+        .into_iter()
+        .map(|tool| tool.name().to_owned())
+        .collect();
+    assert!(tools.iter().any(|name| name == "mcp__files__echo"), "{tools:?}");
+    pools.stop(&session);
+}
+
+fn http(name: &str, url: &str) -> SessionMcpServer {
+    SessionMcpServer {
+        transport: McpTransportConfig::Http {
+            url: url.to_owned(),
+            headers: Default::default(),
+        },
+        ..stdio(name)
+    }
+}
+
+/// 等到条件成立（释放旧连接在后台任务里做，`start` 返回时不保证已经跑完）。
+async fn until(done: impl Fn() -> bool) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !done() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("condition was not reached");
+}
+
+/// 同名服务器换了 url 是实质变化：新建一套连接，旧的那套被关掉。
+#[tokio::test]
+async fn a_changed_server_config_rebuilds_and_closes_the_previous_connections() {
+    let fake = Arc::new(FakeMcp::default().with("cloud", echo_server()));
+    let scope = TaskScope::root("test", |_| {});
+    let pools = pools(fake.clone(), &scope);
+    let session = SessionId::new("sess_changed");
+    let first = pools.start(
+        &session,
+        &workspace(),
+        vec![http("cloud", "https://one.invalid/mcp")],
+    );
+    first.wait_ready().await;
+    let second = pools.start(
+        &session,
+        &workspace(),
+        vec![http("cloud", "https://two.invalid/mcp")],
+    );
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert_ne!(first.identities(), second.identities());
+    // 新配置新建了一条连接（fake 每次 connect 记一条）；旧的一套被 stop_all 清空。
+    second.wait_ready().await;
+    assert_eq!(fake.roots().len(), 2);
+    until(|| !first.has_servers()).await;
+    assert!(first.tools().is_empty());
+    assert_eq!(
+        second
+            .view()
+            .servers
+            .iter()
+            .map(|row| row.name.as_str())
+            .collect::<Vec<_>>(),
+        ["cloud"]
+    );
+    pools.stop(&session);
+}
+
+/// 上一次连接失败（配置没变）不能复用：resume 要重建，不能把 `Failed` 永久带下去。
+#[tokio::test]
+async fn a_failed_connection_is_not_reused() {
+    let fake = Arc::new(
+        FakeMcp::default()
+            .refusing("files")
+            .with("files", echo_server()),
+    );
+    let scope = TaskScope::root("test", |_| {});
+    let pools = pools(fake.clone(), &scope);
+    let session = SessionId::new("sess_failed");
+    let first = pools.start(&session, &workspace(), vec![stdio("files")]);
+    until(|| {
+        first
+            .view()
+            .servers
+            .iter()
+            .any(|row| row.state == McpServerState::Failed)
+    })
+    .await;
+    let second = pools.start(&session, &workspace(), vec![stdio("files")]);
+    assert!(
+        !Arc::ptr_eq(&first, &second),
+        "a failed connection was reused"
+    );
+    assert_ne!(first.identities(), second.identities());
+    // 新建的 manager 又按配置连了一次（fake 每次 connect 记一条）。
+    second.wait_ready().await;
+    assert_eq!(fake.roots().len(), 2);
     pools.stop(&session);
 }
 

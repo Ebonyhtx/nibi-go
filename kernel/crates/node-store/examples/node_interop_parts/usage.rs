@@ -8,9 +8,7 @@
 //! - `activity <storage-dir> <all|week|month> <today> <offset-minutes>`：`SessionStore::activity` 的结果；
 //! - `request-stats <storage-dir> <session>`：`SessionStore::request_stats` 的结果与它给出的 TPS、命中率（footer 的
 //!   请求统计，usage.md §4.1，修复线 F27）。
-use nibi_kernel_api::metering::{
-    ActivityQuery, ActivityRange, CallStatus, ModelCall, ToolCall,
-};
+use nibi_kernel_api::metering::{ActivityQuery, ActivityRange, CallStatus, ModelCall, ToolCall};
 use nibi_kernel_api::model::{QuerySource, SIDE_SESSION_TITLE};
 
 use super::*;
@@ -108,6 +106,8 @@ pub(super) async fn write(dir: &str) -> Result<()> {
             completed_at_ms: base + 1_400,
             status: CallStatus::Completed,
             output_bytes: 5,
+            exit_code: Some(0),
+            error_class: None,
         },
     };
     store

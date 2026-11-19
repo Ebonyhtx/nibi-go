@@ -8,13 +8,10 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use nibi_kernel_base::TaskScope;
 use nibi_kernel_api::ids::{EnvironmentId, SessionId};
 use nibi_kernel_api::model::ModelSelection;
 use nibi_kernel_api::permission::PermissionMode;
-use nibi_kernel_api::session_api::{
-    DynamicWorkflowGate, Kernel, KernelError, SessionHandle,
-};
+use nibi_kernel_api::session_api::{DynamicWorkflowGate, Kernel, KernelError, SessionHandle};
 use nibi_kernel_api::store::{SessionFilter, SessionSummary};
 use nibi_kernel_api::usage::{
     AppUsage, AppUsageDayModelRow, AppUsageDayRow, AppUsageModelRow, AppUsageQuery,
@@ -26,6 +23,7 @@ use nibi_kernel_api::workflow::{
     WorkflowRunEventQuery, WorkflowRunEventRow, WorkflowRunNodeResult, WorkflowRunSummaryRow,
     WorkflowRunWorkspaceNode, WorkflowRunWorkspaceSummary,
 };
+use nibi_kernel_base::TaskScope;
 use nibi_kernel_protocol_core::connection::{self, Options, Service};
 use serde_json::{Value, json};
 
@@ -355,6 +353,8 @@ impl Kernel for FakeKernel {
                 tool_name: "read".to_owned(),
                 call_count: 6,
                 error_count: 1,
+                success_count: 5,
+                error_types: [("failed".to_owned(), 1)].into_iter().collect(),
                 avg_duration_ms: Some(30.0),
             }],
             days: vec![
@@ -975,6 +975,8 @@ async fn usage_stats_project_the_snapshot_with_streaks_and_heatmap() {
     assert_eq!(snapshot["heatmap"]["maxTokens"], 200);
     assert_eq!(snapshot["models"][0]["share"], 1.0);
     assert_eq!(snapshot["tools"][0]["errorRate"], 1.0 / 6.0);
+    assert_eq!(snapshot["tools"][0]["successRate"], 5.0 / 6.0);
+    assert_eq!(snapshot["tools"][0]["errorTypes"]["failed"], 1);
 }
 
 #[tokio::test]

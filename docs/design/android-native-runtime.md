@@ -182,17 +182,24 @@ fork 的优势放进内核，而不是只靠 shell：
 
 ## 6. Workspace 定义
 
+> 实施状态（2026-11-19）：App 目前把 `filesDir` 作为 workspace 交给内核；本节的
+> `filesDir/workspaces/<sessionId>/` 按会话根与切换/重命名/删除尚未实现。内核侧已加
+> workspace 边界（解析符号链接；越界写入询问，完全访问放行）与单次 Write 16 MiB 上限。
+> 为不阻断“想写哪里都能写”的能力，不引入 workspace 总量与命令并发的硬上限；
+> 现有命令超时、输出截断、进程树回收保持不变。
+
 - 默认根：`filesDir/workspaces/<sessionId>/`；新会话自动创建；可切换/重命名/删除。
 - 临时文件：`cacheDir/sessions/<sessionId>/`；不持久。
 - 插件数据：`filesDir/plugins/<pluginId>/`；默认只能访问自己的目录。
 - 包目录：`filesDir/packages/{npm,pip}`；不写全局 site-packages/node_modules。
 - 共享存储：默认**不**直接读写 `/sdcard`；通过 SAF/MediaStore 导入/导出，
   或侧载版由用户显式开启 All files access（targetSdk 36 需特殊授权）。
-- 路径策略：内核工具解析 symlink、拒绝 `..`、拒绝 workspace 外写入；
-  读取范围默认 workspace + 显式授权目录。
+- 路径策略（已实现）：内核工具解析 symlink；workspace 外的写入是询问，不是硬拒绝，
+  完全访问模式直接放行。读取范围默认 workspace + 显式授权目录。
 - shell/Node/Python 的 cwd 固定 workspace；`HOME`/`TMPDIR` 指向会话目录；
   provider key 不进子进程 env。
-- 配额：workspace 大小上限、命令超时、输出截断、进程树回收。
+- 配额：单次 Write 16 MiB（已实现）；命令超时、输出截断、进程树回收沿用既有常量；
+  为保留能力，不设 workspace 总大小与命令并发的硬上限。
 - 模型提示写明 workspace 路径与可访问范围。
 
 **边界诚实说明**：workspace 是内核工具的策略边界，不是 OS 级沙箱；shell/解释器仍是
@@ -309,6 +316,9 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   effective capability；
 - targetSdk 36 适配：包可见性用 `<queries>`/`QUERY_ALL_PACKAGES`（侧载）；通知/前台服务
   按现代规则处理。
+
+> 实现与验收：`docs/design/phone-control.md`（2026-11-19；开关 1/2 代码完成，
+> 模拟器已验证读屏/截图/硬拒绝；PHK110 真机待验收）。
 
 ## 9. 安全模型
 

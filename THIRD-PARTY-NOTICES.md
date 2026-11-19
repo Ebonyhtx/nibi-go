@@ -47,6 +47,7 @@ NIBI-GO 的运行时与开发依赖以宽松许可（MIT / Apache-2.0 / BSD / IS
 | ugrep + PCRE2 + brotli | 7.8.4 / 10.46 / 1.2.1 | BSD-3-Clause（PCRE2 exception）/ BSD-3-Clause / MIT | 内嵌的 `ugrep` |
 | NDK `libc++_shared.so` | NDK r27 | Apache-2.0 WITH LLVM-exception | Android 内核的 C++ 运行时 |
 | org.rustls:rustls-platform-verifier（AAR） | 0.2.0 | MIT OR Apache-2.0 | Android 系统信任库的 JVM 组件（T8 S2） |
+| dev.rikka.shizuku:api / provider / aidl（AAR） | 13.1.5 | MIT | 开关 2 的 shell uid 通道（`nibi-phone`） |
 
 Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定宽松许可白名单，
 每次重 pin 后跑 `cargo deny check` / `cargo audit`（记录见 `kernel/CHANGELOG-FORK.md`）。

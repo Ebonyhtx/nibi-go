@@ -452,6 +452,51 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 5. 手机双开关：无障碍；Shizuku/无线调试检测/引导/状态/断开降级；capability flags。
 6. workspace/策略/指标：配额、路径策略、cwd/env、审批、50 命令矩阵。
 
+### Phase 5 进展（2026-11-19）
+
+- 代码完成：`app/modules/nibi-phone`（无障碍服务、loopback MCP、Shizuku）、
+  `packages/phone-tools` 接口层、`/settings/phone` 设置页；固定 9 个手机工具，
+  内核零改动（`session/create|resume.mcpServers` 的 HTTP 形态）。
+- 已验证（Android 15 x86_64 模拟器）：开关 1 与系统无障碍连接；应用内 loopback MCP
+  `initialize`/`screen`/`tap` 硬拒绝/`screenshot` 全通；读屏跳过状态栏窗口，
+  跨包节点按节点包名判。
+- PHK110 真机（2026-11-19）：内核→loopback MCP 真实回合通过（`screen`/`open`/`tap`/`type`：
+  Chrome Example Domain、Learn more→IANA、httpbin 表单写入 NIBI 并回读）。
+- 已修复：手机工具审批改走原生悬浮卡（`SYSTEM_ALERT_WINDOW`，不抢前台）；PHK110 已验证
+  `open` 审批浮在 App 上、`screen` 审批浮在 Chrome 上，`screen` 读到 Chrome 的 `s3`。
+  未授权时回退应用内卡片，设置页显示授权状态。
+- 已修复（2026-11-19 第二轮）：悬浮审批卡加「始终允许」（内核 `allowAlways`，按工具/参数
+  记住规则）；`screen` 改为分页（页尾 `cursor`，同一快照内继续读，元素编号不变）；
+  loopback MCP 服务器改用稳定 token/端口、不随 Expo 模块销毁，进程被回收后由无障碍服务
+  重启；内核 resume 对同一 MCP 配置幂等复用。针对 `MCP is shut down` 的根因修复。
+- 仍未验证：`FLAG_SECURE`、Shizuku/`android_shell`、无线调试“已开启”分支；
+  `MCP is shut down` 的加固仍需 release 构建复验。
+- 真机第二轮（2026-11-19）：`始终允许`（open 按 URL、screen/scroll/key 按工具）生效；
+  `key back` 成功；抓到并修复 `scroll` 误报「屏幕已经切换」（改用活动应用窗口包名，
+  不再被输入法/悬浮卡干扰），修复后滚动内容确实变化。Bing 首页/搜索结果均在单页内
+  读完，带 cursor 的第二页只有单测覆盖。
+- 真机第三轮（2026-11-19）：`FLAG_SECURE` 用自建安全窗口 APK 验证（系统返回全黑图，
+  已改成明确错误）；无线调试「已开启」分支已验证后关闭；进程被 `kill -9` 后由无障碍
+  服务重启，服务器仍用同一 token/端口 39617 恢复，MCP `initialize` 成功。Shizuku 已
+  安装并启动，但 ColorOS 16 的「adb 权限受限」阻止授权，`android_shell` 授权后执行
+  未验证（未代为修改系统语言/权限监控设置）。
+
+### Phase 6 进展（2026-11-19）
+
+- workspace 边界：`policy` 的写入判决在 deny 规则之后、其它规则之前检查
+  workspace（含 `additionalDirectories`）之外的真实路径；判定解析符号链接，
+  越界是**询问**不是拒绝，完全访问模式由判决链放行（保持“想写哪里都能写”的能力）。
+  实现为 `paths::PathContext::in_workspace_boundary` + `real_within`。
+- 配额：`Write` 单次内容上限 16 MiB（`validate_input` 拒绝）。
+- 命令指标：`ToolCall` 带 `exit_code`/`error_class`；Bash 成功记 0、失败从
+  `Exit code N` 解析；`tool_usage` 的 `exit_code`/`error_type` 落库；
+  `v4/usage/stats` 补 `successRate` 与 `errorTypes`。
+- 文档口径：workspace 是策略边界不是 OS 沙箱；shell/解释器仍可越界（写进模型提示与
+  设计文档）。越界写入按运营者 2026-11-19 的决定保持“询问、完全访问放行”，
+  不引入会阻断能力的 workspace 总量/并发硬上限；现有超时、输出截断、进程树回收不变。
+- 50 命令矩阵：沿用 2026-11-16 的 Android 真机记录（本文件 Phase 2），Phase 6 只补
+  策略/指标，不重跑矩阵。
+
 ### 并行与门禁
 
 - 真实 Provider/设置页不受 fork 阻塞，可并行。

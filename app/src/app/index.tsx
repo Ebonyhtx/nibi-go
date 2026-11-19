@@ -68,6 +68,7 @@ import {
   type ComposerAttachment,
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
+import { leaveComposerForNavigation } from "../composer/leave";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
@@ -857,14 +858,18 @@ export default function GoHomeScreen() {
             onMenu={() => setSidebarOpen(true)}
             onSearch={() => undefined}
             onSettings={() => {
-              composerInputRef.current?.blur();
-              Keyboard.dismiss();
-              router.push("/settings");
+              leaveComposerForNavigation({
+                blur: () => composerInputRef.current?.blur(),
+                dismiss: Keyboard.dismiss,
+                navigate: () => router.push("/settings"),
+              });
             }}
             onPlugins={() => {
-              composerInputRef.current?.blur();
-              Keyboard.dismiss();
-              router.push("/plugins");
+              leaveComposerForNavigation({
+                blur: () => composerInputRef.current?.blur(),
+                dismiss: Keyboard.dismiss,
+                navigate: () => router.push("/plugins"),
+              });
             }}
           />
         ) : null}

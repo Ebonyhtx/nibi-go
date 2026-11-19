@@ -97,6 +97,8 @@ fn metered_calls_round_trip_through_serde() {
         completed_at_ms: 5,
         status: CallStatus::Completed,
         output_bytes: 12,
+        exit_code: Some(0),
+        error_class: None,
     });
     let text = serde_json::to_string(&call).unwrap();
     assert_eq!(serde_json::from_str::<Metered>(&text).unwrap(), call);

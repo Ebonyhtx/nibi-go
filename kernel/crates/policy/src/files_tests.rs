@@ -56,10 +56,12 @@ fn writes_need_accept_edits_inside_and_always_ask_for_sensitive_paths() {
         verdict(PermissionMode::AcceptEdits, &[], Access::Write, "src/a.rs"),
         Check::Allow
     );
-    assert!(matches!(
+    assert_eq!(
         verdict(PermissionMode::AcceptEdits, &[], Access::Write, "/tmp/x"),
-        Check::Ask { .. }
-    ));
+        Check::ask(
+            "NIBI requested permissions to write to /tmp/x, but it is outside the workspace and additional directories for this session ('/w'). Allowing runs the write as requested."
+        )
+    );
     assert_eq!(
         verdict(
             PermissionMode::AcceptEdits,
@@ -153,4 +155,75 @@ fn file_paths_are_resolved_like_the_tools_resolve_them() {
         verdict(PermissionMode::Default, &[], Access::Read, "~x"),
         Check::Allow
     );
+}
+
+/// Phase 6：workspace 外的写入仍然询问，不硬拒绝；完全访问由判决链放行。
+#[test]
+fn writes_outside_the_workspace_ask_in_every_mode() {
+    for mode in [
+        PermissionMode::Default,
+        PermissionMode::AcceptEdits,
+        PermissionMode::BypassPermissions,
+        PermissionMode::Plan,
+    ] {
+        assert!(
+            matches!(
+                verdict(mode, &[], Access::Write, "/tmp/x"),
+                Check::Ask { .. }
+            ),
+            "{mode:?} 下工作区外写入应询问"
+        );
+    }
+}
+
+/// additionalDirectories 仍在边界内：Default 下询问、AcceptEdits 下放行（不是拒绝）。
+#[test]
+fn additional_directories_are_inside_the_boundary() {
+    let mut paths = crate::test_support::paths();
+    paths.roots.push("/tmp/work".to_owned());
+    let write = |mode| {
+        crate::test_support::run_in(&paths, mode, &[], |inputs| {
+            check(Access::Write, Some("/tmp/work/a.txt"), inputs)
+        })
+    };
+    assert_eq!(write(PermissionMode::AcceptEdits), Check::Allow);
+    assert!(matches!(
+        write(PermissionMode::Default),
+        Check::Ask { .. }
+    ));
+}
+
+/// 符号链接逃逸：workspace 里的链接指向外部时，写入按真实路径询问，不当作工作区内放行。
+#[cfg(unix)]
+#[test]
+fn symlink_escape_asks() {
+    use std::os::unix::fs::symlink;
+
+    let base = std::env::temp_dir().join(format!(
+        "nibi-ws-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let workspace = base.join("ws");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&workspace).expect("workspace");
+    std::fs::create_dir_all(&outside).expect("outside");
+    let link = workspace.join("link");
+    symlink(&outside, &link).expect("symlink");
+
+    let mut paths = crate::test_support::paths();
+    paths.roots = vec![workspace.to_string_lossy().into_owned()];
+    let target = link.join("x.txt").to_string_lossy().into_owned();
+    let result = crate::test_support::run_in(
+        &paths,
+        PermissionMode::AcceptEdits,
+        &[],
+        |inputs| check(Access::Write, Some(&target), inputs),
+    );
+    assert!(matches!(result, Check::Ask { .. }), "{result:?}");
+
+    let _ = std::fs::remove_dir_all(&base);
 }

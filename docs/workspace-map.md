@@ -13,7 +13,9 @@ NIBI-GO/
 ├── .gitignore
 ├── kernel/                 # Android 内核 fork（D24；基线 nibi-client 1369b043，同步台账 UPSTREAM.md）
 ├── app/                    # RN/Expo 壳（应用主体；WORK 为入口）
-│   └── modules/kernel-host/ # 内核宿主（JNI 薄层 + :kernel Service，D19/D20）
+│   └── modules/
+│       ├── kernel-host/    # 内核宿主（JNI 薄层 + :kernel Service，D19/D20）
+│       └── nibi-phone/     # 手机操控（无障碍 + loopback MCP + Shizuku，Phase 5）
 ├── packages/               # 纯 TS 协议层 + 平台接口（各自 README 有职责与禁止事项）
 │   ├── relay-client/
 │   ├── chat-core/

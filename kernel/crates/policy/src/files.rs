@@ -124,6 +124,18 @@ pub fn check(access: Access, path: Option<&str>, inputs: &Inputs<'_>) -> Check {
             if rule(RuleBehavior::Deny) {
                 return Check::deny(texts::file_edit_denied(&resolved));
             }
+            // workspace 边界：workspace（含 additionalDirectories）之外的写入仍然可以发生，
+            // 但必须询问；完全访问模式由判决链把这次询问放行。解析符号链接，防止用链接
+            // 把“工作区内”伪装成安全路径。
+            if !paths.in_workspace_boundary(&resolved) {
+                return ask(
+                    texts::file_write_outside_workspace(
+                        &resolved,
+                        &texts::directories(&paths.roots),
+                    ),
+                    AskKind::Other,
+                );
+            }
             // 本会话的计划文件（tools-more.md §2.5）：不看模式，排在安全路径之前
             // （计划目录在 `.nibi` 下）；ask 规则仍然生效（先查 ask 规则再查计划文件）。
             if paths.is_plan_file(&resolved) {

@@ -212,9 +212,13 @@ pub struct ToolRow {
     pub time_to_first_output_ms: Option<i64>,
     pub output_bytes: i64,
     pub cancelled_by_user: bool,
+    /// Bash 的退出码；其他工具为空。
+    pub exit_code: Option<i32>,
+    /// 失败分类（`failed` / `cancelled` / `invalid_input` 等）。
+    pub error_type: Option<String>,
 }
 
-/// Node `upsertToolUsage`。本工程没有的列（副作用范围、只读、破坏性、退出码、stdout / stderr 字节、错误）
+/// Node `upsertToolUsage`。本工程没有的列（副作用范围、只读、破坏性、stdout / stderr 字节、错误码与错误文本）
 /// 绑定 Node 在缺省时的值（usage.md §2.3、D6）。
 pub fn upsert_tool(conn: &Connection, row: &ToolRow) -> Result<()> {
     conn.prepare_cached(
@@ -306,7 +310,7 @@ pub fn upsert_tool(conn: &Connection, row: &ToolRow) -> Result<()> {
         row.completed_at,
         row.duration_ms,
         row.time_to_first_output_ms,
-        None::<i64>,
+        row.exit_code,
         row.output_bytes,
         0_i64,
         0_i64,
@@ -314,7 +318,7 @@ pub fn upsert_tool(conn: &Connection, row: &ToolRow) -> Result<()> {
         0_i64,
         0_i64,
         i64::from(row.cancelled_by_user),
-        None::<String>,
+        row.error_type.as_deref(),
         None::<String>,
         None::<String>,
     ])?;
