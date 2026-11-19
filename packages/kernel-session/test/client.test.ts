@@ -118,6 +118,30 @@ describe("@nibi-go/kernel-session", () => {
     expect(client.currentSessionId).toBe("sess_draft");
   });
 
+  it("createSession：可指定 sessionId（workspace 目录名在创建前就要确定）", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const sessionWorkspace = {
+      workspacePath: "/files/workspaces/sess_ws",
+      workspaceKey: "/files/workspaces/sess_ws",
+    };
+    const pending = client.createSession(sessionWorkspace, undefined, undefined, {
+      persistence: "deferred",
+      sessionId: "sess_ws",
+    });
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.sessionCreate,
+      params: {
+        workspace: sessionWorkspace,
+        persistence: "deferred",
+        sessionId: "sess_ws",
+      },
+    });
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_ws" } } });
+    await expect(pending).resolves.toMatchObject({ sessionId: "sess_ws" });
+  });
+
   it("createSession：没给 options 时请求里不带 persistence 字段", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

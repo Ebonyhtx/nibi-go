@@ -43,6 +43,11 @@ export interface KernelSessionCreateOptions {
    * （内核在第一条输入时提升为正式会话）；`immediate` 或缺省照旧立即落库。
    */
   persistence?: "deferred" | "immediate";
+  /**
+   * 由 Host 生成会话 ID（工作区目录名要用它，创建前就得拿到）。
+   * 内核缺省时自己生成；内置的本地内核一直支持显式 ID。
+   */
+  sessionId?: string;
 }
 
 /** `v4/conversation/fileChanges` 的一个文件（内核 `FileChangeItem`）。 */
@@ -159,11 +164,13 @@ export class KernelSessionClient {
     options?: KernelSessionCreateOptions,
   ): Promise<KernelSessionCreateResult> {
     const persistence = options?.persistence;
+    const sessionId = options?.sessionId;
     const result = await this.request<KernelSessionCreateResult>(KERNEL_METHODS.sessionCreate, {
       workspace,
       ...(model ? { model } : {}),
       ...(mcpServers && mcpServers.length > 0 ? { mcpServers } : {}),
       ...(persistence ? { persistence } : {}),
+      ...(sessionId ? { sessionId } : {}),
     });
     const id = result?.session?.sessionId;
     if (typeof id !== "string" || id.length === 0) {

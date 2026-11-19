@@ -265,6 +265,10 @@ class KernelService : Service() {
     setEnv("HOME", files)
     setEnv("NIBI_DATA_BASE_DIR", files)
     setEnv("TMPDIR", applicationContext.cacheDir.absolutePath)
+    // 会话级 HOME/TMPDIR：内核按 NIBI_SESSION_HOME 把用户命令的 HOME 指向会话 workspace、
+    // TMPDIR 指向 cacheDir/sessions/<sessionId>；内核自身仍用上面的 filesDir。
+    setEnv("NIBI_SESSION_HOME", "1")
+    setEnv("NIBI_SESSION_TMP_ROOT", applicationContext.cacheDir.absolutePath + "/sessions")
     prepareRuntime(applicationContext)
   }
 
