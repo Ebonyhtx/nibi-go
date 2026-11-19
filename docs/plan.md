@@ -474,7 +474,8 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 - 真机第二轮（2026-11-19）：`始终允许`（open 按 URL、screen/scroll/key 按工具）生效；
   `key back` 成功；抓到并修复 `scroll` 误报「屏幕已经切换」（改用活动应用窗口包名，
   不再被输入法/悬浮卡干扰），修复后滚动内容确实变化。Bing 首页/搜索结果均在单页内
-  读完，带 cursor 的第二页只有单测覆盖。
+  读完；PHK110 另用 40 段本地长页面验证了 cursor 多页（s4 共 47 项，s4:13 → s4:24 →
+  s4:35 → 读完，屏幕号与元素编号连续），过期快照的 cursor 会报「屏幕快照已过期」。
 - 真机第三轮（2026-11-19）：`FLAG_SECURE` 用自建安全窗口 APK 验证（系统返回全黑图，
   已改成明确错误）；无线调试「已开启」分支已验证后关闭；进程被 `kill -9` 后由无障碍
   服务重启，服务器仍用同一 token/端口 39617 恢复，MCP `initialize` 成功。Shizuku 已
@@ -494,6 +495,16 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 - 文档口径：workspace 是策略边界不是 OS 沙箱；shell/解释器仍可越界（写进模型提示与
   设计文档）。越界写入按运营者 2026-11-19 的决定保持“询问、完全访问放行”，
   不引入会阻断能力的 workspace 总量/并发硬上限；现有超时、输出截断、进程树回收不变。
+- 按会话 workspace 根（2026-11-20）：新会话由 App 先生成 sessionId、建
+  `filesDir/workspaces/<sessionId>/`，`session/create` 同时带该 workspace 与 sessionId；
+  shell cwd、文件工具与路径策略按会话隔离。删除会话在 purge 确认未被保留后回收目录
+  与 `cacheDir/sessions/<id>`；启动清理草稿崩溃留下的空目录；旧会话（workspace=filesDir）
+  保持原样、不迁移。Android 宿主设 `NIBI_SESSION_HOME=1`/
+  `NIBI_SESSION_TMP_ROOT=<cacheDir>/sessions`，内核把用户命令的 HOME/TMPDIR 指到会话目录；
+  桌面入口不设这两个变量，行为不变。
+  PHK110 真机验证：新会话 pwd/HOME=`files/workspaces/<id>`、TMPDIR=`cache/sessions/<id>`，
+  DB 持久化同一路径；旧会话仍是 `files/`；重启清掉空草稿目录；归档后彻底删除会同时
+  移除 workspace、临时目录与 DB 行。
 - 50 命令矩阵：沿用 2026-11-16 的 Android 真机记录（本文件 Phase 2），Phase 6 只补
   策略/指标，不重跑矩阵。
 
