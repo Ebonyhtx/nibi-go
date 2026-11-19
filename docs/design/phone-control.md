@@ -261,3 +261,13 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
     设置页显示「已开启」；验证后已关闭无线调试，恢复原状态。
   - ColorOS 跨应用启动确认框：这是系统 BAL 弹窗，App 无法从代码绕过；设置页已加说明与
     「打开应用信息」入口，用户可在应用权限里开启「后台弹出界面」或选「30天内允许」。
+  - **release 构建复验（2026-11-20，Android 15 x86_64 模拟器 + 生产签名密钥）**：
+    R8 抓到真缺陷——`libnibi_kernel_jni.so` 用 `GetMethodID` 按名字找
+    `Sink.onLine/onError`，R8 改名后内核线程抛 `NoSuchMethodError` 并 SIGABRT
+    （debug 完全正常）。修复在**被跟踪**的 `kernel-host/android/consumer-rules.pro`
+    （`-keep class expo.modules.nibikernelhost.**`）；`app/android` 是 prebuild 生成目录，
+    规则写在那里会在下次 prebuild 丢失。复验通过：无障碍绑定、loopback MCP 9 工具、
+    `screen` 21/29 项、非安全页截屏 324x720 JPEG、FLAG_SECURE 探针返回「安全页面不可截屏」、
+    `kill -9` 主进程后无障碍重绑并用同一 token/端口 39617 恢复、内核 `nativeStart=true`、
+    mock 模型回合调用 `mcp__phone__screen` 且应用内审批卡与悬浮审批卡都能放行并返回结果、
+    会话 workspace 仍持久化为 `files/workspaces/<id>`。
