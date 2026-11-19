@@ -92,6 +92,38 @@ fn shell_dialect(shell: &std::path::Path) -> ShellDialect {
     }
 }
 
+/// Android 宿主（`NIBI_SESSION_HOME=1`）的会话级 HOME/TMPDIR。
+///
+/// - `HOME` 指向会话 workspace 根（`<filesDir>/workspaces/<sessionId>`），不再共享 filesDir；
+/// - `TMPDIR` 指向 `NIBI_SESSION_TMP_ROOT/<sessionId>`（宿主传 `cacheDir/sessions`），
+///   建不出目录时不覆盖，命令继续用进程级 TMPDIR。
+///
+/// 桌面入口不设 `NIBI_SESSION_HOME`，这里返回空，命令环境与以前完全一样。
+fn session_environment(
+    config: &ShellConfig,
+    workspace: &std::path::Path,
+    session: &SessionId,
+) -> Vec<(String, String)> {
+    let enabled = config
+        .env
+        .iter()
+        .any(|(name, value)| name == "NIBI_SESSION_HOME" && value == "1");
+    if !enabled {
+        return Vec::new();
+    }
+    let mut values = vec![("HOME".to_owned(), workspace.to_string_lossy().into_owned())];
+    let tmp_root = config.env.iter().find_map(|(name, value)| {
+        (name == "NIBI_SESSION_TMP_ROOT" && !value.is_empty()).then(|| PathBuf::from(value))
+    });
+    if let Some(root) = tmp_root {
+        let dir = root.join(session.as_str());
+        if std::fs::create_dir_all(&dir).is_ok() {
+            values.push(("TMPDIR".to_owned(), dir.to_string_lossy().into_owned()));
+        }
+    }
+    values
+}
+
 /// 没有会话选择时的 shell。Windows 上入口找不到 Git Bash 时回退 `ComSpec` / `cmd.exe`（NIBI 设置页
 /// 「集成终端 Shell = 自动选择：优先 Git Bash，找不到回退 cmd.exe」与 Node 同语义）；Unix 上仍要求
 /// POSIX shell。
@@ -429,6 +461,12 @@ impl Shells {
             &self.config.env,
             (dialect != ShellDialect::Cmd).then_some(shell_name.as_str()),
         );
+        // Android 宿主（NIBI_SESSION_HOME=1）要求 HOME/TMPDIR 跟着会话走：HOME 是会话
+        // workspace 根，TMPDIR 是宿主给的 cacheDir/sessions/<sessionId>。桌面不设这个变量，
+        // 命令环境与以前完全一样。显式 request.env 与 hook 环境在这之后覆盖。
+        for (name, value) in session_environment(&self.config, &origin, &session) {
+            env.insert(name, value);
+        }
         // 执行器的服务端按客户端实例填的变量（远端执行 F96，remote-exec.md §23.5）：加在投影之后，`None` 是去掉。
         environ::apply(&mut env, &request.env);
         if let Some(hook) = &request.hook {
@@ -746,3 +784,7 @@ mod embedded_tests;
 #[cfg(test)]
 #[path = "shell_moved_tests.rs"]
 mod moved_tests;
+
+#[cfg(test)]
+#[path = "session_env_tests.rs"]
+mod session_env_tests;

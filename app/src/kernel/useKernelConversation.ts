@@ -3,6 +3,7 @@
 // 数据流对齐 dsh-Go：订阅 V4 会话投影（snapshot + row.delta），行模型由快照派生；
 // 不再轮询 session/messages。dev 下没有真实 Provider 时按本机 mock 模型启动。
 import { Paths } from "expo-file-system";
+import * as Crypto from "expo-crypto";
 import {
   ConversationController,
   ConversationFeed,
@@ -37,6 +38,13 @@ import { kernelStartEnv } from "./kernelEnv";
 import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
 import { fetchProviderState } from "./providerSettings";
 import { splitSessions } from "./sessionArchive";
+import { documentRootOf, legacyWorkspaceRef } from "./workspace";
+import {
+  ensureSessionWorkspace,
+  pruneOrphanWorkspaces,
+  removeSessionTempDir,
+  removeSessionWorkspace,
+} from "./workspaceStore";
 import {
   phoneMcpServer,
   phoneToolsRevision,
@@ -52,9 +60,12 @@ import { loadPluginMcpServers } from "../plugins/store";
  */
 const KERNEL_MODE = process.env.EXPO_PUBLIC_NIBI_KERNEL_MODE === "inprocess" ? "inprocess" : "service";
 
-function workspaceRef(): KernelWorkspaceRef {
-  const workspacePath = Paths.document.uri.replace(/^file:\/\//u, "");
-  return { workspacePath, workspaceKey: workspacePath };
+function workspaceRoot(): string {
+  return documentRootOf(Paths.document.uri);
+}
+
+function workspaceCacheRoot(): string {
+  return documentRootOf(Paths.cache.uri);
 }
 
 /**
@@ -112,10 +123,13 @@ async function createWithDefaultModel(client: KernelSessionClient) {
     if (!(error instanceof KernelProtocolError) || error.code !== -32601) throw error;
   }
   if (!model) throw new Error("没有可用的默认模型：请先在设置里配置 Provider");
-  // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话），
-  // 空草稿不再堆在列表最前面。restore 只翻有消息的会话，不受影响。
-  return client.createSession(workspaceRef(), model, await sessionMcpServers(), {
+  // 会话 ID 由 Host 先生成：workspace 目录名要用它，而内核在 create 之后才返回 ID。
+  // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话）。
+  const sessionId = Crypto.randomUUID();
+  const workspace = ensureSessionWorkspace(workspaceRoot(), sessionId);
+  return client.createSession(workspace, model, await sessionMcpServers(), {
     persistence: "deferred",
+    sessionId,
   });
 }
 
@@ -245,10 +259,15 @@ export function useKernelConversation(): KernelConversation {
   // 内核返回的全部顶层会话（含已归档）；列表按本地归档集合拆成两份。
   const [allSessions, setAllSessions] = useState<readonly KernelSessionSummary[]>([]);
   const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(new Set());
+  // 会话 → 内核持久化的 workspace。创建/恢复的快照与 session/list 都会带；
+  // 技能目录、删除清理都按这份真实路径走，不能按当前布局现算（旧会话仍是 filesDir）。
+  const sessionWorkspacesRef = useRef(new Map<string, KernelWorkspaceRef>());
   const rememberSessionSnapshot = useCallback((result: unknown) => {
     const value = result as
       | {
           session?: {
+            sessionId?: unknown;
+            workspace?: { workspacePath?: unknown; workspaceKey?: unknown };
             mode?: unknown;
             permissionMode?: unknown;
             planEnabled?: unknown;
@@ -258,6 +277,20 @@ export function useKernelConversation(): KernelConversation {
         }
       | null;
     const session = value?.session;
+    const snapshotSessionId = session?.sessionId;
+    const workspacePath = session?.workspace?.workspacePath;
+    if (
+      typeof snapshotSessionId === "string" &&
+      snapshotSessionId &&
+      typeof workspacePath === "string" &&
+      workspacePath
+    ) {
+      const workspaceKey = session?.workspace?.workspaceKey;
+      sessionWorkspacesRef.current.set(snapshotSessionId, {
+        workspacePath,
+        workspaceKey: typeof workspaceKey === "string" && workspaceKey ? workspaceKey : workspacePath,
+      });
+    }
     const providerId = session?.model?.providerId;
     const modelId = session?.model?.modelId;
     if (typeof providerId === "string" && typeof modelId === "string") {
@@ -447,9 +480,11 @@ export function useKernelConversation(): KernelConversation {
     setRows([]);
     setTurn("idle");
     setContextUsage(null);
+    const workspace =
+      sessionWorkspacesRef.current.get(sessionId) ?? legacyWorkspaceRef(workspaceRoot());
     void client
       .request<{ skills?: KernelSkillReference[] }>("skills/referenceCatalog", {
-        workspace: workspaceRef(),
+        workspace,
         sessionId,
       })
       .then((result) => setSkills(Array.isArray(result.skills) ? result.skills : []))
@@ -513,18 +548,44 @@ export function useKernelConversation(): KernelConversation {
     });
   }, [ready, turn, activeSessionId, phoneToolsSignal, refreshSessionServers]);
 
-  const refreshSessions = useCallback(async (client: KernelSessionClient) => {
-    try {
-      const list = await client.listSessions();
-      const topLevel = list
-        .filter((session) => !session.parentSessionId)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-      setAllSessions(topLevel);
-      return splitSessions(topLevel, archivedIdsRef.current).visible;
-    } catch {
-      return [];
-    }
-  }, []);
+  const refreshSessions = useCallback(
+    async (client: KernelSessionClient, options?: { pruneWorkspaces?: boolean }) => {
+      try {
+        const list = await client.listSessions();
+        for (const item of list) {
+          const workspacePath = item.workspace?.workspacePath;
+          if (typeof workspacePath === "string" && workspacePath) {
+            const workspaceKey = item.workspace?.workspaceKey;
+            sessionWorkspacesRef.current.set(item.sessionId, {
+              workspacePath,
+              workspaceKey:
+                typeof workspaceKey === "string" && workspaceKey ? workspaceKey : workspacePath,
+            });
+          }
+        }
+        // 启动时清一次草稿崩溃留下的空 workspace（只删空目录，非空的一律保留）。
+        if (options?.pruneWorkspaces) {
+          try {
+            pruneOrphanWorkspaces(
+              workspaceRoot(),
+              new Set(list.map((item) => item.sessionId)),
+              client.currentSessionId,
+            );
+          } catch {
+            // 清理失败不影响会话恢复；下次启动再试。
+          }
+        }
+        const topLevel = list
+          .filter((session) => !session.parentSessionId)
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+        setAllSessions(topLevel);
+        return splitSessions(topLevel, archivedIdsRef.current).visible;
+      } catch {
+        return [];
+      }
+    },
+    [],
+  );
 
   const split = useMemo(
     () => splitSessions(allSessions, archivedIds),
@@ -571,7 +632,7 @@ export function useKernelConversation(): KernelConversation {
           setModelLabel(providerState.default.modelId);
         }
 
-        const list = await refreshSessions(client);
+        const list = await refreshSessions(client, { pruneWorkspaces: true });
         if (cancelled) return;
         // 启动恢复「最近一条有消息的会话」；全空则停在最新一条，不每次多建。
         let opened = false;
@@ -964,6 +1025,8 @@ function localizeGoalReply(response: string): string {
           );
         }
       }
+      // 记录真实 workspace：旧会话是 filesDir（不会被回收），新会话是 workspaces/<id>。
+      const workspacePath = sessionWorkspacesRef.current.get(sessionId)?.workspacePath;
       // 先软删（中断并关闭内核里打开着的会话），再彻底删行与文件。
       await client.deleteSession(sessionId);
       const purged = await client.purgeSessionData([sessionId]);
@@ -972,6 +1035,14 @@ function localizeGoalReply(response: string): string {
       if (purged.kept.some((item) => item.sessionId === sessionId)) {
         throw new Error("会话正在运行或被引用，暂时不能删除");
       }
+      // 会话行与内核文件删掉后再回收 workspace 与临时目录；失败只记日志，不把删除报成失败。
+      try {
+        removeSessionWorkspace(workspaceRoot(), workspacePath);
+        removeSessionTempDir(workspaceCacheRoot(), sessionId);
+      } catch (error) {
+        console.warn("[nibigo] 回收会话目录失败", error);
+      }
+      sessionWorkspacesRef.current.delete(sessionId);
       if (archivedIdsRef.current.has(sessionId)) {
         const next = new Set(archivedIdsRef.current);
         next.delete(sessionId);
