@@ -469,8 +469,8 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
   记住规则）；`screen` 改为分页（页尾 `cursor`，同一快照内继续读，元素编号不变）；
   loopback MCP 服务器改用稳定 token/端口、不随 Expo 模块销毁，进程被回收后由无障碍服务
   重启；内核 resume 对同一 MCP 配置幂等复用。针对 `MCP is shut down` 的根因修复。
-- 仍未验证：`FLAG_SECURE`、Shizuku/`android_shell`、无线调试“已开启”分支；
-  `MCP is shut down` 的加固仍需 release 构建复验。
+- 已验证补齐（2026-11-19/20）：`FLAG_SECURE`、无线调试「已开启」分支、进程死亡恢复；
+  release 构建复验见下一条。
 - 真机第二轮（2026-11-19）：`始终允许`（open 按 URL、screen/scroll/key 按工具）生效；
   `key back` 成功；抓到并修复 `scroll` 误报「屏幕已经切换」（改用活动应用窗口包名，
   不再被输入法/悬浮卡干扰），修复后滚动内容确实变化。Bing 首页/搜索结果均在单页内
@@ -481,6 +481,15 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
   服务重启，服务器仍用同一 token/端口 39617 恢复，MCP `initialize` 成功。Shizuku 已
   安装并启动，但 ColorOS 16 的「adb 权限受限」阻止授权，`android_shell` 授权后执行
   未验证（未代为修改系统语言/权限监控设置）。
+- release 构建复验（2026-11-20，Android 15 x86_64 模拟器 + 生产签名密钥）：R8 首次抓到
+  真缺陷——`libnibi_kernel_jni.so` 用 `GetMethodID` 按名字找 `Sink.onLine/onError`，
+  R8 改名后内核线程抛 `NoSuchMethodError` 并 SIGABRT（debug 完全正常）。修复放在被跟踪的
+  `app/modules/kernel-host/android/consumer-rules.pro`（`-keep class expo.modules.nibikernelhost.**`），
+  不写 prebuild 生成的 `app/android`；`app/test/release-rules.test.ts` 防回归。复验通过：
+  无障碍绑定、loopback MCP 9 工具、`screen` 21/29 项、截屏 324x720 JPEG、FLAG_SECURE
+  探针返回安全错误、`kill -9` 后同 token/端口 39617 恢复、内核 `nativeStart=true`、
+  mock 回合调用 `mcp__phone__screen` 且应用内/悬浮审批都能放行、会话 workspace 仍为
+  `files/workspaces/<id>`。arm64 release APK 已用同一密钥签名并校验。
 
 ### Phase 6 进展（2026-11-19）
 
