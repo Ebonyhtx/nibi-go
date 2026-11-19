@@ -15,9 +15,7 @@ use nibi_kernel_api::abort::AbortReason;
 use nibi_kernel_api::checkpoint::DISPLAY_KEY;
 use nibi_kernel_api::env::{OperationContext, Origin};
 use nibi_kernel_api::ids::{MessageId, OwnerEpoch, ToolUseId};
-use nibi_kernel_api::message::{
-    ContentBlock, Message, ToolResultContent, UserMessage, UserOrigin,
-};
+use nibi_kernel_api::message::{ContentBlock, Message, ToolResultContent, UserMessage, UserOrigin};
 use nibi_kernel_api::metering::{CallStatus, ToolCall};
 use nibi_kernel_api::orchestration::{QueryEvent, ToolExecution};
 use nibi_kernel_api::tool::{InterruptBehavior, Tool, ToolOutput, ToolUseContext};
@@ -128,7 +126,15 @@ impl ToolBatch {
             None if waits_for_mcp => (false, Status::Queued),
             None => {
                 let output = text_output(texts::no_such_tool(&name));
-                let call = self.tool_call(&id, &name, None, &output, CallStatus::Error);
+                let call = self.tool_call(
+                    &id,
+                    &name,
+                    None,
+                    &output,
+                    CallStatus::Error,
+                    None,
+                    Some("no_such_tool".to_owned()),
+                );
                 let message = self.result(&id, &assistant, output);
                 (
                     true,
@@ -161,6 +167,8 @@ impl ToolBatch {
         started_at: Option<u64>,
         output: &ToolOutput,
         status: CallStatus,
+        exit_code: Option<i32>,
+        error_class: Option<String>,
     ) -> ToolCall {
         let completed_at = self.scope.parts.clock.now_ms();
         ToolCall {
@@ -170,6 +178,8 @@ impl ToolBatch {
             completed_at_ms: completed_at,
             status,
             output_bytes: output_bytes(output),
+            exit_code,
+            error_class,
         }
     }
 
@@ -224,6 +234,8 @@ impl ToolBatch {
                 None,
                 &output,
                 CallStatus::Cancelled,
+                None,
+                Some("cancelled".to_owned()),
             );
             let message = self.result(&tracked.id, &tracked.assistant, output);
             self.tools[index].status = Status::Completed(vec![Ready {
@@ -290,25 +302,30 @@ impl ToolBatch {
             output,
             before,
             after,
+            exit_code,
+            error_class,
             ..
         } = execution;
         // 被中止的调用只交付拒绝结果，不带执行管线的其他消息；写入的 checkpoint 保留。
-        let (output, before, after, status) = match self.abort_text(&self.tools[index]) {
-            Some(text) => (
-                interrupted(text, &output),
-                Vec::new(),
-                Vec::new(),
-                CallStatus::Cancelled,
-            ),
-            None => {
-                let status = if output.is_error {
-                    CallStatus::Error
-                } else {
-                    CallStatus::Completed
-                };
-                (output, before, after, status)
-            }
-        };
+        let (output, before, after, status, exit_code, error_class) =
+            match self.abort_text(&self.tools[index]) {
+                Some(text) => (
+                    interrupted(text, &output),
+                    Vec::new(),
+                    Vec::new(),
+                    CallStatus::Cancelled,
+                    None,
+                    Some("cancelled".to_owned()),
+                ),
+                None => {
+                    let status = if output.is_error {
+                        CallStatus::Error
+                    } else {
+                        CallStatus::Completed
+                    };
+                    (output, before, after, status, exit_code, error_class)
+                }
+            };
         let tracked = &self.tools[index];
         let call = self.tool_call(
             &tracked.id,
@@ -316,6 +333,8 @@ impl ToolBatch {
             tracked.started_at,
             &output,
             status,
+            exit_code,
+            error_class,
         );
         log_finished(&self.scope, tracked, &output, &call);
         let _ = self

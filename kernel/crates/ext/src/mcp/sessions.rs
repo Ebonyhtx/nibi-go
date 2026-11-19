@@ -27,7 +27,7 @@ use nibi_kernel_api::tool::Tool;
 use nibi_kernel_base::Spawner;
 
 use super::telemetry::{McpTelemetry, McpTelemetrySlot};
-use super::{McpManager, McpScope, McpServer, McpServerOptions, McpSettings};
+use super::{McpManager, McpScope, McpServer, McpServerOptions, McpSettings, McpStatus};
 
 /// 一个会话看到的连接面：自己的连接 + 从工作区共享表借来的连接。
 pub(crate) struct SessionConnections {
@@ -68,6 +68,16 @@ impl SessionConnections {
 
     pub(crate) fn has_servers(&self) -> bool {
         self.managers().any(|manager| manager.has_servers())
+    }
+
+    /// 这套连接还能原样复用吗：任一服务器连接失败或被停用都不能——resume 要重建，否则旧的
+    /// `Failed` 状态会一直留着。Pending / Connected 都算健康（握手中的连接不用重来）。
+    pub(crate) fn healthy(&self) -> bool {
+        self.managers().all(|manager| {
+            manager.status().iter().all(|(_, status)| {
+                !matches!(status, McpStatus::Failed { .. } | McpStatus::Disabled)
+            })
+        })
     }
 
     pub(crate) fn tools(&self) -> Vec<Arc<dyn Tool>> {
@@ -440,6 +450,23 @@ impl SessionMcp {
                 None => merged.push(server),
             }
         }
+        // dev reload / 宿主重连时 `session/resume` 会把同一份 `mcpServers` 再给一次：连接与工具对象
+        // 都还活着，原样复用。不能 stop_all 旧的 manager——旧工具对象持有它的 Weak，会报
+        // "MCP is shut down"。配置有任何实质变化、或上次连接已经失败/被停用（复用它只会把
+        // `Failed` 永久带下去），才走下面的“新建 + 释放旧”。
+        let previous = match previous {
+            Some(entry)
+                if entry.owned
+                    && entry.connections.healthy()
+                    && same_server_set(&entry.servers, &merged) =>
+            {
+                let connections = entry.connections.clone();
+                // 原样插回：owned/borrowed 与共享表的引用计数都不动。
+                self.sessions().insert(session.clone(), entry);
+                return connections;
+            }
+            previous => previous,
+        };
         let (workspace_servers, session_servers): (Vec<_>, Vec<_>) = merged
             .iter()
             .cloned()
@@ -609,6 +636,27 @@ impl SessionMcp {
         let task = async move { manager.stop_all().await };
         self.spawner.spawn_resident("mcp-session-stop", task);
     }
+}
+
+/// 两组服务器是否是同一集合：按名字对齐比较全部字段（transport、isolation、options、oauth、
+/// protocol 等），顺序不同不算变化。`to_servers` 里 `machine` 恒为 None，不需要比较。
+fn same_server_set(left: &[SessionMcpServer], right: &[SessionMcpServer]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let by_name: HashMap<&str, &SessionMcpServer> = left
+        .iter()
+        .map(|server| (server.name.as_str(), server))
+        .collect();
+    // 合并语义下不会有重名；万一有，map 覆盖会漏掉差异，退回逐项比较（只认完全相同）。
+    if by_name.len() != left.len() {
+        return left == right;
+    }
+    right.iter().all(|server| {
+        by_name
+            .get(server.name.as_str())
+            .is_some_and(|known| *known == server)
+    })
 }
 
 /// 协议的类型换成 ext 的配置快照：作用域是 `Dynamic`（`--mcp-config` 那一档），不绑定远端机器。

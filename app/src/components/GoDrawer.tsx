@@ -16,8 +16,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  Keyboard,
   Easing,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,6 +37,7 @@ import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 import { radius, space, useNibiTheme } from "../theme";
 import { filterSessionsByTitle, groupSessionsByDay } from "./sessionGroups";
 import { formatBytes } from "../kernel/sessionArchive";
+import { leaveComposerForNavigation } from "../composer/leave";
 
 export interface NavProps {
   /** 底栏展示的本机状态（挂起期固定 sleeping）。 */
@@ -420,10 +421,14 @@ export function GoNavContent({
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="插件"
             onPress={() => {
-              Keyboard.dismiss();
-              onBeforeNavigate?.();
-              onNavigate?.();
-              router.push("/plugins");
+              leaveComposerForNavigation({
+                blur: onBeforeNavigate,
+                dismiss: Keyboard.dismiss,
+                navigate: () => {
+                  onNavigate?.();
+                  router.push("/plugins");
+                },
+              });
             }}
           >
             <Icon name="puzzle" size={16} color={t.inkSub} />
@@ -432,10 +437,14 @@ export function GoNavContent({
             style={[styles.footBtn, { backgroundColor: t.panel }]}
             accessibilityLabel="设置"
             onPress={() => {
-              Keyboard.dismiss();
-              onBeforeNavigate?.();
-              onNavigate?.();
-              router.push("/settings");
+              leaveComposerForNavigation({
+                blur: onBeforeNavigate,
+                dismiss: Keyboard.dismiss,
+                navigate: () => {
+                  onNavigate?.();
+                  router.push("/settings");
+                },
+              });
             }}
           >
             <Icon name="sliders" size={16} color={t.inkSub} />

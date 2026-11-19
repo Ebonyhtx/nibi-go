@@ -262,6 +262,8 @@ pub fn tool_called(ctx: &Commit<'_>, call: &ToolCall) -> Result<(), StoreError> 
         time_to_first_output_ms: Some(duration),
         output_bytes: int(call.output_bytes),
         cancelled_by_user: call.status == CallStatus::Cancelled,
+        exit_code: call.exit_code,
+        error_type: call.error_class.clone(),
     };
     usage::upsert_tool(ctx.conn, &row).storage()
 }

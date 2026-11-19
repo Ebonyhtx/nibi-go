@@ -23,6 +23,9 @@ importers:
       '@nibi-go/kernel-session':
         specifier: workspace:*
         version: link:../packages/kernel-session
+      '@nibi-go/phone-tools':
+        specifier: workspace:*
+        version: link:../packages/phone-tools
       '@nibi-go/plugin-contract':
         specifier: workspace:*
         version: link:../packages/plugin-contract
@@ -86,6 +89,9 @@ importers:
       nibi-kernel-host:
         specifier: workspace:*
         version: link:modules/kernel-host
+      nibi-phone:
+        specifier: workspace:*
+        version: link:modules/nibi-phone
       nibi-updater:
         specifier: workspace:*
         version: link:modules/nibi-updater
@@ -118,6 +124,12 @@ importers:
   app/modules/kernel-host: {}
 
   app/modules/nibi-keepalive: {}
+
+  app/modules/nibi-phone:
+    dependencies:
+      '@nibi-go/phone-tools':
+        specifier: workspace:*
+        version: link:../../../packages/phone-tools
 
   app/modules/nibi-updater: {}
 

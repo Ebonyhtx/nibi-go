@@ -1,56 +1,65 @@
-# 模块 B：手机工具面（多平台适配器接口）
+# 手机工具面（多平台适配器接口）
 
 > 层级：平台接口层。**接口层不得出现 Android 专属类型**（AGENTS.md 规则 8，D11）。
+> 现行实现：2026-11-19 Phase 5 开关 1/2；设计见 `docs/design/phone-control.md`。
 
 ## 职责
 
-手机工具面的 TS 接口 + 平台适配器注册。**接口是 App 原生能力，与引擎无关**（2026-11-08 修正：GO 形态操控随 A+C，不等模块 B；B 只是 WORK 形态的第二个消费者路由）。
+手机工具面的跨平台状态/开关/MCP 配置接口。真正的读屏、手势与 Shizuku 执行在
+`app/modules/nibi-phone`（Android 原生模块）；本包只保留 Node 可测的纯 TS 形状与门禁函数。
 
-## 接口草案（D13 工具面 13 工具对齐 dsh-Go 工具清单）
+## 现行接口
 
 ```ts
 interface PhoneToolsAdapter {
-  /** 读当前屏：结构化文本（打码后）+ 可选截图（sensitiveBounds 灰挡） */
-  readScreen(opts?: { image?: boolean }): Promise<ScreenDigest>;
-  /** 按元素编号点按/长按；坐标点击必须逐次确认（tap_xy） */
-  tap(target: ElementRef | { x: number; y: number }, opts?: { long?: boolean }): Promise<ActionResult>;
-  /** 输入文本；密码/验证码/支付框默认拒绝（SafetyGate 词表） */
-  type(target: ElementRef, text: string, opts?: { submit?: boolean }): Promise<ActionResult>;
-  scroll(target: ScrollRef, direction: 'up' | 'down'): Promise<ActionResult>;
-  key(name: 'back' | 'home' | 'recents' | 'notifications'): Promise<ActionResult>;
-  /** 列表滚动收集（去重 + until 文本 + miss 判定） */
-  collect(opts: CollectOptions): Promise<CollectedItems>;
-  /** 危险操作确认：15-120s 超时=拒绝；答案绑定任务 owner（迟到的允许不算数） */
-  confirm(req: ConfirmRequest): Promise<ConfirmResult>;
+  status(): PhoneStatus;
+  setA11yEnabled(enabled: boolean): PhoneStatus;
+  setShellEnabled(enabled: boolean): PhoneStatus;
+  openAccessibilitySettings(): void;
+  requestShellPermission(): void;
+  openShellManager(): void;
+  /** 至少一个开关打开且原生服务可用时返回会话级 MCP 配置。 */
+  mcpServer(): PhoneMcpServerConfig | null;
 }
 ```
 
-## 安全不变量（照抄 dsh-Go 验证过的设计）
+`PhoneStatus` 只有 `available` / `a11y{enabled,connected,canScreenshot}` /
+`shell{enabled,installed,running,permission}`；不暴露屏幕内容或 token。
 
-- 词表单一真源：`SensitiveWords` 喂打码与 SafetyGate 两处，"never drift apart"
-- 确认卡判定：armed 后 + 非注入窗口 + 无遮挡；事件字段不参与判定
-- ProtectedPages 可读不可写（agent 永远不能给自己授权）
-- 任何模式下硬拒绝仍然生效（解除限制三开关只影响询问频率）
+## 工具面（固定 9 个）
 
-## 多任务维度（D18，参照 dsh-Go v1.0.14 的 121 phone commits）
+模型看到的是 `mcp__phone__<name>`：
 
-所有操作接口带 `taskId` 维度：**每个对话的任务各自批准/暂停/停止**，后台任务上限可配（dsh-Go 默认 1、最多 3）；悬浮条/通知上的停止/暂停/插话只作用于显示时的那个任务。
+`apps`、`open`、`screen`、`tap`、`type`、`scroll`、`key`、`screenshot`、
+`android_shell`。
 
-新增接口（v1.0.14/15 对齐）：
+- 目录固定，不随权限变化（保护提示缓存）；能力不足时调用返回可操作错误。
+- `screen` 生成 `sN` 与元素编号；`tap`/`type`/`scroll` 只认最近一次快照。
+- 内核按当前权限模式逐次审批；本包不参与审批。
 
-| 接口 | 语义 | 关键约束 |
-|---|---|---|
-| `observe(taskId)` | 实时后台屏预览 | 只读、≤5fps、画面不存盘、默认关 |
-| `tapByScreenshot(taskId, shot, xy)` | 按截图坐标操作（找不到控件时的兜底） | 截图 30 秒有效、窗口切换作废、**同一任务首次操作某应用要许可**，发送/支付/删除仍逐次确认 |
-| `learnSkill(taskId, trace)` | 成功轨迹存成技能 | 起草时脱敏（去联系人/号码/消息正文）、预览可改、再装成技能 |
-| `ocr()` | 本机文字识别（读屏兜底，Canvas/游戏画面） | 可选能力；用 ML Kit 类 SDK 时**必须披露其统计收集**（dsh-Go 先例：SDK 收集机型/版本/耗时） |
+## 安全不变量
 
-输入回读核对：`type` 后回读，不一致如实报告（不谎报成功）。
+- 敏感词单一词表（`SensitiveWords`）：读屏打码、字段拒绝、`⚠` 标记同源。
+- 密码/验证码/支付字段不可代填；支付/银行/系统页面只读；本应用页面不执行写操作。
+- 节点按自己的包名判断，跨窗口节点（状态栏/权限弹窗）不沿用快照包名。
+- 身份证/银行卡打码后才离开设备；原生侧不记录屏幕文本或 token。
+- `KEY` 是安全页的退出退路；截屏由系统 `FLAG_SECURE` 判定。
+
+## 非目标（本期）
+
+对齐 dsh-Go 的 `collect`/`confirm`/`observe`/`learnSkill`/`ocr`、悬浮条、后台多任务
+taskId、视觉坐标 `tap_xy` 与媒体投影录屏。它们不在 Phase 5 的两开关范围内。
 
 ## Android 实现
 
-`modules/`（Kotlin）：PhoneA11yService 范式 + Actuator + OverlayBall + PrivilegedDisplayCore（后台通道）。
+`app/modules/nibi-phone`：`NibiA11yService` + `TreeCapture` + `ScreenFormat` +
+`ScreenMask` + `SafetyGate` + `PhoneActuator` + loopback `McpHttpServer` +
+`ShizukuShell` + `AppCatalog`。
 
 ## 状态
 
-工具面接口已落地（2026-11-15 复核）。模块 B 已取消（D6）；本包是 C 前置。
+- 代码完成（2026-11-19）：接口、原生模块、设置页与内核会话接线。
+- 模拟器（Android 15 x86_64）已验证开关 1、MCP `initialize`/`screen`/`tap` 硬拒绝/
+  `screenshot`。
+- 待 PHK110 真机：内核经 loopback MCP 的完整回合、真实应用操作、`FLAG_SECURE`、
+  Shizuku 授权与 `android_shell`。

@@ -6,9 +6,7 @@ use nibi_kernel_api::env::{EnvPath, WorkspaceRef};
 use nibi_kernel_api::ids::{
     AgentId, ArtifactId, EnvironmentId, MessageId, SessionId, ToolUseId, TraceId,
 };
-use nibi_kernel_api::message::{
-    ContentBlock, Message, ToolResultContent, UserMessage, UserOrigin,
-};
+use nibi_kernel_api::message::{ContentBlock, Message, ToolResultContent, UserMessage, UserOrigin};
 use nibi_kernel_api::orchestration::{QueryEvent, RunSink};
 use nibi_kernel_api::store::{
     ArtifactPurpose, ArtifactRef, SessionKind, SessionMeta, SessionStore,
@@ -127,6 +125,8 @@ async fn subagent_calls_are_committed_with_their_messages_in_the_child_session()
         completed_at_ms: 2,
         status: CallStatus::Completed,
         output_bytes: 2,
+        exit_code: None,
+        error_class: None,
     };
     let assistant = Message::Assistant(AssistantMessage {
         id: MessageId::new("assistant_1"),

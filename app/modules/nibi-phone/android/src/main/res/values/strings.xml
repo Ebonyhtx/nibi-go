@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nibi_phone_a11y_label">NIBI-GO 手机操控</string>
+    <string name="nibi_phone_a11y_description">允许 NIBI-GO 在当前屏幕读取界面文字并模拟点按、输入和返回等操作。密码、验证码、证件与银行卡信息会打码；所有操作仍需在对话里审批。</string>
+</resources>

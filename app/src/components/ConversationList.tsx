@@ -20,6 +20,7 @@ import { hostSlotData, toolSlotData } from "../plugins/data";
 import { collectTurnPushes } from "../plugins/push";
 import type { LoadedPlugin } from "../plugins/store";
 import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
+import { usePhoneApprovalOverlay } from "../phone/approval";
 import { radius, space, type NibiTheme, useNibiTheme } from "../theme";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
@@ -216,6 +217,7 @@ export function ConversationList({
   onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
 }) {
   const th = useNibiTheme();
+  const { isOverlayApproval } = usePhoneApprovalOverlay(rows, onRespond);
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
   const stickToBottom = useRef(true);
@@ -585,6 +587,8 @@ export function ConversationList({
         }
 
         if (row.kind === "approval" || row.kind === "question") {
+          // 手机工具审批已转到悬浮卡（不抢前台）；没有悬浮权限时仍走应用内卡片。
+          if (row.kind === "approval" && isOverlayApproval(row)) return null;
           return <InteractionCard key={row.key} row={row} onRespond={onRespond} />;
         }
 

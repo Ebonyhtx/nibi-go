@@ -58,6 +58,8 @@ fn tool(id: &str, status: CallStatus) -> ToolCall {
         completed_at_ms: 3_400,
         status,
         output_bytes: 42,
+        exit_code: None,
+        error_class: None,
     }
 }
 
@@ -284,6 +286,33 @@ async fn a_tool_call_is_the_node_settled_tool_usage_row() {
     assert_eq!(
         t.rows("select status, cancelled_by_user from tool_usage where tool_call_id = 'toolu_2'"),
         vec![vec![json!("error"), json!(1)]]
+    );
+}
+
+#[tokio::test]
+async fn a_tool_call_keeps_its_exit_code_and_error_type() {
+    let t = TestStore::new();
+    started(&t, "sess_1").await;
+    commit(&t, &sid(), vec![user("msg_u1", "hi")]).await;
+    let mut failed = tool("toolu_1", CallStatus::Error);
+    failed.name = "Bash".into();
+    failed.exit_code = Some(2);
+    failed.error_class = Some("failed".to_owned());
+    let mut ok = tool("toolu_2", CallStatus::Completed);
+    ok.name = "Bash".into();
+    ok.exit_code = Some(0);
+    commit(
+        &t,
+        &sid(),
+        vec![
+            Fact::ToolCalled { call: failed },
+            Fact::ToolCalled { call: ok },
+        ],
+    )
+    .await;
+    assert_eq!(
+        t.rows("select exit_code, error_type from tool_usage order by tool_call_id"),
+        vec![vec![json!(2), json!("failed")], vec![json!(0), json!(null)],]
     );
 }
 

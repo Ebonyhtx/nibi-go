@@ -12,6 +12,7 @@ import {
   type ChatRow,
   type KernelAttachmentRef,
   type KernelConversationQuote,
+  type KernelMcpServer,
   type KernelPermissionMode,
   type KernelPluginReference,
   type KernelSkillReference,
@@ -21,7 +22,7 @@ import {
   type TurnState,
 } from "@nibi-go/kernel-session";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PermissionsAndroid, Platform } from "react-native";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
 
 import {
   kernelHostAvailable,
@@ -36,6 +37,12 @@ import { kernelStartEnv } from "./kernelEnv";
 import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
 import { fetchProviderState } from "./providerSettings";
 import { splitSessions } from "./sessionArchive";
+import {
+  phoneMcpServer,
+  phoneToolsRevision,
+  refreshPhoneMcpAttachment,
+  subscribePhoneToolsChanged,
+} from "../phone/status";
 import { loadPluginMcpServers } from "../plugins/store";
 
 /**
@@ -69,6 +76,21 @@ async function pluginMcpServers(): Promise<
   }
 }
 
+/**
+ * 会话级 MCP 服务器 = 插件 + 手机。
+ *
+ * 每次 create/resume 都重新取：手机服务器的端口/token 随进程变化，开关也可能刚变；
+ * 原生配置只交给内核，不写日志。
+ */
+async function sessionMcpServers(): Promise<KernelMcpServer[] | undefined> {
+  const servers: KernelMcpServer[] = [];
+  const plugins = await pluginMcpServers();
+  if (plugins) servers.push(...plugins);
+  const phone = phoneMcpServer();
+  if (phone) servers.push(phone);
+  return servers.length > 0 ? servers : undefined;
+}
+
 async function createWithDefaultModel(client: KernelSessionClient) {
   let model:
     | { providerId: string; modelId: string; thoughtLevel?: string }
@@ -92,14 +114,14 @@ async function createWithDefaultModel(client: KernelSessionClient) {
   if (!model) throw new Error("没有可用的默认模型：请先在设置里配置 Provider");
   // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话），
   // 空草稿不再堆在列表最前面。restore 只翻有消息的会话，不受影响。
-  return client.createSession(workspaceRef(), model, await pluginMcpServers(), {
+  return client.createSession(workspaceRef(), model, await sessionMcpServers(), {
     persistence: "deferred",
   });
 }
 
-/** 恢复会话时也把插件 MCP 交回去（内核不持久化这份配置）。 */
-async function resumeWithPlugins(client: KernelSessionClient, sessionId: string) {
-  return client.resumeSession(sessionId, await pluginMcpServers());
+/** 恢复会话时也把插件 + 手机 MCP 交回去（内核不持久化这份配置）。 */
+async function resumeWithMcpServers(client: KernelSessionClient, sessionId: string) {
+  return client.resumeSession(sessionId, await sessionMcpServers());
 }
 
 /** Android 13+ 前台服务通知需要运行时授权；拒绝不影响内核，只是通知不显示。 */
@@ -434,6 +456,63 @@ export function useKernelConversation(): KernelConversation {
       .catch(() => setSkills([]));
   }, [syncTurnChanges]);
 
+  /**
+   * 手机工具开关变化后，在当前会话上原地 resume 一次并重建投影订阅：
+   * 内核只在 create/resume 时读取 MCP 列表，不新建对话也能让新能力生效。
+   */
+  const refreshSessionServers = useCallback(
+    async (sessionId: string) => {
+      const client = clientRef.current;
+      if (!client || client.currentSessionId !== sessionId) return;
+      try {
+        const servers = await sessionMcpServers();
+        // 读配置期间可能切了会话或内核重连；不是同一个 client/会话就放弃。
+        if (clientRef.current !== client || client.currentSessionId !== sessionId) return;
+        rememberSessionSnapshot(await client.resumeSession(sessionId, servers));
+        if (clientRef.current !== client || activeSessionIdRef.current !== sessionId) return;
+        await attach(client, sessionId);
+        setStatus("就绪");
+      } catch (error) {
+        setStatus(`刷新手机工具失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    },
+    [attach, rememberSessionSnapshot],
+  );
+
+  // 已应用的手机工具版本：初值取当前值，挂载时不会触发 resume。
+  const appliedPhoneToolsRevision = useRef(phoneToolsRevision());
+  const phoneRefreshInFlight = useRef(false);
+  // 订阅回调只负责把 effect 叫醒；是否真的要 resume 由 revision 水位决定。
+  const [phoneToolsSignal, setPhoneToolsSignal] = useState(0);
+
+  useEffect(
+    () => subscribePhoneToolsChanged(() => setPhoneToolsSignal((value) => value + 1)),
+    [],
+  );
+
+  // 回到前台时确认 loopback MCP 服务器还在：进程被系统回收后服务器会重建，
+  // 代次变化会走上面的订阅，把新地址 resume 给内核（否则旧客户端只会报 MCP is shut down）。
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPhoneMcpAttachment();
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!ready || turn !== "idle" || !activeSessionId) return;
+    const revision = phoneToolsRevision();
+    if (revision === appliedPhoneToolsRevision.current) return;
+    if (phoneRefreshInFlight.current) return;
+    appliedPhoneToolsRevision.current = revision;
+    phoneRefreshInFlight.current = true;
+    void refreshSessionServers(activeSessionId).finally(() => {
+      phoneRefreshInFlight.current = false;
+      // 刷新期间开关又变过时，用一次 signal 让 effect 再评估（revision 可能已变）。
+      setPhoneToolsSignal((value) => value + 1);
+    });
+  }, [ready, turn, activeSessionId, phoneToolsSignal, refreshSessionServers]);
+
   const refreshSessions = useCallback(async (client: KernelSessionClient) => {
     try {
       const list = await client.listSessions();
@@ -499,7 +578,7 @@ export function useKernelConversation(): KernelConversation {
         // 空草稿会堆在列表最前面；只翻前 3 条会停在空草稿上。这里多翻一些，
         // 优先恢复“最近一条有消息的会话”。
         for (const candidate of list.slice(0, 12)) {
-          const snapshot = await resumeWithPlugins(client, candidate.sessionId);
+          const snapshot = await resumeWithMcpServers(client, candidate.sessionId);
           const messages = await client.readMessages({ limit: 1 });
           if (messages.length > 0) {
             // 只有真的有消息的会话才认它的模型/模式；空草稿的模型可能是内核旧缺省，
@@ -511,7 +590,7 @@ export function useKernelConversation(): KernelConversation {
         }
         if (!opened) {
           if (list.length > 0) {
-            rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
+            rememberSessionSnapshot(await resumeWithMcpServers(client, list[0]!.sessionId));
           } else {
             rememberSessionSnapshot(await createWithDefaultModel(client));
           }
@@ -570,13 +649,13 @@ export function useKernelConversation(): KernelConversation {
       let sessionId: string | null = null;
       const preferred = activeSessionIdRef.current;
       if (preferred) {
-        rememberSessionSnapshot(await resumeWithPlugins(client, preferred));
+        rememberSessionSnapshot(await resumeWithMcpServers(client, preferred));
         sessionId = client.currentSessionId;
       }
       if (!sessionId) {
         const list = await refreshSessions(client);
         if (list.length > 0) {
-          rememberSessionSnapshot(await resumeWithPlugins(client, list[0]!.sessionId));
+          rememberSessionSnapshot(await resumeWithMcpServers(client, list[0]!.sessionId));
           sessionId = client.currentSessionId;
         } else {
           rememberSessionSnapshot(await createWithDefaultModel(client));
@@ -815,7 +894,7 @@ function localizeGoalReply(response: string): string {
       const client = clientRef.current;
       if (!client || sessionId === client.currentSessionId) return;
       try {
-        rememberSessionSnapshot(await resumeWithPlugins(client, sessionId));
+        rememberSessionSnapshot(await resumeWithMcpServers(client, sessionId));
         await attach(client, sessionId);
         activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
@@ -858,7 +937,7 @@ function localizeGoalReply(response: string): string {
       const visible = (await refreshSessions(client)).filter(
         (session) => session.sessionId !== excluded,
       );
-      if (visible.length > 0) rememberSessionSnapshot(await resumeWithPlugins(client, visible[0]!.sessionId));
+      if (visible.length > 0) rememberSessionSnapshot(await resumeWithMcpServers(client, visible[0]!.sessionId));
       else rememberSessionSnapshot(await createWithDefaultModel(client));
       const nextId = client.currentSessionId;
       if (!nextId) throw new Error("没有可用会话");

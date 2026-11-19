@@ -14,6 +14,7 @@
   "dependencies": {
     "@nibi-go/chat-core": "workspace:*",
     "@nibi-go/kernel-session": "workspace:*",
+    "@nibi-go/phone-tools": "workspace:*",
     "@nibi-go/plugin-contract": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
     "@nibi-go/shared-extract": "workspace:*",
@@ -35,6 +36,7 @@
     "expo-web-browser": "~58.0.7",
     "nibi-keepalive": "workspace:*",
     "nibi-kernel-host": "workspace:*",
+    "nibi-phone": "workspace:*",
     "nibi-updater": "workspace:*",
     "react": "19.3.0",
     "react-native": "0.88.1",

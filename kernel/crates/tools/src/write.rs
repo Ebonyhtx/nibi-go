@@ -24,6 +24,16 @@ use crate::{checkpoint, texts};
 
 pub const NAME: &str = "Write";
 
+/// 单次 Write 的内容上限（Phase 6 配额）：16 MiB。超过时在 validate_input 拒绝，
+/// 避免把超大内容塞进一次工具调用、checkpoint 与会话记录。
+const MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
+
+/// 内容超出上限时的错误文本；没超时为 None（纯函数，便于单测）。
+fn size_error(content: &str) -> Option<String> {
+    (content.len() > MAX_WRITE_BYTES)
+        .then(|| texts::write_too_large(content.len(), MAX_WRITE_BYTES))
+}
+
 #[derive(Deserialize)]
 struct Input {
     file_path: String,
@@ -121,6 +131,9 @@ impl Tool for WriteTool {
         let Ok(input) = parse::<Input>(raw) else {
             return Validation::Ok;
         };
+        if let Some(message) = size_error(&input.content) {
+            return invalid(message);
+        }
         let cwd = cwd(context).await;
         if let Some(refused) =
             unstable_input(context, &cwd, NAME, "file_path", &input.file_path).await
@@ -242,5 +255,18 @@ impl Tool for WriteTool {
             display,
             ..text(message)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_content_over_the_write_quota() {
+        assert!(size_error("small").is_none());
+        let message = size_error(&"x".repeat(MAX_WRITE_BYTES + 1)).expect("超限应有错误");
+        assert!(message.contains("too large"));
+        assert!(message.contains(&MAX_WRITE_BYTES.to_string()));
     }
 }

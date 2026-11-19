@@ -3,7 +3,6 @@
 //! 写入函数（persistPendingToolPart、settleToolResults、persistToolModelStepFinish 等）在固定时钟与 uuid 下生成；
 //! 这里用 NodeStore 按 query 主循环真实的提交顺序与批次提交同一组事实，各表的行逐字节相同。
 //! 两边的场景与时间线一一对应，改一边时同步改另一边。
-use nibi_kernel_base::js::json::stringify;
 use nibi_kernel_api::ids::{MessageId, OperationId, SessionId, ToolUseId};
 use nibi_kernel_api::message::{
     AssistantMessage, ContentBlock, ImageSource, Message, StopReason, ToolResultContent, Usage,
@@ -13,6 +12,7 @@ use nibi_kernel_api::metering::{CallStatus, ModelCall, ToolCall};
 use nibi_kernel_api::model::QuerySource;
 use nibi_kernel_api::permission::PermissionMode;
 use nibi_kernel_api::store::{Fact, SessionStore};
+use nibi_kernel_base::js::json::stringify;
 use serde_json::{Value, json};
 
 use crate::tests::{TestStore, batch, meta, selection, text, user};
@@ -108,6 +108,8 @@ fn result(
         completed_at_ms: completed,
         status,
         output_bytes,
+        exit_code: None,
+        error_class: None,
     };
     vec![Fact::MessageAppended { message }, Fact::ToolCalled { call }]
 }

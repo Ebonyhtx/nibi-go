@@ -143,6 +143,22 @@ pub enum ToolError {
     Unsupported { what: String },
 }
 
+impl ToolError {
+    /// 失败结果里的退出码：只认 [`Self::Failed`] 文本开头的 `Exit code N`（Bash 的
+    /// `bash_output::failure` 这样写），其他变体没有。
+    pub fn exit_code(&self) -> Option<i32> {
+        let Self::Failed { message } = self else {
+            return None;
+        };
+        message
+            .strip_prefix("Exit code ")?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    }
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// 模型看到的名字。

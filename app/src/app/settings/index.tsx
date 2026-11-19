@@ -9,6 +9,7 @@ import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon, type IconName } from "../../components/Icon";
+import { dismissKeyboardOnFocus } from "../../composer/leave";
 import { radius, space, type as typeScale, useNibiTheme } from "../../theme";
 
 function Section({
@@ -76,7 +77,7 @@ export default function SettingsHomeScreen() {
   // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入设置先明确收起。
   useFocusEffect(
     useCallback(() => {
-      Keyboard.dismiss();
+      dismissKeyboardOnFocus(Keyboard.dismiss);
     }, []),
   );
 
@@ -119,6 +120,16 @@ export default function SettingsHomeScreen() {
             title="Provider 与模型"
             detail="供应商、模型能力、思考档位与 API Key"
             onPress={() => router.push("/settings/provider")}
+            last
+          />
+        </Section>
+
+        <Section title="手机">
+          <Row
+            icon="phone"
+            title="手机操控"
+            detail="无障碍读屏/点按与 Shizuku 高级模式"
+            onPress={() => router.push("/settings/phone")}
             last
           />
         </Section>

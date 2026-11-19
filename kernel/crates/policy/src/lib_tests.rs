@@ -224,6 +224,7 @@ async fn accept_edits_only_covers_the_working_directories() {
         decide(&gate, mode, "Edit", json!({"file_path": "/w/src/a.rs"})).await,
         allow()
     );
+    // 工作区外写入仍然询问（完全访问模式才放行）。
     assert!(matches!(
         decide(&gate, mode, "Edit", json!({"file_path": "/tmp/a.rs"})).await,
         PermissionDecision::Ask { .. }
@@ -248,6 +249,22 @@ async fn accept_edits_only_covers_the_working_directories() {
             PermissionMode::Default,
             "Glob",
             json!({"pattern": "*.rs"})
+        )
+        .await,
+        allow()
+    );
+}
+
+/// 完全访问模式：workspace 外的写入不再弹询问，直接放行（能力不受边界限制）。
+#[tokio::test]
+async fn full_access_allows_writes_outside_the_workspace() {
+    let gate = PolicyGate::default();
+    assert_eq!(
+        decide(
+            &gate,
+            PermissionMode::BypassPermissions,
+            "Edit",
+            json!({"file_path": "/tmp/a.rs"})
         )
         .await,
         allow()

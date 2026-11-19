@@ -1,11 +1,11 @@
 //! 工具调用与结果 ↔ Node tool part（spec node-store.md §4.6）。
-use nibi_kernel_base::js::json::stringify;
 use nibi_kernel_api::ids::{ArtifactId, MessageId, SessionId, ToolUseId};
 use nibi_kernel_api::message::{
     AssistantMessage, ContentBlock, ImageSource, Message, StopReason, ToolResultContent,
     UserMessage, UserOrigin,
 };
 use nibi_kernel_api::store::{ArtifactPurpose, ArtifactRef, Fact, SessionStore, StoreError};
+use nibi_kernel_base::js::json::stringify;
 use serde_json::{Value, json};
 
 use crate::tests::{TestStore, assistant, batch, started, text, user};
@@ -416,6 +416,8 @@ async fn the_tool_start_is_the_executor_start_from_the_same_batch() {
         completed_at_ms: 1005,
         status: nibi_kernel_api::metering::CallStatus::Completed,
         output_bytes: 1,
+        exit_code: Some(0),
+        error_class: None,
     };
     let first = result("msg_rx_r1", "msg_rv_a1", "toolu_1", vec![said("a")], false);
     let batch_with_call = vec![first, Fact::ToolCalled { call: metered }];

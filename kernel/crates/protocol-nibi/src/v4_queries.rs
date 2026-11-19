@@ -161,9 +161,7 @@ pub(crate) async fn rows_range(server: &Server, params: &Value) -> Result<Value,
     let all = live.sink.rows();
     let eligible: Vec<Value> = all
         .into_iter()
-        .filter(|row| {
-            before.is_none_or(|before| row["rowId"].as_u64().unwrap_or(0) < before)
-        })
+        .filter(|row| before.is_none_or(|before| row["rowId"].as_u64().unwrap_or(0) < before))
         .map(Value::Object)
         .collect();
     let start = eligible.len().saturating_sub(limit);
@@ -193,7 +191,12 @@ fn plan_markdown(row: &serde_json::Map<String, Value>) -> bool {
     }
     serde_json::from_str::<Value>(text)
         .ok()
-        .and_then(|parsed| parsed.get("plan").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|parsed| {
+            parsed
+                .get("plan")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .is_some_and(|plan| !plan.trim().is_empty())
 }
 
@@ -286,7 +289,8 @@ pub(crate) async fn file_changes(server: &Server, params: &Value) -> Result<Valu
         .await
         .map_err(|error| crate::server::kernel_error(&error))?;
     check_bases(&live.sink, base_revision, &base_epoch)?;
-    let messages = crate::row_target::message_ids(&live.sink, &target).map_err(RpcError::internal)?;
+    let messages =
+        crate::row_target::message_ids(&live.sink, &target).map_err(RpcError::internal)?;
     let report = match live.handle.file_changes(&messages).await {
         Ok(report) => report,
         Err(nibi_kernel_api::session_api::KernelError::Unsupported { .. }) => {
@@ -924,9 +928,7 @@ pub(crate) async fn usage_stats(server: &Server, params: &Value) -> Result<Value
     {
         Ok(usage) => usage,
         // 存储不支持（TUI / 内存）：空快照而不是错误——UI 显示空态。
-        Err(nibi_kernel_api::session_api::KernelError::Unsupported { .. }) => {
-            Default::default()
-        }
+        Err(nibi_kernel_api::session_api::KernelError::Unsupported { .. }) => Default::default(),
         Err(error) => return Err(crate::server::kernel_error(&error)),
     };
     Ok(build_usage_snapshot(
@@ -952,9 +954,7 @@ pub(crate) async fn conversation_usage(server: &Server, params: &Value) -> Resul
         .await
     {
         Ok(usage) => usage,
-        Err(nibi_kernel_api::session_api::KernelError::Unsupported { .. }) => {
-            Default::default()
-        }
+        Err(nibi_kernel_api::session_api::KernelError::Unsupported { .. }) => Default::default(),
         // 会话不存在：与其它会话方法同一条错误码（`sessionUnavailable`），Host 据此换会话。
         Err(error @ nibi_kernel_api::session_api::KernelError::NotFound { .. }) => {
             return Err(RpcError::new(
@@ -1173,6 +1173,12 @@ fn build_usage_snapshot(
                 } else {
                     0.0
                 },
+                "successRate": if tool.call_count > 0 {
+                    tool.success_count as f64 / tool.call_count as f64
+                } else {
+                    0.0
+                },
+                "errorTypes": tool.error_types,
                 "avgDurationMs": tool.avg_duration_ms,
             })
         })

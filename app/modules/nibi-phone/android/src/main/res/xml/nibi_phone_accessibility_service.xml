@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NIBI-GO 手机操控（开关 1）。
+     这是自动化能力，不是无障碍辅助工具：isAccessibilityTool=false，
+     Android 14+ 的 accessibilityDataSensitive 视图对我们是隐藏的（安全侧）。 -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeWindowsChanged|typeViewTextChanged|typeViewScrolled"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:canTakeScreenshot="true"
+    android:notificationTimeout="100"
+    android:description="@string/nibi_phone_a11y_description"
+    android:isAccessibilityTool="false" />

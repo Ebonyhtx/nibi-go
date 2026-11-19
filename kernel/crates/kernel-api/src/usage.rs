@@ -9,6 +9,8 @@
 //! 时区解析在协议层（它才拿得到请求里的 `timeZone`），统计口径（`input_tokens` 含不含缓存、
 //! 错误按什么判）留在这里，与 Node 的 SQL 逐字对齐。
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// 应用级用量的一次聚合查询（`v4/usage/stats`）。
@@ -42,6 +44,12 @@ pub struct AppUsageToolRow {
     pub tool_name: String,
     pub call_count: u64,
     pub error_count: u64,
+    /// `status = 'completed'` 的行数；成功率的分子。
+    #[serde(default)]
+    pub success_count: u64,
+    /// 按 `error_type` 分组的失败数（没有分类的老行不计）。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub error_types: BTreeMap<String, u64>,
     /// 平均耗时；没有可用行时缺席（Node 的 `avg(duration_ms)` 为 NULL）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avg_duration_ms: Option<f64>,

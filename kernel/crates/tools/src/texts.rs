@@ -116,6 +116,13 @@ pub fn write_not_regular(path: &str) -> String {
     )
 }
 
+/// Write：单次内容超过配额（Phase 6）。
+pub fn write_too_large(size: usize, max: usize) -> String {
+    format!(
+        "Content is too large to write ({size} bytes). The maximum for one Write call is {max} bytes; split it into smaller writes or generate the file with a command."
+    )
+}
+
 /// Write：子代理不写报告文件（errorCode 5）。
 pub const SUBAGENT_REPORT: &str = "Subagents should return findings as text, not write report files. Include this content in your final response instead.";
 

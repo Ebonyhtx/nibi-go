@@ -5,6 +5,7 @@
 //! `*`、`?` 不跨目录；匹配到目录时它下面的一切都算匹配。
 
 use regex::{Regex, RegexBuilder};
+use std::path::{Path, PathBuf};
 use nibi_kernel_api::env_files::PathStyle;
 use nibi_kernel_api::env_path::git_bash_spelling;
 use nibi_kernel_api::permission::RuleBehavior;
@@ -45,6 +46,17 @@ impl PathContext {
             .any(|root| self.style.is_within(path, root))
     }
 
+    /// workspace 硬边界（Phase 6）：解析符号链接后仍在 roots 内。
+    ///
+    /// 与 [`Self::in_working_dirs`] 的区别：那条是纯字符串前缀（`..` 已折叠，但符号链接
+    /// 可以逃逸），只用于“在不在工作目录里”的常规判决；写入的不可绕过拒绝用这一条。
+    /// 目标文件不存在时解析最近的已存在祖先，再拼回剩余部分。
+    pub fn in_workspace_boundary(&self, path: &str) -> bool {
+        self.roots
+            .iter()
+            .any(|root| real_within(path, root, self.style))
+    }
+
     pub fn internal_readable(&self, path: &str) -> bool {
         self.internal
             .iter()
@@ -62,6 +74,51 @@ impl PathContext {
     pub fn root_list(&self) -> Vec<String> {
         self.roots.clone()
     }
+}
+
+/// 解析符号链接后的包含判断。目标不存在时 canonicalize 最近的已存在祖先，再拼回剩余部分；
+/// 连祖先都解析不了时退回原路径（仍按字符串前缀比较，至少不会误放行）。
+fn real_within(path: &str, root: &str, style: PathStyle) -> bool {
+    let target = canonical_lenient(Path::new(path));
+    let root = canonical_lenient(Path::new(root));
+    match style {
+        PathStyle::Posix => target.starts_with(&root),
+        PathStyle::Windows => {
+            let target = target.to_string_lossy().to_lowercase().replace('/', "\\");
+            let root = root.to_string_lossy().to_lowercase().replace('/', "\\");
+            let root = root.trim_end_matches('\\');
+            target == root || target.starts_with(&format!("{root}\\"))
+        }
+    }
+}
+
+fn canonical_lenient(path: &Path) -> PathBuf {
+    if let Ok(real) = path.canonicalize() {
+        return real;
+    }
+    let mut suffix = Vec::new();
+    let mut current = path.to_path_buf();
+    loop {
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        if parent == current {
+            break;
+        }
+        let Some(name) = current.file_name() else {
+            break;
+        };
+        suffix.push(name.to_os_string());
+        current = parent.to_path_buf();
+        if let Ok(real) = current.canonicalize() {
+            let mut out = real;
+            for part in suffix.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+    }
+    path.to_path_buf()
 }
 
 /// glob 换成正则：`**` 跨目录，`*` / `?` 不跨目录；不分大小写（F57）。

@@ -79,6 +79,8 @@ fn tool(id: &str) -> Fact {
             completed_at_ms: 3_200,
             status: CallStatus::Completed,
             output_bytes: 2,
+            exit_code: None,
+            error_class: None,
         },
     }
 }

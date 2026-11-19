@@ -1,13 +1,15 @@
 //! `/usage` 的两个只读查询（docs/specs/rust-cli/usage.md §4、§5.2）：都是聚合 SQL，不把消息或用量行整表读进
 //! 内存。会话的开始与时长、按天的消息数只扫 `message_session_time_created_id_idx`。
-use rusqlite::Connection;
+use std::collections::BTreeMap;
+
 use nibi_kernel_api::clock::civil_date;
 use nibi_kernel_api::metering::{
     ActivityDay, ActivityQuery, ActivityRange, ActivityStats, ModelTokens, SessionMetering,
 };
 use nibi_kernel_api::store::StoreError;
+use rusqlite::Connection;
 
-use crate::{OrStorage, storage};
+use crate::{storage, OrStorage};
 
 /// 一天的毫秒数：只定义在 base 的 `js::date::DAY_MS`（u64，F58：以前这里另写一份 i64）。SQL 文本与 i64 的日界
 /// 算术用这个局部的 i64 值，文本逐字不变。
@@ -190,7 +192,9 @@ pub fn app_usage(
     conn: &Connection,
     query: &nibi_kernel_api::usage::AppUsageQuery,
 ) -> Result<nibi_kernel_api::usage::AppUsage, StoreError> {
-    use nibi_kernel_api::usage::{AppUsage, AppUsageDayModelRow, AppUsageDayRow, AppUsageModelRow, AppUsageToolRow};
+    use nibi_kernel_api::usage::{
+        AppUsage, AppUsageDayModelRow, AppUsageDayRow, AppUsageModelRow, AppUsageToolRow,
+    };
 
     let (since, until, offset) = (
         i64::try_from(query.since_ms).unwrap_or(i64::MAX),
@@ -199,7 +203,17 @@ pub fn app_usage(
     );
 
     // 模型侧的总计。`avg(...)` 在没有行时是 NULL——「没有可用样本」与「0 ms」必须分开。
-    let (total_tokens, input_tokens, output_tokens, reasoning_tokens, cache_creation, cache_read, requests, errors, avg_ttft) = conn
+    let (
+        total_tokens,
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        cache_creation,
+        cache_read,
+        requests,
+        errors,
+        avg_ttft,
+    ) = conn
         .prepare_cached(
             "select
                coalesce(sum(computed_total_tokens), 0),
@@ -300,12 +314,40 @@ pub fn app_usage(
         .collect::<Result<Vec<_>, _>>()
         .storage()?;
 
+    // 失败分类按 `(tool_name, error_type)` 分组；与按工具的聚合在同一响应里合并。
+    let mut error_types: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    let mut statement = conn
+        .prepare_cached(
+            "select tool_name, error_type, count(*)
+             from tool_usage
+             where started_at >= ?1 and started_at <= ?2 and error_type is not null
+             group by tool_name, error_type",
+        )
+        .storage()?;
+    let error_rows = statement
+        .query_map([since, until], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                to_u64(row.get::<_, i64>(2)?),
+            ))
+        })
+        .storage()?;
+    for row in error_rows {
+        let (tool_name, error_type, count) = row.storage()?;
+        error_types
+            .entry(tool_name)
+            .or_default()
+            .insert(error_type, count);
+    }
+
     let tools = conn
         .prepare_cached(
             "select tool_name,
                     count(*),
                     coalesce(sum(case when status = 'error' then 1 else 0 end), 0),
-                    avg(duration_ms)
+                    avg(duration_ms),
+                    coalesce(sum(case when status = 'completed' then 1 else 0 end), 0)
              from tool_usage
              where started_at >= ?1 and started_at <= ?2
              group by tool_name
@@ -313,11 +355,14 @@ pub fn app_usage(
         )
         .storage()?
         .query_map([since, until], |row| {
+            let tool_name: String = row.get(0)?;
             Ok(AppUsageToolRow {
-                tool_name: row.get(0)?,
+                error_types: error_types.remove(&tool_name).unwrap_or_default(),
+                tool_name,
                 call_count: to_u64(row.get::<_, i64>(1)?),
                 error_count: to_u64(row.get::<_, i64>(2)?),
                 avg_duration_ms: row.get::<_, Option<f64>>(3)?,
+                success_count: to_u64(row.get::<_, i64>(4)?),
             })
         })
         .storage()?
@@ -380,20 +425,26 @@ pub fn app_usage(
         );
     }
     for (day, turns) in day_turns {
-        day_map.entry(day).or_insert(AppUsageDayRow {
-            day_index: day,
-            total_tokens: 0,
-            turn_count: 0,
-            tool_call_count: 0,
-        }).turn_count = turns;
+        day_map
+            .entry(day)
+            .or_insert(AppUsageDayRow {
+                day_index: day,
+                total_tokens: 0,
+                turn_count: 0,
+                tool_call_count: 0,
+            })
+            .turn_count = turns;
     }
     for (day, calls) in day_tools {
-        day_map.entry(day).or_insert(AppUsageDayRow {
-            day_index: day,
-            total_tokens: 0,
-            turn_count: 0,
-            tool_call_count: 0,
-        }).tool_call_count = calls;
+        day_map
+            .entry(day)
+            .or_insert(AppUsageDayRow {
+                day_index: day,
+                total_tokens: 0,
+                turn_count: 0,
+                tool_call_count: 0,
+            })
+            .tool_call_count = calls;
     }
 
     let day_models = conn
@@ -468,7 +519,9 @@ pub fn session_usage(
                 cache_creation_tokens: row.get::<_, i64>(5)?.max(0) as u64,
                 cache_read_tokens: row.get::<_, i64>(6)?.max(0) as u64,
                 computed_total_tokens: row.get::<_, i64>(7)?.max(0) as u64,
-                provider_total_tokens: row.get::<_, Option<i64>>(8)?.map(|value| value.max(0) as u64),
+                provider_total_tokens: row
+                    .get::<_, Option<i64>>(8)?
+                    .map(|value| value.max(0) as u64),
             })
         })
         .storage()?
@@ -477,14 +530,20 @@ pub fn session_usage(
 
     let mut usage = SessionUsage::default();
     for row in rows {
-        let raw_total = row.provider_total_tokens.unwrap_or(row.computed_total_tokens);
+        let raw_total = row
+            .provider_total_tokens
+            .unwrap_or(row.computed_total_tokens);
         let input_side = input_side_tokens(&row);
         let source = baseline_source(&row.query_source);
         let incremental_input = match source {
             // 压缩会让后续 context input 变小：累计消耗不能回扣历史，但基线必须降到压缩后的
             // 值，后续新增轮次才能继续按增量计算。
             Some(source) => {
-                let baseline = usage.input_baseline_by_source.get(source).copied().unwrap_or(0);
+                let baseline = usage
+                    .input_baseline_by_source
+                    .get(source)
+                    .copied()
+                    .unwrap_or(0);
                 let incremental = input_side.saturating_sub(baseline);
                 usage
                     .input_baseline_by_source
@@ -494,14 +553,21 @@ pub fn session_usage(
             None => input_side,
         };
         let non_input = raw_total.saturating_sub(input_side);
-        usage.total_tokens = usage.total_tokens.saturating_add(incremental_input).saturating_add(non_input);
+        usage.total_tokens = usage
+            .total_tokens
+            .saturating_add(incremental_input)
+            .saturating_add(non_input);
         usage.input_tokens = usage.input_tokens.saturating_add(incremental_input);
         usage.output_tokens = usage.output_tokens.saturating_add(row.output_tokens);
         usage.reasoning_tokens = usage.reasoning_tokens.saturating_add(row.reasoning_tokens);
         // 缓存读写只在不属于三个已知来源时单列（已知来源的输入侧已含它们）。
         if source.is_none() {
-            usage.cache_creation_tokens = usage.cache_creation_tokens.saturating_add(row.cache_creation_tokens);
-            usage.cache_read_tokens = usage.cache_read_tokens.saturating_add(row.cache_read_tokens);
+            usage.cache_creation_tokens = usage
+                .cache_creation_tokens
+                .saturating_add(row.cache_creation_tokens);
+            usage.cache_read_tokens = usage
+                .cache_read_tokens
+                .saturating_add(row.cache_read_tokens);
         }
         usage.model_request_count = usage.model_request_count.saturating_add(1);
         if row.status == "error" {
@@ -527,7 +593,9 @@ struct SessionUsageRow {
 /// 读写）；老行的输入不含缓存，靠「哪个总数更接近」判出来。
 fn input_side_tokens(row: &SessionUsageRow) -> u64 {
     let input = row.input_tokens;
-    let cache = row.cache_creation_tokens.saturating_add(row.cache_read_tokens);
+    let cache = row
+        .cache_creation_tokens
+        .saturating_add(row.cache_read_tokens);
     if input == 0 {
         return cache;
     }
@@ -535,7 +603,9 @@ fn input_side_tokens(row: &SessionUsageRow) -> u64 {
         return input;
     }
     let output = row.output_tokens;
-    let total = row.provider_total_tokens.unwrap_or(row.computed_total_tokens);
+    let total = row
+        .provider_total_tokens
+        .unwrap_or(row.computed_total_tokens);
     if total > 0 {
         let total_input_distance = total.abs_diff(input.saturating_add(output));
         let no_cache_input_distance =

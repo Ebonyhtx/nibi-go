@@ -20,7 +20,13 @@ pub(crate) struct HookMessages {
 }
 
 impl HookMessages {
-    pub(crate) fn finish(self, output: ToolOutput, keep_pre_stop: bool) -> ToolExecution {
+    pub(crate) fn finish(
+        self,
+        output: ToolOutput,
+        keep_pre_stop: bool,
+        exit_code: Option<i32>,
+        error_class: Option<String>,
+    ) -> ToolExecution {
         let mut after = self.after;
         if keep_pre_stop {
             after.extend(self.pre_stop);
@@ -34,6 +40,8 @@ impl HookMessages {
             before: self.before,
             after,
             prevent_continuation,
+            exit_code,
+            error_class,
         }
     }
 }

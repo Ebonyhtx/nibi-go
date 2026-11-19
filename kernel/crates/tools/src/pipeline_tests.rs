@@ -10,10 +10,8 @@ use nibi_kernel_api::orchestration::{
     Interactions, OrchestrationError, PermissionAnswer, PermissionGate,
 };
 use nibi_kernel_api::permission::{PermissionDecision, PermissionMode};
-use nibi_kernel_api::testing::{
-    FakeTool, MemoryStore, UnusedEnvironment, local_services, machine,
-};
-use nibi_kernel_api::tool::{Tool, ToolUseContext};
+use nibi_kernel_api::testing::{FakeTool, MemoryStore, UnusedEnvironment, local_services, machine};
+use nibi_kernel_api::tool::{PromptContext, Tool, ToolUseContext};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -119,6 +117,69 @@ fn text(output: &ToolOutput) -> String {
         ToolResultContent::Text { text } => text.clone(),
         other => panic!("{other:?}"),
     }
+}
+
+/// 固定返回一个错误（用来核对 `Exit code N` 的解析）。
+struct FailingBash(ToolError);
+
+#[async_trait]
+impl Tool for FailingBash {
+    fn name(&self) -> &str {
+        "Bash"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({"type": "object"})
+    }
+
+    fn description(&self, _context: &PromptContext) -> String {
+        "bash".to_owned()
+    }
+
+    async fn call(
+        &self,
+        _input: Value,
+        _context: ToolUseContext,
+        _progress: mpsc::Sender<nibi_kernel_api::tool::ToolProgress>,
+    ) -> Result<ToolOutput, ToolError> {
+        Err(self.0.clone())
+    }
+}
+
+#[tokio::test]
+async fn bash_exit_codes_and_error_classes_reach_the_execution() {
+    let pipeline = Pipeline::new(
+        Arc::new(FixedGate(PermissionDecision::Allow {
+            updated_input: None,
+        })),
+        Arc::new(RecordingHooks::default()),
+    );
+    let (progress, _updates) = mpsc::channel(4);
+    let ok = pipeline
+        .execute_full(
+            Arc::new(FakeTool::new("Bash", false, "out")),
+            json!({}),
+            context(allow()),
+            progress,
+        )
+        .await;
+    assert_eq!((ok.exit_code, ok.error_class), (Some(0), None));
+
+    let (progress, _updates) = mpsc::channel(4);
+    let failed = pipeline
+        .execute_full(
+            Arc::new(FailingBash(ToolError::Failed {
+                message: "Exit code 2\nboom".to_owned(),
+            })),
+            json!({}),
+            context(allow()),
+            progress,
+        )
+        .await;
+    assert_eq!(
+        (failed.exit_code, failed.error_class.as_deref()),
+        (Some(2), Some("failed"))
+    );
 }
 
 #[tokio::test]
