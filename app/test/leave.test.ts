@@ -77,11 +77,37 @@ describe("入口接线（防回归）", () => {
   it("抽屉的设置/插件入口走统一 helper，且不再出现 dismiss→blur 的旧顺序", () => {
     const drawer = source("src/components/GoDrawer.tsx");
     expect(drawer).toContain("leaveComposerForNavigation({");
-    expect(drawer).toContain('router.push("/settings")');
-    expect(drawer).toContain('router.push("/plugins")');
+    expect(drawer).toContain('leaveFor("/settings")');
+    expect(drawer).toContain('leaveFor("/plugins")');
     expect(drawer).not.toMatch(/Keyboard\.dismiss\(\);\s*onBeforeNavigate\?\.\(\)/);
+    // 抽屉搜索框会被系统自动聚焦；导航前必须 blur 它，否则输入法会闪。
+    expect(drawer).toContain("ref={searchRef}");
+    expect(drawer).toContain("searchRef.current?.blur()");
     // 展开侧栏（GoSidebar）与抽屉共用同一份导航内容，也必须把 blur 透传下去。
     expect(drawer).toContain("onBeforeNavigate={onBeforeNavigate}");
+  });
+
+  it("抽屉搜索框不会自动抢焦点，且 leaveFor 的 blur 先清首页再清搜索框", () => {
+    const drawer = source("src/components/GoDrawer.tsx");
+    // 搜索框若 autoFocus，抽屉一出现输入法就弹出来，这本身就是复发点。
+    const searchInput = drawer.slice(drawer.indexOf("ref={searchRef}"));
+    expect(searchInput.slice(0, 400)).not.toContain("autoFocus");
+    // leaveFor 必须把两处焦点都清掉：首页输入框（由父级传下来的 onBeforeNavigate）
+    // 和抽屉自己的搜索框。只清一处都不够——这正是之前复发的形态。
+    const leaveFor = drawer.slice(drawer.indexOf("const leaveFor"), drawer.indexOf("// 会话列表"));
+    expect(leaveFor).toContain("onBeforeNavigate?.()");
+    expect(leaveFor).toContain("searchRef.current?.blur()");
+    expect(leaveFor.indexOf("onBeforeNavigate?.()")).toBeLessThan(
+      leaveFor.indexOf("searchRef.current?.blur()"),
+    );
+  });
+
+  it("抽屉关掉时清掉搜索焦点并收键盘（否则键盘会留在首页）", () => {
+    const drawer = source("src/components/GoDrawer.tsx");
+    expect(drawer).toContain("active={open}");
+    expect(drawer).toMatch(
+      /if \(wasActive\.current && !active\) \{\s*searchRef\.current\?\.blur\(\);\s*Keyboard\.dismiss\(\);\s*\}/,
+    );
   });
 
   it("首屏 rail 的设置/插件入口走统一 helper", () => {
@@ -89,6 +115,13 @@ describe("入口接线（防回归）", () => {
     expect(home).toContain("leaveComposerForNavigation({");
     expect(home).toContain('router.push("/settings")');
     expect(home).toContain('router.push("/plugins")');
+  });
+
+  it("开抽屉/展开侧栏前也先清掉输入框焦点", () => {
+    const home = source("src/app/index.tsx");
+    // 顶栏 onMenu 的开抽屉分支必须走 helper；展开侧栏分支至少显式 blur。
+    expect(home).toMatch(/onMenu = \(\) => \{[\s\S]*?leaveComposerForNavigation/);
+    expect(home).toMatch(/composerInputRef\.current\?\.blur\(\);\s*setSidebarOpen\(true\)/);
   });
 
   it("设置页 focus 时仍明确收键盘", () => {
