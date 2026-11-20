@@ -1,7 +1,7 @@
 # NIBI-GO 开发计划
 
 > 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：D24 Phase 0 真机回归与 D25 分阶段实施。C0 已完成真机验证。
-> 当前状态（2026-11-20）：Phase 0-6 代码与真机验收完成；release 构建（生产签名 + R8 JNI keep）已复验；按会话 workspace 根与 HOME/TMPDIR 已落地；**v0.1.1 已发布**（首次公开版，tag 指 `336c886`，0.1.0→0.1.1 覆盖升级已验证）。下一步：C2 插件市场/Ed25519；Shizuku 授权后的 `android_shell` 已于 2026-11-20 在 PHK110 真机验证（`uid=2000`，退出码 0）。
+> 当前状态（2026-11-20）：Phase 0-6 代码与真机验收完成；release 构建（生产签名 + R8 JNI keep）已复验；按会话 workspace 根与 HOME/TMPDIR 已落地；**v0.1.1 已发布**（首次公开版，tag 指 `336c886`，0.1.0→0.1.1 覆盖升级已验证）。下一步：C2 市场 UI/安装器（签名索引 + Ed25519 验签/防回滚已完成，见 C2 进展）；Shizuku 授权后的 `android_shell` 已于 2026-11-20 在 PHK110 真机验证（`uid=2000`，退出码 0）。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D25，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -132,6 +132,18 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 | C0 内核上机 | android target + **JNI host（进程内 transport）** + 会话库；shell/Node/Python 运行时按 D25 Phase 2/3（fork 后自建），子进程 `app-server --stdio` 仅作开发机对照 |
 | C1 GO 形态 UI | 独立 UI（非 PWA）：会话/聊天/设置接进程内内核 |
 | C2 GO 插件生态 | nibi-go-market 仓 + plugin-kit（SDK 四件套）+ Node Plugin Runtime + native-ui v1 + 用户自开发链路 |
+
+**C2 进展（2026-11-20，第一步：签名索引 + 验签/防回滚）**
+
+- 新包 `@nibi-go/market-index`：索引 schema（zod）、Ed25519 验签（对 index.json 原始字节，
+  detached `.sig` hex 侧车）、内置公钥表、包 `sha256` 校验、`revision` 防回滚与插件版本不变量。
+- 发布工具：`scripts/market/gen-key.mjs`（私钥落 `~/.nibi/market/`，0600，不进仓库）、
+  `scripts/market/sign-index.mjs`（Node crypto 签名，输出 `.sig`）。
+- 已生成 keyId `nibi-go-market-2026-11`（公钥已登记，fingerprint `09d17d31cb00b43c`）；
+  私钥需运营者备份到私有运维仓。
+- 单测 23 项 + CLI 冒烟（签名 → 验签 true，改一字节 → false；node:crypto 与客户端 noble 互通）。
+- 下一步：市场 UI（浏览/安装/更新）与快照持久化，再接付费门禁。设计见
+  `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
 
