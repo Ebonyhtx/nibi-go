@@ -115,8 +115,10 @@
 
 ```bash
 # 1) 修改 nibi-go-market/index.json，revision 必须比线上 +1
-# 2) 在 NIBI-GO 仓签名（私钥读 ~/.nibi/market/<keyId>.json）
-node scripts/market/sign-index.mjs ../nibi-go-market/index.json
+# 2) 审核通过的提交直接合并进索引并签名（校验包摘要 → revision+1 → 签名 → 回读验签）
+pnpm market:publish ../nibi-go-market ../nibi-go-market/submissions/<id>-<version>.json
+#    也可以手工改 index.json 后单独签名：
+#    node scripts/market/sign-index.mjs ../nibi-go-market/index.json
 # 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）并 push
 # 4) 镜像到 CDN：主线是服务器上的定时任务（每 10 分钟拉取市场仓 main → 验签/校验 →
 #    只上传变化文件；失败保留上一份成功状态）。下面是手工补跑用的脚本（不写死主机/桶/密钥）：
