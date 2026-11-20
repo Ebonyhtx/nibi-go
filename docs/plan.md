@@ -360,7 +360,7 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 
 ### Phase 2 · 三件套 + nibi-run（1/2 已完成，3/4 部分完成，2026-11-15）
 
-1. ✅ 构建链：`scripts/android-runtime/` 固定 bash 5.2.37 / busybox 1.36.1 / git 2.51.0
+1. ✅ 构建链：`scripts/android-runtime/` 固定 bash 5.2.37 / busybox 1.36.1 / git 2.51.0 / jq 1.7.1 / zip 3.0
    （含 readline 8.2.13、ncurses 6.5、zlib 1.3.1、openssl 3.5.4、curl 8.16.0）的版本、
    URL、sha256；用 NDK r27b 交叉编译为 **bionic 动态 PIE**（静态 TLS 对齐仍是 8，已弃用），
    全部 16 KB LOAD 对齐、API 24 符号面零越界（仅 OpenSSL 的 `getentropy`/`memfd_create`
@@ -371,7 +371,7 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    （arm64 syscall 144）直接 SIGSYS，现象是应用内 `ls/cat/grep/sed/awk/find/tar/ps…`
    全部 `Unknown signal 31`（shell/run-as 域不复现）；关掉后重编 `libbusybox.so`。
 2. ✅ 打包：jniLibs `libbash.so` / `libbusybox.so` / `libgit.so` / `libgit_remote_http.so` /
-   `libnibi_run.so` / `libnibi_hook.so`；`assets/nibi-runtime.zip` 放 git 脚本/templates/
+   `libjq.so` / `libzip.so` / `libnibi_run.so` / `libnibi_hook.so`；`assets/nibi-runtime.zip` 放 git 脚本/templates/
    `BASH_ENV`/applet 名单；`NibiRuntime.install()` 解包并在 `filesDir/runtime/{bin,git-core,hooks}`
    建 symlink farm；`withAndroidLegacyPackaging` 把 `expo.useLegacyPackaging` 固定为 true。
    debug APK 已核对 `extractNativeLibs="true"`，lib/arm64-v8a 与 assets 均含产物。

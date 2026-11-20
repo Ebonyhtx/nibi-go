@@ -57,6 +57,8 @@ BIN = {
     "bash": "libbash.so",
     "busybox": "libbusybox.so",
     "git": "libgit.so",
+    "jq": "libjq.so",
+    "zip": "libzip.so",
     "nibi-run": "libnibi_run.so",
 }
 

@@ -74,6 +74,8 @@ unpack zlib-1.3.1 zlib-1.3.1.tar.gz
 unpack openssl-3.5.4 openssl-3.5.4.tar.gz
 unpack curl-8.16.0 curl-8.16.0.tar.xz
 unpack git-2.51.0 git-2.51.0.tar.xz
+unpack jq-1.7.1 jq-1.7.1.tar.gz
+unpack zip30 zip30.tar.gz
 python3 "$REPO_ROOT/scripts/android-runtime/patch-sources.py" "$SRC"
 
 log "ncurses 6.5"
@@ -211,6 +213,29 @@ log "git 2.51.0"
   git_make install >/dev/null
 )
 
+log "jq 1.7.1"
+(
+  cd "$SRC/jq-1.7.1"
+  # oniguruma 用 jq 自带的 modules/oniguruma（静态进 jq），正则函数 test/match 可用。
+  ./configure --host=aarch64-linux-android --prefix="$OUT" \
+    --disable-maintainer-mode --disable-docs \
+    --enable-static --disable-shared --with-oniguruma=builtin \
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="$CFLAGS_TARGET" LDFLAGS="$LDFLAGS_TARGET" >/dev/null
+  make -j"$JOBS" >/dev/null
+)
+
+log "zip 3.0"
+(
+  cd "$SRC/zip30"
+  # Info-ZIP 没有 configure：直接给 unix/Makefile 传 Android 需要的宏。
+  # 不要用 generic/flags：那套探测的是构建机 glibc 头，会误判 NO_DIR/NO_ERRNO。
+  make -f unix/Makefile zip CC="$CC" BIND="$CC" OBJA="" E="" EXE="" \
+    CFLAGS="$CFLAGS_TARGET -I. -DUNIX -DUIDGID_NOT_16BIT -DUNICODE_SUPPORT \
+-DHAVE_DIRENT_H -DHAVE_TERMIOS_H -DNO_BZIP2_SUPPORT -DLARGE_FILE_SUPPORT" \
+    LFLAGS1="-pie" LFLAGS2="-Wl,-z,max-page-size=16384" >/dev/null
+)
+
 log "nibi-run / nibi-hook"
 mkdir -p "$JNI_OUT"
 "$CC" $CFLAGS_TARGET -Wl,-z,max-page-size=16384 -pie \
@@ -230,6 +255,8 @@ stage() {
 log "落盘 jniLibs"
 stage "$SRC/bash-5.2.37/bash" libbash.so
 stage "$SRC/busybox-1.36.1/busybox" libbusybox.so
+stage "$SRC/jq-1.7.1/jq" libjq.so
+stage "$SRC/zip30/zip" libzip.so
 stage "$OUT/git/bin/git" libgit.so
 stage "$OUT/git/libexec/git-core/git-remote-http" libgit_remote_http.so
 for f in libnibi_run.so libnibi_hook.so; do
@@ -299,8 +326,9 @@ mkdir -p "$(dirname "$ASSET_MANIFEST")"
 cp "$WORK/manifest.json" "$ASSET_MANIFEST"
 
 log "完成"
-for f in "$JNI_OUT"/libbash.so "$JNI_OUT"/libbusybox.so "$JNI_OUT"/libgit.so \
-  "$JNI_OUT"/libgit_remote_http.so "$JNI_OUT"/libnibi_run.so "$JNI_OUT"/libnibi_hook.so; do
+for f in "$JNI_OUT"/libbash.so "$JNI_OUT"/libbusybox.so "$JNI_OUT"/libjq.so \
+  "$JNI_OUT"/libzip.so "$JNI_OUT"/libgit.so "$JNI_OUT"/libgit_remote_http.so \
+  "$JNI_OUT"/libnibi_run.so "$JNI_OUT"/libnibi_hook.so; do
   printf '%-28s %10s bytes  %s\n' "$(basename "$f")" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
 done
 printf '%-28s %10s bytes  %s\n' "$(basename "$ASSET_ZIP")" "$(stat -c %s "$ASSET_ZIP")" "$(sha256sum "$ASSET_ZIP" | cut -d' ' -f1)"
