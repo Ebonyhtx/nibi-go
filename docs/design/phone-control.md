@@ -256,7 +256,11 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
   `uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),… context=u:r:shell:s0`，
   退出码 0 —— 执行身份是 shell uid，不是 root。开关 2 未开启与 Shizuku 未运行的
   错误路径此前已在真机验证。
-- 仍未验证：`android_shell` 的安装/卸载、改系统设置等写操作（本轮只验 `id` 只读命令）。
+- **写操作也已验证（2026-11-20，同一台 PHK110）**：一次 `android_shell` 调用内完成
+  `/sdcard/Download/nibi_probe` 的创建（3 字节，`-rw-rw----`，owner `u0_a241`）→ 读取
+  （`ok`）→ 删除，以及 `settings put global nibi_probe 1` → `settings get`（`1`）→
+  `settings delete`（`Deleted 1 rows`）→ 再读（`null`）。宿主侧复核：文件不存在、设置键为
+  `null`，无残留。仍未验证：`pm install/uninstall`、`am force-stop` 等应用管理写操作。
 - `FLAG_SECURE`：已用自建测试 APK 验证。PHK110 的系统 `takeScreenshot` 对安全窗口
   不返回错误码，而是给一张除状态栏外全黑的图；已在 `PhoneActuator` 里检测近全黑画面
   并返回「安全页面不可截屏…」，不再把黑图交给模型。非安全页面截屏回归正常。

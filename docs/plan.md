@@ -494,7 +494,9 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
 - 真机第四轮（2026-11-20）：Shizuku 13.6.0 已在 PHK110 上启动并授权 NIBI-GO（设置页
   「Shizuku 已连接」，无线调试开启）。真实模型回合调用 `mcp__phone__android_shell`
   （`{"command":"id"}`）→ 悬浮审批卡「允许一次」→ 结果 `uid=2000(shell) gid=2000(shell) …`
-  `context=u:r:shell:s0`、退出码 0，证明 shell uid 执行链（非 root）打通。
+  `context=u:r:shell:s0`、退出码 0，证明 shell uid 执行链（非 root）打通。写操作同轮验证：
+  `/sdcard/Download/nibi_probe` 创建/读取/删除、`settings put/get/delete global nibi_probe`
+  全部成功且无残留；`pm install/uninstall`、`am force-stop` 等应用管理写操作仍未验。
 - 发布（2026-11-20）：`v0.1.1` 已通过 `release.mjs` 发布到 GitHub Releases
   （asset digest `sha256:825d80dd…` 校验通过）；PHK110 上 0.1.0→0.1.1 覆盖升级实测通过
   （versionCode 2、内核/无障碍/39617 正常，数据保留）。
