@@ -93,8 +93,11 @@
 ## 5. 密钥纪律
 
 - 私钥：`~/.nibi/market/<keyId>.json`（0600），由 `scripts/market/gen-key.mjs` 生成；
-  与 Android keystore 同一纪律——不进仓库、不进对话、不写日志；备份放私有运维仓
-  `private-key-backup-repository`（**2026-11-20 尚未备份，需运营者补**）。
+  与 Android keystore 同一纪律——不进仓库、不进对话、不写日志。
+- **备份（2026-11-20 已完成）**：`scripts/market/key-backup.mjs encrypt` 生成 AES-256-GCM
+  （scrypt 派生）密文，私有仓 `private-key-backup-repository` 的
+  `keystore/market-index.json.enc` + `keystore/passphrase.txt`；
+  已用 `decrypt` 回读并比对 sha256 一致。恢复：`key-backup.mjs decrypt <enc> --out <key.json>`。
 - 公钥：raw 32 字节 hex，登记在 `packages/market-index/src/keys.ts`，随客户端发布。
 - 当前 keyId：`nibi-go-market-2026-11`，fingerprint `09d17d31cb00b43c`。
 - 轮换：生成新 key → 追加到公钥表 → 用新 key 签名 → 至少保留旧 key 一个发布周期。
