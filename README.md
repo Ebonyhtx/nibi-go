@@ -128,7 +128,7 @@ node scripts/check-public-repo.mjs  # 公开仓策略检查
 ## 许可证与来源
 
 本项目以 **Apache License 2.0** 发布。`packages/shared-extract/` 的协议契约代码
-抽取自 [nibi-client](https://github.com/Ebonyhtx/nibi-client)（Apache-2.0，
-commit `ff1c5f4f`）；上游沿革（ZCode v3.16.2）与第三方声明见
-[NOTICE.md](NOTICE.md) 与 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
-许可边界见 [LICENSING.md](LICENSING.md)，名称与标识的使用见 [TRADEMARKS.md](TRADEMARKS.md)。
+抽取自 [nibi-client](https://github.com/Ebonyhtx/nibi-client)（Apache-2.0）；上游沿革与
+第三方声明见 [NOTICE.md](NOTICE.md)、[LICENSING.md](LICENSING.md) 与
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。名称与标识的使用见
+[TRADEMARKS.md](TRADEMARKS.md)。
