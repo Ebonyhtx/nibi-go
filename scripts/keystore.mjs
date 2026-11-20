@@ -26,7 +26,8 @@ import path from "node:path";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
 const DIR = path.join(os.homedir(), ".nibi", "keystore");
-const KEYSTORE = path.join(DIR, "release.p12");
+// 密钥库位置可用 NIBI_KEYSTORE_FILE 覆盖（与 gradle / release.mjs 同一变量名）。
+const KEYSTORE = process.env.NIBI_KEYSTORE_FILE || path.join(DIR, "release.p12");
 const BLOB = path.join(DIR, "release.p12.enc");
 const PASSFILE = path.join(DIR, "passphrase.txt");
 const ALIAS = "nibi-go";
