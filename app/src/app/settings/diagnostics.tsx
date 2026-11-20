@@ -2,12 +2,13 @@
 //
 // 数据全部来自内核已有的 `session/debug` 与 `sessionData/measure`，不新增内核能力。
 // 逐轮 hitRate 的分母是 input_tokens（与会话级上下文面板口径不同），UI 明确标注。
+// 2.0：ScreenHeader + 数据卡改 SectionCard；状态横幅仍用 soft 底（amber/ok/panel）。
 
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,10 +19,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { KernelDebugNetworkEntry, KernelDebugSnapshot } from "@nibi-go/kernel-session";
 
 import { Icon } from "../../components/Icon";
+import { SectionCard } from "../../components/ui/SectionCard";
+import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { currentKernelClient } from "../../kernel/kernelRegistry";
+import { AppearIn, staggerDelay } from "../../motion/appear";
+import { PressableScale } from "../../motion/PressableScale";
 import { measureMemory, type MemoryUsageEntry } from "../../memory/usage";
 import { useMemoryPreferences } from "../../memory/useMemoryPreferences";
-import { radius, space, type as typeScale, useNibiTheme } from "../../theme";
+import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 function percent(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 100)}%`;
@@ -49,7 +54,7 @@ function sourceLabel(entry: KernelDebugNetworkEntry): string {
 }
 
 export default function DiagnosticsScreen() {
-  const t = useNibiTheme();
+  const th = useNibiTheme();
   const insets = useSafeAreaInsets();
   const { preferences } = useMemoryPreferences();
   const [snapshot, setSnapshot] = useState<KernelDebugSnapshot | null>(null);
@@ -111,12 +116,12 @@ export default function DiagnosticsScreen() {
   const lastRound = rounds[rounds.length - 1];
   const cacheTone =
     cache?.hitRate === null || cache?.hitRate === undefined
-      ? t.inkFaint
+      ? th.inkFaint
       : cache.hitRate >= 0.7
-        ? t.ok
+        ? th.ok
         : cache.hitRate >= 0.4
-          ? t.amber
-          : t.red;
+          ? th.amber
+          : th.red;
   const warnings: string[] = [];
   if (preferences.enabled && rounds.length >= 2 && cache?.hitRate !== null && cache?.hitRate !== undefined && cache.hitRate < 0.5) {
     warnings.push(
@@ -136,186 +141,217 @@ export default function DiagnosticsScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
-      <View style={[styles.head, { borderBottomColor: t.hairline }]}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          style={[styles.back, { backgroundColor: t.panel }]}
-        >
-          <Icon name="chevron-left" size={16} color={t.inkSub} />
-        </Pressable>
-        <Text style={[styles.title, { color: t.ink }]}>记忆与链路诊断</Text>
-        <Pressable
-          onPress={() => void run()}
-          disabled={loading}
-          accessibilityRole="button"
-          accessibilityLabel="重新诊断"
-          style={[styles.back, { backgroundColor: t.panel, opacity: loading ? 0.6 : 1 }]}
-        >
-          {loading ? (
-            <ActivityIndicator color={t.brand} />
-          ) : (
-            <Icon name="refresh" size={16} color={t.inkSub} />
-          )}
-        </Pressable>
-      </View>
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[th.glowTop, th.bgGradient[0], th.bgGradient[1]]}
+        locations={[0, 0.38, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <ScreenHeader
+        title="记忆与链路诊断"
+        onBack={() => router.back()}
+        right={
+          // 头部右槽刷新：与 ScreenHeader 返回钮同一档玻璃圆钮。
+          <PressableScale
+            onPress={() => void run()}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="重新诊断"
+            hitSlop={8}
+            style={[
+              styles.headButton,
+              { backgroundColor: th.glass, borderColor: th.glassBorder },
+              loading ? styles.busy : null,
+            ]}
+          >
+            {loading ? (
+              <ActivityIndicator color={th.brand} size="small" />
+            ) : (
+              <Icon name="refresh" size={16} color={th.ink} />
+            )}
+          </PressableScale>
+        }
+      />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        <Text style={[styles.intro, { color: t.inkSub }]}>
-          诊断只看本机事实，不会改动会话。逐轮命中率的口径是 cacheRead / input_tokens，
-          与右侧上下文面板的会话级口径不同。
-        </Text>
+        <AppearIn delay={staggerDelay(0, 32, 240)}>
+          <Text style={[styles.intro, { color: th.inkSub }]}>
+            诊断只看本机事实，不会改动会话。逐轮命中率的口径是 cacheRead / input_tokens，
+            与右侧上下文面板的会话级口径不同。
+          </Text>
+        </AppearIn>
 
         {error ? (
-          <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
-            <Text style={[styles.messageText, { color: t.amber }]}>{error}</Text>
-          </View>
+          <AppearIn delay={staggerDelay(1, 32, 240)}>
+            <View style={[styles.banner, { backgroundColor: th.amberSoft, borderColor: th.hairline }]}>
+              <Text style={[styles.bannerText, { color: th.amber }]}>{error}</Text>
+            </View>
+          </AppearIn>
         ) : null}
 
         {warnings.length > 0 ? (
-          <View style={[styles.card, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
-            <Text style={[styles.cardTitle, { color: t.amber }]}>需要复查</Text>
-            {warnings.map((warning) => (
-              <Text key={warning} style={[styles.detail, { color: t.amber }]}>
-                · {warning}
-              </Text>
-            ))}
-          </View>
+          <AppearIn delay={staggerDelay(1, 32, 240)}>
+            <View style={[styles.banner, { backgroundColor: th.amberSoft, borderColor: th.hairline }]}>
+              <Text style={[styles.bannerTitle, { color: th.amber }]}>需要复查</Text>
+              {warnings.map((warning) => (
+                <Text key={warning} style={[styles.bannerText, { color: th.amber }]}>
+                  · {warning}
+                </Text>
+              ))}
+            </View>
+          </AppearIn>
         ) : rounds.length > 0 || cache !== null || network.length > 0 ? (
-          <View style={[styles.card, { backgroundColor: t.okSoft, borderColor: t.hairline }]}>
-            <Text style={[styles.cardTitle, { color: t.ok }]}>未发现异常</Text>
-            <Text style={[styles.detail, { color: t.ok }]}>
-              记忆开关、缓存与模型链路都有可读数据；继续正常对话即可。
-            </Text>
-          </View>
+          <AppearIn delay={staggerDelay(1, 32, 240)}>
+            <View style={[styles.banner, { backgroundColor: th.okSoft, borderColor: th.hairline }]}>
+              <Text style={[styles.bannerTitle, { color: th.ok }]}>未发现异常</Text>
+              <Text style={[styles.bannerText, { color: th.ok }]}>
+                记忆开关、缓存与模型链路都有可读数据；继续正常对话即可。
+              </Text>
+            </View>
+          </AppearIn>
         ) : (
-          <View style={[styles.card, { backgroundColor: t.panel, borderColor: t.hairline }]}>
-            <Text style={[styles.cardTitle, { color: t.inkSub }]}>还没有可诊断的回合</Text>
-            <Text style={[styles.detail, { color: t.inkFaint }]}>
-              先发一条消息，让内核产生一轮用量与模型网络状态；记忆占用仍可在这里查看。
-            </Text>
-          </View>
+          <AppearIn delay={staggerDelay(1, 32, 240)}>
+            <View style={[styles.banner, { backgroundColor: th.panel, borderColor: th.hairline }]}>
+              <Text style={[styles.bannerTitle, { color: th.inkSub }]}>还没有可诊断的回合</Text>
+              <Text style={[styles.bannerText, { color: th.inkFaint }]}>
+                先发一条消息，让内核产生一轮用量与模型网络状态；记忆占用仍可在这里查看。
+              </Text>
+            </View>
+          </AppearIn>
         )}
 
-        <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <Text style={[styles.cardTitle, { color: t.ink }]}>记忆</Text>
-          <View style={styles.kv}>
-            <Text style={[styles.key, { color: t.inkFaint }]}>开关</Text>
-            <Text style={[styles.value, { color: preferences.enabled ? t.ok : t.inkSub }]}>
-              {preferences.enabled ? "开启（本机共享）" : "关闭"}
-            </Text>
-          </View>
-          <View style={styles.kv}>
-            <Text style={[styles.key, { color: t.inkFaint }]}>磁盘占用</Text>
-            <Text style={[styles.value, { color: t.ink }]}>
-              {memoryBytes === null ? "—" : memoryBytes === 0 ? "没有保存记忆" : formatBytes(memoryBytes)}
-            </Text>
-          </View>
-          {memoryEntries.map((entry) => (
-            <View key={entry.workspacePath} style={styles.kv}>
-              <Text style={[styles.key, { color: t.inkGhost }]} numberOfLines={1}>
-                {entry.workspacePath}
-              </Text>
-              <Text style={[styles.value, { color: t.inkFaint }]}>{formatBytes(entry.bytes)}</Text>
-            </View>
-          ))}
-          <View style={styles.kv}>
-            <Text style={[styles.key, { color: t.inkFaint }]}>抽取请求</Text>
-            <Text
-              style={[
-                styles.value,
-                { color: extractionFailed.length > 0 ? t.red : extraction.length > 0 ? t.ok : t.inkFaint },
-              ]}
-            >
-              {extraction.length === 0
-                ? "本次会话还没有"
-                : `${extraction.length} 次${extractionFailed.length > 0 ? `（失败 ${extractionFailed.length}）` : "，全部成功"}`}
-            </Text>
-          </View>
-        </View>
-
-        <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <Text style={[styles.cardTitle, { color: t.ink }]}>缓存</Text>
-          <View style={styles.kv}>
-            <Text style={[styles.key, { color: t.inkFaint }]}>累计命中率</Text>
-            <Text style={[styles.bigValue, { color: cacheTone }]}>
-              {percent(cache?.hitRate ?? null)}
-            </Text>
-          </View>
-          <Text style={[styles.detail, { color: t.inkFaint }]}>
-            {cache
-              ? `${cache.hitRateRequestCount} 轮 · 输入 ${cache.totalInputTokens} · 命中 ${cache.totalCacheReadTokens}`
-              : "还没有可统计的回合"}
-          </Text>
-          {lastRound ? (
-            <Text style={[styles.detail, { color: t.inkFaint }]}>
-              最近一轮：输入 {lastRound.usage.inputTokens} · 输出 {lastRound.usage.outputTokens} ·
-              缓存读 {lastRound.usage.cachedInputTokens} · 命中 {percent(lastRound.hitRate)}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <Text style={[styles.cardTitle, { color: t.ink }]}>逐轮用量</Text>
-          {rounds.length === 0 ? (
-            <Text style={[styles.detail, { color: t.inkFaint }]}>还没有结束的回合。</Text>
-          ) : (
-            rounds
-              .slice(-8)
-              .reverse()
-              .map((round) => (
-                <View key={round.eventKey} style={styles.roundRow}>
-                  <Text style={[styles.roundIndex, { color: t.inkFaint }]}>#{round.requestIndex}</Text>
-                  <Text style={[styles.roundCell, { color: t.inkSub }]}>
-                    入 {round.usage.inputTokens}
+        <AppearIn delay={staggerDelay(2, 32, 240)}>
+          <SectionCard label="记忆">
+            <View style={styles.cardBody}>
+              <View style={styles.kv}>
+                <Text style={[styles.kvKey, { color: th.inkFaint }]}>开关</Text>
+                <Text style={[styles.kvValue, { color: preferences.enabled ? th.ok : th.inkSub }]}>
+                  {preferences.enabled ? "开启（本机共享）" : "关闭"}
+                </Text>
+              </View>
+              <View style={styles.kv}>
+                <Text style={[styles.kvKey, { color: th.inkFaint }]}>磁盘占用</Text>
+                <Text style={[styles.kvValue, { color: th.ink }]}>
+                  {memoryBytes === null ? "—" : memoryBytes === 0 ? "没有保存记忆" : formatBytes(memoryBytes)}
+                </Text>
+              </View>
+              {memoryEntries.map((entry) => (
+                <View key={entry.workspacePath} style={styles.kv}>
+                  <Text style={[styles.kvKey, { color: th.inkGhost }]} numberOfLines={1}>
+                    {entry.workspacePath}
                   </Text>
-                  <Text style={[styles.roundCell, { color: t.inkSub }]}>
-                    出 {round.usage.outputTokens}
-                  </Text>
-                  <Text style={[styles.roundCell, { color: t.inkSub }]}>
-                    缓存读 {round.usage.cachedInputTokens}
-                  </Text>
-                  <Text style={[styles.roundRate, { color: t.ink }]}>{percent(round.hitRate)}</Text>
+                  <Text style={[styles.kvValue, { color: th.inkFaint }]}>{formatBytes(entry.bytes)}</Text>
                 </View>
-              ))
-          )}
-        </View>
+              ))}
+              <View style={styles.kv}>
+                <Text style={[styles.kvKey, { color: th.inkFaint }]}>抽取请求</Text>
+                <Text
+                  style={[
+                    styles.kvValue,
+                    { color: extractionFailed.length > 0 ? th.red : extraction.length > 0 ? th.ok : th.inkFaint },
+                  ]}
+                >
+                  {extraction.length === 0
+                    ? "本次会话还没有"
+                    : `${extraction.length} 次${extractionFailed.length > 0 ? `（失败 ${extractionFailed.length}）` : "，全部成功"}`}
+                </Text>
+              </View>
+            </View>
+          </SectionCard>
+        </AppearIn>
 
-        <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <Text style={[styles.cardTitle, { color: t.ink }]}>模型网络状态</Text>
-          {network.length === 0 ? (
-            <Text style={[styles.detail, { color: t.inkFaint }]}>还没有模型请求记录。</Text>
-          ) : (
-            network
-              .slice(-12)
-              .reverse()
-              .map((entry) => {
-                const tone = statusTone(entry.statusType);
-                const color =
-                  tone === "bad" ? t.red : tone === "warn" ? t.amber : tone === "ok" ? t.ok : t.inkFaint;
-                return (
-                  <View key={entry.eventKey} style={styles.networkRow}>
-                    <Text style={[styles.networkStatus, { color }]}>{entry.statusType}</Text>
-                    <Text style={[styles.networkMeta, { color: t.inkFaint }]} numberOfLines={1}>
-                      {sourceLabel(entry)} · {entry.modelId || entry.providerId} · 尝试 {entry.attempt}/
-                      {entry.maxAttempts}
-                      {entry.statusCode ? ` · HTTP ${entry.statusCode}` : ""}
-                      {entry.durationMs !== undefined ? ` · ${entry.durationMs}ms` : ""}
-                      {entry.reason ? ` · ${entry.reason}` : ""}
-                    </Text>
-                  </View>
-                );
-              })
-          )}
-        </View>
+        <AppearIn delay={staggerDelay(3, 32, 240)}>
+          <SectionCard label="缓存">
+            <View style={styles.cardBody}>
+              <View style={styles.kv}>
+                <Text style={[styles.kvKey, { color: th.inkFaint }]}>累计命中率</Text>
+                {/* 大号百分比用 title 字阶，色相随命中档位走。 */}
+                <Text style={[styles.bigValue, { color: cacheTone }]}>
+                  {percent(cache?.hitRate ?? null)}
+                </Text>
+              </View>
+              <Text style={[styles.detail, { color: th.inkFaint }]}>
+                {cache
+                  ? `${cache.hitRateRequestCount} 轮 · 输入 ${cache.totalInputTokens} · 命中 ${cache.totalCacheReadTokens}`
+                  : "还没有可统计的回合"}
+              </Text>
+              {lastRound ? (
+                <Text style={[styles.detail, { color: th.inkFaint }]}>
+                  最近一轮：输入 {lastRound.usage.inputTokens} · 输出 {lastRound.usage.outputTokens} ·
+                  缓存读 {lastRound.usage.cachedInputTokens} · 命中 {percent(lastRound.hitRate)}
+                </Text>
+              ) : null}
+            </View>
+          </SectionCard>
+        </AppearIn>
 
-        <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          {checkedAt ? `检查于 ${checkedAt.toLocaleTimeString()}` : "尚未检查"} ·
-          记忆抽取是旁路请求，失败不会中断主回合。
-        </Text>
+        <AppearIn delay={staggerDelay(4, 32, 240)}>
+          <SectionCard label="逐轮用量">
+            <View style={styles.cardBody}>
+              {rounds.length === 0 ? (
+                <Text style={[styles.detail, { color: th.inkFaint }]}>还没有结束的回合。</Text>
+              ) : (
+                rounds
+                  .slice(-8)
+                  .reverse()
+                  .map((round) => (
+                    <View key={round.eventKey} style={styles.roundRow}>
+                      <Text style={[styles.roundIndex, { color: th.inkFaint }]}>#{round.requestIndex}</Text>
+                      <Text style={[styles.roundCell, { color: th.inkSub }]}>
+                        入 {round.usage.inputTokens}
+                      </Text>
+                      <Text style={[styles.roundCell, { color: th.inkSub }]}>
+                        出 {round.usage.outputTokens}
+                      </Text>
+                      <Text style={[styles.roundCell, { color: th.inkSub }]}>
+                        缓存读 {round.usage.cachedInputTokens}
+                      </Text>
+                      <Text style={[styles.roundRate, { color: th.ink }]}>{percent(round.hitRate)}</Text>
+                    </View>
+                  ))
+              )}
+            </View>
+          </SectionCard>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(5, 32, 240)}>
+          <SectionCard label="模型网络状态">
+            <View style={styles.cardBody}>
+              {network.length === 0 ? (
+                <Text style={[styles.detail, { color: th.inkFaint }]}>还没有模型请求记录。</Text>
+              ) : (
+                network
+                  .slice(-12)
+                  .reverse()
+                  .map((entry) => {
+                    const tone = statusTone(entry.statusType);
+                    const color =
+                      tone === "bad" ? th.red : tone === "warn" ? th.amber : tone === "ok" ? th.ok : th.inkFaint;
+                    return (
+                      <View key={entry.eventKey} style={styles.networkRow}>
+                        <Text style={[styles.networkStatus, { color }]}>{entry.statusType}</Text>
+                        <Text style={[styles.networkMeta, { color: th.inkFaint }]} numberOfLines={1}>
+                          {sourceLabel(entry)} · {entry.modelId || entry.providerId} · 尝试 {entry.attempt}/
+                          {entry.maxAttempts}
+                          {entry.statusCode ? ` · HTTP ${entry.statusCode}` : ""}
+                          {entry.durationMs !== undefined ? ` · ${entry.durationMs}ms` : ""}
+                          {entry.reason ? ` · ${entry.reason}` : ""}
+                        </Text>
+                      </View>
+                    );
+                  })
+              )}
+            </View>
+          </SectionCard>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(6, 32, 240)}>
+          <Text style={[styles.footnote, { color: th.inkGhost }]}>
+            {checkedAt ? `检查于 ${checkedAt.toLocaleTimeString()}` : "尚未检查"} ·
+            记忆抽取是旁路请求，失败不会中断主回合。
+          </Text>
+        </AppearIn>
       </ScrollView>
     </View>
   );
@@ -323,43 +359,41 @@ export default function DiagnosticsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  head: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: space(4),
-    paddingVertical: space(2),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+  headButton: {
+    width: size.button,
+    height: size.button,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { flex: 1, textAlign: "center", fontSize: typeScale.heading, fontWeight: "700" },
-  body: { padding: space(4), gap: space(3) },
-  intro: { fontSize: 11.5, lineHeight: 18 },
-  card: {
+  busy: { opacity: 0.6 },
+  body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
+  intro: { ...text("small") },
+  banner: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
     padding: space(3),
+    gap: space(1.5),
+  },
+  bannerTitle: { ...text("body"), fontWeight: "700" },
+  bannerText: { ...text("small") },
+  cardBody: {
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
     gap: space(2),
   },
-  cardTitle: { fontSize: 13, fontWeight: "700" },
-  detail: { fontSize: 10.5, lineHeight: 16 },
-  message: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.card, padding: space(3) },
-  messageText: { fontSize: 12, lineHeight: 18 },
+  detail: { ...text("small") },
   kv: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space(2) },
-  key: { fontSize: 10.5, flex: 1 },
-  value: { fontSize: 11, fontWeight: "600" },
-  bigValue: { fontSize: 22, fontWeight: "700" },
+  kvKey: { flex: 1, ...text("small") },
+  kvValue: { ...text("small"), fontWeight: "600" },
+  bigValue: { ...text("title"), fontWeight: "700" },
   roundRow: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
-  roundIndex: { fontSize: 10, width: 28 },
-  roundCell: { fontSize: 9.5, flex: 1 },
-  roundRate: { fontSize: 10, fontWeight: "700", width: 40, textAlign: "right" },
-  networkRow: { gap: 1 },
-  networkStatus: { fontSize: 10, fontWeight: "700" },
-  networkMeta: { fontSize: 9.5, lineHeight: 14 },
-  footnote: { fontSize: 10, lineHeight: 15 },
+  roundIndex: { ...text("micro"), width: space(7) },
+  roundCell: { ...text("micro"), flex: 1 },
+  roundRate: { ...text("micro"), fontWeight: "700", width: space(10), textAlign: "right" },
+  networkRow: { gap: space(0.25) },
+  networkStatus: { ...text("micro"), fontWeight: "700" },
+  networkMeta: { ...text("micro") },
+  footnote: { ...text("micro") },
 });

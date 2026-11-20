@@ -2,12 +2,16 @@
 //
 // 配置写内核的 `provider_config.json`（与桌面/CLI 同一份）；API key 存 Android Keystore
 // （expo-secure-store），保存后经 `provider/setKeys` 只送进内核内存，不落配置文件。
+// 2.0：ScreenHeader 统一头部；供应商卡改 SectionCard 容器 + 发丝分隔；
+// 表单按钮/供应商动作统一 PillButton；输入井用 surfaceSoft。
+// 供应商头与模型行保留 ProviderLogo/MonogramAvatar（自定义头像没法塞 ui/Row 的 IconName 图标槽），
+// 行距/字阶/徽标全部走 token。
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -20,6 +24,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../components/Icon";
 import { MonogramAvatar } from "../../components/ProviderAvatar";
 import { ProviderLogo } from "../../components/ProviderLogo";
+import { PillButton } from "../../components/ui/PillButton";
+import { Divider, SectionCard } from "../../components/ui/SectionCard";
+import { ScreenHeader } from "../../components/ui/ScreenHeader";
 
 import { KernelSessionClient } from "@nibi-go/kernel-session";
 
@@ -54,7 +61,9 @@ import {
   removeProviderKey,
   setProviderKey,
 } from "../../kernel/providerKeys";
-import { radius, space, type as typeScale, useNibiTheme } from "../../theme";
+import { AppearIn, staggerDelay } from "../../motion/appear";
+import { PressableScale } from "../../motion/PressableScale";
+import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 interface EditingState {
   providerId?: string;
@@ -92,6 +101,15 @@ function modelsOf(draft: EditingState): string[] {
     .split(/[,\n]/u)
     .map((model) => model.trim())
     .filter(Boolean);
+}
+
+/** 状态徽标：soft 底 + 对应色文字（默认/Key/账号/视觉/PDF 统一走这一处）。 */
+function StatusPill({ bg, color, label }: { bg: string; color: string; label: string }) {
+  return (
+    <View style={[styles.pill, { backgroundColor: bg }]}>
+      <Text style={[styles.pillText, { color }]}>{label}</Text>
+    </View>
+  );
 }
 
 export default function SettingsScreen() {
@@ -358,173 +376,188 @@ export default function SettingsScreen() {
   const body = (() => {
     if (editing) {
       return (
-        <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <Text style={[styles.cardTitle, { color: t.ink }]}>
-            {editing.providerId ? "编辑供应商" : "添加供应商"}
-          </Text>
-          {!editing.providerId && state.presets.length > 0 && (
-            <>
-              <Text style={[styles.label, { color: t.inkSub }]}>从预设开始</Text>
-              {state.presets.length > 6 && (
-                <TextInput
-                  value={presetQuery}
-                  onChangeText={setPresetQuery}
-                  placeholder="搜索预设：名称 / 地址 / 模板 ID"
-                  placeholderTextColor={t.inkFaint}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  accessibilityLabel="搜索预设"
-                  style={[
-                    styles.input,
-                    styles.presetSearch,
-                    { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel },
-                  ]}
-                />
-              )}
-              {visiblePresets.length === 0 ? (
-                <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>没有匹配的预设</Text>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
-                  {visiblePresets.map((preset) => {
-                    const active = editing.template === preset.id;
-                    return (
-                      <Pressable
-                        key={preset.id}
-                        onPress={() => applyPreset(preset)}
-                        style={[
-                          styles.presetCard,
-                          {
-                            backgroundColor: active ? t.brandSoft : t.panel,
-                            borderColor: active ? t.brand : t.hairline,
-                          },
-                        ]}
-                      >
-                        <View style={styles.presetTitle}>
-                          <ProviderLogo
-                            logoKey={preset.logoKey}
-                            id={preset.id}
-                            name={preset.name}
-                            size={20}
-                          />
-                          <Text style={{ color: active ? t.brand : t.ink, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                            {preset.name}
-                          </Text>
-                        </View>
-                        <Text style={{ color: t.inkFaint, fontSize: 8.5 }} numberOfLines={1}>
-                          {preset.baseUrl.replace(/^https?:\/\//u, "")}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </>
-          )}
-
-          <Text style={[styles.label, { color: t.inkSub }]}>名称</Text>
-          <TextInput
-            value={editing.name}
-            onChangeText={(name) => setEditing({ ...editing, name })}
-            placeholder="我的模型服务"
-            placeholderTextColor={t.inkFaint}
-            style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel }]}
-          />
-
-          <Text style={[styles.label, { color: t.inkSub }]}>Base URL</Text>
-          <TextInput
-            value={editing.baseUrl}
-            onChangeText={(baseUrl) => setEditing({ ...editing, baseUrl })}
-            placeholder="https://api.example.com/v1"
-            placeholderTextColor={t.inkFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel }]}
-          />
-
-          <Text style={[styles.label, { color: t.inkSub }]}>协议</Text>
-          <View style={styles.chips}>
-            {PROVIDER_PROTOCOLS.map((protocol) => (
-              <Pressable
-                key={protocol.value}
-                onPress={() => setEditing({ ...editing, protocol: protocol.value })}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor:
-                      editing.protocol === protocol.value ? t.brandSoft : t.panel,
-                    borderColor:
-                      editing.protocol === protocol.value ? t.brand : t.hairline,
-                  },
-                ]}
-              >
-                <Text style={{ color: t.ink, fontSize: typeScale.small }}>{protocol.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={[styles.label, { color: t.inkSub }]}>模型 ID（逗号分隔）</Text>
-          <TextInput
-            value={editing.models}
-            onChangeText={(models) => setEditing({ ...editing, models })}
-            placeholder="gpt-5.4, glm-5"
-            placeholderTextColor={t.inkFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            style={[
-              styles.input,
-              styles.multiline,
-              { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel },
-            ]}
-          />
-
-          <Text style={[styles.label, { color: t.inkSub }]}>
-            API Key{editing.providerId && keys[editing.providerId] ? "（已保存，留空不改）" : ""}
-          </Text>
-          <TextInput
-            value={apiKey}
-            onChangeText={setApiKey}
-            placeholder={editing.providerId && keys[editing.providerId] ? "••••••••" : "sk-…"}
-            placeholderTextColor={t.inkFaint}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.panel }]}
-          />
-          <Text style={[styles.hint, { color: t.inkFaint }]}>
-            Key 存在 Android Keystore，不写进配置文件；只在内核内存里使用。
-          </Text>
-
-          <View style={styles.rowBetween}>
-            <Text style={{ color: t.inkSub, fontSize: typeScale.small }}>启用</Text>
-            <Switch
-              value={editing.enabled}
-              onValueChange={(enabled) => setEditing({ ...editing, enabled })}
-            />
-          </View>
-
-          <View style={styles.actions}>
-            <Pressable
-              onPress={() => {
-                setEditing(null);
-                setApiKey("");
-                setNote(null);
-              }}
-              style={[styles.button, { borderColor: t.hairline, backgroundColor: t.panel }]}
-            >
-              <Text style={{ color: t.inkSub }}>取消</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void save()}
-              disabled={busy === "save"}
-              style={[styles.button, { borderColor: t.brand, backgroundColor: t.brand }]}
-            >
-              <Text style={{ color: t.brandFg, fontWeight: "600" }}>
-                {busy === "save" ? "保存中…" : "保存"}
+        <AppearIn delay={staggerDelay(0, 32, 240)}>
+          <SectionCard>
+            <View style={styles.formBody}>
+              <Text style={[styles.formTitle, { color: t.ink }]}>
+                {editing.providerId ? "编辑供应商" : "添加供应商"}
               </Text>
-            </Pressable>
-          </View>
-        </View>
+              {!editing.providerId && state.presets.length > 0 && (
+                <>
+                  <Text style={[styles.label, { color: t.inkSub }]}>从预设开始</Text>
+                  {state.presets.length > 6 && (
+                    <TextInput
+                      value={presetQuery}
+                      onChangeText={setPresetQuery}
+                      placeholder="搜索预设：名称 / 地址 / 模板 ID"
+                      placeholderTextColor={t.inkFaint}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      accessibilityLabel="搜索预设"
+                      style={[
+                        styles.input,
+                        styles.presetSearch,
+                        { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+                      ]}
+                    />
+                  )}
+                  {visiblePresets.length === 0 ? (
+                    <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>没有匹配的预设</Text>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
+                      {visiblePresets.map((preset) => {
+                        const active = editing.template === preset.id;
+                        return (
+                          <PressableScale
+                            key={preset.id}
+                            onPress={() => applyPreset(preset)}
+                            scaleTo={0.96}
+                            accessibilityRole="button"
+                            accessibilityLabel={`使用预设 ${preset.name}`}
+                            style={[
+                              styles.presetCard,
+                              {
+                                backgroundColor: active ? t.brandSoft : t.surfaceSoft,
+                                borderColor: active ? t.brand : t.hairline,
+                              },
+                            ]}
+                          >
+                            <View style={styles.presetTitle}>
+                              <ProviderLogo
+                                logoKey={preset.logoKey}
+                                id={preset.id}
+                                name={preset.name}
+                                size={20}
+                              />
+                              <Text
+                                style={[styles.presetName, { color: active ? t.brand : t.ink }]}
+                                numberOfLines={1}
+                              >
+                                {preset.name}
+                              </Text>
+                            </View>
+                            <Text style={[styles.presetUrl, { color: t.inkFaint }]} numberOfLines={1}>
+                              {preset.baseUrl.replace(/^https?:\/\//u, "")}
+                            </Text>
+                          </PressableScale>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+
+              <Text style={[styles.label, { color: t.inkSub }]}>名称</Text>
+              <TextInput
+                value={editing.name}
+                onChangeText={(name) => setEditing({ ...editing, name })}
+                placeholder="我的模型服务"
+                placeholderTextColor={t.inkFaint}
+                style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
+              />
+
+              <Text style={[styles.label, { color: t.inkSub }]}>Base URL</Text>
+              <TextInput
+                value={editing.baseUrl}
+                onChangeText={(baseUrl) => setEditing({ ...editing, baseUrl })}
+                placeholder="https://api.example.com/v1"
+                placeholderTextColor={t.inkFaint}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
+              />
+
+              <Text style={[styles.label, { color: t.inkSub }]}>协议</Text>
+              <View style={styles.chips}>
+                {PROVIDER_PROTOCOLS.map((protocol) => {
+                  const active = editing.protocol === protocol.value;
+                  return (
+                    <PressableScale
+                      key={protocol.value}
+                      onPress={() => setEditing({ ...editing, protocol: protocol.value })}
+                      scaleTo={0.95}
+                      accessibilityRole="button"
+                      accessibilityLabel={`协议 ${protocol.label}`}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: active ? t.brandSoft : t.surfaceSoft,
+                          borderColor: active ? t.brand : t.hairline,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, { color: active ? t.brand : t.ink }]}>
+                        {protocol.label}
+                      </Text>
+                    </PressableScale>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.label, { color: t.inkSub }]}>模型 ID（逗号分隔）</Text>
+              <TextInput
+                value={editing.models}
+                onChangeText={(models) => setEditing({ ...editing, models })}
+                placeholder="gpt-5.4, glm-5"
+                placeholderTextColor={t.inkFaint}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                style={[
+                  styles.input,
+                  styles.multiline,
+                  { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+                ]}
+              />
+
+              <Text style={[styles.label, { color: t.inkSub }]}>
+                API Key{editing.providerId && keys[editing.providerId] ? "（已保存，留空不改）" : ""}
+              </Text>
+              <TextInput
+                value={apiKey}
+                onChangeText={setApiKey}
+                placeholder={editing.providerId && keys[editing.providerId] ? "••••••••" : "sk-…"}
+                placeholderTextColor={t.inkFaint}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
+              />
+              <Text style={[styles.hint, { color: t.inkFaint }]}>
+                Key 存在 Android Keystore，不写进配置文件；只在内核内存里使用。
+              </Text>
+
+              <View style={styles.rowBetween}>
+                <Text style={[styles.switchLabel, { color: t.inkSub }]}>启用</Text>
+                <Switch
+                  value={editing.enabled}
+                  onValueChange={(enabled) => setEditing({ ...editing, enabled })}
+                  trackColor={{ false: t.surfaceSoft, true: t.brandSoft }}
+                  thumbColor={editing.enabled ? t.brand : t.inkGhost}
+                  ios_backgroundColor={t.surfaceSoft}
+                />
+              </View>
+
+              <View style={styles.actions}>
+                <PillButton
+                  label="取消"
+                  variant="secondary"
+                  onPress={() => {
+                    setEditing(null);
+                    setApiKey("");
+                    setNote(null);
+                  }}
+                />
+                <PillButton
+                  label={busy === "save" ? "保存中…" : "保存"}
+                  variant="primary"
+                  onPress={() => void save()}
+                  disabled={busy === "save"}
+                />
+              </View>
+            </View>
+          </SectionCard>
+        </AppearIn>
       );
     }
 
@@ -535,240 +568,210 @@ export default function SettingsScreen() {
             还没有 Provider。添加一个模型服务后，新会话就能选它。
           </Text>
         )}
-        {state.providers.map((provider) => {
+        {state.providers.map((provider, providerIndex) => {
           const isDefault =
             provider.id === defaultProviderId &&
             (defaultModelId ? provider.models.includes(defaultModelId) : false);
           return (
-            <View
-              key={provider.id}
-              style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
-            >
-              <View style={styles.rowBetween}>
-                <ProviderLogo
-                  logoKey={provider.logoKey}
-                  id={provider.id}
-                  name={provider.name}
-                  size={38}
-                />
-                <View style={styles.titleColumn}>
-                  <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
-                  <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
-                    {protocolLabel(provider.protocol)} · {provider.baseUrl || "未配置端点"}
-                  </Text>
-                </View>
-                <View style={styles.badges}>
-                  {isDefault && (
-                    <View style={[styles.badge, { backgroundColor: t.brandSoft }]}>
-                      <Text style={{ color: t.brand, fontSize: typeScale.micro }}>默认</Text>
-                    </View>
-                  )}
-                  <View
-                    style={[
-                      styles.badge,
-                      { backgroundColor: provider.hasKey ? t.okSoft : t.amberSoft },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: provider.hasKey ? t.ok : t.amber,
-                        fontSize: typeScale.micro,
-                      }}
-                    >
-                      {provider.hasKey ? "Key 已保存" : "缺 Key"}
+            <AppearIn key={provider.id} delay={staggerDelay(providerIndex, 32, 240)}>
+              <SectionCard>
+                <View style={styles.providerHead}>
+                  <ProviderLogo
+                    logoKey={provider.logoKey}
+                    id={provider.id}
+                    name={provider.name}
+                    size={38}
+                  />
+                  <View style={styles.titleColumn}>
+                    <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
+                    <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
+                      {protocolLabel(provider.protocol)} · {provider.baseUrl || "未配置端点"}
                     </Text>
                   </View>
-                  {provider.account && (
-                    <View style={[styles.badge, { backgroundColor: t.steelSoft }]}>
-                      <Text style={{ color: t.steel, fontSize: typeScale.micro }}>账号</Text>
-                    </View>
+                  <View style={styles.badges}>
+                    {isDefault && <StatusPill bg={t.brandSoft} color={t.brand} label="默认" />}
+                    <StatusPill
+                      bg={provider.hasKey ? t.okSoft : t.amberSoft}
+                      color={provider.hasKey ? t.ok : t.amber}
+                      label={provider.hasKey ? "Key 已保存" : "缺 Key"}
+                    />
+                    {provider.account && <StatusPill bg={t.steelSoft} color={t.steel} label="账号" />}
+                  </View>
+                </View>
+
+                <Divider />
+
+                <View style={styles.modelList}>
+                  {provider.models.length === 0 ? (
+                    <Text style={[styles.emptyModels, { color: t.inkSub }]}>没有模型</Text>
+                  ) : (
+                    provider.models.map((modelId, modelIndex) => {
+                      const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
+                      const input = config?.properties?.inputFormat;
+                      const window = config?.properties?.contextWindow;
+                      const isDefaultModel =
+                        provider.id === defaultProviderId && modelId === defaultModelId;
+                      return (
+                        <View
+                          key={modelId}
+                          style={
+                            modelIndex > 0
+                              ? [styles.modelRow, styles.modelRowBordered, { borderTopColor: t.hairline }]
+                              : styles.modelRow
+                          }
+                        >
+                          <MonogramAvatar id={modelId} name={modelId} size={20} />
+                          <View style={styles.modelInfo}>
+                            <Text style={[styles.modelName, { color: t.ink }]} numberOfLines={1}>
+                              {modelId}
+                            </Text>
+                            <View style={styles.modelBadges}>
+                              {window ? (
+                                <Text style={[styles.modelMeta, { color: t.inkFaint }]}>
+                                  {window >= 1_000_000
+                                    ? `${Math.round(window / 100_000) / 10}M`
+                                    : window >= 1000
+                                      ? `${Math.round(window / 1000)}K`
+                                      : window}
+                                </Text>
+                              ) : null}
+                              {input?.supportsImage ? (
+                                <StatusPill bg={t.steelSoft} color={t.steel} label="视觉" />
+                              ) : null}
+                              {input?.supportsPdf ? (
+                                <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="PDF" />
+                              ) : null}
+                            </View>
+                          </View>
+                          {isDefaultModel ? (
+                            // 模型行的「默认」是状态徽标不是按钮，保持小尺寸 chip 而不是 PillButton。
+                            <View
+                              style={[
+                                styles.modelDefault,
+                                { borderColor: t.brand, backgroundColor: t.brandSoft },
+                              ]}
+                            >
+                              <Icon name="check" size={9} color={t.brand} strokeWidth={2.6} />
+                              <Text style={[styles.modelDefaultText, { color: t.brand }]}>默认</Text>
+                            </View>
+                          ) : (
+                            <PressableScale
+                              onPress={() => makeModelDefault(provider, modelId)}
+                              disabled={busy !== null}
+                              hitSlop={6}
+                              accessibilityRole="button"
+                              accessibilityLabel={`将 ${modelId} 设为默认模型`}
+                              style={[
+                                styles.modelDefault,
+                                { borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+                              ]}
+                            >
+                              <Text style={[styles.modelDefaultTextIdle, { color: t.inkSub }]}>
+                                {busy === `default:${provider.id}:${modelId}` ? "设置中…" : "设为默认"}
+                              </Text>
+                            </PressableScale>
+                          )}
+                          {provider.personal ? (
+                            <PressableScale
+                              onPress={() =>
+                                setModelEditor({ provider, modelId, ...(config ? { config } : {}) })
+                              }
+                              hitSlop={6}
+                              accessibilityRole="button"
+                              accessibilityLabel={`编辑模型 ${modelId}`}
+                              style={[styles.modelEdit, { backgroundColor: t.surfaceSoft }]}
+                            >
+                              <Icon name="pen" size={12} color={t.inkSub} />
+                            </PressableScale>
+                          ) : null}
+                        </View>
+                      );
+                    })
+                  )}
+                  {provider.personal ? (
+                    <PressableScale
+                      onPress={() => setModelEditor({ provider })}
+                      accessibilityRole="button"
+                      accessibilityLabel="添加模型"
+                      style={[styles.addModel, { borderColor: t.hairlineStrong }]}
+                    >
+                      <Icon name="plus" size={11} color={t.brand} />
+                      <Text style={[styles.addModelText, { color: t.brand }]}>添加模型</Text>
+                    </PressableScale>
+                  ) : null}
+                </View>
+
+                <Divider />
+
+                <View style={styles.actions}>
+                  <PillButton
+                    label={busy === `test:${provider.id}` ? "测试中…" : "测试"}
+                    variant="secondary"
+                    onPress={() => test(provider)}
+                    disabled={busy !== null}
+                  />
+                  <PillButton
+                    label={busy === `default:${provider.id}` ? "设置中…" : "设为默认"}
+                    variant="secondary"
+                    onPress={() => makeDefault(provider)}
+                    disabled={busy !== null}
+                  />
+                  {provider.personal && (
+                    <>
+                      <PillButton
+                        label="编辑"
+                        variant="secondary"
+                        onPress={() => beginEdit(provider)}
+                        disabled={busy !== null}
+                      />
+                      <PillButton
+                        label="删除"
+                        variant="danger"
+                        onPress={() => remove(provider)}
+                        disabled={busy !== null}
+                      />
+                    </>
                   )}
                 </View>
-              </View>
-
-              <View style={styles.modelList}>
-                {provider.models.length === 0 ? (
-                  <Text style={[styles.sub, { color: t.inkSub }]}>没有模型</Text>
-                ) : (
-                  provider.models.map((modelId) => {
-                    const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
-                    const input = config?.properties?.inputFormat;
-                    const window = config?.properties?.contextWindow;
-                    const isDefaultModel =
-                      provider.id === defaultProviderId && modelId === defaultModelId;
-                    return (
-                      <View
-                        key={modelId}
-                        style={[styles.modelRow, { borderColor: t.hairline }]}
-                      >
-                        <MonogramAvatar id={modelId} name={modelId} size={20} />
-                        <View style={styles.modelInfo}>
-                          <Text style={[styles.modelName, { color: t.ink }]} numberOfLines={1}>
-                            {modelId}
-                          </Text>
-                          <View style={styles.modelBadges}>
-                            {window ? (
-                              <Text style={[styles.modelMeta, { color: t.inkFaint }]}>
-                                {window >= 1_000_000
-                                  ? `${Math.round(window / 100_000) / 10}M`
-                                  : window >= 1000
-                                    ? `${Math.round(window / 1000)}K`
-                                    : window}
-                              </Text>
-                            ) : null}
-                            {input?.supportsImage ? (
-                              <View style={[styles.badge, { backgroundColor: t.steelSoft }]}>
-                                <Text style={{ color: t.steel, fontSize: typeScale.micro }}>视觉</Text>
-                              </View>
-                            ) : null}
-                            {input?.supportsPdf ? (
-                              <View style={[styles.badge, { backgroundColor: t.panel }]}>
-                                <Text style={{ color: t.inkSub, fontSize: typeScale.micro }}>PDF</Text>
-                              </View>
-                            ) : null}
-                          </View>
-                        </View>
-                        {isDefaultModel ? (
-                          <View
-                            style={[
-                              styles.smallButton,
-                              styles.modelDefault,
-                              { borderColor: t.brand, backgroundColor: t.brandSoft },
-                            ]}
-                          >
-                            <Icon name="check" size={9} color={t.brand} strokeWidth={2.6} />
-                            <Text style={{ color: t.brand, fontSize: 10, fontWeight: "700" }}>
-                              默认
-                            </Text>
-                          </View>
-                        ) : (
-                          <Pressable
-                            onPress={() => makeModelDefault(provider, modelId)}
-                            disabled={busy !== null}
-                            hitSlop={6}
-                            accessibilityRole="button"
-                            accessibilityLabel={`将 ${modelId} 设为默认模型`}
-                            style={[
-                              styles.smallButton,
-                              styles.modelDefault,
-                              { borderColor: t.hairline, backgroundColor: t.panel },
-                            ]}
-                          >
-                            <Text style={{ color: t.inkSub, fontSize: 10 }}>
-                              {busy === `default:${provider.id}:${modelId}` ? "设置中…" : "设为默认"}
-                            </Text>
-                          </Pressable>
-                        )}
-                        {provider.personal ? (
-                          <Pressable
-                            onPress={() =>
-                              setModelEditor({ provider, modelId, ...(config ? { config } : {}) })
-                            }
-                            hitSlop={6}
-                            accessibilityRole="button"
-                            accessibilityLabel={`编辑模型 ${modelId}`}
-                            style={[styles.modelEdit, { backgroundColor: t.panel }]}
-                          >
-                            <Icon name="pen" size={12} color={t.inkSub} />
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    );
-                  })
-                )}
-                {provider.personal ? (
-                  <Pressable
-                    onPress={() => setModelEditor({ provider })}
-                    style={[styles.addModel, { borderColor: t.hairline }]}
-                  >
-                    <Icon name="plus" size={11} color={t.brand} />
-                    <Text style={[styles.addModelText, { color: t.brand }]}>添加模型</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              <View style={styles.actions}>
-                <Pressable
-                  onPress={() => test(provider)}
-                  disabled={busy !== null}
-                  style={[styles.smallButton, { borderColor: t.hairline, backgroundColor: t.panel }]}
-                >
-                  <Text style={{ color: t.inkSub, fontSize: typeScale.small }}>
-                    {busy === `test:${provider.id}` ? "测试中…" : "测试"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => makeDefault(provider)}
-                  disabled={busy !== null}
-                  style={[styles.smallButton, { borderColor: t.hairline, backgroundColor: t.panel }]}
-                >
-                  <Text style={{ color: t.inkSub, fontSize: typeScale.small }}>
-                    {busy === `default:${provider.id}` ? "设置中…" : "设为默认"}
-                  </Text>
-                </Pressable>
-                {provider.personal && (
-                  <>
-                    <Pressable
-                      onPress={() => beginEdit(provider)}
-                      disabled={busy !== null}
-                      style={[styles.smallButton, { borderColor: t.hairline, backgroundColor: t.panel }]}
-                    >
-                      <Text style={{ color: t.inkSub, fontSize: typeScale.small }}>编辑</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => remove(provider)}
-                      disabled={busy !== null}
-                      style={[styles.smallButton, { borderColor: t.redSoft, backgroundColor: t.panel }]}
-                    >
-                      <Text style={{ color: t.red, fontSize: typeScale.small }}>删除</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-            </View>
+              </SectionCard>
+            </AppearIn>
           );
         })}
 
-        <Pressable
-          onPress={() => beginEdit()}
-          style={[styles.addButton, { borderColor: t.brand, backgroundColor: t.brandSoft }]}
-        >
-          <Icon name="plus" size={15} color={t.brand} />
-          <Text style={{ color: t.brand, fontWeight: "700", fontSize: 12.5 }}>添加供应商</Text>
-        </Pressable>
+        <AppearIn delay={staggerDelay(state.providers.length, 32, 240)}>
+          <PillButton
+            label="添加供应商"
+            variant="primary"
+            icon="plus"
+            buttonSize="lg"
+            onPress={() => beginEdit()}
+          />
+        </AppearIn>
       </>
     );
   })();
 
   return (
-    <View style={[styles.screen, { backgroundColor: t.bg }]}>
-      <View style={[styles.header, { paddingTop: insets.top + space(2), borderBottomColor: t.hairline }]}>
-        <Pressable
-          onPress={() => router.back()}
-          style={[styles.backButton, { backgroundColor: t.panel, borderColor: t.hairline }]}
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-        >
-          <Icon name="chevron-left" size={16} color={t.inkSub} />
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text style={[styles.screenTitle, { color: t.ink }]}>模型设置</Text>
-          <Text style={[styles.headerSub, { color: t.inkFaint }]}>供应商 · 模型 · 思考档位</Text>
-        </View>
-        <View style={styles.headerSpacer} />
-      </View>
+    <View style={styles.screen}>
+      <LinearGradient
+        colors={[t.glowTop, t.bgGradient[0], t.bgGradient[1]]}
+        locations={[0, 0.38, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <ScreenHeader title="模型设置" subtitle="供应商 · 模型 · 思考档位" onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(8) }]}
       >
         <Text style={[styles.section, { color: t.inkSub }]}>供应商</Text>
         {loading && <ActivityIndicator style={styles.loading} />}
-        {error && <Text style={{ color: t.red, marginBottom: space(3) }}>{error}</Text>}
+        {error && <Text style={[styles.noteText, { color: t.red }]}>{error}</Text>}
         {note && (
           <Text
-            style={{
-              color: note.includes("失败") || note.includes("请填") ? t.red : t.ok,
-              marginBottom: space(3),
-            }}
+            style={[
+              styles.noteText,
+              { color: note.includes("失败") || note.includes("请填") ? t.red : t.ok },
+            ]}
           >
             {note}
           </Text>
@@ -794,118 +797,55 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space(2),
-    paddingHorizontal: space(4),
-    paddingBottom: space(2.5),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerText: { flex: 1, alignItems: "center", gap: 1 },
-  headerSpacer: { width: 40, height: 40 },
-  headerSub: { fontSize: 9.5 },
-  presetRow: { gap: space(2), paddingVertical: 2 },
-  presetSearch: {
-    paddingVertical: space(1.5),
-    fontSize: typeScale.small,
-    marginBottom: space(2),
-  },
-  presetEmpty: { fontSize: typeScale.micro, paddingVertical: space(1.5) },
-  presetTitle: { flexDirection: "row", alignItems: "center", gap: 5 },
-  presetCard: {
-    width: 148,
-    minHeight: 52,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
-    gap: 3,
-    justifyContent: "center",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  screenTitle: { fontSize: typeScale.title, fontWeight: "700" },
-  content: { paddingHorizontal: space(4), paddingTop: space(3) },
+  content: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
   section: {
-    fontSize: typeScale.micro,
+    ...text("micro"),
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginBottom: space(3),
   },
   loading: { marginVertical: space(6) },
-  empty: { fontSize: typeScale.body, lineHeight: 21, marginBottom: space(4) },
-  card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
-    padding: space(4),
-    marginBottom: space(3),
-  },
-  cardTitle: { fontSize: typeScale.heading, fontWeight: "600" },
-  sub: { fontSize: typeScale.small, marginTop: space(1) },
-  modelList: { gap: space(1.5), marginTop: space(1) },
-  modelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space(2),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: space(1.5),
-  },
-  modelInfo: { flex: 1, gap: 2 },
-  modelName: { fontSize: 11.5, fontWeight: "600" },
-  modelBadges: { flexDirection: "row", alignItems: "center", gap: 5 },
-  modelMeta: { fontSize: 9.5 },
-  modelEdit: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modelDefault: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: space(2),
-    paddingVertical: space(1),
-  },
-  addModel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    alignSelf: "flex-start",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.chip,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(1.5),
-    marginTop: space(1),
-  },
-  addModelText: { fontSize: 10.5, fontWeight: "700" },
-  titleColumn: { flex: 1, paddingRight: space(2) },
-  badges: { flexDirection: "row", gap: space(1), flexWrap: "wrap", justifyContent: "flex-end" },
-  badge: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.5) },
-  rowBetween: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: space(2),
-  },
-  label: { fontSize: typeScale.micro, marginTop: space(3), marginBottom: space(1) },
+  noteText: { ...text("small") },
+  empty: { ...text("body") },
+  // —— 编辑表单 ——
+  formBody: { padding: space(3.5), gap: space(2) },
+  formTitle: { ...text("heading"), fontWeight: "700" },
+  label: { ...text("micro"), marginTop: space(1) },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
     paddingHorizontal: space(3),
     paddingVertical: space(2),
-    fontSize: typeScale.body,
+    ...text("body"),
   },
-  multiline: { minHeight: 60, textAlignVertical: "top" },
-  hint: { fontSize: typeScale.micro, marginTop: space(1.5), lineHeight: 16 },
+  presetSearch: { ...text("small") },
+  presetEmpty: { ...text("micro"), paddingVertical: space(1) },
+  presetRow: { gap: space(2), paddingVertical: space(0.5) },
+  presetTitle: { flexDirection: "row", alignItems: "center", gap: space(1.25) },
+  presetName: { ...text("micro"), fontWeight: "700" },
+  presetUrl: { ...text("micro") },
+  presetCard: {
+    width: 148,
+    minHeight: size.row,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+    gap: space(0.75),
+    justifyContent: "center",
+  },
+  hint: { ...text("micro") },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  switchLabel: { ...text("small") },
+  actions: {
+    flexDirection: "row",
+    gap: space(2),
+    flexWrap: "wrap",
+  },
+  // —— 协议 chip ——
   chips: { flexDirection: "row", flexWrap: "wrap", gap: space(2) },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -913,28 +853,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(3),
     paddingVertical: space(1.5),
   },
-  actions: { flexDirection: "row", gap: space(2), marginTop: space(3), flexWrap: "wrap" },
-  button: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.control,
-    paddingHorizontal: space(4),
-    paddingVertical: space(2.5),
-    alignItems: "center",
-  },
-  smallButton: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.chip,
-    paddingHorizontal: space(3),
-    paddingVertical: space(1.5),
-  },
-  addButton: {
+  chipText: { ...text("small") },
+  multiline: { minHeight: space(15), textAlignVertical: "top" },
+  // —— 供应商卡 ——
+  providerHead: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: space(2),
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
+    paddingHorizontal: space(3.5),
     paddingVertical: space(3),
+  },
+  titleColumn: { flex: 1, paddingRight: space(2) },
+  cardTitle: { ...text("heading"), fontWeight: "600" },
+  sub: { ...text("small"), marginTop: space(0.5) },
+  badges: { flexDirection: "row", gap: space(1), flexWrap: "wrap", justifyContent: "flex-end" },
+  pill: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.5) },
+  pillText: { ...text("micro"), fontWeight: "600" },
+  modelList: {
+    gap: space(1.5),
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2),
+  },
+  emptyModels: { ...text("small") },
+  modelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    paddingVertical: space(1),
+  },
+  // 行间发丝线：宽度走静态样式，颜色用主题 token 在渲染处覆盖（styles 是模块级静态）。
+  modelRowBordered: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space(1.5),
+  },
+  modelInfo: { flex: 1, gap: space(0.5) },
+  modelName: { ...text("small"), fontWeight: "600" },
+  modelBadges: { flexDirection: "row", alignItems: "center", gap: space(1.25) },
+  modelMeta: { ...text("micro") },
+  modelEdit: {
+    width: size.chip,
+    height: size.chip,
+    borderRadius: radius.xs,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modelDefault: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(0.75),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2),
+    paddingVertical: space(1),
+  },
+  modelDefaultText: { ...text("micro"), fontWeight: "700" },
+  modelDefaultTextIdle: { ...text("micro") },
+  addModel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1.5),
     marginTop: space(1),
   },
+  addModelText: { ...text("micro"), fontWeight: "700" },
 });

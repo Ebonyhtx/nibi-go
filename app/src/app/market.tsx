@@ -2,14 +2,17 @@
 //
 // 索引刷新失败（网络/验签/回滚/版本不变量）会保留上一份快照并给出原因；
 // 安装前校验包 sha256，解包后校验清单 id/version 与索引一致。
+// 2.0：ScreenHeader（右槽=刷新）；账号/授权卡改 SectionCard + Row；
+// 安装/更新/卸载统一 PillButton（primary=安装/更新，danger=卸载）；进度条 token 化。
+// 「同步」按钮必须保留 onLongPress 调试入口（授权状态模拟），所以不换成 PillButton。
 
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useRef, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
   Alert,
   Linking,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +23,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-index";
 
 import { Icon } from "../components/Icon";
+import { PillButton } from "../components/ui/PillButton";
+import { Row } from "../components/ui/Row";
+import { Divider, SectionCard } from "../components/ui/SectionCard";
+import { ScreenHeader } from "../components/ui/ScreenHeader";
 import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
 import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
 import {
@@ -37,7 +44,9 @@ import { syncLicense } from "../plugins/licenseSync";
 import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
 import { useSession } from "../relay/useSession";
-import { radius, space, type as typeScale, useNibiTheme } from "../theme";
+import { AppearIn, staggerDelay } from "../motion/appear";
+import { PressableScale } from "../motion/PressableScale";
+import { radius, size, space, text, useNibiTheme } from "../theme";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -84,6 +93,15 @@ function describeLicenseRefusal(reason: string | null, detail?: string | null): 
   }
 }
 
+/** 状态徽标：soft 底 + 对应色文字（付费/未安装/可更新/已安装/已下架 统一走这一处）。 */
+function StatusPill({ bg, color, label }: { bg: string; color: string; label: string }) {
+  return (
+    <View style={[styles.pill, { backgroundColor: bg }]}>
+      <Text style={[styles.pillText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
 function MarketRow({
   entry,
   installedVersion,
@@ -115,28 +133,20 @@ function MarketRow({
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
       <View style={styles.cardHead}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.cardTitleWrap}>
           <Text style={[styles.name, { color: t.ink }]}>{entry.name}</Text>
           <Text style={[styles.meta, { color: t.inkFaint }]}>
             {entry.id} · v{entry.version} · {formatSize(entry.package.size)}
           </Text>
         </View>
         {paidDecision !== null && blocked ? (
-          <View style={[styles.badge, { backgroundColor: t.amberSoft }]}>
-            <Text style={[styles.badgeText, { color: t.amber }]}>付费</Text>
-          </View>
+          <StatusPill bg={t.amberSoft} color={t.amber} label="付费" />
         ) : installedVersion === null ? (
-          <View style={[styles.badge, { backgroundColor: t.panel }]}>
-            <Text style={[styles.badgeText, { color: t.inkFaint }]}>未安装</Text>
-          </View>
+          <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
         ) : hasUpdate ? (
-          <View style={[styles.badge, { backgroundColor: t.amberSoft }]}>
-            <Text style={[styles.badgeText, { color: t.amber }]}>可更新</Text>
-          </View>
+          <StatusPill bg={t.amberSoft} color={t.amber} label="可更新" />
         ) : (
-          <View style={[styles.badge, { backgroundColor: t.okSoft }]}>
-            <Text style={[styles.badgeText, { color: t.ok }]}>已安装 v{installedVersion}</Text>
-          </View>
+          <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVersion}`} />
         )}
       </View>
 
@@ -150,39 +160,30 @@ function MarketRow({
       ) : null}
 
       <View style={styles.actions}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${action} ${entry.name}`}
+        <PillButton
+          label={action}
+          variant="primary"
           disabled={busy}
           onPress={blocked ? onResolveAccess : onInstall}
-          style={[styles.primary, { backgroundColor: t.brand, opacity: busy ? 0.5 : 1 }]}
-        >
-          {busy ? (
-            <ActivityIndicator color={t.brandFg} />
-          ) : (
-            <Text style={[styles.primaryText, { color: t.brandFg }]}>{action}</Text>
-          )}
-        </Pressable>
+          accessibilityLabel={`${action} ${entry.name}`}
+          style={styles.primaryButton}
+        />
         {busy ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`取消安装 ${entry.name}`}
+          <PillButton
+            label="取消"
+            variant="secondary"
             onPress={onCancel}
-            style={[styles.secondary, { borderColor: t.hairline }]}
-          >
-            <Text style={[styles.secondaryText, { color: t.inkSub }]}>取消</Text>
-          </Pressable>
+            accessibilityLabel={`取消安装 ${entry.name}`}
+          />
         ) : null}
         {installedVersion !== null && !busy ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`卸载 ${entry.name}`}
+          <PillButton
+            label="卸载"
+            variant="danger"
             disabled={busy}
             onPress={onUninstall}
-            style={[styles.secondary, { borderColor: t.hairline }]}
-          >
-            <Text style={[styles.secondaryText, { color: t.red }]}>卸载</Text>
-          </Pressable>
+            accessibilityLabel={`卸载 ${entry.name}`}
+          />
         ) : null}
       </View>
     </View>
@@ -480,105 +481,129 @@ export default function MarketScreen() {
         : "同步授权";
 
   return (
-    <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
-      <View style={[styles.head, { borderBottomColor: t.hairline }]}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          style={[styles.back, { backgroundColor: t.panel }]}
-        >
-          <Icon name="chevron-left" size={16} color={t.inkSub} />
-        </Pressable>
-        <Text style={[styles.title, { color: t.ink }]}>插件市场</Text>
-        <Pressable
-          onPress={() => void doRefresh()}
-          disabled={refreshing}
-          accessibilityRole="button"
-          accessibilityLabel="刷新市场索引"
-          style={[styles.back, { backgroundColor: t.panel, opacity: refreshing ? 0.5 : 1 }]}
-        >
-          {refreshing ? (
-            <ActivityIndicator color={t.brand} />
-          ) : (
-            <Icon name="refresh" size={16} color={t.inkSub} />
-          )}
-        </Pressable>
-      </View>
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[t.glowTop, t.bgGradient[0], t.bgGradient[1]]}
+        locations={[0, 0.38, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <ScreenHeader
+        title="插件市场"
+        onBack={() => router.back()}
+        right={
+          // 头部右槽刷新：与 ScreenHeader 返回钮同一档玻璃圆钮。
+          <PressableScale
+            onPress={() => void doRefresh()}
+            disabled={refreshing}
+            accessibilityRole="button"
+            accessibilityLabel="刷新市场索引"
+            hitSlop={8}
+            style={[
+              styles.headButton,
+              { backgroundColor: t.glass, borderColor: t.glassBorder },
+              refreshing ? styles.busy : null,
+            ]}
+          >
+            {refreshing ? (
+              <ActivityIndicator color={t.brand} size="small" />
+            ) : (
+              <Icon name="refresh" size={16} color={t.ink} />
+            )}
+          </PressableScale>
+        }
+      />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        <Text style={[styles.hint, { color: t.inkFaint }]}>
-          索引经 Ed25519 验签，包按 sha256 校验；刷新失败会保留上一份快照。
-        </Text>
-        <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
-          {MARKET_INDEX_URL}
-        </Text>
-        <View style={[styles.accountCard, { backgroundColor: t.card, borderColor: t.hairline }]}>
-          <View style={styles.licenseRow}>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.accountName, { color: t.ink }]}>{accountText}</Text>
-              <Text style={[styles.hint, { color: license.activated ? t.inkFaint : t.amber }]}>
+        <AppearIn delay={staggerDelay(0, 32, 240)}>
+          <Text style={[styles.hint, { color: t.inkFaint }]}>
+            索引经 Ed25519 验签，包按 sha256 校验；刷新失败会保留上一份快照。
+          </Text>
+          <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
+            {MARKET_INDEX_URL}
+          </Text>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(1, 32, 240)}>
+          <SectionCard label="账号与授权">
+            <Row
+              icon="user"
+              tone={sessionSnapshot.loggedIn ? "steel" : "plain"}
+              title={accountText}
+              right={
+                // onLongPress 挂调试入口（授权状态模拟），必须保留长按——不能用 PillButton。
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={sessionSnapshot.loggedIn ? "同步付费授权" : "登录 NIBI 账号"}
+                  disabled={syncing || loggingIn}
+                  onPress={() => void (sessionSnapshot.loggedIn ? doSync() : doLogin())}
+                  onLongPress={showLicenseDebugMenu}
+                  style={[
+                    styles.syncButton,
+                    { backgroundColor: t.surfaceSoft },
+                    syncing || loggingIn ? styles.busy : null,
+                  ]}
+                >
+                  {syncing || loggingIn ? (
+                    <ActivityIndicator color={t.brand} size="small" />
+                  ) : (
+                    <Text style={[styles.syncText, { color: t.inkSub }]}>
+                      {sessionSnapshot.loggedIn ? "同步" : "登录"}
+                    </Text>
+                  )}
+                </PressableScale>
+              }
+            />
+            <View style={styles.licenseBody}>
+              <Text style={[styles.licenseText, { color: license.activated ? t.inkFaint : t.amber }]}>
                 {licenseText}
               </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={sessionSnapshot.loggedIn ? "同步付费授权" : "登录 NIBI 账号"}
-              disabled={syncing || loggingIn}
-              onPress={() => void (sessionSnapshot.loggedIn ? doSync() : doLogin())}
-              onLongPress={showLicenseDebugMenu}
-              style={[
-                styles.syncButton,
-                { backgroundColor: t.panel, opacity: syncing || loggingIn ? 0.6 : 1 },
-              ]}
-            >
-              {syncing || loggingIn ? (
-                <ActivityIndicator color={t.brand} />
-              ) : (
-                <Text style={[styles.syncText, { color: t.inkSub }]}>
-                  {sessionSnapshot.loggedIn ? "同步" : "登录"}
+              {!sessionSnapshot.loggedIn ? (
+                <Text style={[styles.licenseHint, { color: t.inkGhost }]}>
+                  手机远控的登录是网页会话；付费插件授权按本机设备签发，需要在 NIBI-GO 内登录账号并同步一次。
                 </Text>
-              )}
-            </Pressable>
-          </View>
-          {!sessionSnapshot.loggedIn ? (
-            <Text style={[styles.hint, { color: t.inkGhost }]}>
-              手机远控的登录是网页会话；付费插件授权按本机设备签发，需要在 NIBI-GO 内登录账号并同步一次。
-            </Text>
-          ) : null}
-        </View>
+              ) : null}
+            </View>
+          </SectionCard>
+        </AppearIn>
 
         {corruptSnapshot ? (
-          <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
-            <Text style={[styles.messageText, { color: t.amber }]}>
-              本地市场快照损坏，已忽略；刷新会重新建立快照。
-            </Text>
-          </View>
+          <AppearIn delay={staggerDelay(2, 32, 240)}>
+            <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
+              <Text style={[styles.messageText, { color: t.amber }]}>
+                本地市场快照损坏，已忽略；刷新会重新建立快照。
+              </Text>
+            </View>
+          </AppearIn>
         ) : null}
 
         {message ? (
-          <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
-            <Text style={[styles.messageText, { color: t.inkSub }]}>{message}</Text>
-          </View>
+          <AppearIn delay={staggerDelay(2, 32, 240)}>
+            <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
+              <Text style={[styles.messageText, { color: t.inkSub }]}>{message}</Text>
+            </View>
+          </AppearIn>
         ) : null}
 
         {busyId && progress ? (
-          <View style={styles.progressWrap}>
-            <View style={[styles.progressTrack, { backgroundColor: t.panel }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    backgroundColor: t.brand,
-                    width: `${Math.max(4, Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1))))}%`,
-                  },
-                ]}
-              />
+          <AppearIn delay={staggerDelay(2, 32, 240)}>
+            <View style={styles.progressWrap}>
+              <View style={[styles.progressTrack, { backgroundColor: t.surfaceSoft }]}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      backgroundColor: t.brand,
+                      width: `${Math.max(4, Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1))))}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.progressText, { color: t.inkFaint }]}>
+                {Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1)))}%
+              </Text>
             </View>
-            <Text style={[styles.progressText, { color: t.inkFaint }]}>
-              {Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1)))}%
-            </Text>
-          </View>
+          </AppearIn>
         ) : null}
 
         {loading ? (
@@ -587,27 +612,30 @@ export default function MarketScreen() {
             <Text style={[styles.hint, { color: t.inkFaint }]}>读取市场快照…</Text>
           </View>
         ) : entries.length === 0 ? (
-          <View style={[styles.empty, { borderColor: t.hairline }]}>
-            <Text style={[styles.emptyTitle, { color: t.inkSub }]}>市场里还没有插件</Text>
-            <Text style={[styles.hint, { color: t.inkFaint }]}>
-              官方索引当前为空。点右上角刷新；发布新索引后这里会出现条目。
-            </Text>
-          </View>
+          <AppearIn delay={staggerDelay(3, 32, 240)}>
+            <View style={[styles.empty, { borderColor: t.hairline }]}>
+              <Text style={[styles.emptyTitle, { color: t.inkSub }]}>市场里还没有插件</Text>
+              <Text style={[styles.hint, { color: t.inkFaint }]}>
+                官方索引当前为空。点右上角刷新；发布新索引后这里会出现条目。
+              </Text>
+            </View>
+          </AppearIn>
         ) : (
-          entries.map((entry) => (
-            <MarketRow
-              key={entry.id}
-              entry={entry}
-              installedVersion={versions[entry.id] ?? null}
-              busy={busyId === entry.id}
-              paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
-              blockedReason={blockedReason}
-              accessLabel={accessLabel}
-              onResolveAccess={() => void resolveAccess()}
-              onInstall={() => void install(entry)}
-              onUninstall={() => void uninstall(entry)}
-              onCancel={cancelInstall}
-            />
+          entries.map((entry, entryIndex) => (
+            <AppearIn key={entry.id} delay={staggerDelay(entryIndex + 3, 32, 240)}>
+              <MarketRow
+                entry={entry}
+                installedVersion={versions[entry.id] ?? null}
+                busy={busyId === entry.id}
+                paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
+                blockedReason={blockedReason}
+                accessLabel={accessLabel}
+                onResolveAccess={() => void resolveAccess()}
+                onInstall={() => void install(entry)}
+                onUninstall={() => void uninstall(entry)}
+                onCancel={cancelInstall}
+              />
+            </AppearIn>
           ))
         )}
 
@@ -618,43 +646,40 @@ export default function MarketScreen() {
         ) : null}
 
         {delisted.length > 0 ? (
-          <View style={styles.delisted}>
-            <Text style={[styles.sectionTitle, { color: t.inkSub }]}>已下架</Text>
-            <Text style={[styles.hint, { color: t.inkFaint }]}>
-              这些插件还装在本地，但已从市场索引撤回：不会再收到更新，也可能不再安全。
-              本地副本不会被远程删除，需要时在这里卸载。
-            </Text>
-            {delisted.map((plugin) => (
-              <View
-                key={plugin.dir}
-                style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
-              >
-                <View style={styles.cardHead}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.name, { color: t.ink }]}>{plugin.parsed.manifest.name}</Text>
-                    <Text style={[styles.meta, { color: t.inkFaint }]}>
-                      {plugin.parsed.manifest.id} · v{plugin.parsed.manifest.version}
-                    </Text>
-                  </View>
-                  <View style={[styles.badge, { backgroundColor: t.amberSoft }]}>
-                    <Text style={[styles.badgeText, { color: t.amber }]}>已下架</Text>
-                  </View>
-                </View>
-                <View style={styles.actions}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`卸载 ${plugin.parsed.manifest.name}`}
-                    onPress={() =>
-                      void uninstallDelisted(plugin.dir, plugin.parsed.manifest.name)
-                    }
-                    style={[styles.secondary, { borderColor: t.hairline }]}
-                  >
-                    <Text style={[styles.secondaryText, { color: t.red }]}>卸载</Text>
-                  </Pressable>
-                </View>
+          <AppearIn delay={staggerDelay(entries.length + 3, 32, 240)}>
+            <SectionCard label="已下架">
+              <View style={styles.delistedIntro}>
+                <Text style={[styles.hint, { color: t.inkFaint }]}>
+                  这些插件还装在本地，但已从市场索引撤回：不会再收到更新，也可能不再安全。
+                  本地副本不会被远程删除，需要时在这里卸载。
+                </Text>
               </View>
-            ))}
-          </View>
+              {delisted.map((plugin, pluginIndex) => (
+                <Fragment key={plugin.dir}>
+                  {pluginIndex > 0 ? <Divider /> : null}
+                  <Row
+                    icon="puzzle"
+                    tone="plain"
+                    title={plugin.parsed.manifest.name}
+                    detail={`${plugin.parsed.manifest.id} · v${plugin.parsed.manifest.version}`}
+                    right={
+                      <View style={styles.rowRight}>
+                        <StatusPill bg={t.amberSoft} color={t.amber} label="已下架" />
+                        <PillButton
+                          label="卸载"
+                          variant="danger"
+                          onPress={() =>
+                            void uninstallDelisted(plugin.dir, plugin.parsed.manifest.name)
+                          }
+                          accessibilityLabel={`卸载 ${plugin.parsed.manifest.name}`}
+                        />
+                      </View>
+                    }
+                  />
+                </Fragment>
+              ))}
+            </SectionCard>
+          </AppearIn>
         ) : null}
       </ScrollView>
     </View>
@@ -663,46 +688,41 @@ export default function MarketScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  head: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: space(4),
-    paddingVertical: space(2),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+  headButton: {
+    width: size.button,
+    height: size.button,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { flex: 1, textAlign: "center", fontSize: typeScale.heading, fontWeight: "700" },
-  body: { padding: space(4), gap: space(3) },
-  hint: { fontSize: 12, lineHeight: 18 },
-  accountCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.card,
-    padding: space(3),
-    gap: space(2),
+  busy: { opacity: 0.6 },
+  body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
+  hint: { ...text("small") },
+  source: { ...text("micro"), marginTop: space(0.5) },
+  licenseBody: {
+    paddingHorizontal: space(3.5),
+    paddingBottom: space(2.5),
+    gap: space(1),
   },
-  accountName: { fontSize: 13, fontWeight: "700" },
-  licenseRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
-  progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },
-  progressTrack: { flex: 1, height: 6, borderRadius: 999, overflow: "hidden" },
-  progressFill: { height: 6, borderRadius: 999 },
-  progressText: { fontSize: 10.5, minWidth: 32, textAlign: "right" },
+  licenseText: { ...text("small") },
+  licenseHint: { ...text("micro") },
   syncButton: {
-    borderRadius: 999,
+    borderRadius: radius.chip,
     paddingHorizontal: space(2.5),
     paddingVertical: space(1),
-    minWidth: 56,
+    minWidth: space(14),
+    minHeight: size.chip,
     alignItems: "center",
+    justifyContent: "center",
   },
-  syncText: { fontSize: 11.5, fontWeight: "700" },
-  source: { fontSize: 10.5, lineHeight: 15 },
+  syncText: { ...text("small"), fontWeight: "700" },
+  progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },
+  progressTrack: { flex: 1, height: 6, borderRadius: radius.chip, overflow: "hidden" },
+  progressFill: { height: 6, borderRadius: radius.chip },
+  progressText: { ...text("micro"), minWidth: space(8), textAlign: "right" },
   message: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.card, padding: space(3) },
-  messageText: { fontSize: 12, lineHeight: 18 },
+  messageText: { ...text("small") },
   loading: { alignItems: "center", gap: space(2), paddingVertical: space(6) },
   empty: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -710,7 +730,7 @@ const styles = StyleSheet.create({
     padding: space(4),
     gap: space(2),
   },
-  emptyTitle: { fontSize: 13, fontWeight: "700" },
+  emptyTitle: { ...text("body"), fontWeight: "700" },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
@@ -718,31 +738,15 @@ const styles = StyleSheet.create({
     gap: space(2),
   },
   cardHead: { flexDirection: "row", alignItems: "flex-start", gap: space(2) },
-  name: { fontSize: 14, fontWeight: "700" },
-  meta: { fontSize: 11, marginTop: 2 },
-  description: { fontSize: 12, lineHeight: 18 },
-  badge: { borderRadius: 999, paddingHorizontal: space(2), paddingVertical: 3 },
-  badgeText: { fontSize: 10.5, fontWeight: "700" },
-  actions: { flexDirection: "row", gap: space(2), marginTop: space(1) },
-  primary: {
-    borderRadius: 999,
-    paddingHorizontal: space(4),
-    paddingVertical: space(1.5),
-    minWidth: 96,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { fontSize: 12.5, fontWeight: "700" },
-  secondary: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: space(4),
-    paddingVertical: space(1.5),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryText: { fontSize: 12.5, fontWeight: "700" },
-  footnote: { fontSize: 10.5, marginTop: space(2) },
-  delisted: { gap: space(2), marginTop: space(3) },
-  sectionTitle: { fontSize: 12.5, fontWeight: "700" },
+  cardTitleWrap: { flex: 1, gap: space(0.5) },
+  name: { ...text("bodyLg"), fontWeight: "700" },
+  meta: { ...text("micro"), marginTop: space(0.5) },
+  description: { ...text("small") },
+  pill: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.75) },
+  pillText: { ...text("micro"), fontWeight: "700" },
+  actions: { flexDirection: "row", gap: space(2), flexWrap: "wrap" },
+  primaryButton: { minWidth: space(24) },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
+  footnote: { ...text("micro") },
+  delistedIntro: { paddingHorizontal: space(3.5), paddingVertical: space(2) },
 });
