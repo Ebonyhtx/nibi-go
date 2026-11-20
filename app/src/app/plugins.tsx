@@ -379,6 +379,14 @@ export default function PluginsScreen() {
             声明式槽 · 插件代码跑在子进程
           </Text>
         </View>
+        <Pressable
+          onPress={() => router.push("/market")}
+          accessibilityRole="button"
+          accessibilityLabel="打开插件市场"
+          style={[styles.marketButton, { backgroundColor: t.brandSoft }]}
+        >
+          <Text style={[styles.marketText, { color: t.brand }]}>市场</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -451,6 +459,13 @@ const styles = StyleSheet.create({
   headerText: { gap: 1 },
   title: { fontSize: typeScale.title, fontWeight: "700" },
   subtitle: { fontSize: typeScale.micro },
+  marketButton: {
+    borderRadius: 999,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1),
+    marginLeft: space(2),
+  },
+  marketText: { fontSize: typeScale.small, fontWeight: "700" },
   content: { paddingHorizontal: space(4), gap: space(3), paddingTop: space(2) },
   loading: { alignItems: "center", gap: space(2), paddingVertical: space(10) },
   loadingText: { fontSize: typeScale.small },

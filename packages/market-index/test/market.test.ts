@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { bytesToHex, verifyPackageDigest } from "../src/digest";
 import { NIBI_MARKET_KEYS, type MarketKey } from "../src/keys";
+import { refreshMarketIndex } from "../src/refresh";
 import {
   checkPluginPins,
   comparePluginVersions,
@@ -46,9 +47,9 @@ function makeIndex(overrides: Partial<MarketIndex> = {}): MarketIndex {
   };
 }
 
-function keypair(): { key: MarketKey; seed: Uint8Array } {
+function keypair(salt = 3): { key: MarketKey; seed: Uint8Array } {
   const seed = new Uint8Array(32);
-  for (let index = 0; index < seed.length; index += 1) seed[index] = (index * 7 + 3) & 0xff;
+  for (let index = 0; index < seed.length; index += 1) seed[index] = (index * 7 + salt) & 0xff;
   const publicKey = ed25519.getPublicKey(seed);
   return {
     key: { id: "test-key", publicKeyHex: bytesToHex(publicKey), fingerprint: "test" },
@@ -266,5 +267,114 @@ describe("发布链与客户端的一致性", () => {
       expect(result.keyId).toBe(NIBI_MARKET_KEYS[0]!.id);
       expect(result.index.revision).toBe(42);
     }
+  });
+});
+
+describe("refreshMarketIndex", () => {
+  const indexUrl = "https://example.com/market/index.json";
+
+  function fetcherFor(bytes: Uint8Array, signature: string, override?: Record<string, Uint8Array>) {
+    return async (url: string): Promise<Uint8Array> => {
+      if (override && url in override) return override[url]!;
+      if (url === indexUrl) return bytes;
+      if (url === `${indexUrl}.sig`) return encoder.encode(signature);
+      throw new Error(`unexpected url ${url}`);
+    };
+  }
+
+  it("首次刷新接受并返回快照状态", async () => {
+    const { key, seed } = keypair();
+    const { bytes, signature } = signed(makeIndex({ revision: 2 }), seed);
+    const result = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: null,
+      previousIndex: null,
+      keys: [key],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe("accept");
+    expect(result.state.revision).toBe(2);
+    expect(result.keyId).toBe("test-key");
+  });
+
+  it("同 revision 同字节返回 unchanged", async () => {
+    const { key, seed } = keypair();
+    const { bytes, signature } = signed(makeIndex({ revision: 2 }), seed);
+    const first = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: null,
+      previousIndex: null,
+      keys: [key],
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: first.state,
+      previousIndex: first.index,
+      keys: [key],
+    });
+    expect(second).toMatchObject({ ok: true, kind: "unchanged" });
+  });
+
+  it("拉取失败按 fetch 错误返回", async () => {
+    const result = await refreshMarketIndex(async () => {
+      throw new Error("network down");
+    }, { indexUrl, previous: null, previousIndex: null });
+    expect(result).toMatchObject({ ok: false, kind: "fetch", detail: "network down" });
+  });
+
+  it("验签失败按 verify 错误返回", async () => {
+    const { key, seed } = keypair();
+    const { bytes, signature } = signed(makeIndex(), seed);
+    const result = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: null,
+      previousIndex: null,
+      keys: [key],
+    });
+    expect(result.ok).toBe(true);
+    // 换一份 key 验签就失败。
+    const other = keypair(11);
+    const rejected = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: null,
+      previousIndex: null,
+      keys: [other.key],
+    });
+    expect(rejected).toMatchObject({ ok: false, kind: "verify", error: "bad-signature" });
+  });
+
+  it("revision 倒退按 rollback 拒绝", async () => {
+    const { key, seed } = keypair();
+    const { bytes, signature } = signed(makeIndex({ revision: 1 }), seed);
+    const result = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: { market: "nibi-official", revision: 5, indexSha256: "a".repeat(64) },
+      previousIndex: makeIndex({ revision: 5 }),
+      keys: [key],
+    });
+    expect(result).toMatchObject({ ok: false, kind: "rollback", reason: "rollback" });
+  });
+
+  it("插件版本不变量冲突被拒绝", async () => {
+    const { key, seed } = keypair();
+    const next = makeIndex({
+      revision: 2,
+      plugins: [makePlugin({ package: { ...makePlugin().package, sha256: "f".repeat(64) } })],
+    });
+    const { bytes, signature } = signed(next, seed);
+    const result = await refreshMarketIndex(fetcherFor(bytes, signature), {
+      indexUrl,
+      previous: { market: "nibi-official", revision: 1, indexSha256: "a".repeat(64) },
+      previousIndex: makeIndex({ revision: 1 }),
+      keys: [key],
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "pins",
+      conflicts: [{ id: "nibi.weather", version: "1.0.0", reason: "digest-changed" }],
+    });
   });
 });

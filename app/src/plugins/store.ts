@@ -344,32 +344,54 @@ export async function setPluginSetting(
   await writeSettings(plugins);
 }
 
-/** 读全部内置插件（含 incompatible/invalid，插件中心要能解释为什么不可用）。 */
+/** 插件目录清单：内置按 samples 顺序在前，市场安装的按目录名排在后面。 */
+function pluginDirs(): Array<{ dir: string; bundled: boolean }> {
+  const root = new Directory(Paths.document, PLUGINS_DIR);
+  const present = new Set<string>();
+  try {
+    for (const item of root.list()) {
+      if (item instanceof Directory && !item.name.startsWith(".")) present.add(item.name);
+    }
+  } catch {
+    // 目录还不存在：下面按内置清单兜底。
+  }
+  const bundled = BUNDLED_PLUGINS.filter((spec) => present.size === 0 || present.has(spec.dir)).map(
+    (spec) => ({ dir: spec.dir, bundled: true }),
+  );
+  const bundledDirs = new Set(bundled.map((entry) => entry.dir));
+  const installed = [...present]
+    .filter((dir) => !bundledDirs.has(dir))
+    .sort()
+    .map((dir) => ({ dir, bundled: false }));
+  return [...bundled, ...installed];
+}
+
+/** 读全部插件（内置 + 市场安装；含 incompatible/invalid，插件中心要能解释为什么不可用）。 */
 export async function loadPlugins(): Promise<LoadedPlugin[]> {
   await ensurePluginFiles();
   const disabled = await readDisabled();
   const stored = await readSettings();
   const profile = hostProfile();
-  return BUNDLED_PLUGINS.map((spec) => {
-    const dir = new Directory(Paths.document, PLUGINS_DIR, spec.dir);
+  return pluginDirs().map(({ dir: pluginDir, bundled }) => {
+    const dir = new Directory(Paths.document, PLUGINS_DIR, pluginDir);
     let parsed: ParsedPlugin;
     try {
       const input: unknown = JSON.parse(new File(dir, MANIFEST_FILE).textSync());
-      parsed = readPluginManifest(input, profile, spec.dir);
+      parsed = readPluginManifest(input, profile, pluginDir);
     } catch (error) {
-      console.warn(`[nibigo] 插件清单读取失败：${spec.dir}`, error);
-      parsed = readPluginManifest(null, profile, spec.dir);
+      console.warn(`[nibigo] 插件清单读取失败：${pluginDir}`, error);
+      parsed = readPluginManifest(null, profile, pluginDir);
     }
     const runtime = parsed.manifest.runtime;
     const entryPath = runtime
       ? stripFileScheme(new File(dir, runtime.entry).uri)
       : undefined;
     return {
-      dir: spec.dir,
+      dir: pluginDir,
       root: stripFileScheme(dir.uri),
       parsed,
       enabled: parsed.status === "ready" && !disabled.has(parsed.manifest.id),
-      bundled: true,
+      bundled,
       settings: effectiveSettings(parsed.manifest, stored[parsed.manifest.id]),
       ...(entryPath ? { entryPath } : {}),
     };
