@@ -174,7 +174,8 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
    - `screenshot` 返回可看图片；`FLAG_SECURE` 页面明确拒绝；
    - 支付/密码/系统页面命中硬拒绝；
    - 关开关后新会话不再出现 `mcp__phone__*`。
-2. 开关 2：有 Shizuku 时 `android_shell` 返回 `uid=2000` 与退出码；
+2. 开关 2：有 Shizuku 时 `android_shell` 返回 `uid=2000` 与退出码（2026-11-20 PHK110
+   已验证：`id` → `uid=2000(shell) gid=2000(shell) …`、退出码 0）；
    无 Shizuku 时状态页给出安装/启动/授权引导，工具返回可操作错误。
 3. 门禁：`pnpm -r typecheck`、`pnpm test`、`node scripts/check-boundaries.mjs`、
    `node scripts/check-public-repo.mjs`；Kotlin 单测覆盖脱敏、目录、MCP 分发。
@@ -248,19 +249,21 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
     PHK110 上另用一条 40 段的本地长页面（`127.0.0.1:8000`，adb reverse）验证了多页：
     `s4` 共 47 项，cursor `s4:13` → `s4:24` → `s4:35` → 读完；每页保持同一屏幕号与
     连续元素编号。快照超过有效期后传旧 cursor 会明确报「屏幕快照已过期」，要求重新读屏。
-- 仍未验证/受阻：
-  - Shizuku：已安装 13.6.0 并以 shell uid 启动（`shizuku_server` 可见）；但 ColorOS 16
-    隐藏了「权限监控」开关，Shizuku 报「adb 权限受限」，无线调试配对也搜不到配对服务，
-    因此无法给 NIBI-GO 授权，`android_shell` 的授权后执行未验证。开关 2 未开启与
-    Shizuku 未运行的错误路径已在真机验证。ColorOS 的官方解法是临时切英文后在开发者选项
-    打开 `Disable system optimization`，这属于用户系统设置，未代为修改。
-  - `FLAG_SECURE`：已用自建测试 APK 验证。PHK110 的系统 `takeScreenshot` 对安全窗口
-    不返回错误码，而是给一张除状态栏外全黑的图；已在 `PhoneActuator` 里检测近全黑画面
-    并返回「安全页面不可截屏…」，不再把黑图交给模型。非安全页面截屏回归正常。
-  - 无线调试「已开启」分支：在开发者选项真正开启无线调试并允许「1806」网络后，
-    设置页显示「已开启」；验证后已关闭无线调试，恢复原状态。
-  - ColorOS 跨应用启动确认框：这是系统 BAL 弹窗，App 无法从代码绕过；设置页已加说明与
-    「打开应用信息」入口，用户可在应用权限里开启「后台弹出界面」或选「30天内允许」。
+- **Shizuku 授权后执行已真机验证（2026-11-20，PHK110）**：Shizuku 13.6.0 以 shell uid
+  运行并授权 NIBI-GO（设置页「Shizuku 已连接」、无线调试「已开启」、能力摘要含 `shell`）。
+  真实模型回合（deepseek-flash）按指令调用 `mcp__phone__android_shell` 一次
+  （`{"command":"id"}`），悬浮审批卡「允许一次」放行后返回
+  `uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),… context=u:r:shell:s0`，
+  退出码 0 —— 执行身份是 shell uid，不是 root。开关 2 未开启与 Shizuku 未运行的
+  错误路径此前已在真机验证。
+- 仍未验证：`android_shell` 的安装/卸载、改系统设置等写操作（本轮只验 `id` 只读命令）。
+- `FLAG_SECURE`：已用自建测试 APK 验证。PHK110 的系统 `takeScreenshot` 对安全窗口
+  不返回错误码，而是给一张除状态栏外全黑的图；已在 `PhoneActuator` 里检测近全黑画面
+  并返回「安全页面不可截屏…」，不再把黑图交给模型。非安全页面截屏回归正常。
+- 无线调试「已开启」分支：在开发者选项真正开启无线调试并允许「1806」网络后，
+  设置页显示「已开启」；验证后已关闭无线调试，恢复原状态。
+- ColorOS 跨应用启动确认框：这是系统 BAL 弹窗，App 无法从代码绕过；设置页已加说明与
+  「打开应用信息」入口，用户可在应用权限里开启「后台弹出界面」或选「30天内允许」。
   - **release 构建复验（2026-11-20，Android 15 x86_64 模拟器 + 生产签名密钥）**：
     R8 抓到真缺陷——`libnibi_kernel_jni.so` 用 `GetMethodID` 按名字找
     `Sink.onLine/onError`，R8 改名后内核线程抛 `NoSuchMethodError` 并 SIGABRT
@@ -274,4 +277,5 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
     同一签名的 0.1.0 已装到 PHK110（卸载 debug 后全新安装）：通知授权、`:kernel` 进程、
     无障碍「已连接」、loopback 39617 在 `/proc/net/tcp6` 监听；Provider/Key 随卸载清空。
     随后 v0.1.1 已发布并在同一台 PHK110 上覆盖升级（0.1.0→0.1.1）：versionCode 2、
-    数据保留、内核/无障碍/39617 正常；真实模型回合待重新配置 Provider 后再验。
+    数据保留、内核/无障碍/39617 正常；重新配置 Provider 后的真实模型回合（含 Shizuku
+    `android_shell`）已于 2026-11-20 验证，见上文。
