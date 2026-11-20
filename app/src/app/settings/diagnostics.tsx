@@ -184,14 +184,21 @@ export default function DiagnosticsScreen() {
               </Text>
             ))}
           </View>
-        ) : rounds.length > 0 || snapshot ? (
+        ) : rounds.length > 0 || cache !== null || network.length > 0 ? (
           <View style={[styles.card, { backgroundColor: t.okSoft, borderColor: t.hairline }]}>
             <Text style={[styles.cardTitle, { color: t.ok }]}>未发现异常</Text>
             <Text style={[styles.detail, { color: t.ok }]}>
               记忆开关、缓存与模型链路都有可读数据；继续正常对话即可。
             </Text>
           </View>
-        ) : null}
+        ) : (
+          <View style={[styles.card, { backgroundColor: t.panel, borderColor: t.hairline }]}>
+            <Text style={[styles.cardTitle, { color: t.inkSub }]}>还没有可诊断的回合</Text>
+            <Text style={[styles.detail, { color: t.inkFaint }]}>
+              先发一条消息，让内核产生一轮用量与模型网络状态；记忆占用仍可在这里查看。
+            </Text>
+          </View>
+        )}
 
         <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
           <Text style={[styles.cardTitle, { color: t.ink }]}>记忆</Text>
