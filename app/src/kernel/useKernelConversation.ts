@@ -33,7 +33,9 @@ import {
   startKernelHost,
 } from "nibi-kernel-host";
 
+import { getCachedMemoryPreferences, loadMemoryPreferences } from "../memory/preferences";
 import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
+import { registerKernelClient, unregisterKernelClient } from "./kernelRegistry";
 import { kernelStartEnv } from "./kernelEnv";
 import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
 import { fetchProviderState } from "./providerSettings";
@@ -619,10 +621,17 @@ export function useKernelConversation(): KernelConversation {
           setStatus("内核不可用");
           return;
         }
+        // 内核建会话时同步问 Host 要偏好；先把记忆开关读进缓存，避免落到默认值。
+        await loadMemoryPreferences();
         const client = new KernelSessionClient({
           transport: { sendLine: sendKernelLine, onLine: onKernelLine },
+          runtimePreferences: () => ({
+            nativeSearchEnhancementsEnabled: false,
+            memoryEnabled: getCachedMemoryPreferences().enabled,
+          }),
         });
         clientRef.current = client;
+        registerKernelClient(client);
         // Keystore 里的 Provider key 只进内核内存；失败不阻塞会话（设置页会再提示）。
         await pushProviderKeys(client).catch((error: unknown) => {
           console.warn("[nibigo] 下发 Provider key 失败", error);
@@ -677,7 +686,9 @@ export function useKernelConversation(): KernelConversation {
       controllerRef.current = null;
       void feedRef.current?.stop().catch(() => undefined);
       feedRef.current = null;
-      clientRef.current?.close();
+      const client = clientRef.current;
+      if (client) unregisterKernelClient(client);
+      client?.close();
       clientRef.current = null;
     };
   }, [attach, refreshSessions]);
@@ -693,12 +704,21 @@ export function useKernelConversation(): KernelConversation {
     clientRef.current = null;
     previousController?.dispose();
     await previousFeed?.stop().catch(() => undefined);
-    previousClient?.close();
+    if (previousClient) {
+      unregisterKernelClient(previousClient);
+      previousClient.close();
+    }
 
+    await loadMemoryPreferences();
     const client = new KernelSessionClient({
       transport: { sendLine: sendKernelLine, onLine: onKernelLine },
+      runtimePreferences: () => ({
+        nativeSearchEnhancementsEnabled: false,
+        memoryEnabled: getCachedMemoryPreferences().enabled,
+      }),
     });
     clientRef.current = client;
+    registerKernelClient(client);
     await pushProviderKeys(client).catch((error: unknown) => {
       console.warn("[nibigo] 重连后下发 Provider key 失败", error);
     });
@@ -742,7 +762,9 @@ export function useKernelConversation(): KernelConversation {
         setStatus("内核重启中…");
         setReady(false);
         // 旧内核的请求全部作废：先收掉旧 client/订阅，等 ready 再重建。
-        clientRef.current?.close();
+        const oldClient = clientRef.current;
+        if (oldClient) unregisterKernelClient(oldClient);
+        oldClient?.close();
         clientRef.current = null;
         controllerRef.current?.dispose();
         controllerRef.current = null;

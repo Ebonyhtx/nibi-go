@@ -183,7 +183,62 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
       durationMs: 1200,
       tokens: 24,
       files: { additions: 3, deletions: 1, files: 2 },
+      copyText: "done",
     });
+  });
+
+  it("turn.copyText 合并这一轮全部助手正文段，不含推理与工具输出", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 1,
+          kind: "turnHeader",
+          origin: "userInput",
+          state: "completedSuccess",
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+        { ...base, rowId: 2, kind: "userInput", text: "分两段说", origin: "realUser" },
+        {
+          ...base,
+          rowId: 3,
+          kind: "reasoning",
+          assistantResponseId: "resp_1",
+          text: "先想一下",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 4,
+          kind: "assistantText",
+          assistantResponseId: "resp_1",
+          text: "第一段",
+          state: "complete",
+        },
+        {
+          ...base,
+          rowId: 5,
+          kind: "toolCall",
+          assistantResponseId: "resp_1",
+          toolCallId: "call_1",
+          toolName: "bash",
+          status: "success",
+          inputText: "{}",
+          output: { text: "tool output" },
+        },
+        {
+          ...base,
+          rowId: 6,
+          kind: "assistantText",
+          assistantResponseId: "resp_2",
+          text: "第二段",
+          state: "complete",
+        },
+      ]),
+    );
+    const turn = rows.find((row) => row.kind === "turn");
+    expect(turn).toMatchObject({ kind: "turn", copyText: "第一段\n\n第二段" });
   });
 
   it("正常结束的轮折叠：过程收进 process 行，最终回答留在外面", () => {

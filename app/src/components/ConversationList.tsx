@@ -6,6 +6,7 @@
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
 import type { AttachmentRef, ConversationSelectionText } from "@nibi-go/shared-extract";
+import * as Clipboard from "expo-clipboard";
 import {
   type ComponentRef,
   type ReactNode,
@@ -14,7 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { hostSlotData, toolSlotData } from "../plugins/data";
 import { collectTurnPushes } from "../plugins/push";
@@ -31,6 +32,47 @@ import {
   type PluginActionHandler,
 } from "./PluginView";
 import type { PopupAnchor } from "./PluginPopup";
+
+/** 消息复制按钮：GO 没有 hover，按桌面“手机远控”分支常显，而不是藏在长按里。 */
+function CopyMessageButton({ text, label }: { text: string; label: string }) {
+  const th = useNibiTheme();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  if (!text.trim()) return null;
+  const copy = () => {
+    void Clipboard.setStringAsync(text)
+      .then((saved) => {
+        if (!saved) return;
+        setCopied(true);
+        AccessibilityInfo.announceForAccessibility("已复制");
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1_200);
+      })
+      .catch(() => {
+        AccessibilityInfo.announceForAccessibility("复制失败");
+      });
+  };
+  return (
+    <Pressable
+      onPress={copy}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={copied ? "已复制" : label}
+      style={({ pressed }) => [styles.copyButton, { opacity: pressed ? 0.55 : 1 }]}
+    >
+      <Icon name={copied ? "check" : "copy"} size={10} color={copied ? th.ok : th.inkFaint} />
+      <Text style={[styles.copyText, { color: copied ? th.ok : th.inkFaint }]}>
+        {copied ? "已复制" : "复制"}
+      </Text>
+    </Pressable>
+  );
+}
 
 
 /** 用户行携带的图片/文件附件：只显示文件名，不把内容展开到气泡。 */
@@ -390,6 +432,10 @@ export function ConversationList({
                   </Text>
                 </View>
               ) : null}
+              <CopyMessageButton
+                text={displayText || row.text}
+                label="复制用户消息"
+              />
             </View>
           );
         }
@@ -492,11 +538,16 @@ export function ConversationList({
             : "";
           return (
             <View key={row.key} style={styles.turnBlock}>
-              <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
-                {stateLabel}
-                {stateLabel && parts.length > 0 ? " · " : ""}
-                {parts.join(" · ")}
-              </Text>
+              <View style={styles.turnHeadRow}>
+                <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
+                  {stateLabel}
+                  {stateLabel && parts.length > 0 ? " · " : ""}
+                  {parts.join(" · ")}
+                </Text>
+                {row.copyText ? (
+                  <CopyMessageButton text={row.copyText} label="复制本轮回复" />
+                ) : null}
+              </View>
               {/* 失败/中断的回合给一个重试入口：内核 retryTurn 会截到这一轮的用户输入前重发。 */}
               {!ok && onRetryTurn && row.entityId ? (
                 <Pressable
@@ -679,6 +730,9 @@ export function ConversationList({
                   已注释 {annotationCount}
                 </Text>
               </View>
+            ) : null}
+            {!row.streaming ? (
+              <CopyMessageButton text={row.text} label="复制助手消息" />
             ) : null}
           </View>
         );
@@ -1142,6 +1196,15 @@ const styles = StyleSheet.create({
     marginLeft: space(1),
   },
   annotationMarkText: { fontSize: 10, fontWeight: "600" },
+  copyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    marginTop: 2,
+  },
+  copyText: { fontSize: 9.5 },
   text: { fontSize: 14, lineHeight: 20 },
   streaming: { fontSize: 14, fontWeight: "700" },
   streamingOutside: { fontSize: 14, fontWeight: "700", marginTop: 2 },
@@ -1164,6 +1227,13 @@ const styles = StyleSheet.create({
   toolRowMeta: { fontSize: 10.5 },
   pendingHint: { fontSize: 10 },
   turn: { fontSize: 11, textAlign: "center" },
+  turnHeadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space(2),
+    flexWrap: "wrap",
+  },
   retry: {
     alignSelf: "center",
     flexDirection: "row",

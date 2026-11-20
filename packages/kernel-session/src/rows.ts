@@ -149,6 +149,8 @@ export type ChatRow =
       files?: { additions: number; deletions: number; files: number; reverted?: boolean };
       /** 这一轮的过程已收进 process 行：脚注不再重复“已完成/工具数”。 */
       folded?: boolean;
+      /** 这一轮全部助手正文段（按 \n\n 合并）；不含思考与工具输出。 */
+      copyText?: string;
     }
   | {
       /** 一轮正常结束后的过程摘要（dsh-Go TurnProcessRow）：点开才列出里面的行。 */
@@ -484,6 +486,14 @@ export function deriveRows(
       turnStart = null;
       turnAwaitingUser = false;
       const footnote = turnFootnote(turn);
+      // 复制本轮 = 这一轮所有助手正文段（桌面同口径）；折叠前先收集，避免只看最终回答。
+      const copyText = rows
+        .filter(
+          (row): row is Extract<ChatRow, { kind: "assistant" }> =>
+            row.kind === "assistant" && row.text.trim().length > 0,
+        )
+        .map((row) => row.text.trim())
+        .join("\n\n");
       // 只有 notice 的轮次（典型是压缩轮）没有用户/助手/工具内容：它已经有自己的 notice，
       // 再挂一条「✓ 已完成 · 用时 Ns · M tokens」只会是噪音（而且 token 数还会串上一轮）。
       // 注意用户气泡不算这一轮的 rows（turnStart 在气泡之后），所以“rows 为空”不能被当成
@@ -496,11 +506,20 @@ export function deriveRows(
       if (folded) {
         out.push(folded.process);
         if (folded.answer) out.push(folded.answer);
-        out.push({ ...footnote, toolCalls: turnToolCount, folded: true } as ChatRow);
+        out.push({
+          ...footnote,
+          toolCalls: turnToolCount,
+          folded: true,
+          ...(copyText ? { copyText } : {}),
+        } as ChatRow);
       } else {
         out.push(...rows);
         if (!onlyNotices && footnote) {
-          out.push({ ...footnote, toolCalls: turnToolCount } as ChatRow);
+          out.push({
+            ...footnote,
+            toolCalls: turnToolCount,
+            ...(copyText ? { copyText } : {}),
+          } as ChatRow);
         }
       }
       turnToolCount = 0;

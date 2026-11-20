@@ -3,6 +3,7 @@
 // 收起时是带呼吸动效的上下文占用环；点一下向左展开当前窗口用量与缓存命中率。
 // 整条状态可以上下拖动；插件状态作为次要行保留。
 
+import { useMemoryPreferences } from "../memory/useMemoryPreferences";
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { resolveText, type ViewTone } from "@nibi-go/plugin-contract";
@@ -195,6 +196,7 @@ export function SideStatus({
     }).start();
   }, [expand, expanded]);
 
+  const { preferences: memoryPreferences } = useMemoryPreferences();
   const ratio =
     usage && usage.maxTokens > 0 ? Math.min(1, usage.usedTokens / usage.maxTokens) : 0;
   const meterColor = ratio >= 0.95 ? t.red : ratio >= 0.8 ? t.amber : t.brand;
@@ -287,6 +289,17 @@ export function SideStatus({
           <View style={styles.pillFoot}>
             <Text style={[styles.pillMeta, { color: t.inkFaint }]}>缓存命中率</Text>
             <Text style={[styles.cacheValue, { color: t.steel }]}>{cache}</Text>
+          </View>
+          <View style={styles.pillFoot}>
+            <Text style={[styles.pillMeta, { color: t.inkFaint }]}>记忆</Text>
+            <Text
+              style={[
+                styles.pillMeta,
+                { color: memoryPreferences.enabled ? t.ok : t.inkFaint },
+              ]}
+            >
+              {memoryPreferences.enabled ? "开（本机共享）" : "关"}
+            </Text>
           </View>
           {breakdown.length > 0 ? (
             <View style={styles.breakdown}>

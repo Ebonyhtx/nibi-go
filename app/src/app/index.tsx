@@ -21,6 +21,7 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ConversationList } from "../components/ConversationList";
@@ -1389,6 +1390,31 @@ export default function GoHomeScreen() {
         width={240}
       >
         <Text style={[styles.popupTitle, { color: th.ink }]}>消息动作</Text>
+        <Pressable
+          onPress={() => {
+            if (popup?.kind !== "message") return;
+            const text = popup.message;
+            setPopup(null);
+            void Clipboard.setStringAsync(text)
+              .then((saved) => showHint(saved ? "已复制" : "复制失败，请手动选择文本"))
+              .catch(() => showHint("复制失败，请手动选择文本"));
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="复制消息"
+          style={({ pressed }) => [
+            styles.menuRow,
+            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
+            <Icon name="copy" size={15} color={th.inkSub} />
+          </View>
+          <View style={styles.menuText}>
+            <Text style={[styles.menuLabel, { color: th.ink }]}>复制</Text>
+            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>复制这条消息的正文</Text>
+          </View>
+          <Icon name="chevron-right" size={13} color={th.inkGhost} />
+        </Pressable>
         <Pressable
           onPress={() => {
             if (popup?.kind !== "message") return;

@@ -4,12 +4,22 @@
 
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback } from "react";
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon, type IconName } from "../../components/Icon";
 import { dismissKeyboardOnFocus } from "../../composer/leave";
+import { useSession } from "../../relay/useSession";
 import { radius, space, type as typeScale, useNibiTheme } from "../../theme";
 
 function Section({
@@ -73,6 +83,9 @@ export default function SettingsHomeScreen() {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const version = Constants.expoConfig?.version ?? "0.0.0";
+  const { session, snapshot } = useSession();
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
   // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入设置先明确收起。
   useFocusEffect(
@@ -80,6 +93,40 @@ export default function SettingsHomeScreen() {
       dismissKeyboardOnFocus(Keyboard.dismiss);
     }, []),
   );
+
+  async function login(force = false) {
+    if (accountBusy) return;
+    setAccountBusy(true);
+    setAccountMessage(null);
+    try {
+      await session.login(force);
+      const current = session.getSnapshot();
+      if (!current.loggedIn) {
+        setAccountMessage(current.error?.message ?? "登录没有完成，请重试");
+      } else {
+        setAccountMessage("已登录；进入插件市场会自动同步本机授权。");
+      }
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function logout() {
+    Alert.alert("退出 NIBI 账号？", "配对凭据会保留；本机已同步的付费授权也会保留到过期。", [
+      { text: "取消", style: "cancel" },
+      {
+        text: "退出登录",
+        style: "destructive",
+        onPress: () => {
+          setAccountBusy(true);
+          void session
+            .logout()
+            .then(() => setAccountMessage("已退出登录"))
+            .finally(() => setAccountBusy(false));
+        },
+      },
+    ]);
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
@@ -98,6 +145,39 @@ export default function SettingsHomeScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+        <Section title="账号">
+          <Row
+            icon="shield"
+            title={
+              snapshot.loggedIn
+                ? `已登录${snapshot.displayName ? `：${snapshot.displayName}` : ""}`
+                : "登录 NIBI 账号"
+            }
+            detail={
+              snapshot.loggedIn
+                ? "切换账号；插件授权按本机设备同步"
+                : "配对、设备列表与付费插件授权都用这个登录"
+            }
+            onPress={() => void login(snapshot.loggedIn)}
+            last={!snapshot.loggedIn}
+          />
+          {snapshot.loggedIn ? (
+            <Row
+              icon="x"
+              title="退出登录"
+              detail="配对凭据保留；本机授权保留到过期"
+              onPress={logout}
+              last
+            />
+          ) : null}
+        </Section>
+        {accountMessage ? (
+          <View style={[styles.accountMessage, { backgroundColor: t.panel, borderColor: t.hairline }]}>
+            {accountBusy ? <ActivityIndicator color={t.brand} /> : null}
+            <Text style={[styles.accountMessageText, { color: t.inkSub }]}>{accountMessage}</Text>
+          </View>
+        ) : null}
+
         <Section title="交互">
           <Row
             icon="sliders"
@@ -120,6 +200,22 @@ export default function SettingsHomeScreen() {
             title="Provider 与模型"
             detail="供应商、模型能力、思考档位与 API Key"
             onPress={() => router.push("/settings/provider")}
+            last
+          />
+        </Section>
+
+        <Section title="Agent">
+          <Row
+            icon="sparkles"
+            title="记忆"
+            detail="本机共享的自动记忆；开关、占用与清空"
+            onPress={() => router.push("/settings/memory")}
+          />
+          <Row
+            icon="sliders"
+            title="记忆与链路诊断"
+            detail="缓存命中率、逐轮用量与模型网络状态"
+            onPress={() => router.push("/settings/diagnostics")}
             last
           />
         </Section>
@@ -200,6 +296,15 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 1 },
   rowTitle: { fontSize: 13.5, fontWeight: "600" },
   rowDetail: { fontSize: 10.5 },
+  accountMessage: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    padding: space(2.5),
+  },
+  accountMessageText: { flex: 1, fontSize: 11, lineHeight: 16 },
   about: { padding: space(3), gap: 2 },
   aboutTitle: { fontSize: 13, fontWeight: "700" },
   aboutDetail: { fontSize: 10.5 },

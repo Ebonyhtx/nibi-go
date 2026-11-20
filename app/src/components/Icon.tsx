@@ -28,6 +28,7 @@ export type IconName =
   | "image"
   | "clock"
   | "quote"
+  | "copy"
   | "check";
 
 export interface IconProps {
@@ -141,6 +142,11 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
           <>
             <Circle cx={12} cy={12} r={8.5} {...ring} />
             <Path path="M12 7.5V12L15.2 14" {...paint} />
+          </>
+        ) : name === "copy" ? (
+          <>
+            <Path path="M8.5 8.5H19V19H8.5Z" {...paint} />
+            <Path path="M15.5 8.5V5.5H5V15.5H8.5" {...paint} />
           </>
         ) : name === "check" ? (
           <Path path="M5 12.5L10 17.5L19 7.5" {...paint} />

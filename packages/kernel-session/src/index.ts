@@ -5,6 +5,9 @@
 export {
   KernelProtocolError,
   KernelSessionClient,
+  type KernelDebugNetworkEntry,
+  type KernelDebugRound,
+  type KernelDebugSnapshot,
   type KernelFileChange,
   type KernelFileChangesReport,
   type KernelSessionClientOptions,

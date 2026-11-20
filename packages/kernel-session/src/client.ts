@@ -86,6 +86,61 @@ interface SessionMcpParam {
   mcpServers?: readonly KernelMcpServer[];
 }
 
+/** `session/debug` 的逐轮用量（字段名与内核 Host schema 一致）。 */
+export interface KernelDebugRound {
+  eventKey: string;
+  requestId: string;
+  requestIndex: number;
+  recordedAt: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cachedInputTokens: number;
+    cachedWriteInputTokens: number;
+  };
+  hitRate: number | null;
+  generationDurationMs: number | null;
+  tokensPerSecond: number | null;
+}
+
+/** `session/debug` 的一条模型网络状态。 */
+export interface KernelDebugNetworkEntry {
+  eventKey: string;
+  traceId: string;
+  recordedAt: number;
+  statusType: string;
+  requestId: string;
+  providerId: string;
+  modelId: string;
+  transport: string;
+  attempt: number;
+  maxAttempts: number;
+  querySource?: string;
+  queryId?: string;
+  durationMs?: number;
+  reason?: string;
+  retryable?: boolean;
+  statusCode?: number;
+  delayMs?: number;
+  nextAttempt?: number;
+  idleMs?: number;
+  timeoutMs?: number;
+}
+
+/** `session/debug` 快照。 */
+export interface KernelDebugSnapshot {
+  sessionId: string;
+  rounds: KernelDebugRound[];
+  networkEntries: KernelDebugNetworkEntry[];
+  cache: {
+    hitRateRequestCount: number;
+    totalInputTokens: number;
+    totalCacheReadTokens: number;
+    hitRate: number | null;
+  } | null;
+}
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
@@ -405,6 +460,17 @@ export class KernelSessionClient {
       const message = typeof ack?.message === "string" ? ack.message : "";
       throw new Error(message.length > 0 ? message : `内核拒绝删除会话（${status}）`);
     }
+  }
+
+  /**
+   * 诊断快照（`session/debug`）：逐轮用量、模型网络状态与缓存汇总。
+   *
+   * 内核只在会话打开时返回真实数据；没打开时是空快照（UI 显示空态，不报错）。
+   * `cache.hitRate` 的分母是 `input_tokens`，与会话级口径不同，展示时要注明。
+   */
+  async debugSnapshot(): Promise<KernelDebugSnapshot> {
+    const sessionId = this.requireSessionId();
+    return this.request<KernelDebugSnapshot>(KERNEL_METHODS.sessionDebug, { sessionId });
   }
 
   /**

@@ -201,6 +201,8 @@ export const KERNEL_METHODS = {
   command: "v4/command",
   /** 一轮的文件改动明细（按轮头行取）。 */
   fileChanges: "v4/conversation/fileChanges",
+  /** 诊断：逐轮用量、模型网络状态与缓存汇总（开发者工具面板）。 */
+  sessionDebug: "session/debug",
   /** 会话数据的彻底删除（行 + 附件/轨迹文件；`measure` 是它的只读体量查询）。 */
   sessionDataMeasure: "v4/storage/sessionData/measure",
   sessionDataPurge: "v4/storage/sessionData/purge",
