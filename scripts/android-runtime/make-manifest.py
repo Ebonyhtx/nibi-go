@@ -56,8 +56,10 @@ GIT_SCRIPTS = [
 BIN = {
     "bash": "libbash.so",
     "busybox": "libbusybox.so",
+    "curl": "libcurl.so",
     "git": "libgit.so",
     "jq": "libjq.so",
+    "rg": "librg.so",
     "zip": "libzip.so",
     "nibi-run": "libnibi_run.so",
 }

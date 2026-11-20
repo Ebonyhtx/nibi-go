@@ -76,6 +76,7 @@ unpack curl-8.16.0 curl-8.16.0.tar.xz
 unpack git-2.51.0 git-2.51.0.tar.xz
 unpack jq-1.7.1 jq-1.7.1.tar.gz
 unpack zip30 zip30.tar.gz
+unpack ripgrep-15.2.0 ripgrep-15.2.0.crate
 python3 "$REPO_ROOT/scripts/android-runtime/patch-sources.py" "$SRC"
 
 log "ncurses 6.5"
@@ -236,6 +237,17 @@ log "zip 3.0"
     LFLAGS1="-pie" LFLAGS2="-Wl,-z,max-page-size=16384" >/dev/null
 )
 
+log "ripgrep 15.2.0"
+command -v cargo >/dev/null || die "缺少 cargo：安装 Rust 并执行 rustup target add aarch64-linux-android"
+(
+  cd "$SRC/ripgrep-15.2.0"
+  # 默认特性只用 Rust 正则（不含 pcre2）；链接器指向 NDK clang，16KB 对齐由 RUSTFLAGS 保证。
+  mkdir -p .cargo
+  printf '[target.aarch64-linux-android]\nlinker = "%s"\n' "$CC" > .cargo/config.toml
+  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
+    cargo build --release --target aarch64-linux-android --locked >/dev/null
+)
+
 log "nibi-run / nibi-hook"
 mkdir -p "$JNI_OUT"
 "$CC" $CFLAGS_TARGET -Wl,-z,max-page-size=16384 -pie \
@@ -257,6 +269,8 @@ stage "$SRC/bash-5.2.37/bash" libbash.so
 stage "$SRC/busybox-1.36.1/busybox" libbusybox.so
 stage "$SRC/jq-1.7.1/jq" libjq.so
 stage "$SRC/zip30/zip" libzip.so
+stage "$OUT/bin/curl" libcurl.so
+stage "$SRC/ripgrep-15.2.0/target/aarch64-linux-android/release/rg" librg.so
 stage "$OUT/git/bin/git" libgit.so
 stage "$OUT/git/libexec/git-core/git-remote-http" libgit_remote_http.so
 for f in libnibi_run.so libnibi_hook.so; do
@@ -327,7 +341,8 @@ cp "$WORK/manifest.json" "$ASSET_MANIFEST"
 
 log "完成"
 for f in "$JNI_OUT"/libbash.so "$JNI_OUT"/libbusybox.so "$JNI_OUT"/libjq.so \
-  "$JNI_OUT"/libzip.so "$JNI_OUT"/libgit.so "$JNI_OUT"/libgit_remote_http.so \
+  "$JNI_OUT"/libzip.so "$JNI_OUT"/libcurl.so "$JNI_OUT"/librg.so \
+  "$JNI_OUT"/libgit.so "$JNI_OUT"/libgit_remote_http.so \
   "$JNI_OUT"/libnibi_run.so "$JNI_OUT"/libnibi_hook.so; do
   printf '%-28s %10s bytes  %s\n' "$(basename "$f")" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
 done

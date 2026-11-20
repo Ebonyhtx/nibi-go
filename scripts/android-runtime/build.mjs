@@ -45,9 +45,11 @@ const IS_WINDOWS = process.platform === "win32";
 const RUNTIME_LIBS = [
   "libbash.so",
   "libbusybox.so",
+  "libcurl.so",
   "libgit.so",
   "libgit_remote_http.so",
   "libjq.so",
+  "librg.so",
   "libzip.so",
   "libnibi_run.so",
   "libnibi_hook.so",

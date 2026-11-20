@@ -67,7 +67,8 @@ Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定�
 | git | 2.51.0 | GPL-2.0-only | `libgit.so` + `libgit_remote_http.so` |
 | jq | 1.7.1 | MIT（内置 oniguruma：BSD-2-Clause） | JSON 处理命令行（`$NIBI_BIN/jq`） |
 | Info-ZIP zip | 3.0 | Info-ZIP | 创建 zip 包（`$NIBI_BIN/zip`） |
-| curl | 8.16.0 | curl | git http/https 传输（静态链接进 remote helper） |
+| curl | 8.16.0 | curl | git http/https 传输（静态链接进 remote helper）+ `$NIBI_BIN/curl` |
+| ripgrep | 15.2.0 | MIT | 快速递归代码搜索（`$NIBI_BIN/rg`；Rust 交叉编译） |
 | OpenSSL | 3.5.4 | Apache-2.0 | curl 的 TLS 后端（静态链接） |
 | zlib | 1.3.1 | Zlib | curl/git 的压缩后端（静态链接） |
 | Mozilla CA 证书包（curl 分发） | 2026-11-05 | MPL-2.0 | git https 的信任根（`assets/cacert.pem`，sha256 固定） |
