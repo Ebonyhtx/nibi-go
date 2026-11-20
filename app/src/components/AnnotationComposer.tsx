@@ -4,6 +4,7 @@
 // 变色，用户能直接看到引用的是原文哪一部分。
 //
 // 发送时只把选中的片段 + 评论/指令放进 conversationQuotes，不复制整条消息。
+// 2.0：视觉全部换成 theme token；键盘处理刻意保持原状（见下方 Modal 注释）。
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,7 +22,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "./Icon";
-import { radius, space, type as typeScale, useNibiTheme } from "../theme";
+import { PillButton } from "./ui/PillButton";
+import { PressableScale } from "../motion/PressableScale";
+import { radius, size, space, text, useNibiTheme } from "../theme";
 
 export interface AnnotationDraft {
   excerpt: string;
@@ -94,6 +97,7 @@ export function AnnotationComposer({
   const [excerpt, setExcerpt] = useState(initialExcerpt ?? fullText);
   const [selection, setSelection] = useState({ start: 0, end: fullText.length });
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [commentFocused, setCommentFocused] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -128,12 +132,20 @@ export function AnnotationComposer({
   };
 
   return (
+    // 键盘态刻意保留原生 Modal + KeyboardAvoidingView，而不是换成 ui/Sheet：
+    // Sheet 的内容是 absolute bottom 定位，无法把 Android 的键盘高度加到它的容器上
+    // （edge-to-edge 下 adjustResize 不可靠），结果会是评论输入框被键盘遮住。
+    // 打字正确性优先于弹层底座统一，这里只对齐颜色/字阶/圆角等视觉 token。
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.root}
       >
-        <Pressable style={styles.backdrop} onPress={onCancel} accessibilityLabel="取消注释" />
+        <Pressable
+          style={[styles.backdrop, { backgroundColor: t.backdrop }]}
+          onPress={onCancel}
+          accessibilityLabel="取消注释"
+        />
         <View
           style={[
             styles.card,
@@ -173,7 +185,7 @@ export function AnnotationComposer({
           ) : null}
 
           <ScrollView
-            style={[styles.quote, { backgroundColor: t.panel, borderColor: t.hairline }]}
+            style={[styles.quote, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
             contentContainerStyle={styles.quoteInner}
             nestedScrollEnabled
             showsVerticalScrollIndicator
@@ -208,15 +220,24 @@ export function AnnotationComposer({
                 <Text style={[styles.segmentTitle, { color: t.inkFaint }]}>
                   选择段落（长消息可上下滚动）
                 </Text>
-                <Pressable
+                <PressableScale
+                  scaleTo={0.94}
                   onPress={() => {
                     setExcerpt(fullText);
                     setSelection({ start: 0, end: fullText.length });
                   }}
-                  style={[styles.segmentAll, { backgroundColor: t.panel, borderColor: t.hairline }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="选择整条"
+                  style={({ pressed }) => [
+                    styles.segmentAll,
+                    {
+                      backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                      borderColor: t.hairline,
+                    },
+                  ]}
                 >
                   <Text style={[styles.segmentAllText, { color: t.inkSub }]}>整条</Text>
-                </Pressable>
+                </PressableScale>
               </View>
               <ScrollView
                 style={styles.segmentList}
@@ -228,16 +249,21 @@ export function AnnotationComposer({
                   const active =
                     selection.start === segment.start && selection.end === segment.end;
                   return (
-                    <Pressable
+                    <PressableScale
                       key={`${index}:${segment.start}`}
+                      scaleTo={0.985}
                       onPress={() => selectSegment(segment)}
                       accessibilityRole="button"
                       accessibilityLabel={`选择第 ${index + 1} 段`}
-                      style={[
+                      style={({ pressed }) => [
                         styles.segmentRow,
                         {
-                          backgroundColor: active ? t.brandSoft : t.panel,
-                          borderColor: active ? t.brandSoft : t.hairline,
+                          backgroundColor: active
+                            ? t.brandSoft
+                            : pressed
+                              ? t.hover
+                              : t.surfaceSoft,
+                          borderColor: active ? t.brand : t.hairline,
                         },
                       ]}
                     >
@@ -252,10 +278,8 @@ export function AnnotationComposer({
                       >
                         {segment.text}
                       </Text>
-                      {active ? (
-                        <Text style={[styles.segmentCheck, { color: t.brand }]}>✓</Text>
-                      ) : null}
-                    </Pressable>
+                      {active ? <Icon name="check" size={12} color={t.brand} /> : null}
+                    </PressableScale>
                   );
                 })}
               </ScrollView>
@@ -265,6 +289,8 @@ export function AnnotationComposer({
           <TextInput
             value={comment}
             onChangeText={setComment}
+            onFocus={() => setCommentFocused(true)}
+            onBlur={() => setCommentFocused(false)}
             multiline
             placeholder={
               instruction
@@ -272,7 +298,14 @@ export function AnnotationComposer({
                 : "评论（可选）。模型会看到选中的原文和这条评论。"
             }
             placeholderTextColor={t.inkFaint}
-            style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.card }]}
+            style={[
+              styles.input,
+              {
+                color: t.ink,
+                borderColor: commentFocused ? t.hairlineStrong : t.hairline,
+                backgroundColor: t.surfaceSoft,
+              },
+            ]}
             textAlignVertical="top"
           />
 
@@ -281,28 +314,15 @@ export function AnnotationComposer({
               {selected ? `将引用：${selected.slice(0, 28)}${selected.length > 28 ? "…" : ""}` : "请选择原文"}
             </Text>
             <View style={styles.actions}>
-              <Pressable onPress={onCancel} accessibilityRole="button" accessibilityLabel="取消">
-                <Text style={[styles.cancel, { color: t.inkSub }]}>取消</Text>
-              </Pressable>
-              <Pressable
+              <PillButton variant="secondary" label="取消" onPress={onCancel} />
+              <PillButton
+                label={editing ? "保存" : "添加注释"}
                 onPress={() =>
                   onSubmit({ excerpt: selected || fullText.trim(), comment: comment.trim() })
                 }
                 disabled={!selected && !fullText.trim()}
-                accessibilityRole="button"
                 accessibilityLabel={editing ? "保存注释" : "添加注释"}
-                style={({ pressed }) => [
-                  styles.submit,
-                  {
-                    backgroundColor: t.brand,
-                    opacity: !selected && !fullText.trim() ? 0.4 : pressed ? 0.75 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.submitText, { color: t.brandFg }]}>
-                  {editing ? "保存" : "添加注释"}
-                </Text>
-              </Pressable>
+              />
             </View>
           </View>
         </View>
@@ -319,7 +339,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(20,26,36,0.26)",
   },
   card: {
     borderTopLeftRadius: radius.card,
@@ -327,77 +346,69 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: space(4),
     gap: space(2),
-    maxHeight: "86%",
+    maxHeight: "90%",
   },
   head: { flexDirection: "row", alignItems: "center", gap: space(2) },
   badge: {
-    width: 26,
-    height: 26,
+    width: size.chip,
+    height: size.chip,
     borderRadius: radius.chip,
     alignItems: "center",
     justifyContent: "center",
   },
   headText: { flex: 1, gap: 2 },
-  title: { fontSize: typeScale.body, fontWeight: "700" },
-  hint: { fontSize: 10.5 },
+  title: { ...text("body"), fontWeight: "700" },
+  hint: { ...text("micro") },
   instruction: {
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: space(1),
     borderRadius: radius.chip,
     paddingHorizontal: space(2),
-    paddingVertical: 3,
+    paddingVertical: space(1),
     maxWidth: "100%",
   },
-  instructionText: { fontSize: 10.5, fontWeight: "700", flexShrink: 1 },
+  instructionText: { ...text("micro"), fontWeight: "700", flexShrink: 1 },
   quote: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
     maxHeight: 180,
   },
   quoteInner: { padding: space(2) },
-  quoteText: { fontSize: 12, lineHeight: 17 },
+  quoteText: { ...text("small") },
   segmentWrap: { gap: space(1) },
   segmentHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  segmentTitle: { fontSize: 9.5 },
+  segmentTitle: { ...text("micro") },
   segmentAll: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.chip,
-    paddingHorizontal: space(2),
-    paddingVertical: 2,
+    paddingHorizontal: space(2.5),
+    height: size.chip,
+    justifyContent: "center",
   },
-  segmentAllText: { fontSize: 9.5, fontWeight: "600" },
+  segmentAllText: { ...text("micro"), fontWeight: "600" },
   segmentList: { maxHeight: 122 },
   segmentRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(1.5),
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.control,
-    paddingHorizontal: space(2),
-    paddingVertical: 5,
-    marginBottom: 4,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    minHeight: size.chipLg,
+    marginBottom: space(1),
   },
-  segmentNumber: { width: 14, fontSize: 9.5, fontWeight: "700", textAlign: "right" },
-  segmentText: { flex: 1, fontSize: 11, lineHeight: 15 },
-  segmentCheck: { fontSize: 12, fontWeight: "700" },
+  segmentNumber: { width: space(3.5), ...text("micro"), fontWeight: "700", textAlign: "right" },
+  segmentText: { flex: 1, ...text("small") },
   input: {
-    minHeight: 74,
+    minHeight: space(18),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
     padding: space(2.5),
-    fontSize: 13,
-    lineHeight: 18,
+    ...text("body"),
   },
   foot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space(2) },
-  footHint: { flex: 1, fontSize: 10 },
-  actions: { flexDirection: "row", alignItems: "center", gap: space(3) },
-  cancel: { fontSize: 13, fontWeight: "600" },
-  submit: {
-    borderRadius: radius.chip,
-    paddingHorizontal: space(4),
-    paddingVertical: space(2),
-  },
-  submitText: { fontSize: 13, fontWeight: "700" },
+  footHint: { flex: 1, ...text("micro") },
+  actions: { flexDirection: "row", alignItems: "center", gap: space(2) },
 });

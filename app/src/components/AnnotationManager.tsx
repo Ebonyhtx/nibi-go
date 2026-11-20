@@ -2,12 +2,14 @@
 //
 // 注释不是“把整条消息复制进提示词”：每条只带选中的原文片段 + 可选评论/指令，
 // 发送时走内核的 conversationQuotes（模型看到编号对应的引用块），用户气泡仍是原文。
+// 2.0：底座换成 ui/Sheet；列表行改为 PressableScale 卡片，编号与删除按钮走 theme token。
 
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon } from "./Icon";
-import { radius, space, type as typeScale, useNibiTheme } from "../theme";
+import { Sheet } from "./ui/Sheet";
+import { PressableScale } from "../motion/PressableScale";
+import { radius, space, text, useNibiTheme } from "../theme";
 
 export interface AnnotationItem {
   id: string;
@@ -40,161 +42,152 @@ export function AnnotationManager({
   onDelete: (id: string) => void;
 }) {
   const t = useNibiTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="关闭注释管理" />
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: t.card,
-              borderColor: t.hairline,
-              paddingBottom: insets.bottom + space(3),
-            },
-          ]}
-        >
-          <View style={styles.head}>
-            <View style={styles.titleRow}>
-              <Icon name="quote" size={15} color={t.brand} />
-              <Text style={[styles.title, { color: t.ink }]}>注释 {annotations.length}</Text>
-            </View>
-            <Pressable onPress={onClose} hitSlop={8} accessibilityLabel="关闭">
-              <Icon name="x" size={17} color={t.inkFaint} />
-            </Pressable>
+    <Sheet visible={visible} onClose={onClose} maxHeightRatio={0.72}>
+      <View style={styles.sheet}>
+        <View style={styles.head}>
+          <View style={styles.titleRow}>
+            <Icon name="quote" size={15} color={t.brand} />
+            <Text style={[styles.title, { color: t.ink }]}>注释 {annotations.length}</Text>
           </View>
-          <Text style={[styles.subtitle, { color: t.inkFaint }]}>
-            下一条消息将携带 {annotations.length} 条注释 · 编号对应正文
-          </Text>
-
-          {annotations.length === 0 ? (
-            <Text style={[styles.empty, { color: t.inkFaint }]}>
-              还没有注释。长按任意用户/助手消息，选「注释」即可添加。
-            </Text>
-          ) : (
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-              {annotations.map((annotation, index) => (
-                <Pressable
-                  key={annotation.id}
-                  onPress={() => onEdit(annotation)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`编辑注释 ${index + 1}`}
-                  style={({ pressed }) => [
-                    styles.card,
-                    {
-                      backgroundColor: t.panel,
-                      borderColor: t.hairline,
-                      opacity: pressed ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  <View style={[styles.number, { backgroundColor: t.brandSoft }]}>
-                    <Text style={[styles.numberText, { color: t.brand }]}>{index + 1}</Text>
-                  </View>
-                  <View style={styles.cardBody}>
-                    <View style={styles.metaRow}>
-                      <Text style={[styles.meta, { color: t.inkGhost }]}>
-                        {annotation.messageRole === "assistant" ? "助手消息" : "用户消息"}
-                      </Text>
-                      {annotation.instruction ? (
-                        <View style={[styles.instruction, { backgroundColor: t.brandSoft }]}>
-                          <Text style={[styles.instructionText, { color: t.brand }]} numberOfLines={1}>
-                            {annotation.instruction}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={[styles.excerpt, { color: t.inkSub }]} numberOfLines={2}>
-                      {annotation.messageText.trim()}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.comment,
-                        { color: annotation.comment ? t.ink : t.inkFaint },
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {annotation.comment || "（无评论）"}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => onDelete(annotation.id)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`删除注释 ${index + 1}`}
-                    style={styles.delete}
-                  >
-                    <Icon name="trash" size={15} color={t.red} />
-                  </Pressable>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-
-          <Text style={[styles.footnote, { color: t.inkGhost }]}>
-            注释随下一次发送交给模型；发送后顶部数字消失，被注释的消息下方保留「已注释」标记。
-          </Text>
+          <PressableScale
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="关闭"
+            style={styles.close}
+          >
+            <Icon name="x" size={17} color={t.inkFaint} />
+          </PressableScale>
         </View>
+        <Text style={[styles.subtitle, { color: t.inkFaint }]}>
+          下一条消息将携带 {annotations.length} 条注释 · 编号对应正文
+        </Text>
+
+        {annotations.length === 0 ? (
+          <Text style={[styles.empty, { color: t.inkFaint }]}>
+            还没有注释。长按任意用户/助手消息，选「注释」即可添加。
+          </Text>
+        ) : (
+          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+            {annotations.map((annotation, index) => (
+              <PressableScale
+                key={annotation.id}
+                scaleTo={0.985}
+                onPress={() => onEdit(annotation)}
+                accessibilityRole="button"
+                accessibilityLabel={`编辑注释 ${index + 1}`}
+                style={({ pressed }) => [
+                  styles.card,
+                  {
+                    backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                    borderColor: t.hairline,
+                  },
+                ]}
+              >
+                <View style={[styles.number, { backgroundColor: t.brandSoft }]}>
+                  <Text style={[styles.numberText, { color: t.brand }]}>{index + 1}</Text>
+                </View>
+                <View style={styles.cardBody}>
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.meta, { color: t.inkGhost }]}>
+                      {annotation.messageRole === "assistant" ? "助手消息" : "用户消息"}
+                    </Text>
+                    {annotation.instruction ? (
+                      <View style={[styles.instruction, { backgroundColor: t.brandSoft }]}>
+                        <Text style={[styles.instructionText, { color: t.brand }]} numberOfLines={1}>
+                          {annotation.instruction}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.excerpt, { color: t.inkSub }]} numberOfLines={2}>
+                    {annotation.messageText.trim()}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.comment,
+                      { color: annotation.comment ? t.ink : t.inkFaint },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {annotation.comment || "（无评论）"}
+                  </Text>
+                </View>
+                <PressableScale
+                  onPress={(event) => {
+                    // 内层删除按钮吃掉本次点击，避免同时触发外层的“编辑”。
+                    event.stopPropagation();
+                    onDelete(annotation.id);
+                  }}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`删除注释 ${index + 1}`}
+                  style={styles.delete}
+                >
+                  <Icon name="trash" size={15} color={t.red} />
+                </PressableScale>
+              </PressableScale>
+            ))}
+          </ScrollView>
+        )}
+
+        <Text style={[styles.footnote, { color: t.inkGhost }]}>
+          注释随下一次发送交给模型；发送后顶部数字消失，被注释的消息下方保留「已注释」标记。
+        </Text>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: "flex-end" },
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(20,26,36,0.26)",
-  },
+  // Sheet 自身只负责定位/遮罩/安全区，内容内边距由这里补齐。
   sheet: {
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
     padding: space(4),
     gap: space(2),
-    maxHeight: "72%",
   },
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
-  title: { fontSize: typeScale.heading, fontWeight: "700" },
-  subtitle: { fontSize: 10.5 },
-  list: { flexGrow: 0 },
-  empty: { fontSize: 12.5, paddingVertical: space(5), textAlign: "center" },
+  title: { ...text("heading"), fontWeight: "700" },
+  subtitle: { ...text("micro") },
+  close: {
+    width: space(7),
+    height: space(7),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  list: { flexGrow: 0, flexShrink: 1 },
+  empty: { ...text("micro"), paddingVertical: space(5), textAlign: "center" },
   card: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: space(2.5),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    padding: space(2),
+    padding: space(2.5),
     marginBottom: space(1.5),
   },
   number: {
-    width: 22,
-    height: 22,
+    width: space(5.5),
+    height: space(5.5),
     borderRadius: radius.chip,
     alignItems: "center",
     justifyContent: "center",
   },
-  numberText: { fontSize: 11, fontWeight: "700" },
+  numberText: { ...text("micro"), fontWeight: "700" },
   cardBody: { flex: 1, gap: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
-  meta: { fontSize: 9.5 },
+  meta: { ...text("micro") },
   instruction: {
     borderRadius: radius.chip,
     paddingHorizontal: space(1.5),
     paddingVertical: 1,
     maxWidth: 160,
   },
-  instructionText: { fontSize: 9.5, fontWeight: "700" },
-  excerpt: { fontSize: 11.5, lineHeight: 15 },
-  comment: { fontSize: 12, lineHeight: 16 },
-  delete: { paddingTop: 1, paddingLeft: 2 },
-  footnote: { fontSize: 10.5, lineHeight: 15 },
+  instructionText: { ...text("micro"), fontWeight: "700" },
+  excerpt: { ...text("small") },
+  comment: { ...text("small") },
+  delete: { paddingTop: space(0.5), paddingLeft: space(0.5) },
+  footnote: { ...text("micro") },
 });

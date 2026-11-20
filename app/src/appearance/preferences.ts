@@ -46,6 +46,9 @@ export async function loadAppearancePreferences(): Promise<AppearancePreferences
     raw = undefined;
   }
   cached = normalizeAppearancePreferences(raw);
+  // 读盘后通知一次：root layout 启动时 load()，主题钩子据此从默认值切到持久化偏好，
+  // 不通知的话重启后要等用户再改一次外观才生效。
+  for (const listener of listeners) listener(cached);
   return cached;
 }
 

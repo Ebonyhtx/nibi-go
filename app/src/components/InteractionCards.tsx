@@ -6,10 +6,12 @@
 // 回答走 `v4/command` 的 `resolveInteraction`；答完内核把它从快照移除，卡片随下一帧消失。
 import type { ChatRow } from "@nibi-go/kernel-session";
 import { type ReactNode, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 
-import { radius, space, type as t, useNibiTheme } from "../theme";
+import { PressableScale } from "../motion/PressableScale";
+import { radius, size, space, text, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
+import { PillButton } from "./ui/PillButton";
 
 export type ApprovalRow = Extract<ChatRow, { kind: "approval" }>;
 export type QuestionRow = Extract<ChatRow, { kind: "question" }>;
@@ -80,17 +82,19 @@ function ActionButton({
   onPress,
 }: {
   label: string;
-  kind: "primary" | "secondary" | "text";
+  kind: "primary" | "secondary" | "danger" | "text";
   busy: boolean;
   disabled: boolean;
   onPress: () => void;
 }) {
   const th = useNibiTheme();
   if (kind === "text") {
+    // 「本对话都允许」这类三级动作：透明药丸 + PressableScale，不与主键抢视觉。
     return (
-      <Pressable
+      <PressableScale
         onPress={onPress}
         disabled={disabled}
+        scaleTo={0.96}
         accessibilityRole="button"
         accessibilityLabel={label}
         style={styles.textButton}
@@ -98,32 +102,56 @@ function ActionButton({
         <Text style={[styles.textButtonLabel, { color: disabled ? th.inkGhost : th.inkSub }]}>
           {busy ? "处理中…" : label}
         </Text>
-      </Pressable>
+      </PressableScale>
     );
   }
-  const primary = kind === "primary";
+  // 主/次键统一走 PillButton（按压回弹内建、高度走 size 阶梯）：
+  // 允许=primary（品牌底），拒绝=danger（红），其余次要键=secondary（面板底+发丝线）。
   return (
-    <Pressable
+    <PillButton
+      label={busy ? "处理中…" : label}
+      variant={kind === "primary" ? "primary" : kind === "danger" ? "danger" : "secondary"}
+      buttonSize="md"
       onPress={onPress}
       disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
+      style={styles.actionFill}
+    />
+  );
+}
+
+/** 自由作答输入井（2.0 规范）：th.card 实色底、默认发丝线，聚焦加深一档（hairlineStrong）。 */
+function AnswerInput({
+  value,
+  onChangeText,
+  placeholder,
+  sensitive,
+}: {
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder: string;
+  sensitive?: boolean;
+}) {
+  const th = useNibiTheme();
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={th.inkGhost}
+      secureTextEntry={sensitive}
+      multiline
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       style={[
-        styles.action,
-        primary
-          ? { backgroundColor: disabled ? th.brandSoft : th.brand }
-          : { borderColor: th.hairline, borderWidth: StyleSheet.hairlineWidth },
+        styles.input,
+        {
+          color: th.ink,
+          backgroundColor: th.card,
+          borderColor: focused ? th.hairlineStrong : th.hairline,
+        },
       ]}
-    >
-      <Text
-        style={[
-          styles.actionLabel,
-          { color: primary ? (disabled ? th.inkFaint : th.brandFg) : th.inkSub },
-        ]}
-      >
-        {busy ? "处理中…" : label}
-      </Text>
-    </Pressable>
+    />
   );
 }
 
@@ -176,7 +204,8 @@ export function ApprovalCard({
         <Text style={[styles.summary, { color: th.inkSub }]}>{row.summary}</Text>
       ) : null}
       {row.detail ? (
-        <View style={[styles.well, { backgroundColor: th.panel, borderColor: th.hairline }]}>
+        // 命令井：比卡片低一档的内嵌面（surfaceSoft）+ xs 圆角 + 等宽字，路径一眼可辨。
+        <View style={[styles.well, { backgroundColor: th.surfaceSoft, borderColor: th.hairline }]}>
           <Text style={[styles.wellText, { color: th.ink }]} numberOfLines={4}>
             {row.detail}
           </Text>
@@ -187,9 +216,10 @@ export function ApprovalCard({
       ) : null}
       <View style={styles.actions}>
         <View style={styles.actionCell}>
+          {/* 拒绝键给 danger（红）而不是普通次键：误触代价不对称，色先挡一道。 */}
           <ActionButton
             label={secondary?.label ?? "拒绝"}
-            kind="secondary"
+            kind="danger"
             busy={busy === (secondary?.optionId ?? "deny")}
             disabled={busy !== null}
             onPress={() => void respond(secondary?.optionId ?? "deny")}
@@ -337,27 +367,29 @@ export function QuestionCard({
             {question.options.map((option, optionIndex) => {
               const active = picked[index]?.has(optionIndex) ?? false;
               return (
-                <Pressable
+                <PressableScale
                   key={option.value}
                   onPress={() => toggle(index, optionIndex, question.multiSelect)}
+                  scaleTo={0.98}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: active }}
-                  style={[
+                  style={({ pressed }) => [
                     styles.option,
                     {
                       borderColor: active ? th.steel : th.hairline,
-                      backgroundColor: active ? th.steelSoft : "transparent",
+                      backgroundColor: active ? th.steelSoft : pressed ? th.hover : "transparent",
                     },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.indicator,
-                      question.multiSelect ? styles.indicatorSquare : styles.indicatorRound,
-                      { borderColor: active ? th.steel : th.inkGhost },
-                    ]}
-                  >
-                    {active ? <View style={[styles.indicatorDot, { backgroundColor: th.steel }]} /> : null}
+                  {/* radio/checkbox 统一 16px 圆圈（radius.xs 正好半宽）：语义靠内点/勾区分。 */}
+                  <View style={[styles.indicator, { borderColor: active ? th.steel : th.inkGhost }]}>
+                    {active ? (
+                      question.multiSelect ? (
+                        <Icon name="check" size={10} color={th.steel} />
+                      ) : (
+                        <View style={[styles.indicatorDot, { backgroundColor: th.steel }]} />
+                      )
+                    ) : null}
                   </View>
                   <View style={styles.optionBody}>
                     <Text style={[styles.optionLabel, { color: th.ink }]}>{option.label}</Text>
@@ -367,27 +399,21 @@ export function QuestionCard({
                       </Text>
                     ) : null}
                   </View>
-                </Pressable>
+                </PressableScale>
               );
             })}
             {row.freeText ? (
-              <TextInput
+              <AnswerInput
                 value={texts[index] ?? ""}
-                onChangeText={(text) =>
+                onChangeText={(value) =>
                   setTexts((current) => {
                     const next = [...current];
-                    next[index] = text;
+                    next[index] = value;
                     return next;
                   })
                 }
                 placeholder={question.options.length > 0 ? "其他回答…" : "输入回答…"}
-                placeholderTextColor={th.inkGhost}
-                secureTextEntry={row.sensitive}
-                multiline
-                style={[
-                  styles.input,
-                  { color: th.ink, borderColor: th.hairline, backgroundColor: th.panel },
-                ]}
+                sensitive={row.sensitive}
               />
             ) : null}
           </View>
@@ -398,38 +424,33 @@ export function QuestionCard({
           {row.options?.map((option) => {
             const active = single === option.optionId;
             return (
-              <Pressable
+              <PressableScale
                 key={option.optionId}
                 onPress={() => setSingle(option.optionId)}
+                scaleTo={0.98}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: active }}
-                style={[
+                style={({ pressed }) => [
                   styles.option,
                   {
                     borderColor: active ? th.steel : th.hairline,
-                    backgroundColor: active ? th.steelSoft : "transparent",
+                    backgroundColor: active ? th.steelSoft : pressed ? th.hover : "transparent",
                   },
                 ]}
               >
-                <View style={[styles.indicator, styles.indicatorRound, { borderColor: active ? th.steel : th.inkGhost }]}>
+                <View style={[styles.indicator, { borderColor: active ? th.steel : th.inkGhost }]}>
                   {active ? <View style={[styles.indicatorDot, { backgroundColor: th.steel }]} /> : null}
                 </View>
                 <Text style={[styles.optionLabel, { color: th.ink }]}>{option.label}</Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
           {row.freeText ? (
-            <TextInput
+            <AnswerInput
               value={legacyText}
               onChangeText={setLegacyText}
               placeholder="输入回答…"
-              placeholderTextColor={th.inkGhost}
-              secureTextEntry={row.sensitive}
-              multiline
-              style={[
-                styles.input,
-                { color: th.ink, borderColor: th.hairline, backgroundColor: th.panel },
-              ]}
+              sensitive={row.sensitive}
             />
           ) : null}
         </View>
@@ -493,31 +514,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { fontSize: t.heading, fontWeight: "600", flexShrink: 1 },
-  summary: { fontSize: t.small, lineHeight: 18 },
+  title: { ...text("heading"), fontWeight: "600", flexShrink: 1 },
+  summary: { ...text("small") },
+  // 命令井：内嵌面（surfaceSoft）+ xs 小圆角，和卡片面拉开一档「待执行内容」的层级。
   well: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.control,
+    borderRadius: radius.xs,
     paddingHorizontal: space(2.5),
     paddingVertical: space(2),
   },
-  wellText: { fontFamily: "monospace", fontSize: t.small, lineHeight: 18 },
-  hint: { fontSize: t.micro },
+  wellText: { fontFamily: "monospace", ...text("small") },
+  hint: { ...text("micro") },
   actions: { flexDirection: "row", gap: space(3), marginTop: space(1) },
   actionCell: { flex: 1 },
-  action: {
-    minHeight: 42,
-    borderRadius: radius.control,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: space(3),
-  },
-  actionLabel: { fontSize: t.body, fontWeight: "600" },
-  textButton: { minHeight: 36, alignItems: "center", justifyContent: "center" },
-  textButtonLabel: { fontSize: t.small },
+  // PillButton 铺满所在格：两键等宽；高度由 md 档（size.button）接管，不再写 minHeight 42。
+  actionFill: { width: "100%" },
+  textButton: { minHeight: size.button, alignItems: "center", justifyContent: "center" },
+  textButtonLabel: { ...text("small"), fontWeight: "600" },
   questionBlock: { gap: space(2) },
-  questionHeader: { fontSize: t.micro, textTransform: "uppercase", letterSpacing: 0.4 },
-  questionText: { fontSize: t.body, lineHeight: 20 },
+  questionHeader: { ...text("micro"), textTransform: "uppercase", letterSpacing: 0.4 },
+  questionText: { ...text("body") },
   option: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -527,29 +543,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2.5),
     paddingVertical: space(2),
   },
+  // 16px 圆圈：radius.xs(8) 正好是半宽。radio/checkbox 同一几何，语义靠内点/勾区分；
+  // 描边 1.4 是 16px 件上 2px 网格笔画的光学等效（theme 还没有描边 token）。
   indicator: {
     width: 16,
     height: 16,
     borderWidth: 1.4,
+    borderRadius: radius.xs,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 1,
   },
-  indicatorRound: { borderRadius: 8 },
-  indicatorSquare: { borderRadius: 4 },
-  indicatorDot: { width: 8, height: 8, borderRadius: 4 },
+  indicatorDot: { width: 8, height: 8, borderRadius: radius.xs },
   optionBody: { flex: 1, gap: 2 },
-  optionLabel: { fontSize: t.body, lineHeight: 19 },
-  optionHint: { fontSize: t.micro, lineHeight: 15 },
+  optionLabel: { ...text("body") },
+  optionHint: { ...text("micro") },
   input: {
-    minHeight: 44,
+    minHeight: size.buttonLg,
     maxHeight: 120,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
     paddingHorizontal: space(2.5),
     paddingVertical: space(2),
-    fontSize: t.body,
+    ...text("body"),
     textAlignVertical: "top",
   },
-  error: { fontSize: t.small },
+  error: { ...text("small") },
 });

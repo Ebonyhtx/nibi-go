@@ -2,15 +2,18 @@
 //
 // 内容由设置页的 COMPOSE 配置决定；每一项是 catalog 里的命令/技能/模式，
 // 选中后只往 COMPOSE 里插入 token，不把提示词塞进输入框。
+// 2.0：胶囊层走 glass + elevation.card，按压交给 PressableScale；弹层列表换 ui/MenuRow。
 
 import type { ComponentRef } from "react";
 import { useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon, type IconName } from "./Icon";
+import { MenuRow } from "./ui/MenuRow";
 import { PluginPopup, type PopupAnchor } from "./PluginPopup";
 import type { ComposerCatalogItem } from "../composer/catalog";
-import { radius, space, useNibiTheme } from "../theme";
+import { PressableScale } from "../motion/PressableScale";
+import { radius, space, text, useNibiTheme } from "../theme";
 
 function itemIcon(item: ComposerCatalogItem): IconName {
   return (item.icon ?? "sparkles") as IconName;
@@ -30,7 +33,7 @@ export function CapsuleStack({
   onItem: (item: ComposerCatalogItem) => void;
 }) {
   const t = useNibiTheme();
-  const buttonRef = useRef<ComponentRef<typeof Pressable> | null>(null);
+  const buttonRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
   const [anchor, setAnchor] = useState<PopupAnchor | null>(null);
   if (items.length === 0) return null;
 
@@ -42,26 +45,44 @@ export function CapsuleStack({
 
   return (
     <>
-      <Pressable
+      <PressableScale
         ref={buttonRef}
+        scaleTo={0.96}
         onPress={open}
         accessibilityRole="button"
         accessibilityLabel={`COMPOSE 快捷动作，共 ${items.length} 个`}
-        style={({ pressed }) => [styles.stack, { opacity: pressed ? 0.72 : 1 }]}
+        style={styles.stack}
       >
-        <View style={[styles.layer, styles.layerBack, { backgroundColor: t.panel, borderColor: t.hairline }]} />
-        <View style={[styles.layer, styles.layerMid, { backgroundColor: t.glass, borderColor: t.glassBorder }]} />
+        <View
+          style={[
+            styles.layer,
+            styles.layerBack,
+            { backgroundColor: t.glass, borderColor: t.glassBorder },
+          ]}
+        />
+        <View
+          style={[
+            styles.layer,
+            styles.layerMid,
+            { backgroundColor: t.glass, borderColor: t.glassBorder },
+          ]}
+        />
         <View
           style={[
             styles.face,
-            { backgroundColor: t.glass, borderColor: t.glassBorder },
+            {
+              backgroundColor: t.glass,
+              borderColor: t.glassBorder,
+              // 投影只落在最上层，三层叠加时避免阴影重复发黑。
+              ...t.elevation.card,
+            },
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
           <Text style={[styles.count, { color: t.inkSub }]}>快捷 {items.length}</Text>
           <Icon name="chevron-down" size={11} color={t.inkFaint} />
         </View>
-      </Pressable>
+      </PressableScale>
 
       <PluginPopup
         visible={anchor !== null}
@@ -72,44 +93,18 @@ export function CapsuleStack({
         <Text style={[styles.title, { color: t.ink }]}>快捷动作</Text>
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
           {items.map((item) => (
-            <Pressable
+            <MenuRow
               key={item.id}
+              icon={itemIcon(item)}
+              tone={item.source === "plugin" ? "steel" : "brand"}
+              label={item.title}
+              detail={item.detail ?? kindLabel(item)}
               onPress={() => {
                 setAnchor(null);
                 onItem(item);
               }}
-              accessibilityRole="button"
-              accessibilityLabel={`${item.title}（${kindLabel(item)}）`}
-              style={({ pressed }) => [
-                styles.row,
-                { borderColor: t.hairline, opacity: pressed ? 0.62 : 1 },
-              ]}
-            >
-              <View
-                style={[
-                  styles.icon,
-                  {
-                    backgroundColor:
-                      item.source === "plugin" ? t.steelSoft : t.brandSoft,
-                  },
-                ]}
-              >
-                <Icon
-                  name={itemIcon(item)}
-                  size={15}
-                  color={item.source === "plugin" ? t.steel : t.brand}
-                />
-              </View>
-              <View style={styles.rowText}>
-                <Text style={[styles.rowTitle, { color: t.ink }]} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text style={[styles.rowSub, { color: t.inkFaint }]} numberOfLines={1}>
-                  {item.detail ?? kindLabel(item)}
-                </Text>
-              </View>
-              <Text style={[styles.kind, { color: t.inkGhost }]}>{kindLabel(item)}</Text>
-            </Pressable>
+              right={<Text style={[styles.kind, { color: t.inkGhost }]}>{kindLabel(item)}</Text>}
+            />
           ))}
         </ScrollView>
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
@@ -141,46 +136,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: space(1),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
-  count: { fontSize: 10.5, fontWeight: "700" },
+  count: { ...text("micro"), fontWeight: "700" },
   title: {
-    fontSize: 12.5,
+    ...text("small"),
     fontWeight: "700",
     paddingHorizontal: space(2),
     paddingBottom: space(1.5),
   },
   list: { maxHeight: 330 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space(2),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: space(2),
-    paddingVertical: space(2),
-    minHeight: 46,
-  },
-  icon: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.chip,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  rowText: { flex: 1, gap: 1 },
-  rowTitle: { fontSize: 12.5, fontWeight: "600" },
-  rowSub: { fontSize: 10 },
-  kind: { fontSize: 9.5 },
+  kind: { ...text("micro") },
   footnote: {
-    fontSize: 10,
-    lineHeight: 14,
+    ...text("micro"),
     paddingHorizontal: space(2),
     paddingTop: space(2),
   },

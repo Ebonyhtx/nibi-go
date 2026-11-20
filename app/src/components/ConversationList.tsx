@@ -15,14 +15,25 @@ import {
   useRef,
   useState,
 } from "react";
-import { AccessibilityInfo, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
+import { AppearIn } from "../motion/appear";
+import { easingStandard } from "../motion/easing";
+import { PressableScale } from "../motion/PressableScale";
 import { hostSlotData, toolSlotData } from "../plugins/data";
 import { collectTurnPushes } from "../plugins/push";
 import type { LoadedPlugin } from "../plugins/store";
 import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
 import { usePhoneApprovalOverlay } from "../phone/approval";
-import { radius, space, type NibiTheme, useNibiTheme } from "../theme";
+import { motion, radius, size, space, text, type NibiTheme, useNibiTheme } from "../theme";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
@@ -33,10 +44,12 @@ import {
 } from "./PluginView";
 import type { PopupAnchor } from "./PluginPopup";
 
-/** 消息复制按钮：GO 没有 hover，按桌面“手机远控”分支常显，而不是藏在长按里。 */
+/** 消息复制按钮：GO 没有 hover，按桌面“手机远控”分支常显，而不是藏在长按里。
+ * 按压反馈走 PressableScale；字色静默态 inkFaint、按下加深一档（比 opacity 抖动更稳）。 */
 function CopyMessageButton({ text, label }: { text: string; label: string }) {
   const th = useNibiTheme();
   const [copied, setCopied] = useState(false);
+  const [pressed, setPressed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -58,20 +71,57 @@ function CopyMessageButton({ text, label }: { text: string; label: string }) {
         AccessibilityInfo.announceForAccessibility("复制失败");
       });
   };
+  const fg = copied ? th.ok : pressed ? th.inkSub : th.inkFaint;
   return (
-    <Pressable
+    <PressableScale
       onPress={copy}
+      scaleTo={0.94}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={copied ? "已复制" : label}
-      style={({ pressed }) => [styles.copyButton, { opacity: pressed ? 0.55 : 1 }]}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={styles.copyButton}
     >
-      <Icon name={copied ? "check" : "copy"} size={10} color={copied ? th.ok : th.inkFaint} />
-      <Text style={[styles.copyText, { color: copied ? th.ok : th.inkFaint }]}>
-        {copied ? "已复制" : "复制"}
-      </Text>
-    </Pressable>
+      <Icon name={copied ? "check" : "copy"} size={10} color={fg} />
+      <Text style={[styles.copyText, { color: fg }]}>{copied ? "已复制" : "复制"}</Text>
+    </PressableScale>
   );
+}
+
+/** 流式光标：▍按 motion.base 节奏呼吸（1→0.15→1），色取品牌橙——直播态专属的 ≤5% 强调。
+ * 体量极小且只在流式/发送中挂载，约定不做 reduced-motion 分支（桌面同款也是常动）。
+ * outside：还没有正文气泡时单独挂在思考块下（样式同 bubble 内，多个 marginTop）。 */
+function StreamingCursor({ variant = "body" }: { variant?: "body" | "small" | "outside" }) {
+  const th = useNibiTheme();
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.15,
+          duration: motion.duration.base,
+          easing: easingStandard,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: motion.duration.base,
+          easing: easingStandard,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+  const style =
+    variant === "small"
+      ? styles.streamingSmall
+      : variant === "outside"
+        ? styles.streamingOutside
+        : styles.streaming;
+  return <Animated.Text style={[style, { color: th.brand, opacity }]}>▍</Animated.Text>;
 }
 
 
@@ -211,6 +261,14 @@ function AnnotationQuoteCards({
   );
 }
 
+/** 行的数值身份：rowId 优先（user/turn 行带），其余从 key 尾部取数——内核的 r12/t34/turn56
+ * 尾数都是单调 id，可以跨行种比大小；取不出数字的（审批/提问的字符串 id）当 null，不参与判定。 */
+function rowNumericId(row: ChatRow): number | null {
+  if ("rowId" in row && typeof row.rowId === "number") return row.rowId;
+  const match = /(\d+)$/.exec(row.key);
+  return match ? Number(match[1]) : null;
+}
+
 export function ConversationList({
   rows,
   onRespond,
@@ -288,6 +346,61 @@ export function ConversationList({
   // 插件随工具结果推到槽的数据（`_meta.nibiGo.push`）：按轮收集，turn.note 用 `data.push.*` 绑定。
   const turnPushes = useMemo(() => collectTurnPushes(rows), [rows]);
 
+  // 新行入场判定（纸上鸟 2.0）：只给「增量到达」的行播淡入，历史恢复/换会话整批直出。
+  // 判据：行数值身份大于已见最大 rowId 才算新行；一次渲染冒出超过 2 条新 id 视为整批回填
+  // （快照回填/换会话的特征——正常增量一轮最多同时到 2 行：回显 + 轮脚注）。
+  // maxSeenRowIdRef 渲染期读、effect 里抬：本帧先按上一帧的最大值判，渲染完再更新。
+  const maxSeenRowIdRef = useRef<number | null>(null);
+  // 入场过的 key 保持包裹（sticky）：中途摘掉 AppearIn 会把子树整个重挂，
+  // 思考块计时器/滚动位全丢；key 消失（fold/换会话）时再清出。
+  const enterKeysRef = useRef<Set<string>>(new Set());
+  const enterKeys = useMemo(() => {
+    const keys = new Set<string>();
+    // pending 与流式中的助手行是本地直播事件，无条件入场（历史恢复里不存在这两种行）。
+    for (const row of rows) {
+      if (row.kind === "pending" || (row.kind === "assistant" && row.streaming)) {
+        keys.add(row.key);
+      }
+    }
+    const max = maxSeenRowIdRef.current;
+    if (max !== null) {
+      const fresh: string[] = [];
+      for (const row of rows) {
+        const id = rowNumericId(row);
+        if (id !== null && id > max) fresh.push(row.key);
+      }
+      if (fresh.length > 0 && fresh.length <= 2) {
+        for (const key of fresh) keys.add(key);
+      }
+    }
+    // 渲染期写 ref 是幂等的：同一输入两次渲染结果一致，判定只依赖 effect 提交后的 max。
+    const enter = new Set(keys);
+    for (const key of [...enterKeysRef.current]) {
+      if (rows.some((row) => row.key === key)) enter.add(key);
+      else enterKeysRef.current.delete(key);
+    }
+    for (const key of enter) enterKeysRef.current.add(key);
+    return enter;
+  }, [rows]);
+  useEffect(() => {
+    let max = maxSeenRowIdRef.current;
+    for (const row of rows) {
+      const id = rowNumericId(row);
+      if (id !== null && (max === null || id > max)) max = id;
+    }
+    maxSeenRowIdRef.current = max;
+  }, [rows]);
+
+  // 新行入场包装：命中判定的行套 AppearIn（淡入 + 6pt 上移，播一次），其余直出不套壳。
+  const withEnter = (key: string, node: ReactNode): ReactNode =>
+    enterKeys.has(key) ? (
+      <AppearIn key={key} distance={6}>
+        {node}
+      </AppearIn>
+    ) : (
+      node
+    );
+
   /**
    * 工具行 → 插件卡（没有匹配/插件停用时 undefined，调用方退回普通工具行）。
    * 折叠后的过程行也用它，保证回合结束后工具卡不会消失。
@@ -352,7 +465,8 @@ export function ConversationList({
       {rows.map((row) => {
         if (row.kind === "pending") {
           const parsed = parseComposerText(row.text, plugins ?? []);
-          return (
+          return withEnter(
+            row.key,
             <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
               <View
                 style={[
@@ -366,9 +480,13 @@ export function ConversationList({
                 {parsed.body.length > 0 ? (
                   <Text style={[styles.text, { color: th.ink }]}>{parsed.body}</Text>
                 ) : null}
-                <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
+                {/* 发送中的乐观气泡也带同款光标：和助手流式共用一套「正在直播」的语言。 */}
+                <View style={styles.pendingHintRow}>
+                  <StreamingCursor variant="small" />
+                  <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
+                </View>
               </View>
-            </View>
+            </View>,
           );
         }
 
@@ -387,7 +505,8 @@ export function ConversationList({
             .filter(Boolean)
             .join(" ")
             .trim();
-          return (
+          return withEnter(
+            row.key,
             <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
               <Pressable
                 onLongPress={
@@ -436,7 +555,7 @@ export function ConversationList({
                 text={displayText || row.text}
                 label="复制用户消息"
               />
-            </View>
+            </View>,
           );
         }
 
@@ -445,22 +564,25 @@ export function ConversationList({
           // 没有匹配/插件停用就退回普通工具行（降级为纯文本，不影响会话）。
           if (!showTools) return null;
           const pluginCard = renderPluginTool(row);
-          if (pluginCard) return pluginCard;
-          return (
+          if (pluginCard) return withEnter(row.key, pluginCard);
+          return withEnter(
+            row.key,
             <ToolRowView
               key={row.key}
               row={row}
               open={isOpen(row.key, !autoCollapseTools)}
               onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
-            />
+            />,
           );
         }
 
         if (row.kind === "toolGroup") {
           if (!showTools) return null;
           const open = isOpen(row.key, !autoCollapseTools);
-          const tone = row.running ? th.amber : th.inkFaint;
-          return (
+          // 组头 tone 与工具行同一套语义（toolTone）：跑动=amber、完成=ok。
+          const tone = toolTone(th, row.running ? "running" : "success");
+          return withEnter(
+            row.key,
             <View key={row.key} style={styles.toolRow}>
               <Disclosure
                 icon={<Icon name="sliders" size={12} color={tone} />}
@@ -487,7 +609,7 @@ export function ConversationList({
                   />
                 ))}
               </Disclosure>
-            </View>
+            </View>,
           );
         }
 
@@ -536,7 +658,8 @@ export function ConversationList({
                 )
                 .join(" · ")
             : "";
-          return (
+          return withEnter(
+            row.key,
             <View key={row.key} style={styles.turnBlock}>
               <View style={styles.turnHeadRow}>
                 <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
@@ -550,18 +673,16 @@ export function ConversationList({
               </View>
               {/* 失败/中断的回合给一个重试入口：内核 retryTurn 会截到这一轮的用户输入前重发。 */}
               {!ok && onRetryTurn && row.entityId ? (
-                <Pressable
+                <PressableScale
                   onPress={() => onRetryTurn({ rowId: row.rowId, entityId: row.entityId! })}
+                  scaleTo={0.94}
                   accessibilityRole="button"
                   accessibilityLabel="重试这一轮"
-                  style={[
-                    styles.retry,
-                    { backgroundColor: th.panel, borderColor: th.hairline },
-                  ]}
+                  style={[styles.retry, { backgroundColor: th.panel, borderColor: th.hairline }]}
                 >
                   <Icon name="refresh" size={11} color={th.inkSub} />
                   <Text style={[styles.retryText, { color: th.inkSub }]}>重试</Text>
-                </Pressable>
+                </PressableScale>
               ) : null}
               {files.length > 0 ? <ChangeCard files={files} /> : null}
               {note ? (
@@ -569,7 +690,7 @@ export function ConversationList({
                   {note}
                 </Text>
               ) : null}
-            </View>
+            </View>,
           );
         }
 
@@ -583,7 +704,8 @@ export function ConversationList({
                   ? th.inkFaint
                   : th.ok;
           const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
-          return (
+          return withEnter(
+            row.key,
             <View
               key={row.key}
               style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
@@ -616,13 +738,14 @@ export function ConversationList({
                   ) : null}
                 </View>
               ) : null}
-            </View>
+            </View>,
           );
         }
 
         if (row.kind === "process") {
           // 过程卡里的思考/工具也走顶层同一套折叠件，并尊重 showReasoning/showTools。
-          return (
+          return withEnter(
+            row.key,
             <TurnProcessCard
               key={row.key}
               row={row}
@@ -633,18 +756,22 @@ export function ConversationList({
               showTools={showTools}
               autoCollapseThinking={autoCollapseThinking}
               autoCollapseTools={autoCollapseTools}
-            />
+            />,
           );
         }
 
         if (row.kind === "approval" || row.kind === "question") {
           // 手机工具审批已转到悬浮卡（不抢前台）；没有悬浮权限时仍走应用内卡片。
           if (row.kind === "approval" && isOverlayApproval(row)) return null;
-          return <InteractionCard key={row.key} row={row} onRespond={onRespond} />;
+          return withEnter(
+            row.key,
+            <InteractionCard key={row.key} row={row} onRespond={onRespond} />,
+          );
         }
 
         if (row.kind === "notice") {
-          return (
+          return withEnter(
+            row.key,
             <Text
               key={row.key}
               style={[
@@ -653,7 +780,7 @@ export function ConversationList({
               ]}
             >
               {row.text}
-            </Text>
+            </Text>,
           );
         }
 
@@ -666,7 +793,8 @@ export function ConversationList({
         const thinkingId = `${row.key}:thinking`;
         const thinkingDefault = autoCollapseThinking ? row.streaming : true;
         const thinkingOpen = isOpen(thinkingId, thinkingDefault);
-        return (
+        return withEnter(
+          row.key,
           <View
             key={row.key}
             style={[styles.row, styles.assistantRow, { alignItems: "flex-start" }]}
@@ -713,13 +841,11 @@ export function ConversationList({
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
                 ) : null}
                 <Text style={[styles.text, { color: th.ink }]}>{row.text}</Text>
-                {row.streaming ? (
-                  <Text style={[styles.streaming, { color: th.brand }]}>▍</Text>
-                ) : null}
+                {row.streaming ? <StreamingCursor /> : null}
               </Pressable>
             ) : row.streaming ? (
               // 只有思考、还没出正文：气泡不渲染，光标单独跟着思考块。
-              <Text style={[styles.streamingOutside, { color: th.brand }]}>▍</Text>
+              <StreamingCursor variant="outside" />
             ) : showThinking ? null : (
               <Text style={[styles.text, { color: th.ink }]}>…</Text>
             )}
@@ -734,7 +860,7 @@ export function ConversationList({
             {!row.streaming ? (
               <CopyMessageButton text={row.text} label="复制助手消息" />
             ) : null}
-          </View>
+          </View>,
         );
       })}
     </ScrollView>
@@ -758,13 +884,7 @@ function ToolRowView({
   return (
     <View style={styles.toolRow}>
       <Disclosure
-        icon={
-          <Icon
-            name="sliders"
-            size={12}
-            color={row.status === "error" ? th.red : th.inkFaint}
-          />
-        }
+        icon={<Icon name="sliders" size={12} color={toolTone(th, row.status)} />}
         title={
           <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
             {row.name || "tool"}
@@ -786,14 +906,17 @@ function ToolRowView({
               <Text style={[styles.toolDetail, { color: th.inkFaint }]}>{row.detail}</Text>
             ) : null}
             {row.output ? (
-              <Text
-                style={[
-                  styles.toolOutput,
-                  { color: row.status === "error" ? th.red : th.inkFaint },
-                ]}
-              >
-                {row.output}
-              </Text>
+              // 输出正文收进内嵌井（surfaceSoft + xs 圆角）：和卡片正文拉开一档「机器输出」的质感。
+              <View style={[styles.toolOutputWell, { backgroundColor: th.surfaceSoft }]}>
+                <Text
+                  style={[
+                    styles.toolOutput,
+                    { color: row.status === "error" ? th.red : th.inkFaint },
+                  ]}
+                >
+                  {row.output}
+                </Text>
+              </View>
             ) : null}
             {row.error ? (
               <Text style={[styles.toolDetail, { color: th.red }]}>{row.error}</Text>
@@ -1142,6 +1265,8 @@ function formatTokens(tokens: number): string {
   return `${(tokens / 1000).toFixed(1)}k`;
 }
 
+// 字阶取整规则：≤11.5 收到 micro(11)，12–12.5 收到 small(12.5)，14 收到 body——
+// 行高一律用 text() 配对值，不再手写 lineHeight（原 15/17 与配对值一致，其余差 1px 非刻意）。
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingVertical: space(2), gap: space(3) },
@@ -1156,7 +1281,7 @@ const styles = StyleSheet.create({
   },
   // 带注释卡片的用户气泡必须给足宽度：卡片的内容是 flex:1，收缩宽度会把正文挤成 0。
   bubbleWide: { width: "86%" },
-  model: { fontSize: 10 },
+  model: { ...text("micro") },
   messageTokens: { flexDirection: "row", flexWrap: "wrap", gap: 4, alignItems: "center" },
   messageToken: {
     flexDirection: "row",
@@ -1167,7 +1292,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     maxWidth: 160,
   },
-  messageTokenText: { fontSize: 10.5, fontWeight: "700", flexShrink: 1 },
+  messageTokenText: { ...text("micro"), fontWeight: "700", flexShrink: 1 },
   quoteList: { gap: 4, marginBottom: 2 },
   quoteCard: {
     width: "100%",
@@ -1184,10 +1309,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  quoteNumberText: { fontSize: 9.5, fontWeight: "700" },
+  quoteNumberText: { ...text("micro"), fontWeight: "700" },
   quoteBody: { flex: 1, minWidth: 0, gap: 1 },
-  quoteExcerpt: { fontSize: 11, lineHeight: 15 },
-  quoteNote: { fontSize: 10.5, lineHeight: 14 },
+  quoteExcerpt: { ...text("micro") },
+  quoteNote: { ...text("micro") },
   annotationMark: {
     flexDirection: "row",
     alignItems: "center",
@@ -1195,7 +1320,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginLeft: space(1),
   },
-  annotationMarkText: { fontSize: 10, fontWeight: "600" },
+  annotationMarkText: { ...text("micro"), fontWeight: "600" },
   copyButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1204,10 +1329,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     marginTop: 2,
   },
-  copyText: { fontSize: 9.5 },
-  text: { fontSize: 14, lineHeight: 20 },
-  streaming: { fontSize: 14, fontWeight: "700" },
-  streamingOutside: { fontSize: 14, fontWeight: "700", marginTop: 2 },
+  copyText: { ...text("micro") },
+  text: { ...text("body") },
+  streaming: { ...text("body"), fontWeight: "700" },
+  streamingSmall: { ...text("micro"), fontWeight: "700" },
+  streamingOutside: { ...text("body"), fontWeight: "700", marginTop: 2 },
+  pendingHint: { ...text("micro") },
+  pendingHintRow: { flexDirection: "row", alignItems: "center", gap: space(1) },
   assistantRow: { gap: space(1.5) },
   // 思考块与气泡同列宽：折叠行能稳定做 head 省略，展开的滚动区也有确定宽度。
   thinkingChip: {
@@ -1217,16 +1345,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2.5),
     paddingVertical: 2,
   },
-  thinkingTitle: { fontSize: 11.5, fontWeight: "600" },
-  thinkingPreview: { fontSize: 10.5 },
+  thinkingTitle: { ...text("micro"), fontWeight: "600" },
+  thinkingPreview: { ...text("micro") },
   thinkingScroll: { maxHeight: 240 },
   thinkingContent: { paddingRight: space(1), paddingBottom: space(1) },
-  thinkingText: { fontSize: 12, lineHeight: 17 },
+  thinkingText: { ...text("small") },
   toolRow: { paddingVertical: 1 },
-  toolRowName: { fontSize: 12.5, fontWeight: "600" },
-  toolRowMeta: { fontSize: 10.5 },
-  pendingHint: { fontSize: 10 },
-  turn: { fontSize: 11, textAlign: "center" },
+  toolRowName: { ...text("small"), fontWeight: "600" },
+  toolRowMeta: { ...text("micro") },
+  turn: { ...text("micro"), textAlign: "center" },
   turnHeadRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1245,17 +1372,17 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     marginTop: 2,
   },
-  retryText: { fontSize: 10.5, fontWeight: "600" },
-  turnNote: { fontSize: 10.5, textAlign: "center" },
+  retryText: { ...text("micro"), fontWeight: "600" },
+  turnNote: { ...text("micro"), textAlign: "center" },
   turnBlock: { gap: space(2) },
   process: { gap: 2 },
   processHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
-    minHeight: 32,
+    minHeight: size.chipLg,
   },
-  processTitle: { fontSize: 11.5, fontWeight: "600" },
+  processTitle: { ...text("micro"), fontWeight: "600" },
   processBody: {
     borderLeftWidth: 2,
     paddingLeft: space(3),
@@ -1264,14 +1391,20 @@ const styles = StyleSheet.create({
     gap: space(2),
   },
   processBlock: { gap: 2 },
-  processText: { fontSize: 12.5, lineHeight: 18 },
-  processTool: { fontSize: 11, lineHeight: 16 },
-  notice: { fontSize: 11.5, textAlign: "center", paddingHorizontal: space(2) },
+  processText: { ...text("small") },
+  processTool: { ...text("micro") },
+  notice: { ...text("micro"), textAlign: "center", paddingHorizontal: space(2) },
   toolHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space(2) },
-  toolName: { flex: 1, fontSize: 12.5, fontWeight: "700" },
-  toolStatus: { fontSize: 10.5, fontWeight: "600" },
-  toolDetail: { fontSize: 11.5, lineHeight: 16 },
-  toolOutput: { fontFamily: "monospace", fontSize: 11, lineHeight: 15 },
+  toolName: { flex: 1, ...text("small"), fontWeight: "700" },
+  toolStatus: { ...text("micro"), fontWeight: "600" },
+  toolDetail: { ...text("micro") },
+  // 工具输出井：内嵌面 + xs 圆角 + 等宽字，「机器输出」与正文拉开一档。
+  toolOutputWell: {
+    borderRadius: radius.xs,
+    paddingHorizontal: space(2),
+    paddingVertical: space(1.5),
+  },
+  toolOutput: { fontFamily: "monospace", ...text("micro") },
   subagent: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
@@ -1285,8 +1418,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 2,
   },
-  subagentMeta: { fontSize: 10.5 },
-  subagentLink: { fontSize: 11.5, fontWeight: "600" },
+  subagentMeta: { ...text("micro") },
+  subagentLink: { ...text("micro"), fontWeight: "600" },
   changes: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
@@ -1295,8 +1428,8 @@ const styles = StyleSheet.create({
     gap: space(1),
   },
   fileRow: { flexDirection: "row", alignItems: "baseline", gap: space(2) },
-  fileName: { fontSize: 12.5, fontWeight: "600", flexShrink: 0, maxWidth: "48%" },
-  fileDir: { flex: 1, fontSize: 11 },
-  fileStat: { fontSize: 11.5, fontWeight: "600" },
-  fileMore: { fontSize: 11, marginTop: 2 },
+  fileName: { ...text("small"), fontWeight: "600", flexShrink: 0, maxWidth: "48%" },
+  fileDir: { flex: 1, ...text("micro") },
+  fileStat: { ...text("micro"), fontWeight: "600" },
+  fileMore: { ...text("micro"), marginTop: 2 },
 });

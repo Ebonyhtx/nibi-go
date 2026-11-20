@@ -1,12 +1,16 @@
 import { router } from "expo-router";
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ConversationRow } from "@nibi-go/shared-extract";
 
+import { PillButton } from "../components/ui/PillButton";
+import { ScreenHeader } from "../components/ui/ScreenHeader";
 import type { ChatPhase } from "../relay/chat";
 import { useChat } from "../relay/useChat";
 import { useSession } from "../relay/useSession";
+import { radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
 const PHASE_TEXT: Record<ChatPhase, string> = {
   idle: "未连接",
@@ -19,7 +23,11 @@ const PHASE_TEXT: Record<ChatPhase, string> = {
 };
 
 // A2 聊天屏：消息流 + 输入框 + 工具行（最小渲染集：userInput / assistantText / reasoning / toolCall）。
+// 2.0：ScreenHeader + 主题 token 统一（原硬编码蓝白配色退役）；消息/审批/输入逻辑不变。
 export default function ChatScreen() {
+  const th = useNibiTheme();
+  const styles = useMemo(() => makeStyles(th), [th]);
+  const insets = useSafeAreaInsets();
   const { session, snapshot } = useSession();
   const { chatSnapshot, conversation } = useChat(session);
   const [draft, setDraft] = useState("");
@@ -28,27 +36,21 @@ export default function ChatScreen() {
   const canSend = chatSnapshot.phase === "ready";
 
   const send = () => {
-    const text = draft.trim();
-    if (!text || !canSend) return;
+    const draftText = draft.trim();
+    if (!draftText || !canSend) return;
     setDraft("");
-    void session.chat.sendText(text);
+    void session.chat.sendText(draftText);
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable style={styles.back} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ 返回</Text>
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.title}>{PHASE_TEXT[chatSnapshot.phase]}</Text>
-          <Text style={styles.subtitle}>
-            {snapshot.credential?.deviceName ?? "桌面"}
-            {chatSnapshot.sessionId ? ` · ${chatSnapshot.sessionId.slice(0, 8)}` : ""}
-          </Text>
-        </View>
-        <View style={styles.back} />
-      </View>
+      <ScreenHeader
+        title={PHASE_TEXT[chatSnapshot.phase]}
+        subtitle={`${snapshot.credential?.deviceName ?? "桌面"}${
+          chatSnapshot.sessionId ? ` · ${chatSnapshot.sessionId.slice(0, 8)}` : ""
+        }`}
+        onBack={() => router.back()}
+      />
 
       {chatSnapshot.error && (
         <View style={styles.errorCard}>
@@ -60,7 +62,7 @@ export default function ChatScreen() {
         data={rows}
         keyExtractor={(row) => String(row.rowId)}
         contentContainerStyle={styles.list}
-        renderItem={({ item }) => <RowView row={item} />}
+        renderItem={({ item }) => <RowView row={item} styles={styles} />}
         ListEmptyComponent={
           canSend ? (
             <Text style={styles.empty}>暂无消息。在下方输入框给桌面 AGENT 发第一条消息。</Text>
@@ -77,18 +79,19 @@ export default function ChatScreen() {
               <Text style={styles.approvalTitle}>桌面请求审批：{approval.title ?? "工具调用"}</Text>
               <Text style={styles.approvalHint}>30 秒未操作将自动拒绝</Text>
               <View style={styles.approvalButtons}>
-                <Pressable
-                  style={styles.approvalAllow}
-                  onPress={() => session.chat.respondApproval(approval.requestId, "allow")}
-                >
-                  <Text style={styles.approvalButtonText}>允许</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.approvalDeny}
-                  onPress={() => session.chat.respondApproval(approval.requestId, "deny")}
-                >
-                  <Text style={styles.approvalButtonText}>拒绝</Text>
-                </Pressable>
+                <View style={styles.approvalButtonCell}>
+                  <PillButton
+                    label="允许"
+                    onPress={() => session.chat.respondApproval(approval.requestId, "allow")}
+                  />
+                </View>
+                <View style={styles.approvalButtonCell}>
+                  <PillButton
+                    label="拒绝"
+                    variant="secondary"
+                    onPress={() => session.chat.respondApproval(approval.requestId, "deny")}
+                  />
+                </View>
               </View>
             </View>
           ))}
@@ -96,20 +99,19 @@ export default function ChatScreen() {
       )}
 
       {canSend ? (
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { paddingBottom: space(2.5) + insets.bottom }]}>
           <TextInput
             style={styles.input}
             value={draft}
             onChangeText={setDraft}
             placeholder="发消息给桌面 AGENT…"
+            placeholderTextColor={th.inkGhost}
             multiline
           />
-          <Pressable style={styles.sendButton} onPress={send}>
-            <Text style={styles.sendText}>发送</Text>
-          </Pressable>
+          <PillButton label="发送" onPress={send} accessibilityLabel="发送" />
         </View>
       ) : (
-        <Text style={styles.hint}>
+        <Text style={[styles.hint, { paddingBottom: space(4) + insets.bottom }]}>
           {chatSnapshot.phase === "error" ? "连接失败，请返回重试" : PHASE_TEXT[chatSnapshot.phase]}
         </Text>
       )}
@@ -117,7 +119,9 @@ export default function ChatScreen() {
   );
 }
 
-function RowView({ row }: { row: ConversationRow }) {
+type Styles = ReturnType<typeof makeStyles>;
+
+function RowView({ row, styles }: { row: ConversationRow; styles: Styles }) {
   switch (row.kind) {
     case "userInput":
       return (
@@ -153,67 +157,80 @@ function RowView({ row }: { row: ConversationRow }) {
   }
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e5e5",
-  },
-  back: { width: 64, paddingVertical: 4 },
-  backText: { fontSize: 14, color: "#2563eb" },
-  headerCenter: { flex: 1, alignItems: "center" },
-  title: { fontSize: 15, fontWeight: "600" },
-  subtitle: { fontSize: 11, color: "#888", marginTop: 1 },
-  errorCard: { margin: 12, padding: 10, borderRadius: 10, backgroundColor: "#fdecec" },
-  errorText: { fontSize: 12, color: "#c0392b", textAlign: "center" },
-  list: { padding: 12, gap: 8, flexGrow: 1 },
-  empty: { fontSize: 13, color: "#999", textAlign: "center", marginTop: 32 },
-  bubble: { maxWidth: "86%", padding: 10, borderRadius: 12 },
-  userBubble: { alignSelf: "flex-end", backgroundColor: "#e8f0fe" },
-  userText: { fontSize: 14 },
-  assistantBubble: { alignSelf: "flex-start", backgroundColor: "#f5f7fa" },
-  assistantText: { fontSize: 14 },
-  reasoning: { fontSize: 12, color: "#999", fontStyle: "italic", paddingHorizontal: 4 },
-  toolRow: {
-    alignSelf: "stretch",
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: "#fbfbfb",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e5e5e5",
-  },
-  toolName: { fontSize: 12, fontWeight: "600", color: "#444" },
-  toolOutput: { fontSize: 11, color: "#666", marginTop: 4 },
-  inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    padding: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e5e5e5",
-  },
-  input: {
-    flex: 1,
-    maxHeight: 120,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#f5f7fa",
-    fontSize: 14,
-  },
-  sendButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: "#2563eb" },
-  sendText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  hint: { fontSize: 12, color: "#999", textAlign: "center", padding: 16 },
-  approvalArea: { paddingHorizontal: 12, gap: 8, paddingBottom: 8 },
-  approvalCard: { padding: 12, borderRadius: 12, backgroundColor: "#fff8e6", borderWidth: StyleSheet.hairlineWidth, borderColor: "#f0d9a8" },
-  approvalTitle: { fontSize: 13, fontWeight: "600", color: "#7a5b00" },
-  approvalHint: { fontSize: 11, color: "#9a7b20", marginTop: 2 },
-  approvalButtons: { flexDirection: "row", gap: 8, marginTop: 10 },
-  approvalAllow: { flex: 1, padding: 10, borderRadius: 10, backgroundColor: "#2563eb", alignItems: "center" },
-  approvalDeny: { flex: 1, padding: 10, borderRadius: 10, backgroundColor: "#e5e7eb", alignItems: "center" },
-  approvalButtonText: { fontSize: 14, fontWeight: "600" },
-});
+const makeStyles = (th: NibiTheme) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: th.bg },
+    errorCard: {
+      marginHorizontal: space(3),
+      marginTop: space(3),
+      padding: space(2.5),
+      borderRadius: radius.control,
+      backgroundColor: th.redSoft,
+    },
+    errorText: { ...text("small"), color: th.red, textAlign: "center" },
+    list: { padding: space(3), gap: space(2), flexGrow: 1 },
+    empty: {
+      ...text("small"),
+      color: th.inkFaint,
+      textAlign: "center",
+      marginTop: space(8),
+    },
+    bubble: {
+      maxWidth: "86%",
+      padding: space(2.5),
+      borderRadius: radius.control,
+    },
+    userBubble: { alignSelf: "flex-end", backgroundColor: th.brandSoft },
+    userText: { ...text("body"), color: th.ink },
+    assistantBubble: { alignSelf: "flex-start", backgroundColor: th.panel },
+    assistantText: { ...text("body"), color: th.ink },
+    reasoning: {
+      ...text("small"),
+      color: th.inkFaint,
+      fontStyle: "italic",
+      paddingHorizontal: space(1),
+    },
+    toolRow: {
+      alignSelf: "stretch",
+      padding: space(2.5),
+      borderRadius: radius.control,
+      backgroundColor: th.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: th.hairline,
+    },
+    toolName: { ...text("small"), fontWeight: "600", color: th.inkSub },
+    toolOutput: { ...text("micro"), color: th.inkSub, marginTop: space(1) },
+    inputBar: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: space(2),
+      paddingHorizontal: space(2.5),
+      paddingTop: space(2.5),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: th.hairline,
+      backgroundColor: th.card,
+    },
+    input: {
+      flex: 1,
+      maxHeight: 120,
+      paddingHorizontal: space(3),
+      paddingVertical: space(2),
+      borderRadius: radius.control,
+      backgroundColor: th.surfaceSoft,
+      ...text("body"),
+      color: th.ink,
+    },
+    hint: { ...text("small"), color: th.inkFaint, textAlign: "center", padding: space(4) },
+    approvalArea: { paddingHorizontal: space(3), gap: space(2), paddingBottom: space(2) },
+    approvalCard: {
+      padding: space(3),
+      borderRadius: radius.control,
+      backgroundColor: th.amberSoft,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: th.amber,
+    },
+    approvalTitle: { ...text("small"), fontWeight: "600", color: th.ink },
+    approvalHint: { ...text("micro"), color: th.inkSub, marginTop: space(0.5) },
+    approvalButtons: { flexDirection: "row", gap: space(2), marginTop: space(2.5) },
+    approvalButtonCell: { flex: 1 },
+  });

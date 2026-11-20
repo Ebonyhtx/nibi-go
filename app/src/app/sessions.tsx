@@ -1,10 +1,14 @@
 import { router } from "expo-router";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo } from "react";
+import { FlatList, StyleSheet, Text, View } from "react-native";
 
 import type { SessionSummary } from "@nibi-go/shared-extract";
 
+import { ScreenHeader } from "../components/ui/ScreenHeader";
+import { PressableScale } from "../motion/PressableScale";
 import { useChat } from "../relay/useChat";
 import { useSession } from "../relay/useSession";
+import { radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
 const PHASE_TEXT: Record<string, string> = {
   draft: "草稿",
@@ -22,7 +26,10 @@ const OUTCOME_TEXT: Record<string, string> = {
 };
 
 // A2 会话列表（sessions-index topic）：workspace 内全部会话，点击切换订阅。
+// 2.0：ScreenHeader + 主题 token 统一；会话排序/切换订阅逻辑不变。
 export default function SessionsScreen() {
+  const th = useNibiTheme();
+  const styles = useMemo(() => makeStyles(th), [th]);
   const { session } = useSession();
   const { chatSnapshot } = useChat(session);
   const sessions: SessionSummary[] = [...chatSnapshot.sessions].sort(
@@ -31,13 +38,7 @@ export default function SessionsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable style={styles.back} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ 返回</Text>
-        </Pressable>
-        <Text style={styles.title}>选择会话</Text>
-        <View style={styles.back} />
-      </View>
+      <ScreenHeader title="选择会话" onBack={() => router.back()} />
 
       <FlatList
         data={sessions}
@@ -49,13 +50,16 @@ export default function SessionsScreen() {
         renderItem={({ item }) => {
           const active = item.sessionId === chatSnapshot.sessionId;
           return (
-            <Pressable
+            <PressableScale
+              scaleTo={0.985}
               style={[styles.row, active && styles.rowActive]}
               onPress={() =>
                 void session.chat
                   .selectSession(item.sessionId)
                   .finally(() => router.replace("/chat"))
               }
+              accessibilityRole="button"
+              accessibilityLabel={item.title?.trim() || "未命名会话"}
             >
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
@@ -67,7 +71,7 @@ export default function SessionsScreen() {
                 </Text>
               </View>
               {active && <Text style={styles.activeBadge}>当前</Text>}
-            </Pressable>
+            </PressableScale>
           );
         }}
       />
@@ -75,31 +79,29 @@ export default function SessionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e5e5",
-  },
-  back: { width: 64, paddingVertical: 4 },
-  backText: { fontSize: 14, color: "#2563eb" },
-  title: { flex: 1, fontSize: 15, fontWeight: "600", textAlign: "center" },
-  list: { padding: 12, gap: 8 },
-  empty: { fontSize: 13, color: "#999", textAlign: "center", marginTop: 32 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: "#f5f7fa",
-  },
-  rowActive: { backgroundColor: "#e8f0fe" },
-  rowText: { flex: 1 },
-  rowTitle: { fontSize: 14, fontWeight: "600" },
-  rowSub: { fontSize: 11, color: "#666", marginTop: 2 },
-  activeBadge: { fontSize: 11, color: "#2563eb", fontWeight: "600" },
-});
+const makeStyles = (th: NibiTheme) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: th.bg },
+    list: { padding: space(3), gap: space(2) },
+    empty: {
+      ...text("small"),
+      color: th.inkFaint,
+      textAlign: "center",
+      marginTop: space(8),
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space(3),
+      padding: space(3.5),
+      borderRadius: radius.control,
+      backgroundColor: th.panel,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: th.hairline,
+    },
+    rowActive: { backgroundColor: th.brandSoft, borderColor: th.brand },
+    rowText: { flex: 1, gap: space(0.5) },
+    rowTitle: { ...text("body"), fontWeight: "600", color: th.ink },
+    rowSub: { ...text("micro"), color: th.inkSub },
+    activeBadge: { ...text("micro"), color: th.brand, fontWeight: "700" },
+  });
