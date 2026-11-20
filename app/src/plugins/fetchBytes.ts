@@ -5,8 +5,12 @@ export const FETCH_TIMEOUT_MS = 20_000;
 export async function fetchBytes(
   url: string,
   maxBytes: number,
-  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  options: { timeoutMs?: number; signal?: AbortSignal; cacheBust?: boolean } = {},
 ): Promise<Uint8Array> {
+  // 市场索引/签名必须拿最新字节：RN 的原生 HTTP 缓存可能把旧 index 留到下一次刷新。
+  const requestUrl = options.cacheBust
+    ? `${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`
+    : url;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? FETCH_TIMEOUT_MS);
   const external = options.signal;
@@ -16,7 +20,7 @@ export async function fetchBytes(
     else external.addEventListener("abort", forwardAbort);
   }
   try {
-    const response = await fetch(url, {
+    const response = await fetch(requestUrl, {
       signal: controller.signal,
       headers: { accept: "application/json, application/octet-stream" },
     });

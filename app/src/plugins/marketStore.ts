@@ -85,7 +85,7 @@ export async function refreshMarket(): Promise<RefreshMarketOutcome> {
   const previous = await loadMarketSnapshot();
   // 多源取 revision 最大的一份（镜像落后时不会被旧索引卡住；同 revision 不同字节算冲突）。
   const result = await refreshMarketIndexFromSources(
-    (url) => fetchBytes(url, INDEX_MAX_BYTES),
+    (url) => fetchBytes(url, INDEX_MAX_BYTES, { cacheBust: true }),
     {
       indexUrls: MARKET_INDEX_URLS,
       previous: previous?.state ?? null,
