@@ -96,6 +96,11 @@ export class RelaySession {
     void this.bootstrap();
   }
 
+  /** 业务 API 用的 NIBI access token（付费授权同步等）；未登录/续期失败抛 auth-required。 */
+  async accessToken(): Promise<string> {
+    return this.auth.getJwt();
+  }
+
   /** AppState 监听句柄（App 卸载时可清理；单例场景保持到进程结束）。 */
   private appStateSubscription?: { remove(): void };
 

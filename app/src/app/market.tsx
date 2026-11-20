@@ -14,6 +14,7 @@ import { Icon } from "../components/Icon";
 import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
 import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
 import { ensureLicenseLoaded, licenseSummary, pluginLicenseDecision } from "../plugins/license";
+import { syncLicense } from "../plugins/licenseSync";
 import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
 import { radius, space, type as typeScale, useNibiTheme } from "../theme";
@@ -148,6 +149,7 @@ export default function MarketScreen() {
   const [versions, setVersions] = useState<Record<string, string | null>>({});
   const [license, setLicense] = useState(licenseSummary());
   const [corruptSnapshot, setCorruptSnapshot] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const readVersions = useCallback((entries: MarketPluginEntry[]) => {
@@ -236,6 +238,31 @@ export default function MarketScreen() {
     setMessage(removed ? `${entry.name} 已卸载` : "没有可卸载的目录");
   }
 
+  async function doSync() {
+    if (syncing) return;
+    setSyncing(true);
+    setMessage(null);
+    try {
+      const outcome = await syncLicense();
+      setLicense(licenseSummary());
+      if (outcome.ok) {
+        setMessage(
+          outcome.authorized
+            ? `授权已同步${outcome.plan ? `（${outcome.plan}）` : ""}`
+            : `服务端拒绝：${outcome.reason ?? "未授权"}`,
+        );
+      } else {
+        setMessage(
+          outcome.kind === "login-required"
+            ? "同步需要登录 NIBI 账号（在「连桌面」页登录后重试）"
+            : `同步失败：${outcome.detail}`,
+        );
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const entries = snapshot?.index.plugins ?? [];
 
   return (
@@ -272,11 +299,28 @@ export default function MarketScreen() {
         <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
           {MARKET_INDEX_URL}
         </Text>
-        <Text style={[styles.hint, { color: license.activated ? t.inkFaint : t.amber }]}>
-          {license.activated
-            ? `付费授权已激活${license.expiresAt ? `（至 ${license.expiresAt.slice(0, 10)}）` : ""}`
-            : `付费授权：${license.reason}`}
-        </Text>
+        <View style={styles.licenseRow}>
+          <Text style={[styles.hint, { flex: 1, color: license.activated ? t.inkFaint : t.amber }]}>
+            {license.activated
+              ? `付费授权已激活${license.plan ? `（${license.plan}）` : ""}${
+                  license.expiresAt ? `，至 ${license.expiresAt.slice(0, 10)}` : ""
+                }`
+              : `付费授权：${license.reason}`}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="同步付费授权"
+            disabled={syncing}
+            onPress={() => void doSync()}
+            style={[styles.syncButton, { backgroundColor: t.panel, opacity: syncing ? 0.6 : 1 }]}
+          >
+            {syncing ? (
+              <ActivityIndicator color={t.brand} />
+            ) : (
+              <Text style={[styles.syncText, { color: t.inkSub }]}>同步</Text>
+            )}
+          </Pressable>
+        </View>
 
         {corruptSnapshot ? (
           <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
@@ -348,6 +392,15 @@ const styles = StyleSheet.create({
   title: { flex: 1, textAlign: "center", fontSize: typeScale.heading, fontWeight: "700" },
   body: { padding: space(4), gap: space(3) },
   hint: { fontSize: 12, lineHeight: 18 },
+  licenseRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
+  syncButton: {
+    borderRadius: 999,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+    minWidth: 56,
+    alignItems: "center",
+  },
+  syncText: { fontSize: 11.5, fontWeight: "700" },
   source: { fontSize: 10.5, lineHeight: 15 },
   message: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.card, padding: space(3) },
   messageText: { fontSize: 12, lineHeight: 18 },
