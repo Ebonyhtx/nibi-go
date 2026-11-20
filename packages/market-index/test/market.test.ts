@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { bytesToHex, verifyPackageDigest } from "../src/digest";
 import { NIBI_MARKET_KEYS, type MarketKey } from "../src/keys";
-import { refreshMarketIndex } from "../src/refresh";
+import { refreshMarketIndex, refreshMarketIndexFromSources } from "../src/refresh";
 import {
   checkPluginPins,
   comparePluginVersions,
@@ -376,5 +376,96 @@ describe("refreshMarketIndex", () => {
       kind: "pins",
       conflicts: [{ id: "nibi.weather", version: "1.0.0", reason: "digest-changed" }],
     });
+  });
+});
+
+describe("refreshMarketIndexFromSources", () => {
+  const dl = "https://cdn.example.com/market/index.json";
+  const raw = "https://raw.example.com/market/index.json";
+
+  function multiFetcher(map: Record<string, { bytes: Uint8Array; signature: string }>) {
+    return async (url: string): Promise<Uint8Array> => {
+      const entry = map[url];
+      if (!entry) throw new Error(`unexpected url ${url}`);
+      return entry.bytes;
+    };
+  }
+
+  function signedFor(bytes: Uint8Array, signature: string) {
+    return { bytes, signature };
+  }
+
+  it("取 revision 最大的源（镜像落后时不会被旧索引卡住）", async () => {
+    const { key, seed } = keypair();
+    const older = signed(makeIndex({ revision: 3 }), seed);
+    const newer = signed(makeIndex({ revision: 5 }), seed);
+    const fetcher = multiFetcher({
+      [dl]: signedFor(older.bytes, older.signature),
+      [`${dl}.sig`]: signedFor(encoder.encode(older.signature), ""),
+      [raw]: signedFor(newer.bytes, newer.signature),
+      [`${raw}.sig`]: signedFor(encoder.encode(newer.signature), ""),
+    });
+    const result = await refreshMarketIndexFromSources(fetcher, {
+      indexUrls: [dl, raw],
+      previous: null,
+      previousIndex: null,
+      keys: [key],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe("accept");
+    expect(result.index.revision).toBe(5);
+    expect(result.source).toBe(raw);
+  });
+
+  it("同 revision 不同字节按冲突拒绝", async () => {
+    const { key, seed } = keypair();
+    const a = signed(makeIndex({ revision: 5, generatedAt: "2026-01-01T00:00:00.000Z" }), seed);
+    const b = signed(makeIndex({ revision: 5, generatedAt: "2026-01-02T00:00:00.000Z" }), seed);
+    const fetcher = multiFetcher({
+      [dl]: signedFor(a.bytes, a.signature),
+      [`${dl}.sig`]: signedFor(encoder.encode(a.signature), ""),
+      [raw]: signedFor(b.bytes, b.signature),
+      [`${raw}.sig`]: signedFor(encoder.encode(b.signature), ""),
+    });
+    const result = await refreshMarketIndexFromSources(fetcher, {
+      indexUrls: [dl, raw],
+      previous: null,
+      previousIndex: null,
+      keys: [key],
+    });
+    expect(result).toMatchObject({ ok: false, kind: "rollback", reason: "revision-conflict" });
+  });
+
+  it("镜像落后 + 本地已是最新时返回 unchanged", async () => {
+    const { key, seed } = keypair();
+    const newer = signed(makeIndex({ revision: 5 }), seed);
+    const older = signed(makeIndex({ revision: 4 }), seed);
+    const first = await refreshMarketIndex(multiFetcher({
+      [raw]: signedFor(newer.bytes, newer.signature),
+      [`${raw}.sig`]: signedFor(encoder.encode(newer.signature), ""),
+    }), { indexUrl: raw, previous: null, previousIndex: null, keys: [key] });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const fetcher = multiFetcher({
+      [dl]: signedFor(older.bytes, older.signature),
+      [`${dl}.sig`]: signedFor(encoder.encode(older.signature), ""),
+      [raw]: signedFor(newer.bytes, newer.signature),
+      [`${raw}.sig`]: signedFor(encoder.encode(newer.signature), ""),
+    });
+    const result = await refreshMarketIndexFromSources(fetcher, {
+      indexUrls: [dl, raw],
+      previous: first.state,
+      previousIndex: first.index,
+      keys: [key],
+    });
+    expect(result).toMatchObject({ ok: true, kind: "unchanged" });
+  });
+
+  it("全部源失败时返回最后一次失败", async () => {
+    const result = await refreshMarketIndexFromSources(async () => {
+      throw new Error("down");
+    }, { indexUrls: [dl, raw], previous: null, previousIndex: null });
+    expect(result).toMatchObject({ ok: false, kind: "fetch", detail: "down" });
   });
 });

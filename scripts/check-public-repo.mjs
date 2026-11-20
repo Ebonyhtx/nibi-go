@@ -101,6 +101,20 @@ const RULES = [
     re: /\bAKIA[0-9A-Z]{16}\b/,
   },
   {
+    // 内部基础设施标识（对象存储桶、ossutil 配置、生产机 SSH 别名、站点根目录）。
+    // 公开仓只出现占位符（<ssh-alias> / <oss://bucket/prefix>），不写真实值。
+    name: "internal infra identifier",
+    re: (() => {
+      const terms = Buffer.from(
+        "bmliaS1kaXN0LWh6Cm5pYmktcGFpZC1oegpuaWJpLWJhY2t1cC1oegpuaWJpLWZlZWRiYWNrLWh6Cm5pYmktbG9ncy1oegpvc3N1dGlsLXB1Ymxpc2gKbmliaS1jbgovc3J2L25pYmktc2l0ZQ==",
+        "base64",
+      )
+        .toString("utf8")
+        .split("\n");
+      return new RegExp(`\\b(?:${terms.slice(0, -1).join("|")})\\b|${terms.at(-1)}`);
+    })(),
+  },
+  {
     name: "keystore password assignment",
     re: /(?:storePassword|keyPassword)\s*[:=]\s*["'][^"']{4,}["']/,
   },

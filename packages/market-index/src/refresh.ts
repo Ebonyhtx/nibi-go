@@ -86,3 +86,50 @@ export async function refreshMarketIndex(
     keyId: verified.keyId,
   };
 }
+
+export type MarketSourcesRefreshResult =
+  | (Extract<MarketRefreshResult, { ok: true }> & { source: string })
+  | Extract<MarketRefreshResult, { ok: false }>;
+
+export interface RefreshMarketSourcesOptions extends Omit<RefreshMarketOptions, "indexUrl"> {
+  /** 按优先级排列的索引地址（第一项是展示用默认源）。 */
+  indexUrls: readonly string[];
+}
+
+/**
+ * 多源刷新：每个源都验签，取 revision 最大的那一份；同 revision 不同字节视为冲突。
+ *
+ * 为什么不是“第一个成功就用”：CDN 镜像可能落后于市场仓。若先接受陈旧镜像，
+ * 新装设备会停在旧 revision（旧签名同样有效），后续刷新也会因为 same revision 不再前进。
+ */
+export async function refreshMarketIndexFromSources(
+  fetcher: MarketFetcher,
+  options: RefreshMarketSourcesOptions,
+): Promise<MarketSourcesRefreshResult> {
+  let best: (Extract<MarketRefreshResult, { ok: true }> & { source: string }) | null = null;
+  let lastFailure: Extract<MarketRefreshResult, { ok: false }> | null = null;
+  for (const indexUrl of options.indexUrls) {
+    const result = await refreshMarketIndex(fetcher, { ...options, indexUrl });
+    if (!result.ok) {
+      lastFailure = result;
+      continue;
+    }
+    if (!best) {
+      best = { ...result, source: indexUrl };
+      continue;
+    }
+    if (result.index.revision > best.index.revision) {
+      best = { ...result, source: indexUrl };
+      continue;
+    }
+    if (result.index.revision === best.index.revision && result.state.indexSha256 !== best.state.indexSha256) {
+      return {
+        ok: false,
+        kind: "rollback",
+        reason: "revision-conflict",
+        detail: `revision ${result.index.revision} 在不同市场源上字节不一致（${best.source} vs ${indexUrl}）`,
+      };
+    }
+  }
+  return best ?? lastFailure ?? { ok: false, kind: "fetch", detail: "没有可用的市场源" };
+}
