@@ -13,6 +13,7 @@ import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-i
 import { Icon } from "../components/Icon";
 import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
 import { loadMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
+import { ensureLicenseLoaded, licenseSummary, pluginLicenseDecision } from "../plugins/license";
 import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
 import { radius, space, type as typeScale, useNibiTheme } from "../theme";
@@ -42,19 +43,22 @@ function MarketRow({
   entry,
   installedVersion,
   busy,
+  paidDecision,
   onInstall,
   onUninstall,
 }: {
   entry: MarketPluginEntry;
   installedVersion: string | null;
   busy: boolean;
+  paidDecision: { allowed: boolean; reason: string } | null;
   onInstall: () => void;
   onUninstall: () => void;
 }) {
   const t = useNibiTheme();
   const hasUpdate =
     installedVersion !== null && comparePluginVersions(entry.version, installedVersion) > 0;
-  const action = installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
+  const blocked = paidDecision !== null && !paidDecision.allowed;
+  const action = blocked ? "需会员" : installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
       <View style={styles.cardHead}>
@@ -64,7 +68,11 @@ function MarketRow({
             {entry.id} · v{entry.version} · {formatSize(entry.package.size)}
           </Text>
         </View>
-        {installedVersion === null ? (
+        {paidDecision !== null && blocked ? (
+          <View style={[styles.badge, { backgroundColor: t.amberSoft }]}>
+            <Text style={[styles.badgeText, { color: t.amber }]}>付费</Text>
+          </View>
+        ) : installedVersion === null ? (
           <View style={[styles.badge, { backgroundColor: t.panel }]}>
             <Text style={[styles.badgeText, { color: t.inkFaint }]}>未安装</Text>
           </View>
@@ -82,14 +90,17 @@ function MarketRow({
       {entry.description ? (
         <Text style={[styles.description, { color: t.inkSub }]}>{entry.description}</Text>
       ) : null}
+      {blocked ? (
+        <Text style={[styles.description, { color: t.amber }]}>{paidDecision?.reason}</Text>
+      ) : null}
 
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${action} ${entry.name}`}
-          disabled={busy}
+          disabled={busy || blocked}
           onPress={onInstall}
-          style={[styles.primary, { backgroundColor: t.brand, opacity: busy ? 0.6 : 1 }]}
+          style={[styles.primary, { backgroundColor: t.brand, opacity: busy || blocked ? 0.5 : 1 }]}
         >
           {busy ? (
             <ActivityIndicator color={t.brandFg} />
@@ -123,6 +134,7 @@ export default function MarketScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [versions, setVersions] = useState<Record<string, string | null>>({});
+  const [license, setLicense] = useState(licenseSummary());
 
   const readVersions = useCallback((entries: MarketPluginEntry[]) => {
     const next: Record<string, string | null> = {};
@@ -131,6 +143,8 @@ export default function MarketScreen() {
   }, []);
 
   const loadLocal = useCallback(async () => {
+    await ensureLicenseLoaded();
+    setLicense(licenseSummary());
     const local = await loadMarketSnapshot();
     setSnapshot(local);
     if (local) readVersions(local.index.plugins);
@@ -193,8 +207,8 @@ export default function MarketScreen() {
     }
   }
 
-  function uninstall(entry: MarketPluginEntry) {
-    const removed = uninstallMarketPlugin(entry.id);
+  async function uninstall(entry: MarketPluginEntry) {
+    const removed = await uninstallMarketPlugin(entry.id);
     setVersions((current) => ({ ...current, [entry.id]: null }));
     void plugins.reload();
     setMessage(removed ? `${entry.name} 已卸载` : "没有可卸载的目录");
@@ -236,6 +250,11 @@ export default function MarketScreen() {
         <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
           {MARKET_INDEX_URL}
         </Text>
+        <Text style={[styles.hint, { color: license.activated ? t.inkFaint : t.amber }]}>
+          {license.activated
+            ? `付费授权已激活${license.expiresAt ? `（至 ${license.expiresAt.slice(0, 10)}）` : ""}`
+            : `付费授权：${license.reason}`}
+        </Text>
 
         {message ? (
           <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
@@ -262,8 +281,9 @@ export default function MarketScreen() {
               entry={entry}
               installedVersion={versions[entry.id] ?? null}
               busy={busyId === entry.id}
+              paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
               onInstall={() => void install(entry)}
-              onUninstall={() => uninstall(entry)}
+              onUninstall={() => void uninstall(entry)}
             />
           ))
         )}

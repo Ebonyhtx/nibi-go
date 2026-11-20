@@ -1,9 +1,13 @@
-// 市场源：官方索引与签名侧车（GitHub raw，独立市场仓）。
+// 市场源（按顺序尝试，首个验签通过的生效）。
 //
-// 生产提示：raw.githubusercontent.com 在国内网络可能不可达；发布前可把同一对文件镜像到
-// dl.nibistudio.cn 并把这里换成 CDN 地址（索引格式与签名不变）。
-export const MARKET_INDEX_URL =
-  "https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/index.json";
+// 1) dl.nibistudio.cn：NIBI 免费内容 CDN（ESA → 私有 OSS），国内可达；
+// 2) GitHub raw：独立市场仓的原始位置（发布编辑在这里）。
+//
+// 两份文件用同一把 key 签名，客户端只认签名，不认域名；镜像只是可达性手段。
+export const MARKET_INDEX_URLS = [
+  "https://dl.nibistudio.cn/nibi-go-market/index.json",
+  "https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/index.json",
+] as const;
 
-/** 侧车地址：与 index.json 同目录的 `.sig`。 */
-export const MARKET_INDEX_SIGNATURE_URL = `${MARKET_INDEX_URL}.sig`;
+/** 展示用默认源。 */
+export const MARKET_INDEX_URL = MARKET_INDEX_URLS[0];

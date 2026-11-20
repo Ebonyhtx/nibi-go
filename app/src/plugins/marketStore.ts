@@ -12,7 +12,7 @@ import {
   type MarketSnapshotState,
 } from "@nibi-go/market-index";
 
-import { MARKET_INDEX_URL } from "./marketSource";
+import { MARKET_INDEX_URLS } from "./marketSource";
 import { fetchBytes } from "./fetchBytes";
 
 const SNAPSHOT_FILE = "nibi-market.json";
@@ -73,22 +73,28 @@ export interface RefreshMarketOutcome {
 /** 拉取并校验官方索引；accept 时原子写入快照。 */
 export async function refreshMarket(): Promise<RefreshMarketOutcome> {
   const previous = await loadMarketSnapshot();
-  const result = await refreshMarketIndex((url) => fetchBytes(url, INDEX_MAX_BYTES), {
-    indexUrl: MARKET_INDEX_URL,
-    previous: previous?.state ?? null,
-    previousIndex: previous?.index ?? null,
-  });
-  if (!result.ok || result.kind !== "accept") {
-    return { result, snapshot: null };
+  let lastFailure: MarketRefreshResult | null = null;
+  for (const source of MARKET_INDEX_URLS) {
+    const result = await refreshMarketIndex((url) => fetchBytes(url, INDEX_MAX_BYTES), {
+      indexUrl: source,
+      previous: previous?.state ?? null,
+      previousIndex: previous?.index ?? null,
+    });
+    if (!result.ok) {
+      lastFailure = result;
+      continue;
+    }
+    if (result.kind === "unchanged") return { result, snapshot: null };
+    const snapshot: MarketSnapshotFile = {
+      version: 1,
+      fetchedAt: new Date().toISOString(),
+      state: result.state,
+      index: result.index,
+    };
+    await writeSnapshot(snapshot);
+    return { result, snapshot };
   }
-  const snapshot: MarketSnapshotFile = {
-    version: 1,
-    fetchedAt: new Date().toISOString(),
-    state: result.state,
-    index: result.index,
-  };
-  await writeSnapshot(snapshot);
-  return { result, snapshot };
+  return { result: lastFailure ?? { ok: false, kind: "fetch", detail: "没有可用的市场源" }, snapshot: null };
 }
 
 /** 当前索引里某个 id 的条目（快照为空时返回 undefined）。 */
