@@ -191,8 +191,10 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 
 1. 凭证获取（账号侧签发/同步）与在线拒绝、宽限期（需要服务端配合）；
 2. 下载进度百分比与失败重试（当前是可取消的不确定进度）；
-3. 镜像监控：定时任务只在服务器本地留状态/日志，尚未接入心跳告警；可加「state.updatedAt
-   超过 N 小时未更新」的告警。
+3. ~~镜像监控~~ **已完成（2026-11-20）**：healthchecks「市场同步CHECK」由服务端 cron 每次
+   同步上报；GitHub 网络类失败在单次运行内重试 3 次，仍失败只记本地 `fail-streak`，
+   连续 3 次（约 30 分钟）才 `/fail`；验签/schema/上传等确定性错误立即 `/fail`。
+   ping URL 只在服务器 `/var/lib/nibi-go-market/heartbeat.env`（600）。
 
 ## 10. 生态角色与用户口径
 

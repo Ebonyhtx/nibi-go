@@ -80,7 +80,7 @@ nativeLibraryDir/arm64/           # 只能扁平 lib*.so；可 exec（Android 36
   libnibi_hook.so                 # git hook dispatcher
 
 filesDir/runtime/bin/             # symlink farm -> nativeLibraryDir/lib*.so（已实测可 exec）
-  bash / busybox / git / node / python / python3 / nibi-run
+  bash / busybox / git / jq / zip / rg / curl / node / python / python3 / nibi-run
 filesDir/runtime/hooks/           # symlink farm -> libnibi_hook.so（core.hooksPath 指这里）
   pre-commit / commit-msg / …
 filesDir/
@@ -95,6 +95,13 @@ filesDir/
 Bash 通过 `BASH_ENV` 加载兼容函数；`sh` 通过 `ENV` 加载同一套。
 **注意**：jniLibs 里只能有 `lib*.so` 文件名，不能有 `bash`/`node`/`hooks/` 这些名字；
 用户可见名字全部由 `$NIBI_BIN`/`runtime/hooks` 的 symlink 提供（真机已验证 symlink 目标可 exec）。
+
+工具增补（2026-11-20）：`jq 1.7.1`（MIT，内置 oniguruma）、`zip 3.0`（Info-ZIP）、
+`ripgrep 15.2.0`（MIT，Rust 交叉编译，默认 Rust regex 特性、不含 pcre2）、`curl 8.16.0` CLI
+（复用运行时已构建的 curl；静态 OpenSSL/zlib，体积较大）。版本/URL/sha256 一律固定在
+`scripts/android-runtime/sources.json`；ripgrep 需要构建机有 `cargo` 与
+`rustup target add aarch64-linux-android`（CI 已加）。curl 的 TLS 使用随包 `cacert.pem`
+（`CURL_CA_BUNDLE`/`SSL_CERT_FILE`），不要依赖 Android 的 hash-dir 证书目录。
 
 ## 4. targetSdk 36 兼容层（把摩擦吸收在工具层）
 
