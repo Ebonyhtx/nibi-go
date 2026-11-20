@@ -373,6 +373,16 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 - 选择 bionic 构建来源（nodejs-mobile / Termux / NDK 自建），pin 版本；
 - 验收：node/python 启动、纯 JS/Python 包、至少 3 个原生 addon（有 Android 构建的）通过；
   记录不支持的包类型与错误文案。
+  2026-11-21 完成（PHK110，随包 Node 24.22.3）：**leveldown 6.1.1**（tarball 自带
+  `prebuilds/android-arm64`，node-gyp-build 加载）、**sodium-native 5.2.2**（bare 生态
+  require-addon 的 android 分支首次在 Node 下验证）两个上游预编译直接可用；
+  **bufferutil 4.2.0**、**utf-8-validate 6.1.0** 由 NIBI 构建机用 NDK
+  `aarch64-linux-android24-clang` 交叉编译为 N-API `.node`，放进包内
+  `prebuilds/android-arm64/` 后真机通过（mask/unmask 逐字节对照、UTF-8 判定正确）。
+  边界：npm 上游自带 android-arm64 预编译的包极少；sdist-only 的 Python C 扩展与
+  无 Android 预编译的 npm 原生包在应用内不可编译（无 clang/make），`npm install` 会
+  停在 `not found: make`、`pip install` 停在 `command 'gcc' failed`——这是预期失败，
+  不是缺陷；等价纯 JS/Python 实现或在构建机交叉编译是仅有的两条出路。
 
 ### Phase 4：声明式 UI slots
 
