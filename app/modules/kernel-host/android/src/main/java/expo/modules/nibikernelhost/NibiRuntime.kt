@@ -212,6 +212,11 @@ internal object NibiRuntime {
       unzipAsset(context, LANGS_ZIP, root)
       stamp.writeText(version)
     }
+    // CPython 的 getpath 按可执行文件位置推导 prefix：bin/python3 是指向
+    // nativeLibraryDir/libpython_bin.so 的 symlink，而 stdlib 在 runtime/python/lib。
+    // 给 runtime/lib 建一座指向 python/lib 的桥后，`python3 -I`（忽略 PYTHONHOME）
+    // 和 venv 的 `_call_new_python`（会清掉 PYTHONHOME）都能自己找到 stdlib。
+    linkDirectory(File(root, "lib"), File(root, "python/lib"))
     val nativeDir = context.applicationInfo.nativeLibraryDir
     val bin = File(root, "bin").apply { mkdirs() }
     val binMap = manifest.optJSONObject("bin")
@@ -269,6 +274,32 @@ internal object NibiRuntime {
         val name = hookList.optString(i)
         if (name.isNotBlank()) link(File(hooks, name), File(nativeDir, "libnibi_hook.so"))
       }
+    }
+  }
+
+  /**
+   * 目录级 symlink（目前只有 runtime/lib → python/lib）。目标不存在时跳过；
+   * 目标是真实目录（未来打包形态变化）时不覆盖，避免误删。
+   */
+  private fun linkDirectory(link: File, target: File) {
+    if (!target.isDirectory) return
+    try {
+      if (Files.isSymbolicLink(link.toPath())) {
+        val current = try {
+          Os.readlink(link.absolutePath)
+        } catch (_: Throwable) {
+          null
+        }
+        if (current == target.absolutePath) return
+        link.delete()
+      } else if (link.exists()) {
+        Log.w(TAG, "runtime/lib 已是真实目录，跳过 symlink：${link.absolutePath}")
+        return
+      }
+      link.parentFile?.mkdirs()
+      Os.symlink(target.absolutePath, link.absolutePath)
+    } catch (t: Throwable) {
+      Log.w(TAG, "创建目录 symlink 失败：${link.absolutePath} -> ${target.absolutePath}", t)
     }
   }
 

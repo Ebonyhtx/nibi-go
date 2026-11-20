@@ -95,6 +95,7 @@ Node/Python 均由 NDK 从官方源码交叉编译（不是 Termux 预编译包�
 | pip | 26.2.2（ensurepip 内置 wheel） | MIT | `python/lib/python3.13/site-packages` |
 | libffi | 3.4.8 | MIT | Python `ctypes`（`libffi.so`） |
 | OpenSSL | 3.5.4 | Apache-2.0 | Python `_ssl`/`_hashlib`（静态链接） |
+| SQLite | 3.46.1 | Public-Domain | Python `sqlite3`（`_sqlite3` 静态链接） |
 | zlib | 1.3.1 | Zlib | Python/Node 压缩（静态链接） |
 
 对应源码即上表版本的官方 tarball（URL/sha256 见 `scripts/android-runtimes/sources.json`），

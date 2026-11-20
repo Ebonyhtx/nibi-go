@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   elfLoadAlignment,
+  listZipEntries,
   parseElfIdentity,
   readAndroidAbiLevel,
   readElfInterp,
@@ -42,15 +43,18 @@ const EXECUTABLES = new Set(["libnode.so", "libpython_bin.so"]);
 const MIN_API = 24;
 
 function parseArgs(argv) {
-  const args = { check: false, nodeOnly: false, pythonOnly: false, jobs: 0 };
+  const args = { check: false, packageOnly: false, nodeOnly: false, pythonOnly: false, jobs: 0 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--check") args.check = true;
+    else if (a === "--package-only") args.packageOnly = true;
     else if (a === "--node-only") args.nodeOnly = true;
     else if (a === "--python-only") args.pythonOnly = true;
     else if (a === "--jobs") args.jobs = Number(argv[++i]);
     else if (a === "--help" || a === "-h") {
-      console.log("用法：node scripts/android-runtimes/build.mjs [--check] [--node-only|--python-only] [--jobs N]");
+      console.log(
+        "用法：node scripts/android-runtimes/build.mjs [--check] [--package-only] [--node-only|--python-only] [--jobs N]",
+      );
       process.exit(0);
     } else throw new Error(`未知参数：${a}`);
   }
@@ -63,7 +67,14 @@ function loadSources() {
 
 async function ensureSources(sources) {
   mkdirSync(SRC_CACHE, { recursive: true });
-  const items = [sources.node, sources.python, sources.libffi, sources.zlib, sources.openssl];
+  const items = [
+    sources.node,
+    sources.python,
+    sources.libffi,
+    sources.zlib,
+    sources.openssl,
+    sources.sqlite,
+  ];
   for (const item of items) {
     if (!item) continue;
     const target = join(SRC_CACHE, item.archive);
@@ -139,7 +150,7 @@ function runShell(args, sources) {
 
 function packageLangs(sources) {
   const assetDir = join(ROOT, "build/android-runtimes/assets");
-  const version = `langs-1:node=${sources.node.version},npm=${sources.node.npmVersion},python=${sources.python.version}`;
+  const version = `langs-1:node=${sources.node.version},npm=${sources.node.npmVersion},python=${sources.python.version},sqlite=${sources.sqlite.version}`;
   const manifest = {
     schema: 1,
     version,
@@ -157,6 +168,7 @@ function packageLangs(sources) {
       python: sources.python.version,
       libffi: sources.libffi.version,
       zlib: sources.zlib.version,
+      sqlite: sources.sqlite.version,
     },
   };
   mkdirSync(ASSETS, { recursive: true });
@@ -216,6 +228,17 @@ function verify(args) {
     }
   }
   if (!existsSync(ASSET_ZIP)) errors.push("缺少 nibi-langs.zip");
+  else {
+    const zip = listZipEntries(readFileSync(ASSET_ZIP));
+    if (zip.error) errors.push(`nibi-langs.zip 解析失败：${zip.error}`);
+    else if (
+      !zip.entries.some((entry) =>
+        /^python\/lib\/python3\.13\/lib-dynload\/_sqlite3\..*\.so$/u.test(entry.name),
+      )
+    ) {
+      errors.push("nibi-langs.zip 缺少 _sqlite3（Python sqlite3 不可用）");
+    }
+  }
   return errors;
 }
 
@@ -249,8 +272,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const sources = loadSources();
   if (!args.check) {
-    await ensureSources(sources);
-    runShell(args, sources);
+    if (!args.packageOnly) {
+      await ensureSources(sources);
+      runShell(args, sources);
+    }
     packageLangs(sources);
   }
   console.log("\n校验语言运行时产物");

@@ -184,13 +184,15 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
 ## 语言运行时（D25 Phase 3，Python + Node 已完成）
 
 - **Python 3.13.18（自建，非 Termux）**：`scripts/android-runtimes/build-python.sh` 用宿主
-  Python + NDK 交叉编译；libffi/zlib/OpenSSL 均自建。jniLibs 里是
+  Python + NDK 交叉编译；libffi/zlib/OpenSSL/SQLite 均自建。jniLibs 里是
   `libpython_bin.so` + `libpython3.13.so` + `libffi.so`（strip 后约 5.3MB），stdlib +
-  pip 在 `assets/nibi-langs.zip`（约 13MB，解压后 `filesDir/runtime/python`）。
+  pip + `_sqlite3` 在 `assets/nibi-langs.zip`（约 16MB，解压后 `filesDir/runtime/python`）。
   `NibiRuntime` 设置 `PYTHONHOME` / `PYTHONUSERBASE` / `LD_LIBRARY_PATH`（nativeLibraryDir，
   仅语言运行时进程需要），并建 `python3`/`python`/`pip`/`pip3` 链接。
-  真机通过：`python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes`、`pip 26.2.2`、
-  `pip install requests`、`pyfiglet` console script。
+  **`runtime/lib` 是到 `python/lib` 的目录 symlink**：CPython 从可执行文件位置推导 prefix，
+  `-I`（忽略 `PYTHONHOME`）和 `venv`（会清掉 `PYTHONHOME`）因此也能自己找到 stdlib。
+  真机通过：`python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes/sqlite3`、`pip 26.2.2`、
+  `python3 -I`、`python3 -m venv`、`pip install requests`、`pyfiglet` console script。
 - **Node 24.22.3（自建）已完成**：`scripts/android-runtimes/build-node.sh` +
   `patch-node.py`；`libnode.so` strip 后 91MB（NEEDED `libc++_shared.so`，APK 已带），
   npm 11.19.1 在 `assets/nibi-langs.zip`（解压后 `filesDir/runtime/npm`）。
@@ -220,7 +222,7 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
 - 第一帧 `startup/storageState` 已按 LF 切帧送到 JS：**dlopen、JNI、线程、切帧全部成立**。
 - 随后内核自己退出：`configuring network egress: … rustls-platform-verifier could not load
   extra certs`。Android 平台信任库需要 JVM + Context，C ABI 目前没有传入口 →
-  上游票据 `docs/tickets/T8-android-platform-tls-trust.md`。
+  上游票据 T8（内部工程仓，私有）。
 - 该轮暴露并已修：Kotlin `Sink` 必须用 `ByteArray` 与 JNI 的 `([B)V` 对齐（用 `String` 会
   `NoSuchMethodError` 直接 abort）；`libnibi.so` 无 SONAME，导入目标会把 `DT_NEEDED` 记成
   构建机绝对路径（改为 `-L` + `-l`）。

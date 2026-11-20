@@ -4,10 +4,10 @@
 # CPython 3.13 has official Android support: build a host Python out-of-tree,
 # then cross-configure with --with-build-python. Dependencies are self-built:
 #   - OpenSSL: reuse the android-runtime build ($RUNTIME_OPENSSL, static)
-#   - libffi / zlib: built here (PIC/shared) into $WORK/pydeps
+#   - libffi / zlib / SQLite: built here (PIC/shared or static) into $WORK/pydeps
 #
 # Output: $JNI_OUT/libpython_bin.so, libpython3.13.so, libffi.so
-#         $ASSET_DIR/python/lib/python3.13 (+ pip preinstalled)
+#         $ASSET_DIR/python/lib/python3.13 (+ pip preinstalled + _sqlite3)
 #
 # Required env: SRC_CACHE, NDK, RUNTIME_OPENSSL, JNI_OUT, ASSET_DIR
 # Optional: API (24), JOBS, WORK, PKG_CONFIG
@@ -33,9 +33,12 @@ PKG_CONFIG=${PKG_CONFIG:-pkg-config}
 command -v "$PKG_CONFIG" >/dev/null || die "需要 pkg-config（Ubuntu: apt install pkg-config）"
 export PKG_CONFIG
 [ -d "$NDK" ] || die "NDK 不存在：$NDK"
-for a in Python-3.13.18.tar.xz libffi-3.4.8.tar.gz zlib-1.3.1.tar.gz openssl-3.5.4.tar.gz; do
+for a in Python-3.13.18.tar.xz libffi-3.4.8.tar.gz zlib-1.3.1.tar.gz sqlite-autoconf-3460100.tar.gz; do
   [ -f "$SRC_CACHE/$a" ] || die "缺少 $a"
 done
+if [ -z "${RUNTIME_OPENSSL:-}" ]; then
+  [ -f "$SRC_CACHE/openssl-3.5.4.tar.gz" ] || die "缺少 openssl-3.5.4.tar.gz（或设置 RUNTIME_OPENSSL 复用已构建产物）"
+fi
 
 TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64
 CC=$TC/bin/aarch64-linux-android${API}-clang
@@ -48,11 +51,13 @@ mkdir -p "$WORK/src" "$WORK/pydeps" "$WORK/python"
 HOST_PREFIX=$WORK/host-python
 mkdir -p "$JNI_OUT" "$ASSET_DIR"
 
-log "解包 Python/libffi/zlib"
-rm -rf "$WORK/src/Python-3.13.18" "$WORK/src/libffi-3.4.8" "$WORK/src/zlib-1.3.1"
+log "解包 Python/libffi/zlib/SQLite"
+rm -rf "$WORK/src/Python-3.13.18" "$WORK/src/libffi-3.4.8" "$WORK/src/zlib-1.3.1" \
+  "$WORK/src/sqlite-autoconf-3460100"
 tar -xf "$SRC_CACHE/Python-3.13.18.tar.xz" -C "$WORK/src"
 tar -xf "$SRC_CACHE/libffi-3.4.8.tar.gz" -C "$WORK/src"
 tar -xf "$SRC_CACHE/zlib-1.3.1.tar.gz" -C "$WORK/src"
+tar -xf "$SRC_CACHE/sqlite-autoconf-3460100.tar.gz" -C "$WORK/src"
 
 log "宿主 Python 3.13"
 if [ ! -x "$HOST_PREFIX/bin/python3.13" ]; then
@@ -86,7 +91,8 @@ if [ -z "${RUNTIME_OPENSSL:-}" ]; then
 fi
 [ -d "$RUNTIME_OPENSSL" ] || die "RUNTIME_OPENSSL 不存在：$RUNTIME_OPENSSL"
 
-log "libffi（Android shared）"(
+log "libffi（Android shared）"
+(
   cd "$WORK/src/libffi-3.4.8"
   ./configure --host=aarch64-linux-android --prefix="$WORK/pydeps" \
     --enable-shared --disable-static \
@@ -102,6 +108,21 @@ log "zlib（Android static/PIC）"
   cd "$WORK/src/zlib-1.3.1"
   CC="$CC" CFLAGS="-O2 -fPIC -D__BIONIC_NO_PAGE_SIZE_MACRO" \
     ./configure --prefix="$WORK/pydeps" --static >/dev/null
+  make -j"$JOBS" >/dev/null
+  make install >/dev/null
+)
+
+# Python 的 sqlite3 是标准库模块，缺 _sqlite3 时 import sqlite3 直接失败。
+# Android 没有公开的 libsqlite3 NDK 接口，因此把 SQLite 静态编进 _sqlite3；
+# pkg-config 文件让 CPython 的 setup.py 在交叉构建时能发现它。
+log "SQLite（Python _sqlite3 用；静态 PIC）"
+(
+  cd "$WORK/src/sqlite-autoconf-3460100"
+  CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -fPIC -D__BIONIC_NO_PAGE_SIZE_MACRO" \
+    LDFLAGS="-Wl,-z,max-page-size=16384" \
+    ./configure --host=aarch64-linux-android --prefix="$WORK/pydeps" \
+      --disable-shared --enable-static >/dev/null
   make -j"$JOBS" >/dev/null
   make install >/dev/null
 )
@@ -128,6 +149,8 @@ mkdir -p "$WORK/py-cross"
 log "编译 CPython（-k 多轮补齐 clang 偶发 rename）"
 (
   cd "$WORK/py-cross"
+  # setup.py 也在 make 阶段用 pkg-config 找 sqlite3；configure 里的导出不会继承到这一步。
+  export PKG_CONFIG_LIBDIR="$WORK/pydeps/lib/pkgconfig:$RUNTIME_OPENSSL/lib/pkgconfig"
   for _ in $(seq 1 10); do
     make -j"$JOBS" -k >>"$WORK/python-build.log" 2>&1 || true
     [ -f python ] && break
@@ -140,6 +163,8 @@ log "编译 CPython（-k 多轮补齐 clang 偶发 rename）"
 
 STD=$WORK/py-stage/usr/local/lib/python3.13
 [ -d "$STD/lib-dynload" ] || die "缺少 lib-dynload"
+ls "$STD/lib-dynload"/_sqlite3*.so >/dev/null 2>&1 \
+  || die "CPython 没有编出 _sqlite3（检查 SQLite pkg-config 与 python-build.log）"
 
 log "裁剪并 strip"
 rm -rf "$STD/test" "$STD/idlelib" "$STD/tkinter" "$STD/turtledemo"

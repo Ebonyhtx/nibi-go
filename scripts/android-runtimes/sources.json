@@ -35,5 +35,12 @@
     "url": "https://www.openssl.org/source/openssl-3.5.4.tar.gz",
     "sha256": "967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99",
     "license": "Apache-2.0"
+  },
+  "sqlite": {
+    "version": "3.46.1",
+    "archive": "sqlite-autoconf-3460100.tar.gz",
+    "url": "https://www.sqlite.org/2024/sqlite-autoconf-3460100.tar.gz",
+    "sha256": "67d3fe6d268e6eaddcae3727fce58fcc8e9c53869bdd07a0c61e38ddf2965071",
+    "license": "Public-Domain"
   }
 }
