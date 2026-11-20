@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
     "husky": "^9.1.7"
   },
   "packageManager": "pnpm@10.33.2"

@@ -167,8 +167,10 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 授权同步已接（复用服务端 `POST /api/v1/licenses/check`，**无需改服务端**）：Bearer 换证、
   X-Nibi-License 复查、403/authorized:false 写入 refusal 立即拒绝、401 不写拒绝；市场页
   「同步」按钮，未登录明确提示。真机已验证未登录分支；登录后的换证/撤销待有账号态复验。
-- 下一步：登录后授权链路复验（换证/撤销/宽限期）；下载进度百分比/重试；CDN 镜像自动
-  同步。设计见 `docs/design/market-index.md`。
+- 安装进度：XHR 下载进度条 + 百分比（RN fetch 无进度），失败提示可重试；CDN 镜像脚本
+  `scripts/market/mirror-cdn.mjs`（不写死主机/桶，先本地验签+包摘要再 ssh cat + ossutil）。
+- 下一步：登录后授权链路复验（换证/撤销/宽限期）；下载失败自动重试与断点续传（可选）。
+  设计见 `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
 
