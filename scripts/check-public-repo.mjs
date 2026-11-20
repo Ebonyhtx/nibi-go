@@ -103,6 +103,7 @@ const RULES = [
   {
     // 内部基础设施标识（对象存储桶、ossutil 配置、生产机 SSH 别名、站点根目录）。
     // 公开仓只出现占位符（<ssh-alias> / <oss://bucket/prefix>），不写真实值。
+    // 规则字面量本身不落盘：用 base64 存词表，避免门禁脚本自己把标识公开。
     name: "internal infra identifier",
     re: (() => {
       const terms = Buffer.from(
@@ -111,7 +112,9 @@ const RULES = [
       )
         .toString("utf8")
         .split("\n");
-      return new RegExp(`\\b(?:${terms.slice(0, -1).join("|")})\\b|${terms.at(-1)}`);
+      const words = terms.slice(0, -1).join("|");
+      const path = terms.at(-1);
+      return new RegExp(`\\b(?:${words})\\b|${path}`);
     })(),
   },
   {
