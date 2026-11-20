@@ -17,6 +17,7 @@
     "@nibi-go/market-index": "workspace:*",
     "@nibi-go/phone-tools": "workspace:*",
     "@nibi-go/plugin-contract": "workspace:*",
+    "@nibi-go/plugin-license": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
     "@nibi-go/shared-extract": "workspace:*",
     "@shopify/react-native-skia": "2.14.0",

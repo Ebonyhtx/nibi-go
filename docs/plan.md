@@ -151,8 +151,18 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 真机（PHK110，signed release 0.1.2 测试构建）：市场页拉取 revision 2 并验签；安装 0.1.0
   后插件中心出现「市场示例/可用」；真实模型回合调用 `mcp__market_hello__hello` 返回问候；
   刷新到 revision 3 显示「可更新」，更新后再调用返回 v0.1.1 文案。
-- 下一步：付费门禁（`paid.priceId` → license），安装进度/取消与快照损坏提示。设计见
-  `docs/design/market-index.md`。
+- 付费门禁（C2-4，客户端侧）：`@nibi-go/plugin-license` 离线验签 compact JWS
+  （iss/exp/dev 设备绑定/plugins 覆盖，`"*"` 全放），凭证存 SecureStore，设备 id 首启固定；
+  三道门 = 市场安装（按钮禁用 + installer 复核）、插件启用（抛错）、工具面（未授权按停用，
+  MCP 不下发）。`paid` 取「市场快照 ∪ 安装记录」防复制缓存绕过。本阶段不启动收费，
+  凭证获取/在线拒绝/宽限期待接账号侧。
+- 真机（PHK110）：临时 revision 4（paid）下市场显示「需会员」且安装禁用、插件中心变
+  「需会员」且开关关闭、新会话里模型确认 `mcp__market_hello__hello` 不存在；恢复
+  revision 5（免费）后自动回到「可用」。license 单测 12 项。
+- 网络：GitHub raw 在手机侧 body 卡住/超时；市场已镜像到 `dl.nibistudio.cn/nibi-go-market/`，
+  客户端多源回退（dl → raw），真机 2.7s 拉通。
+- 下一步：凭证获取（账号侧签发/同步）与在线拒绝/宽限期；安装进度/取消与快照损坏提示；
+  发布链 CI 校验签名/摘要，CDN 镜像自动同步。设计见 `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
 

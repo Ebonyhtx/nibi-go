@@ -105,18 +105,21 @@
 
 ## 6. 发布流程（人工，尚未接 CI）
 
-索引与包内容放在独立市场仓 **`Ebonyhtx/nibi-go-market`**（公开仓，客户端经 GitHub raw 读取）：
+索引与包内容放在独立市场仓 **`Ebonyhtx/nibi-go-market`**（公开仓，作为发布来源）：
 
 - `index.json` / `index.json.sig`
 - `packages/<id>-<version>.zip`（包字节）
-- 客户端默认源：`https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/index.json`
-  （`.sig` 同路径；国内网络若不可达，发布前可镜像到 CDN 并换常量）。
+- 客户端按顺序尝试两个源（同一把 key 签名，只认签名不认域名）：
+  1. `https://dl.nibistudio.cn/nibi-go-market/index.json`（ESA → 私有 OSS，国内可达）
+  2. `https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/index.json`（发布来源）
 
 ```bash
 # 1) 修改 nibi-go-market/index.json，revision 必须比线上 +1
 # 2) 在 NIBI-GO 仓签名（私钥读 ~/.nibi/market/<keyId>.json）
 node scripts/market/sign-index.mjs ../nibi-go-market/index.json
-# 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）
+# 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）并 push
+# 4) 镜像到 CDN：按运维 RUNBOOK 的「免费内容同步」流程，把 index.json、index.json.sig
+#    与 packages/*.zip 以同一份字节放到 dl.nibistudio.cn 的 nibi-go-market/ 前缀下。
 ```
 
 客户端刷新顺序：取 `index.json` 与 `.sig` → 验签 → schema → 与本地快照比较
@@ -128,6 +131,8 @@ node scripts/market/sign-index.mjs ../nibi-go-market/index.json
   坏 schema（带路径）、http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、
   插件版本不变量、刷新判决（accept/unchanged/fetch/verify/rollback/pins）、
   `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥。
+- license 单测 12 项（`packages/plugin-license`）：JWS 验签、payload 篡改、未知 kid、
+  错误 iss、claims 形状、覆盖范围/通配、过期、设备不匹配、无凭证、坏凭证。
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
 - **真机（PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建）**：
   - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
@@ -136,10 +141,28 @@ node scripts/market/sign-index.mjs ../nibi-go-market/index.json
   - 真实模型回合调用 `mcp__market_hello__hello`，内核从插件目录启动 Node MCP 子进程，
     返回「你好，NIBI！这是来自市场插件 market_hello 的问候。」；
   - 发布 revision 3（0.1.1）后刷新显示「可更新」，点更新后徽标变为「已安装 v0.1.1」，
-    再次调用工具返回 v0.1.1 文案（证明包与进程都换成了新版本）。
+    再次调用工具返回 v0.1.1 文案（证明包与进程都换成了新版本）；
+  - 付费门禁：临时发布 revision 4（`paid`）→ 市场页显示「付费/需会员」且安装按钮禁用、
+    插件中心该插件变为「需会员」且开关关闭；新会话里模型确认 `mcp__market_hello__hello`
+    不存在（工具面被裁剪）。恢复 revision 5（免费）后自动回到「可用」；
+  - 网络：raw.githubusercontent.com 在手机侧出现「200 后 body 卡住/超时」；镜像到
+    `dl.nibistudio.cn/nibi-go-market/` 后同一份字节 2.7s 拉通，客户端多源回退生效。
 
-## 8. 下一步
+## 8. 付费门禁（C2-4，客户端侧）
 
-1. 付费门禁（`paid.priceId` → license 校验；本阶段只占位）；
-2. 市场页的安装进度/取消与失败重试；快照损坏时的显式提示；
-3. 发布链 CI（校验索引签名与包摘要，防止漏签/错签）。
+- 凭证：与桌面端同一签发口径的 compact JWS（Ed25519）；claims 含 `iss=nibi-license`、
+  `plugins[]`（`"*"` 全放）、`dev`（设备绑定）、`exp`。
+- 判定：`@nibi-go/plugin-license` 离线验签 → exp → 设备 → 覆盖范围；任一不满足即拒绝
+  （`not_activated`/`denied`/`expired`/`device_mismatch`/`not_covered`）。
+- 凭证存储：`expo-secure-store`（Keystore 加密）；设备 id 首启随机生成后固定。
+- 三道门：市场安装（按钮禁用 + installer 复核）、插件启用（`setPluginEnabled` 抛错）、
+  工具面（`loadPlugins` 把未授权付费插件按停用处理，MCP 服务器不下发；内核配置同样写 disabled）。
+- `paid` 判定取「市场快照 paid ∪ 安装记录 paid」（`nibi-market-installed.json`），
+  防复制缓存绕过。
+- 本阶段不启动收费：没有凭证入口/在线拒绝/宽限期；凭证签发与购买流程接入账号侧后再补。
+
+## 9. 下一步
+
+1. 凭证获取（账号侧签发/同步）与在线拒绝、宽限期；
+2. 安装进度/取消与失败重试；快照损坏时的显式提示；
+3. 发布链 CI（校验索引签名与包摘要，防止漏签/错签），以及 CDN 镜像自动同步。

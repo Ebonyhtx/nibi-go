@@ -19,6 +19,8 @@ import {
 import type { KernelMcpServer } from "@nibi-go/kernel-session";
 
 import { BUNDLED_PLUGINS, MANIFEST_FILE } from "./samples";
+import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
+import { paidPluginIds } from "./paid";
 
 export interface LoadedPlugin {
   /** 插件目录名（稳定）。 */
@@ -30,6 +32,8 @@ export interface LoadedPlugin {
   enabled: boolean;
   /** 随包内置（NIBI 官方样例）；未来用户安装的插件为 false。 */
   bundled: boolean;
+  /** 付费插件缺少授权时的原因（有值即视为不可启用）。 */
+  licenseBlocked?: string;
   /** MCP 入口的绝对路径（没有 runtime 时为 undefined）。 */
   entryPath?: string;
   /** 生效的设置值（清单默认值 + 用户保存值；已按类型收敛）。 */
@@ -372,6 +376,8 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
   const disabled = await readDisabled();
   const stored = await readSettings();
   const profile = hostProfile();
+  await ensureLicenseLoaded();
+  const paid = await paidPluginIds();
   return pluginDirs().map(({ dir: pluginDir, bundled }) => {
     const dir = new Directory(Paths.document, PLUGINS_DIR, pluginDir);
     let parsed: ParsedPlugin;
@@ -386,20 +392,32 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
     const entryPath = runtime
       ? stripFileScheme(new File(dir, runtime.entry).uri)
       : undefined;
+    const manifestId = parsed.manifest.id;
+    const license = paid.has(manifestId) ? pluginLicenseDecision(manifestId) : null;
+    const licenseBlocked = license && !license.allowed ? license.reason : undefined;
     return {
       dir: pluginDir,
       root: stripFileScheme(dir.uri),
       parsed,
-      enabled: parsed.status === "ready" && !disabled.has(parsed.manifest.id),
+      enabled: parsed.status === "ready" && !disabled.has(manifestId) && !licenseBlocked,
       bundled,
-      settings: effectiveSettings(parsed.manifest, stored[parsed.manifest.id]),
+      settings: effectiveSettings(parsed.manifest, stored[manifestId]),
       ...(entryPath ? { entryPath } : {}),
+      ...(licenseBlocked ? { licenseBlocked } : {}),
     };
   });
 }
 
 /** 启用/停用（按 manifest id 存；同一个 id 换目录也保持状态）。 */
 export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+  if (enabled) {
+    await ensureLicenseLoaded();
+    const paid = await paidPluginIds();
+    if (paid.has(id)) {
+      const decision = pluginLicenseDecision(id);
+      if (!decision.allowed) throw new Error(decision.reason);
+    }
+  }
   const disabled = await readDisabled();
   if (enabled) disabled.delete(id);
   else disabled.add(id);

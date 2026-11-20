@@ -10,6 +10,8 @@ import { verifyPackageDigest, type MarketPluginEntry } from "@nibi-go/market-ind
 import { readPluginManifest, type PluginManifest } from "@nibi-go/plugin-contract";
 
 import { fetchBytes } from "./fetchBytes";
+import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
+import { forgetInstalledPlugin, recordInstalledPlugin } from "./paid";
 import { inspectPluginArchive } from "./packageFiles";
 import { BUNDLED_PLUGINS } from "./samples";
 import { hostProfile } from "./store";
@@ -42,6 +44,11 @@ export function readInstalledManifest(dir: string): PluginManifest | null {
 }
 
 export async function installMarketPlugin(entry: MarketPluginEntry): Promise<InstallOutcome> {
+  if (entry.paid) {
+    await ensureLicenseLoaded();
+    const decision = pluginLicenseDecision(entry.id);
+    if (!decision.allowed) return { ok: false, reason: `需要会员授权：${decision.reason}` };
+  }
   const dir = pluginDirOf(entry);
   if (BUNDLED_PLUGINS.some((plugin) => plugin.dir === dir)) {
     return { ok: false, reason: "与内置插件目录冲突" };
@@ -110,14 +117,18 @@ export async function installMarketPlugin(entry: MarketPluginEntry): Promise<Ins
     return { ok: false, reason: `写入失败：${error instanceof Error ? error.message : String(error)}` };
   }
 
+  await recordInstalledPlugin(dir, parsed.manifest.version, entry.paid !== undefined).catch(() => {
+    // 记录失败不影响已落盘的插件；门禁仍可从市场快照取 paid。
+  });
   return { ok: true, dir, manifest: parsed.manifest };
 }
 
 /** 卸载市场插件（只删插件目录；启停状态/设置按 id 保留，重装后沿用）。 */
-export function uninstallMarketPlugin(dir: string): boolean {
+export async function uninstallMarketPlugin(dir: string): Promise<boolean> {
   if (BUNDLED_PLUGINS.some((plugin) => plugin.dir === dir)) return false;
   const target = new Directory(pluginsRoot(), dir);
   if (!target.exists) return false;
   target.delete();
+  await forgetInstalledPlugin(dir).catch(() => {});
   return true;
 }
