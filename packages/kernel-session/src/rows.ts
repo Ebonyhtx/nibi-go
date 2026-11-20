@@ -102,6 +102,11 @@ export type ChatRow =
       key: string;
       text: string;
       createdAt?: number;
+      /** 协议行的 canonical 定位（`editUserQuery` 的 target）；legacy 消息路径没有，缺席。 */
+      rowId?: number;
+      entityId?: string;
+      /** 协议 actions.canEdit：内核判定可编辑（最新的 realUser 输入）才给「编辑重发」。 */
+      canEdit?: boolean;
       /** 这条输入携带的结构化引用（注释/选段）；气泡里按小卡片展示，不抄进正文。 */
       conversationQuotes?: readonly ConversationSelectionText[];
       /** 这条输入带的图片/文件附件。 */
@@ -584,6 +589,9 @@ export function deriveRows(
             kind: "user",
             key: `r${user.rowId}`,
             text: user.text,
+            rowId: user.rowId,
+            ...(user.entityId ? { entityId: user.entityId } : {}),
+            ...(user.actions?.canEdit ? { canEdit: true } : {}),
             ...(typeof user.createdAt === "number"
               ? { createdAt: user.createdAt as unknown as number }
               : {}),

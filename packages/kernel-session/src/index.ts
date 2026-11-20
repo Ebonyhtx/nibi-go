@@ -8,10 +8,13 @@ export {
   type KernelDebugNetworkEntry,
   type KernelDebugRound,
   type KernelDebugSnapshot,
+  type KernelEditUserQueryOptions,
+  type KernelEditUserQueryResult,
   type KernelFileChange,
   type KernelFileChangesReport,
   type KernelSessionClientOptions,
   type KernelSessionCreateOptions,
+  type KernelStopResult,
 } from "./client";
 export {
   ConversationController,

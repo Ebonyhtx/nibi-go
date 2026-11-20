@@ -457,6 +457,164 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).rejects.toThrow("the interaction is no longer pending");
   });
 
+  it("stop：发 v4/command 的 stop；空闲 noop（proto.nothingToStop）是良性结果不抛异常", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_stop" } } });
+    await created;
+
+    // 流式中：内核受理中断。
+    const running = client.stop();
+    const frame = transport.lastFrame();
+    expect(frame).toMatchObject({
+      method: KERNEL_METHODS.command,
+      params: {
+        clientId: "nibi-go",
+        sessionId: "sess_stop",
+        type: "stop",
+        payload: {},
+      },
+    });
+    expect(String((frame.params as { commandId?: unknown }).commandId)).toMatch(/^stop-/u);
+    transport.receive({ id: 2, result: { status: "accepted", revisionAtDecision: 9 } });
+    await expect(running).resolves.toEqual({ accepted: true, noop: false });
+
+    // 空闲（回合刚好自己结束的竞态）：内核回 noop，不算错误。
+    const idle = client.stop();
+    transport.receive({
+      id: 3,
+      result: {
+        status: "noop",
+        reasonCode: "proto.nothingToStop",
+        message: "没有在跑的回合",
+        revisionAtDecision: 9,
+      },
+    });
+    await expect(idle).resolves.toEqual({
+      accepted: false,
+      noop: true,
+      reasonCode: "proto.nothingToStop",
+      message: "没有在跑的回合",
+    });
+  });
+
+  it("editUserQuery：发 v4/command 信封（CAS 水位），受理带 rewind 处置", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_edit" } } });
+    await created;
+
+    const target = { rowId: 11, entityId: "msg_user_1" };
+    const bases = { revision: 12, logEpoch: "epoch-1" };
+    const quotes = [{ text: "选中的原文", path: "src/a.ts" }];
+    const pending = client.editUserQuery(target, "改写后的问题", bases, {
+      conversationQuotes: quotes,
+      workspaceMode: "rewind",
+    });
+    const frame = transport.lastFrame();
+    expect(frame).toMatchObject({
+      method: KERNEL_METHODS.command,
+      params: {
+        clientId: "nibi-go",
+        sessionId: "sess_edit",
+        type: "editUserQuery",
+        payload: { target, newText: "改写后的问题", conversationQuotes: quotes, workspaceMode: "rewind" },
+        baseRevision: 12,
+        baseLogEpoch: "epoch-1",
+      },
+    });
+    expect(String((frame.params as { commandId?: unknown }).commandId)).toMatch(/^edit-/u);
+    transport.receive({
+      id: 2,
+      result: {
+        status: "accepted",
+        revisionAtDecision: 12,
+        result: { type: "editUserQuery", disposition: "rewind" },
+      },
+    });
+    await expect(pending).resolves.toEqual({ accepted: true, disposition: "rewind" });
+  });
+
+  it("editUserQuery：拒绝（不是最后一条 real user query）返回原因码，不抛异常", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_edit2" } } });
+    await created;
+
+    const pending = client.editUserQuery(
+      { rowId: 3, entityId: "msg_old" },
+      "补一句",
+      { revision: 12, logEpoch: "epoch-1" },
+    );
+    transport.receive({
+      id: 2,
+      result: {
+        status: "rejected",
+        reasonCode: "guard.latestQueryEditOnly",
+        message: "editUserQuery only edits the latest real user query",
+        revisionAtDecision: 12,
+      },
+    });
+    await expect(pending).resolves.toEqual({
+      accepted: false,
+      reasonCode: "guard.latestQueryEditOnly",
+      message: "editUserQuery only edits the latest real user query",
+    });
+  });
+
+  it("editUserQuery：CAS 过期（stale）与无效目标同样作为拒绝结果返回", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    const created = client.createSession(workspace);
+    transport.receive({ id: 1, result: { session: { sessionId: "sess_edit3" } } });
+    await created;
+
+    // 别的窗口推进了会话：CAS 过期回 stale，不抛异常。
+    const stale = client.editUserQuery(
+      { rowId: 11, entityId: "msg_user_1" },
+      "改写",
+      { revision: 12, logEpoch: "epoch-1" },
+    );
+    transport.receive({
+      id: 2,
+      result: {
+        status: "stale",
+        reasonCode: "proto.staleRevision",
+        message: "the session changed",
+        revisionAtDecision: 13,
+      },
+    });
+    await expect(stale).resolves.toEqual({
+      accepted: false,
+      reasonCode: "proto.staleRevision",
+      message: "the session changed",
+    });
+
+    // 目标行不存在：proto.invalidPayload，同样不抛。
+    const invalid = client.editUserQuery(
+      { rowId: 99, entityId: "msg_ghost" },
+      "改写",
+      { revision: 13, logEpoch: "epoch-1" },
+    );
+    transport.receive({
+      id: 3,
+      result: {
+        status: "rejected",
+        reasonCode: "proto.invalidPayload",
+        message: "row 99 does not exist",
+        revisionAtDecision: 13,
+      },
+    });
+    await expect(invalid).resolves.toEqual({
+      accepted: false,
+      reasonCode: "proto.invalidPayload",
+      message: "row 99 does not exist",
+    });
+  });
+
   it("purgeSessionData：发 v4/storage/sessionData/purge，返回释放字节", async () => {
     const transport = new FakeTransport();
     const client = createClient(transport);

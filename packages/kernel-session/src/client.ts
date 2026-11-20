@@ -1,9 +1,12 @@
 import {
   KERNEL_METHODS,
+  type KernelAttachmentRef,
+  type KernelConversationQuote,
   type KernelMcpServer,
   type KernelMessage,
   type KernelModelSelection,
   type KernelNotification,
+  type KernelPluginReference,
   type KernelSendTextOptions,
   type KernelSessionCreateResult,
   type KernelSessionDataPurge,
@@ -66,6 +69,43 @@ export interface KernelFileChangesReport {
   additions: number;
   deletions: number;
   items: KernelFileChange[];
+}
+
+/** `stop` 的结果。空闲时内核回 noop（`proto.nothingToStop`）——良性结果，不是拒绝。 */
+export interface KernelStopResult {
+  /** true：内核受理了中断（回合会尽快停下）；false：当前没有在跑的回合。 */
+  accepted: boolean;
+  /** true：空闲 noop——没有正在跑的回合可停。UI 竞态（回合刚好自己结束）下点停止是常态，不算错误。 */
+  noop: boolean;
+  /** noop 时的内核原因码（`proto.nothingToStop`）；受理时缺席。 */
+  reasonCode?: string;
+  /** 内核的人读说明（noop 时给 UI 提示用）。 */
+  message?: string;
+}
+
+/** `editUserQuery` 的结果：受理（内核截断历史并重发改写文本）或拒绝（带内核原因码）。 */
+export type KernelEditUserQueryResult =
+  | {
+      accepted: true;
+      /** 内核回执的处置（现在只有 `rewind`）；幂等重放（duplicate）的 ACK 不带 result。 */
+      disposition?: "rewind";
+    }
+  | { accepted: false; reasonCode: string; message: string };
+
+/** `editUserQuery` 的可选参数（附件/引用/选模型与 sendText 同形）。 */
+export interface KernelEditUserQueryOptions {
+  /** 附件随改写一起重发（内核允许 attachment-only 的改写：newText 可以为空）。 */
+  attachments?: readonly KernelAttachmentRef[];
+  /** 改写带的结构化引用；内核照常注入模型文本（与首次输入同一处）。 */
+  conversationQuotes?: readonly KernelConversationQuote[];
+  /** 改写带的插件引用。 */
+  pluginReferences?: readonly KernelPluginReference[];
+  /** 本次执行切换模型（先作用到会话，与 sendText 的 modelSelection 同判同形）。 */
+  modelSelection?: Pick<KernelModelSelection, "providerId" | "modelId"> & {
+    reasoningLevel?: string;
+  };
+  /** `"rewind"`：连这轮落盘的文件改动一起回退（内核 RewindScope::Both）；缺省只回退会话历史。 */
+  workspaceMode?: "rewind";
 }
 
 interface IncomingFrame {
@@ -162,6 +202,8 @@ export class KernelSessionClient {
   private resolveSeq = 1;
   private compactSeq = 1;
   private retrySeq = 1;
+  private stopSeq = 1;
+  private editSeq = 1;
   private sessionId: string | null = null;
   private subscribed: { topic: string; connectionId: string } | null = null;
   private closed = false;
@@ -369,6 +411,114 @@ export class KernelSessionClient {
       const message = typeof ack?.message === "string" ? ack.message : "";
       throw new Error(message.length > 0 ? message : `内核拒绝了重试（${status}）`);
     }
+  }
+
+  /**
+   * 停止当前正在跑的回合（`v4/command` 的 `stop`，内核转 `Command::Interrupt`）。
+   *
+   * 空闲时内核回 noop（`proto.nothingToStop`）——UI 的停止按钮在竞态下（回合刚好自己
+   * 结束）点到是常态，这不算错误：作为良性结果返回 `{accepted:false, noop:true}`，不抛异常。
+   * 只有真正的 rejected/failed 才抛（今天内核对 stop 不产生这两种，防御性保留）。
+   */
+  async stop(): Promise<KernelStopResult> {
+    const sessionId = this.requireSessionId();
+    const ack = await this.request<{ status?: unknown; reasonCode?: unknown; message?: unknown }>(
+      KERNEL_METHODS.command,
+      {
+        commandId: `stop-${Date.now()}-${this.stopSeq++}`,
+        clientId: this.clientId,
+        sessionId,
+        type: "stop",
+        payload: {},
+        issuedAt: Date.now(),
+      },
+    );
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    if (status === "rejected" || status === "failed") {
+      const message = typeof ack?.message === "string" ? ack.message : "";
+      throw new Error(message.length > 0 ? message : `内核拒绝了停止（${status}）`);
+    }
+    if (status === "noop") {
+      return {
+        accepted: false,
+        noop: true,
+        reasonCode: typeof ack?.reasonCode === "string" ? ack.reasonCode : "proto.nothingToStop",
+        message: typeof ack?.message === "string" ? ack.message : "",
+      };
+    }
+    // accepted / duplicate（幂等重放，命令早已受理）都算停上了。
+    return { accepted: true, noop: false };
+  }
+
+  /**
+   * 改写并重发最后一条用户输入（`v4/command` 的 `editUserQuery`）。
+   *
+   * 内核把历史截到该条输入之前（`workspaceMode: "rewind"` 时连这轮的文件改动一起回退），
+   * 再走 sendText 同一条写路径提交改写文本；引用照常只注入模型文本，用户行显示改写后的
+   * 原文。只许改最后一条 real user query（`guard.latestQueryEditOnly`）——历史编辑会回退
+   * active branch，内核直接拒绝。
+   *
+   * 与 retryTurn 不同，拒绝不抛异常：编辑入口在 UI 是行内操作，行可能已过期（别人/别的
+   * 窗口推进了会话），把 `accepted:false` + 内核原因码交给调用方展示更合适。CAS 命令：
+   * `bases` 必填（过期回 `proto.staleRevision` / `proto.staleLogEpoch`，同样走拒绝结果）。
+   */
+  async editUserQuery(
+    target: { rowId: number; entityId: string },
+    newText: string,
+    bases: { revision: number; logEpoch: string },
+    options: KernelEditUserQueryOptions = {},
+  ): Promise<KernelEditUserQueryResult> {
+    const sessionId = this.requireSessionId();
+    const attachments = options.attachments ?? [];
+    const quotes = options.conversationQuotes ?? [];
+    const pluginReferences = options.pluginReferences ?? [];
+    const ack = await this.request<{
+      status?: unknown;
+      reasonCode?: unknown;
+      message?: unknown;
+      result?: { disposition?: unknown };
+    }>(KERNEL_METHODS.command, {
+      commandId: `edit-${Date.now()}-${this.editSeq++}`,
+      clientId: this.clientId,
+      sessionId,
+      type: "editUserQuery",
+      payload: {
+        target,
+        newText,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
+        ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
+        ...(options.modelSelection
+          ? {
+              modelSelection: {
+                providerId: options.modelSelection.providerId,
+                modelId: options.modelSelection.modelId,
+                ...(options.modelSelection.reasoningLevel
+                  ? { options: { reasoningLevel: options.modelSelection.reasoningLevel } }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(options.workspaceMode ? { workspaceMode: options.workspaceMode } : {}),
+      },
+      // row-targeting 的 CAS 命令：revision 与 logEpoch 都要比，缺了内核直接拒绝。
+      baseRevision: bases.revision,
+      baseLogEpoch: bases.logEpoch,
+      issuedAt: Date.now(),
+    });
+    const status = typeof ack?.status === "string" ? ack.status : "";
+    const message = typeof ack?.message === "string" ? ack.message : "";
+    const reasonCode = typeof ack?.reasonCode === "string" ? ack.reasonCode : "";
+    // rejected/failed/stale（CAS 过期）都是内核明确拒绝；只受理 accepted/duplicate。
+    if (status === "rejected" || status === "failed" || status === "stale") {
+      return {
+        accepted: false,
+        reasonCode: reasonCode.length > 0 ? reasonCode : `unknown.${status}`,
+        message,
+      };
+    }
+    const disposition = ack?.result?.disposition === "rewind" ? ("rewind" as const) : undefined;
+    return { accepted: true, ...(disposition ? { disposition } : {}) };
   }
 
   /**

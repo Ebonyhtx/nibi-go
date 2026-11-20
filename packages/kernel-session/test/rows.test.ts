@@ -634,4 +634,37 @@ describe("deriveRows（对齐 dsh-Go ChatRow）", () => {
     expect(rows).toHaveLength(2);
     expect(deriveRows(null)).toEqual([]);
   });
+
+  it("user 行带协议定位 rowId/entityId 与 canEdit（编辑重发的 target）", () => {
+    const rows = deriveRows(
+      snapshotWith([
+        {
+          ...base,
+          rowId: 7,
+          entityId: "row_7",
+          kind: "userInput",
+          text: "改这条",
+          origin: "realUser",
+          actions: { canEdit: true },
+        },
+        {
+          ...base,
+          rowId: 8,
+          kind: "userInput",
+          text: "旧输入没有 canEdit 也不该带定位之外的字段",
+          origin: "realUser",
+        },
+      ]),
+    );
+    expect(rows[0]).toMatchObject({
+      kind: "user",
+      key: "r7",
+      rowId: 7,
+      entityId: "row_7",
+      canEdit: true,
+    });
+    expect(rows[1]).toMatchObject({ kind: "user", key: "r8", rowId: 8 });
+    expect(rows[1]).not.toHaveProperty("entityId");
+    expect(rows[1]).not.toHaveProperty("canEdit");
+  });
 });
