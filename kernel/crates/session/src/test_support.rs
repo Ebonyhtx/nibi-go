@@ -55,6 +55,7 @@ pub(crate) fn env() -> Arc<MemoryEnvironment> {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     }))
 }
 

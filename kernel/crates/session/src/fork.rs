@@ -94,9 +94,6 @@ impl Actor {
             trace: self.meta.trace.clone(),
             created_at_ms: self.deps.clock.now_ms(),
         };
-        if let Err(error) = self.deps.store.create(meta).await {
-            return rejected(error.to_string());
-        }
         let mut facts = vec![
             Fact::ModelSelected {
                 selection: self.selection.clone(),
@@ -116,11 +113,16 @@ impl Actor {
             facts,
             turn: None,
         };
-        match self.deps.store.commit(&id, batch).await {
+        // 会话行与首批事实一个事务写完（Node `commitForkBundle`）：批次失败时不留空 child 行
+        // （那行会出现在 `/resume`、`-c` 与任务列表里，还挡住 Host 预分配 child id 的重试）。
+        match self.deps.store.create_and_commit(meta, batch).await {
             Ok(_) => Ack::Accepted {
                 result: Value::String(id.as_str().to_owned()),
             },
-            Err(error) => rejected(error.to_string()),
+            Err(error) => {
+                tracing::warn!(%error, session = %id, "fork failed");
+                rejected(error.to_string())
+            }
         }
     }
 }

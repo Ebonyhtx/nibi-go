@@ -35,6 +35,7 @@ async fn the_text_is_written_through_the_environment() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     });
     let workspace = WorkspaceRef {
         environment: EnvironmentId::new("local"),

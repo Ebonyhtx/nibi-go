@@ -78,6 +78,59 @@ pub(crate) async fn os_version(env: &[(String, String)]) -> String {
     format!("{} {release} {}", platform(), nibi_kernel_base::js::node_arch())
 }
 
+/// `$NIBI_BIN` 下一个随包可执行文件的版本输出（stdout 优先，stderr 兜底）。
+///
+/// `ld` 用内核进程自己的 `LD_LIBRARY_PATH`（宿主指向 nativeLibraryDir）：node 需要
+/// `libc++_shared.so`、python3 需要 `libpython3.13.so`，它们都在 nativeLibraryDir，
+/// 不在 NIBI_BIN 的 symlink farm 里。
+async fn runtime_version(
+    bin: &str,
+    ld: &str,
+    program: &str,
+    args: &[&str],
+) -> Option<String> {
+    let mut command = nibi_kernel_proc::command(join_bin(bin, program));
+    command
+        .args(args)
+        .env_clear()
+        .envs([("PATH", bin.to_string()), ("LD_LIBRARY_PATH", ld.to_string())])
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    let output = command.output().await.ok()?;
+    let text = if output.status.success() {
+        String::from_utf8_lossy(&output.stdout)
+    } else {
+        return None;
+    }
+    .trim()
+    .to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
+fn join_bin(bin: &str, program: &str) -> String {
+    // EnvSnapshot 的 NIBI_BIN 是绝对路径（NibiRuntime 启动时写入）；不带尾斜杠。
+    format!("{bin}/{program}")
+}
+
+/// 随包运行时的版本事实（`node -v` / `python3 -V`）：Android 注入 `Node x · Python y`，
+/// 拿不到（未装/调用失败）返回 None。桌面不注入——环境段口径与上游一致。
+pub(crate) async fn detect_runtimes(env: &[(String, String)]) -> Option<String> {
+    if !cfg!(target_os = "android") {
+        return None;
+    }
+    let lookup = |name: &str| {
+        env.iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+            .filter(|value| !value.is_empty())
+    };
+    let bin = lookup("NIBI_BIN")?;
+    let ld = lookup("LD_LIBRARY_PATH").unwrap_or_else(|| bin.clone());
+    let node = runtime_version(&bin, &ld, "node", &["-v"]).await?;
+    let python = runtime_version(&bin, &ld, "python3", &["-V"]).await?;
+    Some(format!("Node {} · Python {}", node.trim_start_matches('v'), python))
+}
+
 /// Windows 的系统版本号（`major.minor.build`），取不到时 None。
 #[cfg(windows)]
 #[expect(

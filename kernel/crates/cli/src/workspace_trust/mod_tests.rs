@@ -21,6 +21,7 @@ fn env(files: &[(&str, &str)]) -> MemoryEnvironment {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new(HOME)),
+        runtimes: None,
     };
     files
         .iter()
@@ -194,6 +195,7 @@ async fn a_repository_root_is_found_with_native_windows_paths() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new(&home)),
+        runtimes: None,
     };
     let head = repo.join(".git").join("HEAD").to_string_lossy().into_owned();
     let env = MemoryEnvironment::new(facts).with_file(&head, "ref: refs/heads/main\n");

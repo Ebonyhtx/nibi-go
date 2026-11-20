@@ -127,6 +127,7 @@ pub fn env() -> Arc<nibi_kernel_api::testing::MemoryEnvironment> {
             is_git_repo: false,
             additional_directories: Vec::new(),
             home: Some(EnvPath::new("/Users/dev")),
+            runtimes: None,
         })
         .with_file("/Users/dev/project/AGENTS.md", "project rules")
         .with_file("/Users/dev/other/AGENTS.md", "other rules"),

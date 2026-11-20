@@ -50,6 +50,7 @@ fn assembler_in(shell_cwd: Option<&str>) -> PromptAssembler {
         is_git_repo: true,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+    runtimes: None,
     };
     let env = MemoryEnvironment::new(facts)
         .with_file("/Users/dev/w/AGENTS.md", "Keep answers short.")

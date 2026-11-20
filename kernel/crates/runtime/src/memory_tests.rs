@@ -126,6 +126,7 @@ async fn extraction_writes_the_index_through_the_restricted_write_tool() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new(root_text.clone())),
+        runtimes: None,
     };
     let env = Arc::new(MemoryEnvironment::new(facts));
     let gate = Arc::new(nibi_kernel_policy::PolicyGate::default());
@@ -238,6 +239,7 @@ async fn a_successful_turn_schedules_the_extraction_that_writes_the_index() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new(root)),
+        runtimes: None,
     };
     let env = Arc::new(MemoryEnvironment::new(facts));
     let store = Arc::new(MemoryStore::default());

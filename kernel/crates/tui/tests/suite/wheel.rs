@@ -97,6 +97,7 @@ async fn the_skills_page_scrolls() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     });
     for index in 0..30 {
         env = env.with_file(

@@ -195,6 +195,7 @@ fn context_inputs_round_trip() {
         is_git_repo: true,
         additional_directories: vec![EnvPath::new("/extra")],
         home: Some(EnvPath::new("/home/dev")),
+        runtimes: None,
     });
     round_trip(&Listings {
         deferred_tools: vec![ListingEntry {

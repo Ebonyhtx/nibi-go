@@ -72,6 +72,7 @@ async fn videos_are_inlined_as_video_blocks() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     }));
     env.set_bytes("/Users/dev/work/clip.MP4", b"fake-mp4-bytes");
     let mut ctx = Ctx::new(Arc::new(ScriptedInteractions::default()));

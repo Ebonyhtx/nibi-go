@@ -51,6 +51,7 @@ texts! {
     environment_platform => "context/environment_platform",
     environment_shell => "context/environment_shell",
     environment_os => "context/environment_os",
+    environment_runtimes => "context/environment_runtimes",
     environment_untrusted => "context/environment_untrusted",
     environment_update => "context/environment_update",
     model => "context/model",

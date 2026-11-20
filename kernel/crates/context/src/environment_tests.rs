@@ -14,6 +14,7 @@ fn facts(cwd: &str, git: bool, platform: &str) -> EnvFacts {
         is_git_repo: git,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     }
 }
 
@@ -60,4 +61,30 @@ fn additional_directories_are_nested_items() {
     current.additional_directories = vec![EnvPath::new("/x")];
     let (text, _) = announce(&[], &current).unwrap();
     assert!(text.contains(" - Additional working directories:\n  - /x\n - Platform: darwin"));
+}
+
+#[test]
+fn runtimes_fact_renders_a_line_and_triggers_a_new_whole_block() {
+    let mut base = facts("/w/<a>", false, "android");
+    base.runtimes = Some("Node 24.22.3 · Python 3.13.18".to_owned());
+    let (text, _) = announce(&[], &base).unwrap();
+    assert!(text.contains("- Runtimes: Node 24.22.3 · Python 3.13.18"));
+
+    // 运行时版本变化（升级 Node）属于 host 变化：重发整块而不是增量。
+    let announced_whole = Message::Attachment(AttachmentMessage {
+        id: MessageId::new("a"),
+        source: SOURCE.to_owned(),
+        text: String::new(),
+        data: serde_json::json!({
+            "snapshot": {
+                "workingDirectory": "/w/<a>", "isGitRepo": false,
+                "additionalWorkingDirectories": [], "platform": "android",
+                "shell": "zsh", "osVersion": "Darwin 24.6.0",
+                "runtimes": "Node 23.0.0 · Python 3.13.18"
+            }
+        }),
+    });
+    let (text, data) = announce(&[announced_whole], &base).unwrap();
+    assert!(text.contains("# Environment"), "runtimes 变了要重发整块：{text}");
+    assert!(data.get("changes").is_none());
 }

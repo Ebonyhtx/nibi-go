@@ -26,6 +26,7 @@ fn kernel(store: Arc<MemoryStore>, host_serving: bool) -> LocalKernel {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     }));
     let kernel = LocalKernel::new(
         Ports {

@@ -21,6 +21,7 @@ fn facts() -> EnvFacts {
         is_git_repo: true,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     }
 }
 

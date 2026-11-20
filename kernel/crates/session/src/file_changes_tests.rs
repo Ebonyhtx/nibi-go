@@ -30,6 +30,7 @@ fn facts() -> EnvFacts {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     }
 }
 

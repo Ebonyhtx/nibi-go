@@ -57,6 +57,7 @@ impl PdfEnv {
             is_git_repo: false,
             additional_directories: Vec::new(),
             home: Some(EnvPath::new("/Users/dev")),
+            runtimes: None,
         });
         for (path, text) in files {
             inner = inner.with_file(path, text);

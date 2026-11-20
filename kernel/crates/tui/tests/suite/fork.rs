@@ -97,6 +97,7 @@ async fn fork_leaves_the_files_as_they_are() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     }));
     let setup = Setup {
         environments: environments(env.clone()),

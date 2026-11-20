@@ -21,6 +21,7 @@ fn environment() -> MemoryEnvironment {
         is_git_repo: true,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+    runtimes: None,
     })
     .with_file("/Users/dev/w/AGENTS.md", "project rules")
     .with_git(GitStatus::Repository(GitSnapshot {

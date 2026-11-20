@@ -21,6 +21,7 @@ fn setup() -> Setup {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     })
     .with_file("/Users/dev/project/.nibi/skills/greet/SKILL.md", GREET)
     .with_file("/Users/dev/project/.nibi/skills/inner/SKILL.md", INNER);

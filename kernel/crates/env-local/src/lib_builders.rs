@@ -12,6 +12,7 @@ impl LocalEnvironment {
             snapshot: Default::default(),
             bash: false,
             os_version: tokio::sync::OnceCell::new(),
+            runtimes: tokio::sync::OnceCell::new(),
             web: None,
             poppler: pdf::Poppler::default(),
             additional: Vec::new(),

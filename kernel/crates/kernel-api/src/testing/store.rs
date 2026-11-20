@@ -97,6 +97,8 @@ pub struct MemoryStore {
     records: Mutex<HashMap<SessionId, Vec<crate::store::FrontendRecord>>>,
     /// 冷读取按 node-store 的形状切分压缩过的会话（[`Self::split_at_compaction`]，工作线 F102）。
     split: std::sync::atomic::AtomicBool,
+    /// 下一次 `create_and_commit` 在写之前失败（失败路径测试：确认调用方不登记任何内存状态）。
+    fail_create_and_commit: std::sync::atomic::AtomicBool,
     /// 每个会话的“磁盘字节”（`v4/storage/sessionData/*` 的测试替身）。
     files: Mutex<HashMap<SessionId, u64>>,
     /// 每个工作区目录的项目记忆字节。
@@ -141,6 +143,12 @@ impl MemoryStore {
     /// 会话的活动时间（`query_sessions` 的排序与显示，测试用）。
     pub fn set_updated(&self, session: &SessionId, at_ms: u64) {
         lock(&self.updated).insert(session.clone(), at_ms);
+    }
+
+    /// 让下一次 `create_and_commit` 在写之前失败（与 node-store 的原子实现同形：失败时不留下会话行）。
+    /// 子代理建会话的失败路径测试用它确认调用方没有登记任何内存状态。
+    pub fn fail_next_create_and_commit(&self) {
+        self.fail_create_and_commit.store(true, Ordering::SeqCst);
     }
 
     /// 已删除的会话（修复线 F29）。
@@ -230,6 +238,23 @@ impl SessionStore for MemoryStore {
     async fn create(&self, meta: SessionMeta) -> Result<(), StoreError> {
         lock(&self.sessions).insert(meta.id.clone(), (meta, Vec::new()));
         Ok(())
+    }
+
+    /// 与 node-store 一样把会话行与首批事实当成一次写：[`Self::fail_next_create_and_commit`] 注入的失败
+    /// 发生在写之前，调用方因此既看不到行、也不该登记任何内存状态。
+    async fn create_and_commit(
+        &self,
+        meta: SessionMeta,
+        batch: FactBatch,
+    ) -> Result<CommitReceipt, StoreError> {
+        if self.fail_create_and_commit.swap(false, Ordering::SeqCst) {
+            return Err(StoreError::Storage {
+                message: "injected create_and_commit failure".to_owned(),
+            });
+        }
+        let session = meta.id.clone();
+        self.create(meta).await?;
+        self.commit(&session, batch).await
     }
 
     async fn commit(

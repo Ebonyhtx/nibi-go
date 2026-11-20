@@ -65,6 +65,7 @@ fn assembler(home: Option<&str>, plan: Option<&str>) -> PromptAssembler {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: home.map(EnvPath::new),
+    runtimes: None,
     };
     let mut env = MemoryEnvironment::new(facts);
     if let Some(path) = plan {

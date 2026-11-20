@@ -49,6 +49,7 @@ async fn restored_relative_paths_use_the_workspace_root() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     });
     env.set_shell_cwd("/w/sub");
     let workspace = WorkspaceRef {

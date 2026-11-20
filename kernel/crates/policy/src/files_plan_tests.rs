@@ -75,6 +75,7 @@ fn context(mode: PermissionMode, home: Option<&str>) -> ToolUseContext {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: home.map(EnvPath::new),
+        runtimes: None,
     }));
     let session = SessionId::new("s1");
     ToolUseContext {

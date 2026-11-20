@@ -18,6 +18,7 @@ fn setup() -> Setup {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     })
     .with_file("/Users/dev/project/src/main.rs", "fn main() {}\n")
     .with_file("/Users/dev/project/src/lib.rs", "pub fn lib() {}\n")

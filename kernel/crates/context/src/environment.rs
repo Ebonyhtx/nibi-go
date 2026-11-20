@@ -26,6 +26,8 @@ pub(crate) struct Snapshot {
     pub shell: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtimes: Option<String>,
 }
 
 impl Snapshot {
@@ -42,14 +44,16 @@ impl Snapshot {
             platform: facts.platform.clone(),
             shell: present(&facts.shell),
             os_version: present(&facts.os_version),
+            runtimes: facts.runtimes.clone(),
         }
     }
 
-    /// 平台、shell、系统版本都没变；变了就要重发整块。
+    /// 平台、shell、系统版本、随包运行时都没变；变了就要重发整块。
     fn same_host(&self, other: &Self) -> bool {
         self.platform == other.platform
             && self.shell == other.shell
             && self.os_version == other.os_version
+            && self.runtimes == other.runtimes
     }
 }
 
@@ -88,6 +92,12 @@ fn whole(snapshot: &Snapshot) -> String {
     }
     if let Some(os) = &snapshot.os_version {
         lines.push(Bullet::Line(value(texts::environment_os(), &escape(os))));
+    }
+    if let Some(runtimes) = &snapshot.runtimes {
+        lines.push(Bullet::Line(value(
+            texts::environment_runtimes(),
+            &escape(runtimes),
+        )));
     }
     lines.push(Bullet::Line(texts::environment_untrusted().to_owned()));
     render(texts::environment(), &[("lines", &bullets(lines))])

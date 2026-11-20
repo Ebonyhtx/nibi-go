@@ -97,6 +97,7 @@ fn context() -> ToolUseContext {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     })
     .with_file("/Users/dev/work/pic.png", "png bytes")
     .with_file("/Users/dev/work/huge.png", &"p".repeat(300_000))

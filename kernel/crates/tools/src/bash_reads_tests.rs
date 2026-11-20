@@ -183,6 +183,7 @@ fn env() -> Arc<MemoryEnvironment> {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     })
     .with_file("/Users/dev/work/a.txt", "one\ntwo\n")
     .with_file("/Users/dev/work/sub/b.txt", "x\ny\nz\n");

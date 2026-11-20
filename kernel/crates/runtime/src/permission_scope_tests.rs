@@ -23,6 +23,7 @@ fn kernel(store: Arc<MemoryStore>) -> LocalKernel {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: None,
+        runtimes: None,
     }));
     LocalKernel::new(
         Ports {

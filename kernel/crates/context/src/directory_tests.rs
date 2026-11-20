@@ -18,6 +18,7 @@ fn assembler() -> PromptAssembler {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+    runtimes: None,
     })
     .with_file("/Users/dev/AGENTS.md", "dev rules")
     .with_file("/Users/dev/other/AGENTS.md", "other rules")

@@ -55,6 +55,7 @@ fn assembler() -> PromptAssembler {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+    runtimes: None,
     };
     let env = Arc::new(MemoryEnvironment::new(facts));
     PromptAssembler::new(

@@ -66,6 +66,7 @@ async fn plugin_agents_sit_between_built_ins_and_user_agents() {
         is_git_repo: false,
         additional_directories: Vec::new(),
         home: Some(EnvPath::new("/Users/dev")),
+        runtimes: None,
     };
     let env = MemoryEnvironment::new(facts)
         .with_file(

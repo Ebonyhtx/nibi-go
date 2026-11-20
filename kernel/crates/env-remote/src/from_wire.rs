@@ -70,6 +70,7 @@ pub(crate) fn facts(facts: w::EnvFacts) -> EnvFacts {
         is_git_repo: facts.is_git_repo,
         additional_directories: facts.additional_directories.into_iter().map(path).collect(),
         home: facts.home.map(path),
+        runtimes: None,
     }
 }
 

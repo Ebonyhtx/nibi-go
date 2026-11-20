@@ -24,6 +24,7 @@ fn facts(git: bool) -> EnvFacts {
         is_git_repo: git,
         additional_directories: Vec::new(),
         home: None,
+    runtimes: None,
     }
 }
 

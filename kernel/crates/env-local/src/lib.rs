@@ -95,6 +95,8 @@ pub struct LocalEnvironment {
     bash: bool,
     /// 系统版本只取一次（进程内不变）。
     os_version: tokio::sync::OnceCell<String>,
+    /// 随包运行时版本只取一次（Android：Node/Python；进程内不变；桌面 None）。
+    runtimes: tokio::sync::OnceCell<Option<String>>,
     /// WebFetch 的网络出口；没有配置时 `fetch_url` 返回 `Unsupported`。
     web: Option<std::sync::Arc<nibi_kernel_net::Egress>>,
     /// pdftoppm 是否可用（可用的结论只查一次，tools-files.md §1.5）。
@@ -114,10 +116,16 @@ impl EnvInfo for LocalEnvironment {
             .get_or_init(|| host::os_version(&self.snapshot))
             .await
             .clone();
+        let runtimes = self
+            .runtimes
+            .get_or_init(|| host::detect_runtimes(&self.snapshot))
+            .await
+            .clone();
         Ok(EnvFacts {
             cwd: workspace.root.clone(),
             platform: host::platform().to_owned(),
             os_version,
+            runtimes,
             shell: host::describe_shell(environ::shell_variable(&self.snapshot), self.bash),
             is_git_repo,
             additional_directories: self.additional.clone(),
@@ -379,7 +387,18 @@ impl Background for LocalEnvironment {
         context: OperationContext,
         request: BackgroundTask,
     ) -> Result<BackgroundStop, EnvError> {
-        self.shells()?.stop(&context, &request)
+        self.stop_background_command_expecting(context, request, None)
+            .await
+    }
+
+    async fn stop_background_command_expecting(
+        &self,
+        context: OperationContext,
+        request: BackgroundTask,
+        expected_execution_id: Option<String>,
+    ) -> Result<BackgroundStop, EnvError> {
+        self.shells()?
+            .stop(&context, &request, expected_execution_id.as_deref())
     }
 
     async fn background_foreground(

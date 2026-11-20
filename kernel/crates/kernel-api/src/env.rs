@@ -97,6 +97,9 @@ pub struct EnvFacts {
     /// 执行侧用户的 home；用户级规则文件 `~/.nibi/AGENTS.md` 由它定位。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<EnvPath>,
+    /// 随包运行时的版本事实（Android：`Node x · Python y`）；桌面/远端不注入。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtimes: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
