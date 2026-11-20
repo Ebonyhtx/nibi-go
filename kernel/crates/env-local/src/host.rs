@@ -128,7 +128,12 @@ pub(crate) async fn detect_runtimes(env: &[(String, String)]) -> Option<String> 
     let ld = lookup("LD_LIBRARY_PATH").unwrap_or_else(|| bin.clone());
     let node = runtime_version(&bin, &ld, "node", &["-v"]).await?;
     let python = runtime_version(&bin, &ld, "python3", &["-V"]).await?;
-    Some(format!("Node {} · Python {}", node.trim_start_matches('v'), python))
+    // `node -v` 自带 `v` 前缀、`python3 -V` 自带 `Python ` 前缀，去重后统一拼标签。
+    Some(format!(
+        "Node {} · Python {}",
+        node.trim_start_matches('v'),
+        python.trim_start_matches("Python ")
+    ))
 }
 
 /// Windows 的系统版本号（`major.minor.build`），取不到时 None。
