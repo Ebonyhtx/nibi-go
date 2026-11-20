@@ -94,10 +94,9 @@
 
 - 私钥：`~/.nibi/market/<keyId>.json`（0600），由 `scripts/market/gen-key.mjs` 生成；
   与 Android keystore 同一纪律——不进仓库、不进对话、不写日志。
-- **备份（2026-11-20 已完成）**：`scripts/market/key-backup.mjs encrypt` 生成 AES-256-GCM
-  （scrypt 派生）密文，私有仓 `Ebonyhtx/nibi-go-ops` 的
-  `keystore/nibi-go-market-2026-11.json.enc` + `keystore/nibi-go-market-key-passphrase.txt`；
-  已用 `decrypt` 回读并比对 sha256 一致。恢复：`key-backup.mjs decrypt <enc> --out <key.json>`。
+- **备份**：`scripts/market/key-backup.mjs encrypt` 生成 AES-256-GCM（scrypt 派生）密文，
+  存放于运营者的私有保管位置；**本仓不记录保管位置与文件名**。已用 `decrypt` 回读并比对
+  sha256 一致。恢复：`key-backup.mjs decrypt <enc> --out <key.json>`。
 - 公钥：raw 32 字节 hex，登记在 `packages/market-index/src/keys.ts`，随客户端发布。
 - 当前 keyId：`nibi-go-market-2026-11`，fingerprint `09d17d31cb00b43c`。
 - 轮换：生成新 key → 追加到公钥表 → 用新 key 签名 → 至少保留旧 key 一个发布周期。
@@ -194,7 +193,7 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 3. ~~镜像监控~~ **已完成（2026-11-20）**：healthchecks「市场同步CHECK」由服务端 cron 每次
    同步上报；GitHub 网络类失败在单次运行内重试 3 次，仍失败只记本地 `fail-streak`，
    连续 3 次（约 30 分钟）才 `/fail`；验签/schema/上传等确定性错误立即 `/fail`。
-   ping URL 只在服务器 `/var/lib/nibi-go-market/heartbeat.env`（600）。
+   ping URL 只配置在服务端私有环境（不进仓库、不进对话）。
 
 ## 10. 生态角色与用户口径
 

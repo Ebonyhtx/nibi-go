@@ -4,6 +4,7 @@ name: CI
 # 与本地 husky pre-commit 双保险：防 --no-verify 绕过，并守 PR。
 # 公开仓安全规则：GitHub-hosted runner、只读权限、action 固定到完整 commit SHA、
 # 不使用 pull_request_target、不引用 secrets（见 SECURITY.md / CONTRIBUTING.md）。
+# 新增提交还要过一遍历史门禁（check-public-history），防止把基础设施/凭据写进历史。
 on:
   push:
   pull_request:
@@ -16,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
         # pinned: actions/checkout v4
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -30,6 +33,14 @@ jobs:
 
       - name: 公开仓策略（check-public-repo）
         run: node scripts/check-public-repo.mjs
+
+      - name: 公开仓提交历史（新增提交）
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="origin/main"
+          fi
+          node scripts/check-public-history.mjs "$BASE..HEAD"
 
       - name: 架构门禁（check-boundaries）
         run: node scripts/check-boundaries.mjs

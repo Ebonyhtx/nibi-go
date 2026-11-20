@@ -259,10 +259,10 @@ mod tests {
     #[test]
     fn blank_env_values_fall_back_to_defaults() {
         let resolved = paths(
-            "C:/Users/ebony",
+            "C:/Users/dev",
             &[(ENV_DATA_BASE_DIR, "  "), (ENV_STORAGE_DIR, "")],
         );
-        assert_eq!(resolved.data_base(), Path::new("C:/Users/ebony"));
-        assert_eq!(resolved.storage_root(), Path::new("C:/Users/ebony/.nibi"));
+        assert_eq!(resolved.data_base(), Path::new("C:/Users/dev"));
+        assert_eq!(resolved.storage_root(), Path::new("C:/Users/dev/.nibi"));
     }
 }

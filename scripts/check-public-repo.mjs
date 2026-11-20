@@ -13,6 +13,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const ROOT = process.cwd();
 
@@ -40,9 +41,21 @@ const TEXT_EXTENSIONS = new Set([
   ".css",
   ".html",
   ".kt",
+  ".kts",
   ".gradle",
   ".properties",
   ".xml",
+  ".rs",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".mmd",
+  ".plist",
+  ".java",
+  ".swift",
+  ".go",
+  ".cs",
 ]);
 
 const SKIP_FILES = new Set(["scripts/check-public-repo.mjs", "pnpm-lock.yaml"]);
@@ -50,7 +63,7 @@ const SKIP_FILES = new Set(["scripts/check-public-repo.mjs", "pnpm-lock.yaml"]);
 const BINARY_KEY_EXTENSIONS = new Set([".key", ".p12", ".pfx", ".jks", ".keystore"]);
 
 // 明确允许的片段（测试夹具的假凭据 / 项目自有的构建缓存默认目录）。
-const ALLOWED_SNIPPETS = [
+export const ALLOWED_SNIPPETS = [
   "sk-1234567890abcdefghijklmnopqrstuv",
   "ghp_123456789012345678901234567890",
   "AKIAIOSFODNN7EXAMPLE",
@@ -64,12 +77,25 @@ const ALLOWED_SNIPPETS = [
   "C:/nibigo-cxx",
   // 文档中"不要提交这种路径"的示例本身（CONTRIBUTING 规则 3）
   "/Users/<name>/",
-  // 上游 kernel 测试夹具里的合成工作区路径（kernel/crates/cli/tests/fixtures/，
-  // 随快照导入；不是任何人的真实主目录）。
+  // 上游 kernel 测试夹具里的合成工作区路径（kernel/crates/...，随快照导入；
+  // 不是任何人的真实主目录）。
+  "/Users/dev",
   "/Users/dev/repo",
+  // 同一批上游测试夹具里的合成家目录/工作区（kernel/crates/*_tests.rs）。
+  "/Users/x",
+  "/home/dev",
+  "/home/nibi",
+  "/home/u",
+  "/Users/me",
+  "/c/Users/dev",
+  "/c/Users/x",
+  "C:\\Users\\dev",
+  "C:\\Users\\me",
+  "C:\\Users\\x",
+  "D:\\work",
 ];
 
-const RULES = [
+export const RULES = [
   {
     // 公网裸 IPv4 URL 基本是内部主机或部署细节泄露；回环/私网/测试网段除外。
     name: "raw public IPv4 URL",
@@ -83,6 +109,10 @@ const RULES = [
   {
     name: "private key material",
     re: /-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/,
+  },
+  {
+    name: "internal container registry",
+    re: /\b[A-Za-z0-9.-]+\.(?:cr\.aliyuncs\.com|tencentcloudcr\.com)\b/,
   },
   {
     name: "GitHub token",
@@ -107,14 +137,16 @@ const RULES = [
     name: "internal infra identifier",
     re: (() => {
       const terms = Buffer.from(
-        "bmliaS1kaXN0LWh6Cm5pYmktcGFpZC1oegpuaWJpLWJhY2t1cC1oegpuaWJpLWZlZWRiYWNrLWh6Cm5pYmktbG9ncy1oegpvc3N1dGlsLXB1Ymxpc2gKbmliaS1jbgovc3J2L25pYmktc2l0ZQ==",
+        "bmliaS1kaXN0LWh6Cm5pYmktcGFpZC1oegpuaWJpLWJhY2t1cC1oegpuaWJpLWZlZWRiYWNrLWh6Cm5pYmktbG9ncy1oegpvc3N1dGlsLXB1Ymxpc2gKbmliaS1jbgpuaWJpLWdvLW9wcwpuaWJpLWdvLW1hcmtldC1zeW5jCmtleS1wYXNzcGhyYXNlCi9zcnYvbmliaS1zaXRlCi9vcHQvbmliaS0Ka2V5c3RvcmUvbmliaS1nby1tYXJrZXQ=",
         "base64",
       )
         .toString("utf8")
         .split("\n");
-      const words = terms.slice(0, -1).join("|");
-      const path = terms.at(-1);
-      return new RegExp(`\\b(?:${words})\\b|${path}`);
+      const words = terms.filter((term) => !term.includes("/"));
+      const paths = terms
+        .filter((term) => term.includes("/"))
+        .map((term) => term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+      return new RegExp(`\\b(?:${words.join("|")})\\b|${paths.join("|")}`);
     })(),
   },
   {
@@ -146,6 +178,8 @@ function isTextFile(file) {
 function isAllowed(line) {
   return ALLOWED_SNIPPETS.some((snippet) => line.includes(snippet));
 }
+
+export { isAllowed };
 
 function scanWorkflowShape(file, lines) {
   const violations = [];
@@ -207,8 +241,10 @@ function scanWorkflowShape(file, lines) {
 function checkRequiredFiles() {
   const required = [
     "LICENSE",
+    "LICENSING.md",
     "NOTICE.md",
     "THIRD-PARTY-NOTICES.md",
+    "TRADEMARKS.md",
     "README.md",
     "README.en.md",
     "CONTRIBUTING.md",
@@ -342,4 +378,6 @@ function main() {
   process.exitCode = 1;
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

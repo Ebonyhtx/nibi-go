@@ -566,10 +566,10 @@ mod tests {
 
     #[test]
     fn fallback_secret_matches_node_shape() {
-        let secret = fallback_v1_secret("win32", Path::new("C:/Users/ebony"), "ebony");
+        let secret = fallback_v1_secret("win32", Path::new("C:/Users/dev"), "dev");
         assert_eq!(
             secret,
-            "nibi-credential-fallback:win32:C:/Users/ebony:ebony"
+            "nibi-credential-fallback:win32:C:/Users/dev:dev"
         );
     }
 }

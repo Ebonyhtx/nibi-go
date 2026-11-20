@@ -18,7 +18,7 @@ fn ids_follow_node_formats() {
 
 #[test]
 fn slugs_and_project_ids_follow_node() {
-    assert_eq!(project_id("/Users/a/My Repo/"), "proj_users-a-my-repo");
+    assert_eq!(project_id("/Users/dev/My Repo/"), "proj_users-dev-my-repo");
     assert_eq!(project_id(""), "proj_session");
     assert_eq!(slugify("sess_ABC-1"), "sess_abc-1");
     assert_eq!(slugify("C:\\Work\\Ünï"), "c-work-n");

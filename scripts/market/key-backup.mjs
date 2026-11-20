@@ -66,7 +66,7 @@ if (mode === "encrypt") {
   const destination = out ?? path.join(marketDir, `${target}.json.enc`);
   fs.writeFileSync(destination, `${JSON.stringify(payload)}\n`, { mode: 0o600 });
   console.log(`已加密：${destination}`);
-  console.log("上传到私有仓（例如 Ebonyhtx/nibi-go-ops 的 keystore/），口令另行保管。");
+  console.log("上传到运营者的私有保管位置，口令另行离线保管（本仓不记录位置/文件名）。");
   process.exit(0);
 }
 
