@@ -94,33 +94,49 @@
 
 - 私钥：`~/.nibi/market/<keyId>.json`（0600），由 `scripts/market/gen-key.mjs` 生成；
   与 Android keystore 同一纪律——不进仓库、不进对话、不写日志；备份放私有运维仓
-  `private-key-backup-repository`。
+  `private-key-backup-repository`（**2026-11-20 尚未备份，需运营者补**）。
 - 公钥：raw 32 字节 hex，登记在 `packages/market-index/src/keys.ts`，随客户端发布。
 - 当前 keyId：`nibi-go-market-2026-11`，fingerprint `09d17d31cb00b43c`。
 - 轮换：生成新 key → 追加到公钥表 → 用新 key 签名 → 至少保留旧 key 一个发布周期。
+- 索引与包内容放在公开市场仓 `Ebonyhtx/nibi-go-market`（见 §6）。
 
 ## 6. 发布流程（人工，尚未接 CI）
 
+索引与包内容放在独立市场仓 **`Ebonyhtx/nibi-go-market`**（公开仓，客户端经 GitHub raw 读取）：
+
+- `index.json` / `index.json.sig`
+- `packages/<id>-<version>.zip`（包字节）
+- 客户端默认源：`https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/index.json`
+  （`.sig` 同路径；国内网络若不可达，发布前可镜像到 CDN 并换常量）。
+
 ```bash
-# 1) 生成索引 index.json（发布链脚本/手工维护，revision 必须比线上 +1）
-# 2) 签名
-node scripts/market/sign-index.mjs path/to/index.json
-# 3) 上传 index.json + index.json.sig 到内容主机（https）
+# 1) 修改 nibi-go-market/index.json，revision 必须比线上 +1
+# 2) 在 NIBI-GO 仓签名（私钥读 ~/.nibi/market/<keyId>.json）
+node scripts/market/sign-index.mjs ../nibi-go-market/index.json
+# 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）
 ```
 
 客户端刷新顺序：取 `index.json` 与 `.sig` → 验签 → schema → 与本地快照比较
-（`evaluateMarketRefresh` + `checkPluginPins`）→ 通过后原子替换快照。
+（`evaluateMarketRefresh` + `checkPluginPins`）→ 通过后原子替换 `filesDir/nibi-market.json`。
 
 ## 7. 已验证
 
-- 单测 23 项：正确签名、篡改、坏签名格式、无公钥、坏 JSON、坏 schema（带路径）、
-  http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、插件版本不变量、
+- 单测 29 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
+  坏 schema（带路径）、http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、
+  插件版本不变量、刷新判决（accept/unchanged/fetch/verify/rollback/pins）、
   `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥。
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
+- **真机（PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建）**：
+  - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
+  - 安装 `nibi.market.hello` 0.1.0：下载 → sha256 校验 → 解包 → 清单 id/version 校验 →
+    落盘；插件中心出现「市场示例 / 可用」；
+  - 真实模型回合调用 `mcp__market_hello__hello`，内核从插件目录启动 Node MCP 子进程，
+    返回「你好，NIBI！这是来自市场插件 market_hello 的问候。」；
+  - 发布 revision 3（0.1.1）后刷新显示「可更新」，点更新后徽标变为「已安装 v0.1.1」，
+    再次调用工具返回 v0.1.1 文案（证明包与进程都换成了新版本）。
 
 ## 8. 下一步
 
-1. 市场 UI（浏览/详情/安装/更新）与安装器：下载 → `verifyPackageDigest` → 解包到
-   `filesDir/plugins/<dir>` → 走既有 manifest 解析与启停状态；
-2. 快照持久化（`filesDir/nibi-market.json`）与刷新失败时的降级提示；
-3. 付费门禁（`paid.priceId` → license 校验；本阶段只占位）。
+1. 付费门禁（`paid.priceId` → license 校验；本阶段只占位）；
+2. 市场页的安装进度/取消与失败重试；快照损坏时的显式提示；
+3. 发布链 CI（校验索引签名与包摘要，防止漏签/错签）。

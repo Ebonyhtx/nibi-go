@@ -141,8 +141,17 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `scripts/market/sign-index.mjs`（Node crypto 签名，输出 `.sig`）。
 - 已生成 keyId `nibi-go-market-2026-11`（公钥已登记，fingerprint `09d17d31cb00b43c`）；
   私钥需运营者备份到私有运维仓。
-- 单测 23 项 + CLI 冒烟（签名 → 验签 true，改一字节 → false；node:crypto 与客户端 noble 互通）。
-- 下一步：市场 UI（浏览/安装/更新）与快照持久化，再接付费门禁。设计见
+- 单测 29 项 + CLI 冒烟（签名 → 验签 true，改一字节 → false；node:crypto 与客户端 noble 互通）。
+- 市场 UI 与安装器（2026-11-20）：`/market` 页（刷新/安装/更新/卸载、失败原因与 revision 展示）、
+  `marketStore`（`filesDir/nibi-market.json` 快照，accept 才覆盖）、`installer`
+  （下载 → sha256 → 解包路径校验 → 清单 id/version 校验 → staging 原子替换）、
+  `loadPlugins` 改为扫描 `plugins/` 目录（内置在前，市场安装在后）。
+- 市场仓 **`Ebonyhtx/nibi-go-market`** 已建（公开，GitHub raw）：revision 2 发布参考插件
+  `nibi.market.hello` 0.1.0，revision 3 升到 0.1.1。
+- 真机（PHK110，signed release 0.1.2 测试构建）：市场页拉取 revision 2 并验签；安装 0.1.0
+  后插件中心出现「市场示例/可用」；真实模型回合调用 `mcp__market_hello__hello` 返回问候；
+  刷新到 revision 3 显示「可更新」，更新后再调用返回 v0.1.1 文案。
+- 下一步：付费门禁（`paid.priceId` → license），安装进度/取消与快照损坏提示。设计见
   `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
