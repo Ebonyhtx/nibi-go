@@ -226,7 +226,7 @@ export default function MemorySettingsScreen() {
         ) : null}
 
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          记忆文件位置由内核按本机 workspace 计算；GO 目前是设备级共享。开关本身不写会话记录。
+          记忆文件位置由内核按本机路径计算；GO 目前是设备级共享，不按项目隔离。开关本身不写会话记录。
         </Text>
       </ScrollView>
     </View>

@@ -68,8 +68,10 @@ export default function DiagnosticsScreen() {
     setLoading(true);
     setError(null);
     try {
+      const hasSession = client.currentSessionId !== null;
       const [next, memory] = await Promise.all([
-        client.debugSnapshot(),
+        // 没有会话时内核没有可读的 debug 快照；不要把整页打成失败。
+        hasSession ? client.debugSnapshot() : Promise.resolve(null),
         measureMemory(client).catch((cause: unknown) => {
           console.warn("[nibigo] 记忆体量读取失败", cause);
           return null;
@@ -79,6 +81,9 @@ export default function DiagnosticsScreen() {
       if (memory) {
         setMemoryEntries(memory.entries);
         setMemoryBytes(memory.totalBytes);
+      }
+      if (!hasSession) {
+        setError("还没有打开的本机会话：先配置模型并新建一个对话；记忆体量仍可查看。");
       }
       setCheckedAt(new Date());
     } catch (cause) {
