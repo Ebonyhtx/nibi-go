@@ -1,7 +1,7 @@
 # NIBI-GO 开发计划
 
 > 状态：Phase A **代码侧完成**（A0-A3 手机侧 + Spike 2 + dev-client 构建 + A4 KeepAlive/通知/更新；86 项测试绿）。**公开仓整理完成**：LICENSE(Apache-2.0)/NOTICE/SECURITY/CONTRIBUTING/COC/双语 README、`scripts/check-public-repo.mjs` 门禁（husky+CI 双接入）、CI action SHA pin + 只读权限、本机路径清理。**发布方案已定**（2026-11-11）：分发 = 源码仓 GitHub Releases（A）；签名材料与恢复步骤由运营者在本仓之外的私有运维位置保管（见 `SECURITY.md`）；`scripts/keystore.mjs` / `scripts/release.mjs` / `app/plugins/withReleaseSigning.js` 已落地。上游票据 T1/T2 已落地，T6/T7 上游已完成（`697f86cf`）；剩余 owner 输入：D24 Phase 0 真机回归与 D25 分阶段实施。C0 已完成真机验证。
-> 当前状态（2026-11-20）：Phase 0-6 代码与真机验收完成；release 构建（生产签名 + R8 JNI keep）已复验；按会话 workspace 根与 HOME/TMPDIR 已落地。下一步：0.1.1 首版发布 → C2 插件市场/Ed25519；Shizuku 授权后的 `android_shell` 仍受 ColorOS 16 限制。
+> 当前状态（2026-11-20）：Phase 0-6 代码与真机验收完成；release 构建（生产签名 + R8 JNI keep）已复验；按会话 workspace 根与 HOME/TMPDIR 已落地；**v0.1.1 已发布**（首次公开版，tag 指 `336c886`，0.1.0→0.1.1 覆盖升级已验证）。下一步：C2 插件市场/Ed25519；Shizuku 授权后的 `android_shell` 仍受 ColorOS 16 限制。
 > 依据：`docs/decisions/ADR-INDEX.md`（D1–D25，权威索引）
 > 本计划随决策变更更新；阶段边界与信号由你（owner）定，本文只承载已定的结论与执行细节。
 
@@ -491,6 +491,9 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
   探针返回安全错误、`kill -9` 后同 token/端口 39617 恢复、内核 `nativeStart=true`、
   mock 回合调用 `mcp__phone__screen` 且应用内/悬浮审批都能放行、会话 workspace 仍为
   `files/workspaces/<id>`。arm64 release APK 已用同一密钥签名并校验。
+- 发布（2026-11-20）：`v0.1.1` 已通过 `release.mjs` 发布到 GitHub Releases
+  （asset digest `sha256:825d80dd…` 校验通过）；PHK110 上 0.1.0→0.1.1 覆盖升级实测通过
+  （versionCode 2、内核/无障碍/39617 正常，数据保留）。
 
 ### Phase 6 进展（2026-11-19）
 

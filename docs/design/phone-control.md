@@ -272,5 +272,6 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
     mock 模型回合调用 `mcp__phone__screen` 且应用内审批卡与悬浮审批卡都能放行并返回结果、
     会话 workspace 仍持久化为 `files/workspaces/<id>`。
     同一签名的 0.1.0 已装到 PHK110（卸载 debug 后全新安装）：通知授权、`:kernel` 进程、
-    无障碍「已连接」、loopback 39617 在 `/proc/net/tcp6` 监听；Provider/Key 随卸载清空，
-    真实模型回合待重新配置 Provider 后再验。
+    无障碍「已连接」、loopback 39617 在 `/proc/net/tcp6` 监听；Provider/Key 随卸载清空。
+    随后 v0.1.1 已发布并在同一台 PHK110 上覆盖升级（0.1.0→0.1.1）：versionCode 2、
+    数据保留、内核/无障碍/39617 正常；真实模型回合待重新配置 Provider 后再验。
