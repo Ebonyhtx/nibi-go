@@ -32,7 +32,9 @@ function run(command, args, options = {}) {
     env: { ...process.env, ...options.env },
     stdio: options.capture ? "pipe" : "inherit",
     encoding: "utf8",
-    shell: process.platform === "win32",
+    // Windows 上 pnpm/gradlew.bat 是 .cmd，必须经 shell；gh.exe/git 这类真 exe 显式关掉，
+    // 否则 spawnSync(shell:true) 只是把参数拼成命令行，带空格的 --notes 会被拆成多个资产路径。
+    shell: options.shell ?? process.platform === "win32",
   });
   if (result.error) throw new ReleaseError(`无法执行 ${command}：${result.error.message}`);
   if (result.status !== 0) {
@@ -154,14 +156,14 @@ try {
     `v${version}`,
     "--notes",
     releaseNotes,
-  ]);
+  ], { shell: false });
 
   // 8) 发布后校验：GitHub 必须为资产算出 digest，否则客户端 fail-closed 拒绝更新
   step("校验发布资产的 SHA-256 摘要");
   const assetDigest = run(
     "gh",
     ["api", `repos/${RELEASE_REPO}/releases/tags/v${version}`, "-q", ".assets[0].digest"],
-    { capture: true },
+    { capture: true, shell: false },
   );
   if (!assetDigest.startsWith("sha256:")) {
     throw new ReleaseError(
