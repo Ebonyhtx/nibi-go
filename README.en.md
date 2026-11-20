@@ -39,6 +39,20 @@ Not included:
 The historical reference archive has been moved out of this repository; it is
 not part of any build, and `reference/` no longer exists here.
 
+## Plugin market
+
+The official plugin market lives in a separate public repository,
+[nibi-go-market](https://github.com/Ebonyhtx/nibi-go-market). The client accepts only the
+officially signed index and verifies every package against its `sha256`. Third-party plugins
+are submitted via pull request; the submission format and review criteria are documented in
+that repository's
+[CONTRIBUTING](https://github.com/Ebonyhtx/nibi-go-market/blob/main/CONTRIBUTING.md).
+
+Plugins are **code that runs**: installing a third-party plugin runs software provided by its
+author. Review reduces risk but is not a guarantee; install only entries you trust. Index
+format, signature verification and rollback protection are described in
+[`docs/design/market-index.md`](docs/design/market-index.md).
+
 ## Requirements
 
 - Node.js **24.22.2**
