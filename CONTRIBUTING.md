@@ -9,7 +9,7 @@ any private service or credential.
 - Read [AGENTS.md](AGENTS.md) for repository rules and validation discipline.
 - Read [docs/decisions/ADR-INDEX.md](docs/decisions/ADR-INDEX.md) for the
   architecture decisions this codebase follows.
-- Read [docs/plan.md](docs/plan.md) for the milestone structure.
+- Read [docs/decisions/ADR-INDEX.md](docs/decisions/ADR-INDEX.md) and the design specs under [docs/design/](docs/design/).
 - For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a
   public issue.
 
@@ -92,7 +92,7 @@ Run `node scripts/check-public-repo.mjs` before pushing.
   no RN runtime).
 - `app` tests cover pure logic (updater, sessions-index) with vitest.
 - Device-only checks (accessibility, background survival, installer) are listed
-  in [docs/checklists/真机验证清单.md](docs/checklists/真机验证清单.md) and must be
+  in the internal device-verification checklist (private engineering repository) and must be
   reported as not-run when they were not executed.
 
 ## Review and merge

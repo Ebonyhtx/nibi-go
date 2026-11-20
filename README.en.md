@@ -28,7 +28,7 @@ Included:
 - `kernel/` — Android kernel adaptation (ships with the app)
 - `packages/kernel-session`, `packages/relay-client`, `packages/chat-core`,
   `packages/shared-extract`, `packages/phone-tools` — pure-TS protocol layers
-- `docs/` — architecture decisions (D1–D25), design specs, research, checklists
+- `docs/` — public architecture decisions (D1–D25) and design specs (plans, tickets, research and checklists live in the private engineering repository)
 - `scripts/` — architecture and public-repository gates
 
 Not included:
@@ -97,7 +97,7 @@ Without it, login fails loudly instead of degrading silently.
 | `packages/shared-extract` | Protocol contracts extracted from nibi-client (source headers, see [NOTICE.md](NOTICE.md)) |
 | `packages/phone-tools` | Phone tool interface (multi-platform adapters; former B0, now part of the Phase C prerequisite) |
 | `app/modules/kernel-host` | Kernel JNI layer (Phase C; before D24 Phase 0 it still fetches upstream `4.1.0` `libnibi.so`; after Phase 0 it uses this repo's `kernel/`) |
-| `docs/` | Decision ledger, design specs, research, checklists (entry: [docs/README.md](docs/README.md)) |
+| `docs/` | Public decision ledger and design specs (entry: [docs/README.md](docs/README.md)) |
 | `scripts/` | Architecture gate, public-repo check, extraction scripts |
 
 ## Development and verification

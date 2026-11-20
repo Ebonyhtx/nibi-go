@@ -20,7 +20,7 @@ NIBI-GO 是 NIBI 生态的**移动客户端**，默认主体即 NIBI-GO（本机
 - `app/modules/`：本地 Expo 原生模块（内核宿主、KeepAlive 前台服务、APK 安装器）
 - `kernel/`：Android 内核适配（本机内核与运行时随 App 交付）
 - `packages/kernel-session`、`packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`、`packages/market-index`、`packages/plugin-license`：纯 TS 协议/契约层
-- `docs/`：架构决策（D1–D25）、设计规格、调研与验证清单
+- `docs/`：公开的架构决策（D1–D25）与设计规格（内部计划/票据/调研/检查单在私有工程仓）
 - `scripts/`：架构门禁与公开仓检查
 
 以下内容**不在**本仓库中：
@@ -83,7 +83,7 @@ pnpm exec expo run:android    # dev-client 构建并安装到模拟器/真机
 | `packages/shared-extract` | 从 nibi-client 抽取的协议契约（来源标注，见 [NOTICE.md](NOTICE.md)） |
 | `packages/phone-tools` | 手机工具面接口（多平台适配器；原 B0，已并入 Phase C 前置） |
 | `app/modules/kernel-host` | 内核 JNI 薄层（Phase C；D24 前过渡期仍从上游 `4.1.0` 平台包拉 `libnibi.so`，`scripts/android-kernel/` 按 `build.json.artifacts` 校验；Phase 0 后改由本仓 `kernel/` 自建） |
-| `docs/` | 决策台账、设计规格、调研、清单（入口 [docs/README.md](docs/README.md)） |
+| `docs/` | 公开决策台账与设计规格（入口 [docs/README.md](docs/README.md)） |
 | `scripts/` | 架构门禁、公开仓检查、抽取脚本 |
 
 ## 开发与验证

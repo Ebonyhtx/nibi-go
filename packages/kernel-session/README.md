@@ -93,7 +93,7 @@ adb reverse tcp:9099 tcp:9099
 `startKernelHost({ NIBI_MODEL_BASE_URL, NIBI_API_KEY, NIBI_MODEL })` 只在 dev 冒烟页使用。
 
 审批/工具卡联调：提示里带 `TOOLTEST` 让假模型回一次工具调用。Android 上内核只认 bash/zsh，
-没有 bash（见 `docs/tickets/T9-android-shell-execution.md`），验审批用 Write：
+没有 bash（Android 运行时边界见内部票据 T9），验审批用 Write：
 
 ```bash
 MOCK_TOOL_NAME=Write \

@@ -5,7 +5,7 @@
 > targetSdk 36 的兼容层、声明式 UI 插件、两级手机操控、workspace 边界、安全与能力上限。
 >
 > 关联：ADR D19（进程内 `libnibi.so`）、D20（`:kernel` 进程）、D22（16 KB 对齐）、
-> D23（ABI 与升级）、T9（Android shell）；实现状态见 `docs/plan.md`「C0 进展」。
+> D23（ABI 与升级）、T9（Android shell）；实现状态见内部工程仓（私有）。
 
 ## 0. 一句话
 

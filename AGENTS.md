@@ -6,7 +6,9 @@
 > 内核上游 nibi-client 只作只读合并源，由维护者在本仓之外检出；Android 内核的构建、适配与
 > 缺陷修复归本仓，不再向上游提 Android 需求票据。
 
-NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGENT，NIBI-WORK 是主体内的远控入口**。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`（权威索引 `ADR-INDEX.md`），调研底稿见 `docs/research/`。
+NIBI-GO 是 NIBI 生态的移动客户端：**默认主体是 NIBI-GO 本机 AGENT，NIBI-WORK 是主体内的远控入口**。本文件是 AI/开发者进入本仓的第一入口；架构决策见 `docs/decisions/`（权威索引 `ADR-INDEX.md`）。
+
+**公开仓与私有仓分工（2026-11-20 定）**：本仓是公开仓，只放可构建源码、`docs/decisions/`、`docs/design/` 与贡献/安全/许可文件。开发计划、票据、调研底稿、验证/发布检查单、工作区映射已移入内部工程仓（私有，需授权）；公开仓不再包含、也不链接这些文件。需要把内部结论变成公开事实时，先在本仓写 ADR 或设计规格，再引用它。发布签名密钥只在私有密钥保管库的加密备份；服务端/部署只在服务端私有仓。
 
 ## 仓库定位与边界
 
@@ -79,7 +81,7 @@ node scripts/android-kernel/build.mjs   # libnibi.so（Rust+NDK，jniLibs）
 node scripts/android-runtime/build.mjs  # bash/busybox/git（Linux/WSL+NDK，jniLibs+assets）
 node scripts/android-runtime/build.mjs --check  # 只校验已落盘运行时产物
 
-# 发布（细节见 docs/checklists/发布检查单.md）
+# 发布（内部检查单在私有工程仓）
 node scripts/keystore.mjs verify <apk>   # 校验 APK 签名证书与发布密钥一致
 node scripts/release.mjs 0.1.1           # 版本号→门禁→prebuild→构建→验签→GitHub Release
 ```
@@ -111,6 +113,6 @@ Windows 上 ninja 对**对象路径**有 260 字符硬限制，而 `expo-modules
 ## 现状与路线
 
 - **Phase A**（NIBI-GO 应用主体 + WORK 远控入口）：代码侧完成（A0–A4），仓库已公开（https://github.com/Ebonyhtx/nibi-go）；发布链路已定（源码仓 Releases + 独立签名密钥）。剩余 owner 输入：真机验证。
-- **Phase C**（本机内核）：C0 已完成（进程内 `libnibi.so`、D20 `:kernel` + Binder/socketpair、会话流/审批/改动卡/折叠、Android shell 桥均真机跑通）。D24/D25 已定案：内核 fork 进本仓、Android 原生运行时（三件套 + Node/Python + `nibi-run`）分阶段实施；设计与阶段见 `docs/design/android-native-runtime.md`，实施状态见 `docs/plan.md`。
+- **Phase C**（本机内核）：C0 已完成（进程内 `libnibi.so`、D20 `:kernel` + Binder/socketpair、会话流/审批/改动卡/折叠、Android shell 桥均真机跑通）。D24/D25 已定案：内核 fork 进本仓、Android 原生运行时（三件套 + Node/Python + `nibi-run`）分阶段实施；设计与阶段见 `docs/design/android-native-runtime.md`，实施状态见内部工程仓（私有）。
 - **Phase B**（WORK 形态手机操控路由）：**已取消**（D6，2026-11-12）。手机自动化归 C；将来只有「桌面读手机内容」的窄需求时才做 share-sheet + 少量显式工具。
 - 决策台账 D1–D25 见 `docs/decisions/`；架构总览可视化（历史快照）见 `docs/NIBI-GO架构总览.html`，D24/D25 以 `docs/design/android-native-runtime.md` 为准。

@@ -45,7 +45,7 @@
 - P2/P3a ✅ **选 B：抽取件**——`packages/shared-extract/`（来源 nibi-client dev @ ff1c5f4f；纪律见 AGENTS 规则 6 新版与本包 README；抽取范围表与升级流程已建）。AGENTS 规则 6 已改写。
 - P3b ✅ 第一版会话级 K + 重连重协商（device 级 K 轮换等 C 立项再定）。
 - P3c ✅ 信封用 JSON 文本帧（维持 relay 契约；B 阶段屏幕流如需二进制帧届时提扩展）。
-- P4/P5 ✅ 票据制落地：`docs/tickets/T1`（android 平台包）、`T2`（npm scope 统一）、`HANDOFF.md`（三步交接：票据落仓 → NIBI 工作区 AI 自主复核排期 → GO 被动消费）。主线零干扰。
+- P4/P5 ✅ 票据制落地：T1（android 平台包）、T2（npm scope 统一）、HANDOFF（三步交接：票据落仓 → NIBI 工作区 AI 自主复核排期 → GO 被动消费）。票据与交接已移入内部工程仓（私有）。主线零干扰。
 
 ## 附：历史参考仓 pin（2026-11-12 归档前）
 
@@ -56,7 +56,7 @@
 | nibi-client | dev | `ff1c5f4f`（2026-11-11 复核：无新增） |
 | dsh-Go | main | `8f31b2ed`（v1.0.15；2026-11-11 更新） |
 
-重大变化仍可写 `docs/research/reference-update-<日期>.md` 作为历史记录。
+重大变化仍可写内部调研记录（私有工程仓）作为历史记录。
 
 - 2026-11-12：**D6 取消（模块 B 不做）**。理由见 D6 行；B0 工具面移交 C 前置，B1 不做；D12 顺序同步改成 A → C。同时新增 D19：Android 内核运行形态 = 进程内 `libnibi.so`，分发载体 = npm 平台包（`lib/libnibi.so` + `build.json`）。
 - 2026-11-13：**D2/D4 修订（运营者指正）**。①形态：默认 GO 主体，WORK 只是其中一个入口，并列双卡作废。②WORK UI：不是「原生重画」模仿，是直接承载同源 web UI——源码实证 `packages/web/src/main.tsx:18` 从 `@nibi/ui` 挂载 `Root`（与桌面同一套外壳），main.tsx:480 注释原文「Web 远程控制模式虽然复用了 web UI，但它背后其实挂着 desktop」；main.tsx:458 `createWebPlatform({ externalWebRemoteControlProxy })` 是上游预留的原生壳接缝。原生壳 = WebView 载体 + IPlatformService 桥。Phase A 已建的原生远控屏（work/chat/sessions/devices/scan）退役；relay-client/chat-core/KeepAlive/通知资产按 E2E 方案继续复用。**E2E 已拍板（2026-11-13 当日）：案 A 原生隧道**——连接所有权在原生 RelayTransport（E2E 密文 + 后台通知/保活成立），WebView UI 经 bridge 收发帧流；浏览器 PWA 维持明文；D9 已补 App 内 WORK 豁免；上游注入口立票据 **T7**（web transport 注入口）。
@@ -91,8 +91,7 @@
 
 ### 记录位置（压缩会话后按这些找回）
 
-- 决策：本文件 D19–D25 + 本节；票据 `../tickets/T8-android-platform-tls-trust.md`、
-  `../tickets/T9-android-shell-execution.md`、`../tickets/HANDOFF.md`。
+- 决策：本文件 D19–D25 + 本节；票据 T8/T9 与 HANDOFF 在内部工程仓（私有）。
 - Android 原生运行时/fork 方案正文：`../design/android-native-runtime.md`（D24/D25，含 §13 实施校正）。
 - 实施状态与真机结果：`../plan.md`「C0 进展」。
 - 协议与架构事实：`../../packages/kernel-session/README.md`。

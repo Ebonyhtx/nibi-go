@@ -10,7 +10,7 @@
 //   - buildTypes.release 改用该配置；
 //   - release 构建缺密钥库/口令时**直接失败**，不静默回落到 debug。
 //
-// 生成/备份/恢复密钥库：node scripts/keystore.mjs（见 docs/checklists/发布检查单.md）。
+// 生成/备份/恢复密钥库：node scripts/keystore.mjs（见内部发布检查单）。
 const { withAppBuildGradle } = require("expo/config-plugins");
 
 const MARKER = "NIBI_SIGNING_CONFIG";
