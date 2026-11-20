@@ -93,7 +93,7 @@
 
 - 决策：本文件 D19–D25 + 本节；票据 T8/T9 与 HANDOFF 在内部工程仓（私有）。
 - Android 原生运行时/fork 方案正文：`../design/android-native-runtime.md`（D24/D25，含 §13 实施校正）。
-- 实施状态与真机结果：`../plan.md`「C0 进展」。
+- 实施状态与真机结果：内部计划（私有工程仓）「C0 进展」。
 - 协议与架构事实：`../../packages/kernel-session/README.md`。
 - 16 KB 落地：`app/modules/kernel-host/android/src/main/cpp/CMakeLists.txt`、`scripts/android-kernel/{build.mjs,lib.mjs}`、
   `kernel/.cargo/config.toml`（D24 fork 后由 GO 自建）与构建断言。

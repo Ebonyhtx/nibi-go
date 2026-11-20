@@ -1,6 +1,6 @@
 # 手机操控（Phase 5 两开关）实现设计
 
-> 状态：2026-11-19 实施设计。对应 `android-native-runtime.md` §8 与 `plan.md` Phase 5。
+> 状态：2026-11-19 实施设计。对应 `android-native-runtime.md` §8 与内部计划 Phase 5。
 > 本文只覆盖开关 1（无障碍）与开关 2（Shizuku / 无线调试）的可执行口径；
 > 悬浮条、后台多任务、OCR、意图/剪贴板/通知工具不在本期。
 

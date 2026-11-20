@@ -2,7 +2,7 @@
 
 > 依据：D9（E2E 藏握手）/ 决议 P3b（会话级 K + 重连重协商）/ P3c（JSON 文本帧）。
 > 手机侧实现：`packages/relay-client/src/{crypto,handshake}.ts`（测试：`test/{crypto,handshake}.test.ts`）。
-> **桌面侧按本规格镜像实现**（plan.md A3 触点 2/3 的 PR 依据）。
+> **桌面侧按本规格镜像实现**（内部计划 A3 触点 2/3 的 PR 依据）。
 
 ## 1. 载体：relay data payload（修正草案的 meta 方案）
 
