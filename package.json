@@ -14,7 +14,8 @@
     "check:public-repo": "node scripts/check-public-repo.mjs",
     "release": "node scripts/release.mjs",
     "keystore": "node scripts/keystore.mjs",
-    "market:publish": "tsx scripts/market/publish-submission.mjs"
+    "market:publish": "tsx scripts/market/publish-submission.mjs",
+    "market:yank": "tsx scripts/market/yank-plugin.mjs"
   },
   "devDependencies": {
     "@noble/ciphers": "^2.4.0",
