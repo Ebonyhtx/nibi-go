@@ -47,6 +47,8 @@ const RUNTIME_LIBS = [
   "libbusybox.so",
   "libgit.so",
   "libgit_remote_http.so",
+  "libjq.so",
+  "libzip.so",
   "libnibi_run.so",
   "libnibi_hook.so",
 ];

@@ -65,6 +65,8 @@ Rust 依赖清单以 `kernel/Cargo.lock` 为真源；`kernel/deny.toml` 限定�
 | ncurses | 6.5 | MIT | readline 的 terminfo 后端（静态链接进 bash） |
 | BusyBox | 1.36.1 | GPL-2.0-only | 常用 applet（grep/sed/awk/find/tar 等） |
 | git | 2.51.0 | GPL-2.0-only | `libgit.so` + `libgit_remote_http.so` |
+| jq | 1.7.1 | MIT（内置 oniguruma：BSD-2-Clause） | JSON 处理命令行（`$NIBI_BIN/jq`） |
+| Info-ZIP zip | 3.0 | Info-ZIP | 创建 zip 包（`$NIBI_BIN/zip`） |
 | curl | 8.16.0 | curl | git http/https 传输（静态链接进 remote helper） |
 | OpenSSL | 3.5.4 | Apache-2.0 | curl 的 TLS 后端（静态链接） |
 | zlib | 1.3.1 | Zlib | curl/git 的压缩后端（静态链接） |

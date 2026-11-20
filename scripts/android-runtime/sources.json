@@ -96,6 +96,26 @@
       "sha256": "60a7c2251cc2e588d5cd87bae567260617c6de0c22dca9cdbfc4c7d2b8990b62",
       "license": "GPL-2.0-only",
       "role": "jniLibs 里的 git（libgit.so + libgit_remote_http.so）"
+    },
+    {
+      "name": "jq",
+      "version": "1.7.1",
+      "archive": "jq-1.7.1.tar.gz",
+      "url": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-1.7.1.tar.gz",
+      "mirrors": [],
+      "sha256": "478c9ca129fd2e3443fe27314b455e211e0d8c60bc8ff7df703873deeee580c2",
+      "license": "MIT（内置 oniguruma：BSD-2-Clause）",
+      "role": "JSON 处理命令行（jq；NIBI_BIN/jq）"
+    },
+    {
+      "name": "zip",
+      "version": "3.0",
+      "archive": "zip30.tar.gz",
+      "url": "https://downloads.sourceforge.net/infozip/zip30.tar.gz",
+      "mirrors": [],
+      "sha256": "f0e8bb1f9b7eb0b01285495a2699df3a4b766784c1765a8f1aeedf63c0806369",
+      "license": "Info-ZIP",
+      "role": "创建 zip 包（zip；NIBI_BIN/zip）"
     }
   ],
   "caBundle": {
