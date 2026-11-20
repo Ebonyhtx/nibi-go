@@ -16,10 +16,14 @@
 //   MOCK_TOOL_INPUT='{"file_path":"/sdcard/Download/nibi-approval-test.txt","content":"nibi approval test"}' \
 //   node scripts/dev/mock-openai.mjs
 
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.MOCK_OPENAI_PORT ?? 9099);
 const MODEL = process.env.MOCK_OPENAI_MODEL ?? "mock-model";
+
+// 可选：把每个请求体 JSONL 追加到这个文件（验环境段/提示内容用；不设置就不落盘）。
+const LOG_FILE = process.env.MOCK_OPENAI_LOG_FILE ?? "";
 
 function readBody(request) {
   return new Promise((resolve) => {
@@ -27,6 +31,15 @@ function readBody(request) {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
   });
+}
+
+function logBody(body) {
+  if (!LOG_FILE) return;
+  try {
+    appendFileSync(LOG_FILE, `${JSON.stringify({ at: new Date().toISOString(), body })}\n`);
+  } catch {
+    // 日志落盘失败不影响联调。
+  }
 }
 
 /** 开发期触发器：提示里带这个词就让假模型回一次 Bash 工具调用（用于验审批卡）。 */
@@ -122,6 +135,7 @@ const server = createServer(async (request, response) => {
   // Anthropic Messages 协议（内核在没指定 provider 协议时走这个：`/v1/messages`）。
   if (request.method === "POST" && url.pathname.endsWith("/messages")) {
     const body = await readBody(request);
+    logBody(body);
     const text = replyText(body);
     const streaming = /"stream"\s*:\s*true/u.test(body);
     const id = "msg_mock";
@@ -251,6 +265,7 @@ const server = createServer(async (request, response) => {
   }
 
   const body = await readBody(request);
+  logBody(body);
   const text = replyText(body);
   const streaming = /"stream"\s*:\s*true/u.test(body);
   const toolTurn = lastUserText(body).includes(TOOL_TRIGGER) && !hasToolResult(body);
