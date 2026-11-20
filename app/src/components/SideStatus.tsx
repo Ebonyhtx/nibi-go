@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Canvas, Circle, Path } from "@shopify/react-native-skia";
 
 import { Dot } from "./Icon";
-import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
+import { motion, radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
 export interface ContextUsage {
   usedTokens: number;
@@ -68,6 +68,45 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+/**
+ * 弧线数值的平滑过渡：用量变化时在 motion.duration.slow 内补间（缓出），
+ * 只在变化跨过一个可见阈值时 setState（约 20fps 上限），不跟交互抢帧预算。
+ * Skia 的 Path 不能直接吃插值，所以这里走「按帧重算 path」而不是 Reanimated。
+ */
+function useAnimatedRatio(target: number): number {
+  const clampedTarget = Math.max(0, Math.min(1, target));
+  const [value, setValue] = useState(clampedTarget);
+  const valueRef = useRef(clampedTarget);
+  const fromRef = useRef(clampedTarget);
+  const startRef = useRef(0);
+  useEffect(() => {
+    const from = valueRef.current;
+    if (Math.abs(from - clampedTarget) < 0.001) {
+      valueRef.current = clampedTarget;
+      setValue(clampedTarget);
+      return;
+    }
+    fromRef.current = from;
+    startRef.current = -1;
+    let raf = 0;
+    const ticket = (t: number) => {
+      if (startRef.current < 0) startRef.current = t;
+      const progress = Math.min(1, (t - startRef.current) / motion.duration.slow);
+      // ease-out cubic：快起缓停，和 ring 的呼吸感一致
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = fromRef.current + (clampedTarget - fromRef.current) * eased;
+      if (Math.abs(next - valueRef.current) >= 0.004 || progress >= 1) {
+        valueRef.current = progress >= 1 ? clampedTarget : next;
+        setValue(valueRef.current);
+      }
+      if (progress < 1) raf = requestAnimationFrame(ticket);
+    };
+    raf = requestAnimationFrame(ticket);
+    return () => cancelAnimationFrame(raf);
+  }, [clampedTarget]);
+  return value;
+}
+
 function ContextRing({
   ratio,
   color,
@@ -77,7 +116,7 @@ function ContextRing({
   color: string;
   track: string;
 }) {
-  const clamped = Math.max(0, Math.min(1, ratio));
+  const clamped = useAnimatedRatio(ratio);
   const path = useMemo(() => {
     if (clamped <= 0) return "";
     if (clamped >= 0.995) return "M 10 1.8 A 8.2 8.2 0 1 1 9.99 1.8";

@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIBI-GO · UI/UX 2.0 设计说明</title>
+<style>
+  :root {
+    --bg: #f9f2e4;
+    --bg-2: #f3ead8;
+    --card: #fffdf9;
+    --ink: #1c2f4e;
+    --ink-2: rgba(28,47,78,.62);
+    --ink-3: rgba(28,47,78,.42);
+    --ink-4: rgba(28,47,78,.25);
+    --line: rgba(28,47,78,.12);
+    --brand: #e08a3e;
+    --brand-soft: rgba(224,138,62,.14);
+    --steel: #4a79b8;
+    --steel-soft: rgba(74,121,184,.14);
+    --ok: #3f8f5f;
+    --ok-soft: rgba(63,143,95,.14);
+    --amber: #c98a2c;
+    --amber-soft: rgba(201,138,44,.13);
+    --red: #c25b4e;
+    --red-soft: rgba(194,91,78,.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.65 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 28px 96px; }
+  header.hero { display: flex; align-items: center; gap: 18px; margin-bottom: 8px; }
+  .mark {
+    width: 56px; height: 56px; border-radius: 18px; flex: none;
+    background: linear-gradient(160deg, #fffdf9, #f3ead8);
+    border: 1px solid var(--line);
+    display: grid; place-items: center;
+    box-shadow: 0 6px 18px rgba(28,47,78,.10);
+  }
+  .mark svg { width: 30px; height: 30px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0; letter-spacing: -.2px; }
+  h1 span { color: var(--brand); }
+  .kicker { font-size: 11px; letter-spacing: .14em; color: var(--ink-3); text-transform: uppercase; margin: 6px 0 0; }
+  .lede { margin: 22px 0 40px; max-width: 720px; color: var(--ink-2); font-size: 15px; }
+  h2 { font-size: 19px; margin: 52px 0 6px; letter-spacing: -.1px; }
+  h2 .num { color: var(--brand); font-variant-numeric: tabular-nums; margin-right: 8px; }
+  h3 { font-size: 14px; margin: 26px 0 8px; }
+  p { margin: 10px 0; color: var(--ink-2); }
+  .sub { color: var(--ink-3); font-size: 12.5px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
+    background: rgba(28,47,78,.06); padding: 1px 5px; border-radius: 5px; }
+  .rule { height: 1px; background: var(--line); margin: 44px 0; border: 0; }
+
+  .grid { display: grid; gap: 16px; }
+  .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px;
+  }
+  .panel h3 { margin-top: 0; }
+  .panel p:last-child { margin-bottom: 0; }
+
+  /* ---------- token table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--ink-3); font-weight: 600; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+  td code { white-space: nowrap; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px;
+    border: 1px solid var(--line); margin-right: 7px; }
+
+  /* ---------- phone frames ---------- */
+  .phones { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 18px; }
+  .phone {
+    width: 300px; flex: none; border-radius: 34px; padding: 10px;
+    background: #ded3c0; box-shadow: 0 18px 44px rgba(28,47,78,.16);
+  }
+  .screen {
+    border-radius: 26px; overflow: hidden; height: 600px; display: flex; flex-direction: column;
+    background: linear-gradient(#fef8ec, #f3e8d3 96%);
+    position: relative;
+  }
+  .screen.dark { background: linear-gradient(#202022, #141415 96%); color: #cdced2; }
+  .cap { text-align: center; font-size: 11.5px; color: var(--ink-3); margin-top: 10px; }
+  .statusbar { display: flex; justify-content: space-between; padding: 8px 18px 0; font-size: 9.5px; color: var(--ink-3); }
+  .screen.dark .statusbar { color: rgba(205,206,210,.4); }
+
+  .topbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; }
+  .fab {
+    width: 36px; height: 36px; border-radius: 999px; flex: none; display: grid; place-items: center;
+    background: rgba(255,252,246,.8); border: 1px solid rgba(255,255,255,.65);
+    box-shadow: 0 3px 10px rgba(28,47,78,.08); font-size: 13px; color: var(--ink-2);
+  }
+  .chip {
+    height: 36px; border-radius: 999px; padding: 0 12px; display: flex; align-items: center; gap: 6px;
+    background: rgba(255,252,246,.8); border: 1px solid rgba(255,255,255,.65);
+    box-shadow: 0 3px 10px rgba(28,47,78,.08); min-width: 0;
+  }
+  .chip .t { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .s { font-size: 9px; color: var(--ink-3); display: flex; align-items: center; gap: 3px; }
+  .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--brand); display: inline-block; }
+  .spacer { flex: 1; }
+  .dark .fab, .dark .chip { background: rgba(30,31,33,.86); border-color: rgba(228,230,235,.10); box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+  .dark .chip .t { color: #cdced2; }
+
+  .stream { flex: 1; padding: 6px 14px 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .bubble-user {
+    align-self: flex-end; max-width: 86%; padding: 9px 13px; border-radius: 18px;
+    background: var(--brand-soft); font-size: 12.5px; line-height: 1.5;
+  }
+  .dark .bubble-user { background: rgba(232,196,145,.16); color: #e6e2d8; }
+  .bubble-ai {
+    align-self: flex-start; max-width: 88%; padding: 11px 14px; border-radius: 18px;
+    background: var(--card); border: 1px solid rgba(28,47,78,.10); font-size: 12.5px; line-height: 1.55;
+    box-shadow: 0 3px 10px rgba(28,47,78,.06);
+  }
+  .dark .bubble-ai { background: #212224; border-color: rgba(228,230,235,.13); box-shadow: 0 3px 10px rgba(0,0,0,.3); color: #cdced2; }
+  .meta { font-size: 9.5px; color: var(--ink-4); margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+  .cursor { display: inline-block; width: 2px; height: 12px; background: var(--brand); vertical-align: -2px; margin-left: 2px; animation: blink 1.1s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity: .15; } }
+  .turnfoot { text-align: center; font-size: 9.5px; color: var(--ink-4); }
+  .thinking { align-self: flex-start; font-size: 11px; color: var(--ink-3); background: var(--card);
+    border: 1px solid var(--line); border-radius: 14px; padding: 7px 11px; }
+
+  .petrow { display: flex; justify-content: center; align-items: flex-end; height: 56px; position: relative; }
+  .pet { width: 44px; height: 44px; border-radius: 12px; background: radial-gradient(circle at 50% 35%, #f7c98a, #e08a3e 70%);
+    box-shadow: 0 6px 14px rgba(224,138,62,.28); position: relative; }
+  .pet::before { content: ""; position: absolute; inset: 8px 10px 14px; border-radius: 50% 50% 45% 45%; background: #1c2f4e; opacity: .82; }
+  .pet::after { content: ""; position: absolute; width: 10px; height: 6px; border-radius: 999px; background: #e08a3e; right: 4px; bottom: 12px; }
+  .dark .pet { background: radial-gradient(circle at 50% 35%, #f0d3a5, #cfa87e 70%); }
+  .dark .pet::before { background: #101011; opacity: .9; }
+  .composer {
+    margin: 0 12px 14px; min-height: 48px; border-radius: 999px; display: flex; align-items: center; gap: 8px;
+    padding: 5px 6px 5px 7px; background: rgba(255,252,246,.8); border: 1px solid rgba(255,255,255,.65);
+    box-shadow: 0 8px 20px rgba(28,47,78,.10);
+  }
+  .dark .composer { background: rgba(30,31,33,.86); border-color: rgba(228,230,235,.10); box-shadow: 0 8px 20px rgba(0,0,0,.45); }
+  .plus { width: 30px; height: 30px; border-radius: 999px; background: var(--bg-2); display: grid; place-items: center; color: var(--ink-2); font-size: 14px; }
+  .dark .plus { background: #26272a; color: #cdced2; }
+  .ph { flex: 1; font-size: 12px; color: var(--ink-4); }
+  .send { width: 34px; height: 34px; border-radius: 999px; background: var(--brand); display: grid; place-items: center; color: #fff9ef; font-size: 13px; }
+  .dark .send { background: #e8c491; color: #2a1d0a; }
+
+  /* drawer mock */
+  .drawer { position: absolute; inset: 0 auto 0 0; width: 78%; background: var(--card);
+    border-right: 1px solid var(--line); padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .dark .drawer { background: #212224; border-color: rgba(228,230,235,.13); }
+  .brandrow { display: flex; align-items: center; gap: 9px; }
+  .brandtile { width: 36px; height: 36px; border-radius: 14px; background: var(--brand-soft);
+    border: 1px solid rgba(224,138,62,.35); display: grid; place-items: center; color: var(--brand); font-size: 15px; }
+  .brandname { font-size: 14px; font-weight: 700; line-height: 1.15; }
+  .brandsub { font-size: 9px; color: var(--ink-3); }
+  .newpill { margin-left: auto; font-size: 11px; font-weight: 600; padding: 7px 12px; border-radius: 999px;
+    background: var(--brand); color: #fff9ef; }
+  .search { height: 34px; border-radius: 14px; background: rgba(28,47,78,.045); display: flex; align-items: center;
+    padding: 0 10px; font-size: 11.5px; color: var(--ink-4); }
+  .dark .search { background: rgba(228,230,235,.05); }
+  .grouplabel { font-size: 9.5px; color: var(--ink-4); margin-top: 4px; }
+  .srow { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-radius: 12px; font-size: 11.5px; }
+  .srow.active { background: var(--card); border: 1px solid var(--line); box-shadow: 0 3px 10px rgba(28,47,78,.06); position: relative; }
+  .srow.active::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--brand); }
+  .dark .srow.active { background: #26272a; border-color: rgba(228,230,235,.13); }
+  .srow .time { margin-left: auto; font-size: 9px; color: var(--ink-4); }
+  .dfooter { margin-top: auto; display: flex; gap: 7px; justify-content: flex-end; }
+  .dbtn { width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center;
+    background: rgba(255,252,246,.8); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+  .dark .dbtn { background: #1e1f21; }
+  .statusline { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--ok); margin-right: auto; }
+  .statusline i { width: 5px; height: 5px; border-radius: 999px; background: var(--ok); }
+
+  /* settings mock */
+  .settings { flex: 1; padding: 4px 14px 0; display: flex; flex-direction: column; gap: 9px; overflow: hidden; }
+  .sheader { display: flex; align-items: center; padding: 8px 12px 6px; }
+  .sheader .back { width: 34px; height: 34px; border-radius: 14px; border: 1px solid var(--line);
+    background: rgba(255,252,246,.8); display: grid; place-items: center; font-size: 13px; color: var(--ink-2); }
+  .sheader .title { flex: 1; text-align: center; font-size: 14px; font-weight: 700; }
+  .dark .sheader .back { background: #1e1f21; }
+  .sectionlabel { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-4); padding-left: 4px; }
+  .scard { background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+  .dark .scard { background: #212224; border-color: rgba(228,230,235,.13); }
+  .rrow { display: flex; align-items: center; gap: 9px; padding: 10px 12px; }
+  .rrow + .rrow { border-top: 1px solid var(--line); }
+  .ricon { width: 28px; height: 28px; border-radius: 12px; display: grid; place-items: center; font-size: 12px; }
+  .rtext { flex: 1; min-width: 0; }
+  .rtext b { display: block; font-size: 12px; font-weight: 600; }
+  .rtext span { display: block; font-size: 10px; color: var(--ink-3); }
+  .chev { color: var(--ink-4); font-size: 12px; }
+  .sw { width: 34px; height: 20px; border-radius: 999px; background: var(--brand-soft); position: relative; }
+  .sw::after { content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--brand); }
+
+  /* sheet mock */
+  .sheetwrap { position: absolute; inset: 0; background: rgba(20,26,36,.28); display: flex; align-items: flex-end; }
+  .sheet { width: 100%; background: var(--card); border-radius: 18px 18px 0 0; padding: 14px 12px 18px;
+    border-top: 1px solid var(--line); }
+  .dark .sheet { background: #1e1f21; }
+  .sheet h4 { margin: 0 0 10px; font-size: 13px; }
+  .mrow { display: flex; align-items: center; gap: 9px; padding: 9px 6px; font-size: 12px; }
+  .mrow .mi { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; }
+
+  .tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .tag.new { background: var(--brand-soft); color: var(--brand); }
+  .tag.move { background: var(--steel-soft); color: var(--steel); }
+  .tag.keep { background: var(--ok-soft); color: var(--ok); }
+  .tag.drop { background: var(--red-soft); color: var(--red); }
+
+  ul.tight { margin: 8px 0; padding-left: 20px; color: var(--ink-2); }
+  ul.tight li { margin: 5px 0; }
+  li b { color: var(--ink); }
+  .motion-row { display: grid; grid-template-columns: 150px 90px 1fr; gap: 10px; font-size: 12.5px;
+    padding: 8px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .motion-row span:first-child { font-weight: 600; color: var(--ink); }
+  .motion-row span:nth-child(2) { color: var(--brand); font-variant-numeric: tabular-nums; }
+  footer { margin-top: 60px; color: var(--ink-3); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none">
+      <path d="M12 3.2c3.6 0 6.4 2.9 6.4 6.6v3.6c0 3.4-2.7 6.2-6.4 6.2S5.6 16.8 5.6 13.4V9.8c0-3.7 2.8-6.6 6.4-6.6Z" fill="#e08a3e" fill-opacity=".22" stroke="#e08a3e" stroke-width="1.6"/>
+      <path d="M9.4 10.2c0 1.3 1.1 2.4 2.6 2.4s2.6-1.1 2.6-2.4" stroke="#1c2f4e" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="10.2" cy="8.6" r=".9" fill="#1c2f4e"/>
+      <circle cx="13.8" cy="8.6" r=".9" fill="#1c2f4e"/>
+      <path d="M16 14.6l2.6 2.2-2.2.8" fill="#e08a3e"/>
+    </svg>
+  </div>
+  <div>
+    <h1>NIBI-GO <span>UI/UX 2.0</span></h1>
+    <p class="kicker">纸上鸟 2.0 · 墨夜 2.0 · 动效契约</p>
+  </div>
+</header>
+
+<p class="lede">
+  1.x 的品牌底色是对的（暖奶油纸面 + 墨蓝字 + 橙色点睛），但执行层是拼出来的：
+  9 个页面各写一套头部、字号从 9 到 15.5 随手挑、圆角 4/9/10/11/12/14 混用、6 个弹层各写一套 Modal、
+  遮罩透明度四种并存、动效只有零星几处。
+  2.0 不换品牌，重做执行层：一套 token、一套基础组件、一套动效契约，并第一次真正打开墨夜深色。
+</p>
+
+<h2><span class="num">01</span>设计原则</h2>
+<div class="grid cols-3">
+  <div class="panel">
+    <h3>一套阶梯，不许即兴</h3>
+    <p>字号只取 6 档（20 / 16 / 15.5 / 14 / 12.5 / 11），行高成对给出；圆角 4 档（8 / 14 / 18 / 999）；
+       高度走 size（44 / 38 / 32 / 28 / 52）。页面里出现的任何数字都必须能在 token 表里找到出处。</p>
+  </div>
+  <div class="panel">
+    <h3>层级靠面，不靠阴影堆</h3>
+    <p>纸面 / 次级面 / 卡片 / 玻璃面四层足够了。投影只给三档：卡片、菜单、浮层；
+       浅色用暖墨投影、深色换中性黑——同一套参数在两种主题下都成立。</p>
+  </div>
+  <div class="panel">
+    <h3>动效是回答，不是装饰</h3>
+    <p>每一次动效都在回答「刚才发生了什么」：按下有回缩、键盘跟手上移、面板从底部进来、
+       数值变化时环在走。禁止粒子庆祝与常驻流光；系统「减少动态效果」一律直出终态。</p>
+  </div>
+</div>
+
+<h3>沿用与废止（相对 1.x 的对标口径）</h3>
+<div class="panel">
+<ul class="tight">
+  <li><span class="tag keep">沿用</span> 70/25/≤5 的强调色纪律（橙只给主 CTA、发送键、选中态、进度）。</li>
+  <li><span class="tag keep">沿用</span> 会话即首页、抽屉装会话、宠物停在输入栏正上方、侧右缘上下文占用环。</li>
+  <li><span class="tag keep">沿用</span> 不引入字体、不做纸纹理、深色不用蓝/橙。</li>
+  <li><span class="tag drop">废止</span> 「结构照 dsh-Go 一比一」的口径——2.0 起以本文档为准，只保留上面的结构纪律。</li>
+  <li><span class="tag drop">废止</span> 各页面自绘头部/按钮/弹层；统一走 <code>ui/ScreenHeader</code>、<code>ui/PillButton</code>、<code>ui/Sheet</code>。</li>
+</ul>
+</div>
+
+<hr class="rule">
+
+<h2><span class="num">02</span>色板与阶梯</h2>
+<div class="grid cols-2">
+  <div class="panel">
+    <h3>纸上鸟（浅色）</h3>
+    <table>
+      <tr><th>用途</th><th>值</th></tr>
+      <tr><td>页面底 / 渐变</td><td><span class="swatch" style="background:#f9f2e4"></span><code>#f9f2e4</code> → <code>#fef8ec … #f3e8d3</code></td></tr>
+      <tr><td>卡片 / 次级面</td><td><span class="swatch" style="background:#fffdf9"></span><code>#fffdf9</code> / <span class="swatch" style="background:#f3ead8"></span><code>#f3ead8</code></td></tr>
+      <tr><td>正文墨蓝</td><td><span class="swatch" style="background:#1c2f4e"></span><code>#1c2f4e</code>（62/42/25% 三档弱化）</td></tr>
+      <tr><td>主强调（橙）</td><td><span class="swatch" style="background:#e08a3e"></span><code>#e08a3e</code> · soft 14%</td></tr>
+      <tr><td>次强调（钢蓝）</td><td><span class="swatch" style="background:#4a79b8"></span><code>#4a79b8</code></td></tr>
+      <tr><td>状态</td><td><span class="swatch" style="background:#3f8f5f"></span>ok <span class="swatch" style="background:#c98a2c"></span>amber <span class="swatch" style="background:#c25b4e"></span>red</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h3>墨夜（深色）</h3>
+    <table>
+      <tr><th>用途</th><th>值</th></tr>
+      <tr><td>页面底 / 渐变</td><td><span class="swatch" style="background:#1b1b1c"></span><code>#1b1b1c</code> → <code>#202022 … #141415</code></td></tr>
+      <tr><td>卡片 / 次级面</td><td><span class="swatch" style="background:#212224"></span><code>#212224</code> / <span class="swatch" style="background:#101011"></span><code>#101011</code></td></tr>
+      <tr><td>正文</td><td><span class="swatch" style="background:#cdced2"></span><code>#cdced2</code>（62/40/22% 三档弱化）</td></tr>
+      <tr><td>主强调（奶油金）</td><td><span class="swatch" style="background:#e8c491"></span><code>#e8c491</code> · 深色不用橙</td></tr>
+      <tr><td>次强调（沙褐）</td><td><span class="swatch" style="background:#cfa87e"></span><code>#cfa87e</code> · 深色不用蓝</td></tr>
+      <tr><td>状态</td><td><span class="swatch" style="background:#74b98a"></span>ok <span class="swatch" style="background:#d9a24a"></span>amber <span class="swatch" style="background:#cf7b6e"></span>red</td></tr>
+    </table>
+  </div>
+</div>
+
+<h3>非颜色阶梯</h3>
+<div class="panel">
+<table>
+  <tr><th>族</th><th>档位</th><th>纪律</th></tr>
+  <tr><td>字号</td><td>title 20 · heading 16 · bodyLg 15.5 · body 14 · small 12.5 · micro 11</td>
+      <td>每档带配对行高，<code>text("body")</code> 展开即用；页面里不再出现裸 <code>fontSize</code>。</td></tr>
+  <tr><td>圆角</td><td>xs 8 · control 14 · card 18 · chip 999</td>
+      <td>4 档封顶；1.x 的 4/9/10/11/12/15 全部收敛。</td></tr>
+  <tr><td>高度</td><td>topbar 44 · buttonLg 44 · button 38 · chipLg 32 · chip 28 · row 52</td>
+      <td>同一语义只用一个高度（顶栏四件曾在 32/40/48 之间摇摆）。</td></tr>
+  <tr><td>投影</td><td>card / menu / float</td>
+      <td>浅色暖墨 <code>rgba(28,47,78,α)</code>，深色中性黑；参数进 theme，页面不再写字面量。</td></tr>
+  <tr><td>遮罩</td><td>backdrop 22% · backdropStrong 34%（浅）/ 45% · 62%（深）</td>
+      <td>1.x 的 18/26/28/34 四种并存收敛为两档。</td></tr>
+</table>
+</div>
+
+<hr class="rule">
+
+<h2><span class="num">03</span>关键屏（浅色 / 墨夜）</h2>
+
+<div class="phones">
+
+  <!-- 首页 浅色 -->
+  <div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="topbar">
+          <div class="fab">☰</div>
+          <div class="chip" style="max-width:118px">
+            <div style="min-width:0">
+              <div class="t">周报整理</div>
+              <div class="s"><span class="dot"></span>变更前</div>
+            </div>
+            <span style="color:var(--ink-4);font-size:10px">▾</span>
+          </div>
+          <div class="spacer"></div>
+          <div class="chip" style="max-width:96px"><span style="width:3px;height:14px;border-radius:2px;background:var(--ok)"></span><span class="t" style="font-weight:600;font-size:11px">deepseek</span></div>
+          <div class="fab">✎</div>
+        </div>
+
+        <div class="stream">
+          <div class="bubble-user">帮我把这周的提交整理成周报，按模块分组。</div>
+          <div class="thinking">思考 · 3 秒</div>
+          <div class="bubble-ai">
+            本周共 27 个提交，我按「运行时 / 市场 / 交互」分成三组。<span class="cursor"></span>
+            <div class="meta"><span>⌘ 复制</span></div>
+          </div>
+          <div class="turnfoot">✓ 已完成 · 用时 6.2s · 2 次工具 · 318 tokens</div>
+          <div class="bubble-user">把「交互」那组再压成三条。</div>
+          <div class="bubble-ai">好的：<br>1. 输入栏键盘跟手动画<br>2. 消息复制与轮尾复制<br>3. 桌宠接入会话状态机</div>
+        </div>
+
+        <div class="petrow"><div class="pet"></div></div>
+        <div class="composer">
+          <div class="plus">＋</div>
+          <div class="ph">给 NIBI 发消息…</div>
+          <div class="send">↑</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">浅色首页 · 气泡 / 思考块 / 轮尾脚注 / 宠物 / 玻璃输入栏</p>
+  </div>
+
+  <!-- 首页 墨夜 -->
+  <div>
+    <div class="phone" style="background:#3a3a3c">
+      <div class="screen dark">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="topbar">
+          <div class="fab">☰</div>
+          <div class="chip" style="max-width:118px">
+            <div style="min-width:0">
+              <div class="t">周报整理</div>
+              <div class="s" style="color:rgba(205,206,210,.4)"><span class="dot" style="background:#e8c491"></span>变更前</div>
+            </div>
+            <span style="color:rgba(205,206,210,.22);font-size:10px">▾</span>
+          </div>
+          <div class="spacer"></div>
+          <div class="chip" style="max-width:96px"><span style="width:3px;height:14px;border-radius:2px;background:#74b98a"></span><span class="t" style="font-weight:600;font-size:11px">deepseek</span></div>
+          <div class="fab">✎</div>
+        </div>
+        <div class="stream">
+          <div class="bubble-user">帮我把这周的提交整理成周报，按模块分组。</div>
+          <div class="bubble-ai">
+            本周共 27 个提交，我按「运行时 / 市场 / 交互」分成三组。<span class="cursor" style="background:#e8c491"></span>
+          </div>
+          <div class="turnfoot" style="color:rgba(205,206,210,.22)">✓ 已完成 · 用时 6.2s · 2 次工具</div>
+          <div class="bubble-user">把「交互」那组再压成三条。</div>
+          <div class="bubble-ai">好的：<br>1. 输入栏键盘跟手动画<br>2. 消息复制与轮尾复制<br>3. 桌宠接入会话状态机</div>
+        </div>
+        <div class="petrow"><div class="pet" style="background:radial-gradient(circle at 50% 35%,#f0d3a5,#cfa87e 70%);box-shadow:0 6px 14px rgba(0,0,0,.5)"></div></div>
+        <div class="composer">
+          <div class="plus">＋</div>
+          <div class="ph" style="color:rgba(205,206,210,.22)">给 NIBI 发消息…</div>
+          <div class="send">↑</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">墨夜首页 · 同一套几何，只换色板与投影（宠物自动切暗色图集）</p>
+  </div>
+
+  <!-- 抽屉 -->
+  <div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="drawer">
+          <div class="brandrow">
+            <div class="brandtile">✎</div>
+            <div>
+              <div class="brandname">NIBI-GO</div>
+              <div class="brandsub">本机 AGENT</div>
+            </div>
+            <div class="newpill">＋ 新对话</div>
+          </div>
+          <div class="search">⌕ 搜索对话</div>
+          <div class="grouplabel">今天</div>
+          <div class="srow active"><span class="dot"></span>周报整理<span class="time">9:41</span></div>
+          <div class="srow">市场授权复查<span class="time">8:02</span></div>
+          <div class="grouplabel">昨天</div>
+          <div class="srow">插件安装排错<span class="time">21:14</span></div>
+          <div class="srow">运行时自检<span class="time">18:40</span></div>
+          <div class="grouplabel">更早</div>
+          <div class="srow">归档 · 3 个会话<span class="time">›</span></div>
+          <div class="dfooter">
+            <div class="statusline"><i></i>本机就绪</div>
+            <div class="dbtn">▭</div>
+            <div class="dbtn">◈</div>
+            <div class="dbtn">⚙</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">抽屉 · 品牌头 / 发丝搜索井 / 选中左轨 / 分组 stagger / 底部工具条</p>
+  </div>
+
+  <!-- 设置 -->
+  <div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="sheader"><div class="back">‹</div><div class="title">设置</div><div style="width:34px"></div></div>
+        <div class="settings">
+          <div class="sectionlabel">账号</div>
+          <div class="scard">
+            <div class="rrow"><div class="ricon" style="background:var(--brand-soft);color:var(--brand)">◉</div>
+              <div class="rtext"><b>已登录：NIBI Admin</b><span>切换账号；插件授权按本机设备同步</span></div><span class="chev">›</span></div>
+          </div>
+          <div class="sectionlabel">模型</div>
+          <div class="scard">
+            <div class="rrow"><div class="ricon" style="background:var(--steel-soft);color:var(--steel)">▭</div>
+              <div class="rtext"><b>Provider 与模型</b><span>供应商、模型能力、思考档位与 API Key</span></div><span class="chev">›</span></div>
+          </div>
+          <div class="sectionlabel">外观</div>
+          <div class="scard">
+            <div class="rrow"><div class="ricon" style="background:rgba(28,47,78,.05);color:var(--ink-2)">◐</div>
+              <div class="rtext"><b>跟随系统</b><span>随系统深浅色切换</span></div><span style="color:var(--brand)">✓</span></div>
+            <div class="rrow"><div class="ricon" style="background:var(--steel-soft);color:var(--steel)">☀</div>
+              <div class="rtext"><b>浅色</b><span>纸上鸟</span></div><span class="chev">›</span></div>
+            <div class="rrow"><div class="ricon" style="background:var(--amber-soft);color:var(--amber)">☾</div>
+              <div class="rtext"><b>墨夜深色</b><span>中性炭底 + 奶油金</span></div><span class="chev">›</span></div>
+          </div>
+          <div class="sectionlabel">Agent</div>
+          <div class="scard">
+            <div class="rrow"><div class="ricon" style="background:var(--brand-soft);color:var(--brand)">✧</div>
+              <div class="rtext"><b>记忆</b><span>本机共享的自动记忆</span></div><div class="sw"></div></div>
+            <div class="rrow"><div class="ricon" style="background:var(--steel-soft);color:var(--steel)">≋</div>
+              <div class="rtext"><b>记忆与链路诊断</b><span>缓存命中率、逐轮用量与网络状态</span></div><span class="chev">›</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">设置 · 分组卡 + 统一行 + 外观三选（新增）</p>
+  </div>
+
+  <!-- 弹层 -->
+  <div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span>▮▮▮</span></div>
+        <div class="topbar"><div class="fab">☰</div><div class="chip" style="max-width:118px"><div class="t">周报整理</div></div></div>
+        <div class="stream">
+          <div class="bubble-ai">选择要插入的能力，或先添加附件。</div>
+        </div>
+        <div class="sheetwrap">
+          <div class="sheet">
+            <h4>添加</h4>
+            <div class="mrow"><div class="mi" style="background:var(--brand-soft);color:var(--brand)">▤</div>图片<span class="chev" style="margin-left:auto">＋</span></div>
+            <div class="mrow"><div class="mi" style="background:var(--brand-soft);color:var(--brand)">▦</div>文件<span class="chev" style="margin-left:auto">＋</span></div>
+            <div class="sectionlabel" style="margin:8px 0 2px">NIBI 命令</div>
+            <div class="mrow"><div class="mi" style="background:rgba(28,47,78,.05);color:var(--ink-2)">▣</div>压缩<span class="chev" style="margin-left:auto">›</span></div>
+            <div class="mrow"><div class="mi" style="background:var(--steel-soft);color:var(--steel)">◈</div>目标<span class="chev" style="margin-left:auto">›</span></div>
+            <div class="mrow"><div class="mi" style="background:var(--amber-soft);color:var(--amber)">◐</div>计划模式<span class="chev" style="margin-left:auto">›</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">弹层 · 统一 Sheet 底座（底部滑入 + 遮罩淡入），行统一 44px</p>
+  </div>
+
+</div>
+
+<hr class="rule">
+
+<h2><span class="num">04</span>动效契约</h2>
+<p>三档时长 + 一组贝塞尔，全应用共用；组件不得自定曲线。系统「减少动态效果」开启时一律直出终态。</p>
+<div class="panel">
+  <div class="motion-row"><span>fast</span><span>150ms</span><span>小件状态切换：按压回缩、勾选反馈、弹窗退出</span></div>
+  <div class="motion-row"><span>base</span><span>220ms</span><span>常规过渡：键盘跟随、状态横幅展开、消息入场、遮罩淡入</span></div>
+  <div class="motion-row"><span>slow</span><span>320ms</span><span>大件：底部弹层、抽屉面板、上下文环数值补间</span></div>
+  <div class="motion-row"><span>page</span><span>450ms</span><span>整页转场（保留给路由层，当前用系统默认）</span></div>
+  <div class="motion-row"><span>standard</span><span>贝塞尔</span><span><code>cubic-bezier(.22, 1, .36, 1)</code> —— 快起缓停，默认</span></div>
+  <div class="motion-row"><span>enter / exit</span><span>贝塞尔</span><span><code>(.2,0,0,1)</code> 入场的大动程；<code>(.4,0,1,1)</code> 退场不拖泥</span></div>
+  <div class="motion-row"><span>spring</span><span>三档</span><span>gentle 面板 / snappy 按钮 / bouncy 宠物与大件入场</span></div>
+</div>
+
+<h3>动效落点</h3>
+<div class="grid cols-2">
+  <div class="panel">
+    <h3>输入与导航</h3>
+    <ul class="tight">
+      <li><b>键盘跟随</b>：输入栏随键盘高度补间上移（原来硬跳一下）。</li>
+      <li><b>抽屉</b>：320ms 滑入 + 遮罩淡入；内容 8px 视差与分组 stagger（24ms/项，封顶 240ms）。</li>
+      <li><b>按压</b>：所有可点元素统一 scale 0.94–0.98 + 弹簧回弹，替代只变透明度。</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h3>会话与状态</h3>
+    <ul class="tight">
+      <li><b>流式光标</b>：品牌色竖条呼吸（1.1s，opacity 100% → 15%）。</li>
+      <li><b>消息入场</b>：新行淡入 + 6px 上移；历史恢复不播（按 rowId 水位判断）。</li>
+      <li><b>桌宠状态机</b>：待审批 → 台钟、思考 → 思考云、流式/工具 → 敲码、完成 → 对勾 2.4s、断链 → 红叹号、未就绪 → Zzz。</li>
+      <li><b>上下文环</b>：占比变化时弧长在 320ms 内补间（约 20fps 上限，不抢帧）。</li>
+    </ul>
+  </div>
+</div>
+
+<hr class="rule">
+
+<h2><span class="num">05</span>组件与职责</h2>
+<div class="panel">
+<table>
+  <tr><th>组件</th><th>替代了什么</th><th>约束</th></tr>
+  <tr><td><code>ui/ScreenHeader</code></td><td>9 处各自复制的 root/head/back/title</td><td>自带安全区内边距；标题单行省略；右槽只放一个动作。</td></tr>
+  <tr><td><code>ui/Row · ToggleRow · SectionCard · Divider</code></td><td>三套 ToggleRow + 各页 section/card 组合</td><td>行高 52；图标底 32/14 圆角；分隔线由卡片画。</td></tr>
+  <tr><td><code>ui/PillButton</code></td><td>borderRadius 11/12/chip 混用的按钮</td><td>4 变体（primary/secondary/danger/ghost）× 2 尺寸。</td></tr>
+  <tr><td><code>ui/Sheet</code></td><td>6 个 <code>Modal animationType="fade"</code></td><td>进出场动画自带；退出动画播完才卸载。</td></tr>
+  <tr><td><code>ui/MenuRow</code></td><td>index 里 5 处内联菜单行</td><td>44 行高；28 图标底；右侧勾选/chevron 二选一。</td></tr>
+  <tr><td><code>motion/PressableScale</code></td><td><code>opacity 0.4</code> 按压</td><td>native driver；支持 ref（测锚点）与函数式 style。</td></tr>
+  <tr><td><code>motion/AppearIn · staggerDelay</code></td><td>无</td><td>只在挂载播一次；尊重 reduce-motion。</td></tr>
+  <tr><td><code>motion/useKeyboardFollow</code></td><td>index 手动 setState 键盘高度</td><td>返回 Animated.Value，供 marginBottom 插值。</td></tr>
+</table>
+</div>
+
+<h2><span class="num">06</span>验收口径</h2>
+<div class="panel">
+<ul class="tight">
+  <li>浅色 / 墨夜各逐屏截图（聊天、抽屉、设置 7 屏、市场、插件中心、Provider、弹层），不靠「门禁全绿」代替肉眼。</li>
+  <li>切换外观三选后立即生效、无白屏闪烁；重启后保持。</li>
+  <li>动效与宠物同播时聊天滚动不掉帧（低端机红线：宠物帧循环持续、滚动跟手）。</li>
+  <li>系统开启「减少动态效果」：所有动效直出终态，功能不受影响。</li>
+  <li>组件层面：页面文件里不再出现裸 <code>fontSize</code>、字面量 <code>borderRadius</code>、写死的投影色。</li>
+</ul>
+</div>
+
+<footer>
+  NIBI-GO UI/UX 2.0 · 设计说明 · 与 <code>app/src/theme.ts</code> 同源；数值以代码为准。
+</footer>
+
+</div>
+</body>
+</html>
