@@ -167,6 +167,13 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 授权同步已接（复用服务端 `POST /api/v1/licenses/check`，**无需改服务端**）：Bearer 换证、
   X-Nibi-License 复查、403/authorized:false 写入 refusal 立即拒绝、401 不写拒绝；市场页
   「同步」按钮，未登录明确提示。真机已验证未登录分支；登录后的换证/撤销待有账号态复验。
+- 登录页门禁（2026-11-20，公安备案口径：普通浏览器打开登录/注册必须 403）：
+  桌面 Electron 由请求头带 10 分钟 `X-NIBI-Client-Ticket`；NIBI-GO 的 WORK WebView 由
+  `app/src/relay/webviewTicket.ts` 取 ticket，并在 api 源页面写成 `Domain=nibistudio.cn`
+  的 `nibi_client_gate` Cookie（login-ui 验签后换发 2 小时 Cookie）；GO 原生登录
+  （Custom Tabs）经 `https://api.nibistudio.cn/remote-gate#ticket=…&to=…` 桥写 Cookie
+  再跳 authorize。真机（PHK110，0.1.3-test，versionCode 4）验证：WORK 页点登录进入自建
+  登录表单；手机 Chrome 直接打开登录页仍 403。
 - 安装进度：XHR 下载进度条 + 百分比（RN fetch 无进度），失败提示可重试；CDN 镜像脚本
   `scripts/market/mirror-cdn.mjs`（不写死主机/桶，先本地验签+包摘要再 ssh cat + ossutil）。
 - 公开面门禁：市场仓新增泄露门禁（白名单 + 凭据/路径/基础设施扫描）并接入 CI；NIBI-GO

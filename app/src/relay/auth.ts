@@ -10,12 +10,14 @@ import { WebRemoteControlV2ConnectionError } from "@nibi-go/shared-extract";
 
 import {
   AUTHORIZE_URL,
+  ENDPOINT_ORIGIN,
   OAUTH_SCOPE,
   OIDC_CLIENT_ID,
   REDIRECT_URI,
   TOKEN_EXCHANGE_URL,
 } from "./config";
 import { tokenStore, type StoredTokenSet } from "./secureStore";
+import { fetchWebviewTicket } from "./webviewTicket";
 
 const VERIFIER_BYTES = 48; // RFC 7636 上游惯例：48 随机字节 → 64 字符 verifier
 const EXPIRY_MARGIN_MS = 5 * 60 * 1000; // 到期前 5 分钟续期（对齐上游 2026-10-25 约定）
@@ -114,10 +116,17 @@ export class NibiAuthProvider {
     });
     if (forceLogin) query.set("prompt", "login");
 
-    const result = await WebBrowser.openAuthSessionAsync(
-      `${AUTHORIZE_URL}?${query.toString()}`,
-      redirectUri,
-    );
+    // 登录页门禁：Custom Tabs 不能带 X-NIBI-Client-Ticket 请求头，先取 10 分钟 ticket，
+    // 经 /remote-gate 桥写成 Domain=nibistudio.cn 的 Cookie 再跳 OIDC authorize。
+    // 普通浏览器没有 ticket，登录页仍然 403（公安备案口径）。
+    const ticket = await fetchWebviewTicket();
+    if (!ticket) throw new Error("无法获取登录门禁凭证（ticket），请检查网络后重试");
+    const authorizeUrl = `${AUTHORIZE_URL}?${query.toString()}`;
+    const gateUrl =
+      `${ENDPOINT_ORIGIN}/remote-gate#ticket=${encodeURIComponent(ticket)}` +
+      `&to=${encodeURIComponent(authorizeUrl)}`;
+
+    const result = await WebBrowser.openAuthSessionAsync(gateUrl, redirectUri);
     if (result.type !== "success" || !result.url) {
       throw new WebRemoteControlV2ConnectionError("auth-required");
     }

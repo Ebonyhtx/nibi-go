@@ -23,6 +23,7 @@ import {
 
 import { Icon } from "../components/Icon";
 import { ENDPOINT_ORIGIN } from "../relay/config";
+import { fetchWebviewTicket, gateBootstrapScript } from "../relay/webviewTicket";
 import { resolveWorkUrl } from "../relay/workUrl";
 import { radius, space, type as t, useNibiTheme } from "../theme";
 
@@ -98,6 +99,44 @@ export default function WorkScreen() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string>();
+  // 登录页门禁 ticket：普通浏览器拿不到，NIBI-GO 在页面里写成 Domain=nibistudio.cn
+  // 的 Cookie，登录导航时带上；10 分钟有效，login-ui 收到后换发 2 小时 Cookie。
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [ticketError, setTicketError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setTicket(null);
+    setTicketError(null);
+    setPhase("loading");
+    void fetchWebviewTicket().then((value) => {
+      if (!alive) return;
+      if (!value) {
+        setTicketError("无法获取登录门禁凭证（ticket）。请检查网络后重试。");
+        setPhase("failed");
+        return;
+      }
+      setTicket(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [reloadKey]);
+
+  // 长时间停留在 WORK 页时续 ticket：只刷新 Cookie，不重载页面（页面状态保留）。
+  useEffect(() => {
+    const timer = setInterval(
+      () => {
+        void fetchWebviewTicket().then((value) => {
+          if (!value) return;
+          setTicket(value);
+          webRef.current?.injectJavaScript(gateBootstrapScript(value));
+        });
+      },
+      5 * 60 * 1000,
+    );
+    return () => clearInterval(timer);
+  }, []);
 
   // 系统返回：先给页面一次机会（它可能开着 sheet/抽屉），再走 WebView 历史，最后才退出载体。
   // 与 dsh-Go 的 web_back 语义一致（页面优先 → 历史 → 离开）。
@@ -160,21 +199,23 @@ export default function WorkScreen() {
       </View>
 
       <View style={styles.body}>
-        <WebView
-          key={reloadKey}
-          ref={webRef}
-          source={{ uri: WORK_URL }}
-          // 登录态（OAuth 回调）留在 WebView：cookie 与 storage 都要开
-          sharedCookiesEnabled
-          thirdPartyCookiesEnabled
-          domStorageEnabled
-          javaScriptEnabled
-          originWhitelist={["*"]}
-          allowsBackForwardNavigationGestures
-          setSupportMultipleWindows={false}
-          // 语言与注入口：locale 必须先于文档加载改写，否则站点已按 en-US 渲染
-          injectedJavaScriptBeforeContentLoaded={LOCALE_BOOTSTRAP}
-          injectedJavaScript={BOOT_WATCHDOG}
+        {ticket ? (
+          <WebView
+            key={reloadKey}
+            ref={webRef}
+            source={{ uri: WORK_URL }}
+            // 登录态（OAuth 回调）留在 WebView：cookie 与 storage 都要开
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            domStorageEnabled
+            javaScriptEnabled
+            originWhitelist={["*"]}
+            allowsBackForwardNavigationGestures
+            setSupportMultipleWindows={false}
+            // 语言与注入口：locale 必须先于文档加载改写，否则站点已按 en-US 渲染；
+            // ticket 写成父域 Cookie，登录导航到 auth.nibistudio.cn 时才会带上。
+            injectedJavaScriptBeforeContentLoaded={`${gateBootstrapScript(ticket)}\n${LOCALE_BOOTSTRAP}`}
+            injectedJavaScript={BOOT_WATCHDOG}
           onMessage={({ nativeEvent }) => {
             try {
               const message = JSON.parse(nativeEvent.data) as {
@@ -213,7 +254,8 @@ export default function WorkScreen() {
             setError(`HTTP ${nativeEvent.statusCode}`);
           }}
           style={styles.web}
-        />
+          />
+        ) : null}
 
         {phase === "loading" ? (
           <View style={[styles.overlay, { backgroundColor: th.bg }]} pointerEvents="none">
@@ -226,7 +268,9 @@ export default function WorkScreen() {
           <View style={[styles.overlay, { backgroundColor: th.bg }]}>
             <View style={[styles.errCard, { backgroundColor: th.card, borderColor: th.hairline }]}>
               <Text style={[styles.errTitle, { color: th.ink }]}>打不开桌面远控</Text>
-              <Text style={[styles.errBody, { color: th.inkSub }]}>{error ?? "网络或服务异常"}</Text>
+              <Text style={[styles.errBody, { color: th.inkSub }]}>
+                {error ?? ticketError ?? "网络或服务异常"}
+              </Text>
               <Text style={[styles.errUrl, { color: th.inkFaint }]} numberOfLines={2}>
                 {WORK_URL}
               </Text>
