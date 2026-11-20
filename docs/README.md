@@ -4,7 +4,7 @@
 |---|---|
 | [decisions/ADR-INDEX.md](decisions/ADR-INDEX.md) | 架构决策台账（D1–D25 + 决议追加）——**权威索引** |
 | [plan.md](plan.md) | 开发计划：里程碑（A0–A4 / C；B 已取消）、同步协议、验证纪律 |
-| [design/](design/) | 设计规格：[Android 原生内核与运行时（fork 方案）](design/android-native-runtime.md)、[relay-client 接口草案](design/relay-client-interface-draft.md)、[E2E 信封与握手 v1](design/e2e-envelope-v1.md) |
+| [design/](design/) | 设计规格：[Android 原生内核与运行时（fork 方案）](design/android-native-runtime.md)、[手机操控/双开关](design/phone-control.md)、[插件市场索引与验签](design/market-index.md)、[relay-client 接口草案](design/relay-client-interface-draft.md)、[E2E 信封与握手 v1](design/e2e-envelope-v1.md) |
 | [research/](research/) | 调研与实测：深度调研报告、dsh-Go 调研、同类项目、Spike 2（后台长连接实测） |
 | [checklists/](checklists/) | 可执行清单：[真机验证清单](checklists/真机验证清单.md)、[发布检查单](checklists/发布检查单.md) |
 | [tickets/](tickets/) | 票据与交接：T1–T7 历史记录；T8/T9 已转 GO 自有（D24），`HANDOFF.md` 说明 fork 后的上游边界 |

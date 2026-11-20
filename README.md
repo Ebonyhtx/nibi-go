@@ -19,7 +19,7 @@ NIBI-GO 是 NIBI 生态的**移动客户端**，默认主体即 NIBI-GO（本机
 - `app/`：Expo / React Native 应用（登录、扫码配对、连接状态、聊天、审批、通知、保活、应用内更新）
 - `app/modules/`：本地 Expo 原生模块（内核宿主、KeepAlive 前台服务、APK 安装器）
 - `kernel/`：Android 内核适配（本机内核与运行时随 App 交付）
-- `packages/kernel-session`、`packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`：纯 TS 协议层
+- `packages/kernel-session`、`packages/relay-client`、`packages/chat-core`、`packages/shared-extract`、`packages/phone-tools`、`packages/market-index`、`packages/plugin-license`：纯 TS 协议/契约层
 - `docs/`：架构决策（D1–D25）、设计规格、调研与验证清单
 - `scripts/`：架构门禁与公开仓检查
 
@@ -29,6 +29,17 @@ NIBI-GO 是 NIBI 生态的**移动客户端**，默认主体即 NIBI-GO（本机
 - 任何私有部署细节或凭据（见 [SECURITY.md](SECURITY.md)）。
 
 历史参考存档已移出本仓库，不参与构建；本仓不再包含 `reference/`。
+
+## 插件市场
+
+官方插件市场在独立公开仓
+[nibi-go-market](https://github.com/Ebonyhtx/nibi-go-market)：客户端只接受官方签名索引，
+并按索引里的 `sha256` 校验每个插件包。第三方插件通过 Pull Request 提交，审查标准与提交
+格式见该仓 [CONTRIBUTING](https://github.com/Ebonyhtx/nibi-go-market/blob/main/CONTRIBUTING.md)。
+
+插件是**会运行的代码**：安装第三方插件等于在本机运行作者提供的程序。市场审查降低风险，
+但不等于安全保证；只安装你信任的条目。索引格式、验签与防回滚规则见
+[`docs/design/market-index.md`](docs/design/market-index.md)。
 
 ## 环境要求
 
