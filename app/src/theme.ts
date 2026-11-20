@@ -262,14 +262,22 @@ export const motion = {
 } as const;
 
 /**
+ * 当前解析后的色板名（"light" | "dark"）：外观偏好优先，其次系统深色。
+ * 需要按主题换资源（宠物的 sheets-dark、图标底色）而不仅是取色值时用它。
+ */
+export function useNibiScheme(): "light" | "dark" {
+  const mode = useAppearanceMode();
+  const system = useColorScheme();
+  if (mode === "light" || mode === "dark") return mode;
+  return system === "dark" ? "dark" : "light";
+}
+
+/**
  * 当前主题：外观偏好（跟随系统/浅/深）优先，其次系统深色。
  * 墨夜 2.0 起可用——「外观」设置写入偏好，这里即时响应。
  */
 export function useNibiTheme(): NibiTheme {
-  const mode = useAppearanceMode();
-  const system = useColorScheme();
-  const resolved = mode === "system" ? (system === "dark" ? "dark" : "light") : mode;
-  return resolved === "dark" ? DARK : LIGHT;
+  return useNibiScheme() === "dark" ? DARK : LIGHT;
 }
 
 export const themes = { light: LIGHT, dark: DARK } as const;

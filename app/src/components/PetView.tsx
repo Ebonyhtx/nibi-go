@@ -28,6 +28,7 @@ import {
 } from "@shopify/react-native-skia";
 
 import petPackRaw from "../../assets/pet/pack.json";
+import { useNibiScheme } from "../theme";
 
 interface PetAnimFrames {
   i: number;
@@ -69,7 +70,7 @@ const petPack = petPackRaw as PetPack;
 const CELL = petPack.spec.cell.w;
 const BASELINE = petPack.spec.baseline;
 
-/** 图集键 → 本地资源（当前只用浅色套；墨夜启用时在这里补 sheets-dark）。 */
+/** 图集键 → 本地资源（浅色套）。墨夜套在 SHEET_SOURCES_DARK，按当前色板选。 */
 const SHEET_SOURCES = {
   idle: require("../../assets/pet/sheets/idle.png"),
   working: require("../../assets/pet/sheets/working.png"),
@@ -90,27 +91,48 @@ const SHEET_SOURCES = {
   "enter-carrying": require("../../assets/pet/sheets/enter-carrying.png"),
 } as const;
 
+/** 图集键 → 墨夜套资源（与浅色套一一对应；缺项回落到浅色套）。 */
+const SHEET_SOURCES_DARK = {
+  idle: require("../../assets/pet/sheets-dark/idle.png"),
+  working: require("../../assets/pet/sheets-dark/working.png"),
+  done: require("../../assets/pet/sheets-dark/done.png"),
+  waiting: require("../../assets/pet/sheets-dark/waiting.png"),
+  sleeping: require("../../assets/pet/sheets-dark/sleeping.png"),
+  thinking: require("../../assets/pet/sheets-dark/thinking.png"),
+  error: require("../../assets/pet/sheets-dark/error.png"),
+  carrying: require("../../assets/pet/sheets-dark/carrying.png"),
+  flying: require("../../assets/pet/sheets-dark/flying.png"),
+  "enter-idle": require("../../assets/pet/sheets-dark/enter-idle.png"),
+  "enter-working": require("../../assets/pet/sheets-dark/enter-working.png"),
+  "enter-done": require("../../assets/pet/sheets-dark/enter-done.png"),
+  "enter-waiting": require("../../assets/pet/sheets-dark/enter-waiting.png"),
+  "enter-sleeping": require("../../assets/pet/sheets-dark/enter-sleeping.png"),
+  "enter-thinking": require("../../assets/pet/sheets-dark/enter-thinking.png"),
+  "enter-error": require("../../assets/pet/sheets-dark/enter-error.png"),
+  "enter-carrying": require("../../assets/pet/sheets-dark/enter-carrying.png"),
+} as const;
+
 type SheetKey = keyof typeof SHEET_SOURCES;
 
 /** 全部图集一次性预加载（hooks 顺序固定，必须逐条写）——切换不卡的关键。 */
-function useAllSheets() {
-  const idle = useImage(SHEET_SOURCES.idle);
-  const working = useImage(SHEET_SOURCES.working);
-  const done = useImage(SHEET_SOURCES.done);
-  const waiting = useImage(SHEET_SOURCES.waiting);
-  const sleeping = useImage(SHEET_SOURCES.sleeping);
-  const thinking = useImage(SHEET_SOURCES.thinking);
-  const error = useImage(SHEET_SOURCES.error);
-  const carrying = useImage(SHEET_SOURCES.carrying);
-  const flying = useImage(SHEET_SOURCES.flying);
-  const enterIdle = useImage(SHEET_SOURCES["enter-idle"]);
-  const enterWorking = useImage(SHEET_SOURCES["enter-working"]);
-  const enterDone = useImage(SHEET_SOURCES["enter-done"]);
-  const enterWaiting = useImage(SHEET_SOURCES["enter-waiting"]);
-  const enterSleeping = useImage(SHEET_SOURCES["enter-sleeping"]);
-  const enterThinking = useImage(SHEET_SOURCES["enter-thinking"]);
-  const enterError = useImage(SHEET_SOURCES["enter-error"]);
-  const enterCarrying = useImage(SHEET_SOURCES["enter-carrying"]);
+function useAllSheets(sources: typeof SHEET_SOURCES) {
+  const idle = useImage(sources.idle);
+  const working = useImage(sources.working);
+  const done = useImage(sources.done);
+  const waiting = useImage(sources.waiting);
+  const sleeping = useImage(sources.sleeping);
+  const thinking = useImage(sources.thinking);
+  const error = useImage(sources.error);
+  const carrying = useImage(sources.carrying);
+  const flying = useImage(sources.flying);
+  const enterIdle = useImage(sources["enter-idle"]);
+  const enterWorking = useImage(sources["enter-working"]);
+  const enterDone = useImage(sources["enter-done"]);
+  const enterWaiting = useImage(sources["enter-waiting"]);
+  const enterSleeping = useImage(sources["enter-sleeping"]);
+  const enterThinking = useImage(sources["enter-thinking"]);
+  const enterError = useImage(sources["enter-error"]);
+  const enterCarrying = useImage(sources["enter-carrying"]);
 
   return {
     idle,
@@ -192,7 +214,9 @@ export interface PetViewProps {
 }
 
 export function PetView({ state, targetSize = 96, animated = true, crop = 1 }: PetViewProps) {
-  const sheets = useAllSheets();
+  // 图集按当前色板选（墨夜套已随 assets 快照）；useImage 在换源时重新解码一次。
+  const scheme = useNibiScheme();
+  const sheets = useAllSheets(scheme === "dark" ? SHEET_SOURCES_DARK : SHEET_SOURCES);
   const systemReduceMotion = useReduceMotion();
   const reduceMotion = systemReduceMotion || !animated;
   const box = targetSize;

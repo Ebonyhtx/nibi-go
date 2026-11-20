@@ -3,20 +3,15 @@
 //   expanded → GoSidebar：常驻左栏（侧栏放不下正文时自动退成 GoRail）
 //   expanded + 折叠 → GoRail：一列圆键
 //
-// 信息架构按 NIBI-GO 自己的概念排，不是把 dsh-Go 的抽屉照搬过来：
-//   1. 品牌 + 主 CTA 新对话（全宽，唯一橙色强调）
-//   2. AGENT 状态卡：本机 AGENT 是 GO 的主体身份，摆在最显眼处——
-//      静态小鸟 + 状态灯 + Phase C 说明（挂起期如实说清"为什么还不能用"）
-//   3. 搜索 + 按形态筛选（全部 / 本机 / 桌面，不是通用状态筛选）
-//   4. 会话列表按位置分组（本机 / 桌面）
-//   5. 位置：GO 的双形态落地点——本机 AGENT（当前）与桌面电脑（可立即用）
-//   6. 更多：插件市场（D13 独立生态）、设置
-// 底栏不重复"本机"（状态卡已说），改为版本标识。
-import { useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
+// 信息架构（2.0 收敛：侧栏只做「找会话」，仪表盘式的状态卡/筛选/位置区已裁掉）：
+//   1. 品牌行：brandSoft 品牌砖 + NIBI-GO 字标（副标「本机 AGENT」）+ 新对话 pill
+//   2. 搜索井：surfaceSoft 内嵌面，聚焦时发丝线加深
+//   3. 会话列表：按日期分组；抽屉展开时分组头/行 stagger 入场；长按行菜单（归档）
+//   4. 底部工具条：本机状态点 + WORK / 插件 / 设置圆键（玻璃底 + 发丝线）
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import {
   Alert,
   Animated,
-  Easing,
   Keyboard,
   Pressable,
   ScrollView,
@@ -34,10 +29,13 @@ import { Dot, Icon } from "./Icon";
 import type { PetStateId } from "./PetView";
 import { PET_STATE } from "./petStates";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
-import { radius, space, useNibiTheme } from "../theme";
+import { motion, radius, size, space, text, useNibiTheme } from "../theme";
 import { filterSessionsByTitle, groupSessionsByDay } from "./sessionGroups";
 import { formatBytes } from "../kernel/sessionArchive";
 import { leaveComposerForNavigation } from "../composer/leave";
+import { PressableScale } from "../motion/PressableScale";
+import { AppearIn, staggerDelay } from "../motion/appear";
+import { easingStandard } from "../motion/easing";
 
 export interface NavProps {
   /** 底栏展示的本机状态（挂起期固定 sleeping）。 */
@@ -116,6 +114,8 @@ export function GoNavContent({
   const router = useRouter();
   const suspended = petState === PET_STATE.sleeping;
   const [search, setSearch] = useState("");
+  // 聚焦环走静态样式：只换发丝线颜色（hairline → hairlineStrong），不做动画环。
+  const [searchFocused, setSearchFocused] = useState(false);
   // 抽屉/侧栏出现时搜索框会被系统自动聚焦；转场前必须 blur，否则输入法会闪一下。
   const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
   useEffect(() => {
@@ -123,11 +123,16 @@ export function GoNavContent({
   }, []);
   // 抽屉滑走时搜索框仍是 IME 的 served view：不主动清焦点，键盘会一直留在首页上。
   const wasActive = useRef(active);
+  // 入场 stagger 的重播计数：GoNavContent 常驻挂载（GoDrawer 关闭不卸载），
+  // 所以「关→开」沿计数 +1，给列表子树换 key 强制重挂载；数据变化不重播。
+  // GoSidebar 没有开合概念（active 恒 true），只在首次挂载播一次。
+  const [staggerTick, setStaggerTick] = useState(0);
   useEffect(() => {
     if (wasActive.current && !active) {
       searchRef.current?.blur();
       Keyboard.dismiss();
     }
+    if (!wasActive.current && active) setStaggerTick((n) => n + 1);
     wasActive.current = active;
   }, [active]);
   const leaveFor = (path: "/settings" | "/plugins") => {
@@ -232,15 +237,24 @@ export function GoNavContent({
     );
   };
 
+  // 入场 stagger 的全局序号（渲染期同步递增，不进状态）：归档入口行占 0，分组头/行依次 +1。
+  let staggerIndex = 0;
+
   return (
     <>
       <View style={[styles.head, { paddingTop: insetTop + space(3) }]}>
-        <View style={[styles.logo, { backgroundColor: t.brandSoft }]}>
-          <Icon name="pen" size={15} color={t.brand} />
+        {/* 品牌砖：brandSoft 底 + brand 发丝描边。不换 Skia 手绘小鸟——sprite 太重、
+            现有铅笔就是「写」的标记，只把砖放大到 40px（size 阶梯没有 40，走 space(10)）。 */}
+        <View style={[styles.logo, { backgroundColor: t.brandSoft, borderColor: t.brand }]}>
+          <Icon name="pen" size={18} color={t.brand} />
         </View>
-        <Text style={[styles.wordmark, { color: t.ink }]}>NIBI-GO</Text>
-        <Pressable
-          style={[styles.newChat, { backgroundColor: t.panel }]}
+        <View style={styles.brandCol}>
+          <Text style={[styles.wordmark, { color: t.ink }]}>NIBI-GO</Text>
+          <Text style={[styles.brandSub, { color: t.inkFaint }]}>本机 AGENT</Text>
+        </View>
+        <PressableScale
+          scaleTo={0.94}
+          style={({ pressed }) => [styles.newChat, { backgroundColor: pressed ? t.hover : t.panel }]}
           accessibilityRole="button"
           onPress={() => {
             onNewSession?.();
@@ -249,11 +263,20 @@ export function GoNavContent({
         >
           <Icon name="plus" size={12} color={t.inkSub} />
           <Text style={[styles.newChatText, { color: t.inkSub }]}>新对话</Text>
-        </Pressable>
+        </PressableScale>
       </View>
 
-      <View style={[styles.search, { backgroundColor: t.panel }]}>
-        <Icon name="search" size={13} color={t.inkFaint} />
+      {/* 搜索井：surfaceSoft 内嵌在 card 面板里；聚焦只把发丝线加深一档。 */}
+      <View
+        style={[
+          styles.search,
+          {
+            backgroundColor: t.surfaceSoft,
+            borderColor: searchFocused ? t.hairlineStrong : t.hairline,
+          },
+        ]}
+      >
+        <Icon name="search" size={13} color={t.inkGhost} />
         <TextInput
           ref={searchRef}
           value={search}
@@ -264,6 +287,8 @@ export function GoNavContent({
           returnKeyType="search"
           autoCorrect={false}
           autoCapitalize="none"
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setSearchFocused(false)}
         />
         {search.length > 0 ? (
           <Pressable
@@ -272,7 +297,7 @@ export function GoNavContent({
             accessibilityLabel="清除搜索"
             hitSlop={8}
           >
-            <Icon name="x" size={13} color={t.inkFaint} />
+            <Icon name="x" size={13} color={t.inkGhost} />
           </Pressable>
         ) : null}
       </View>
@@ -283,20 +308,28 @@ export function GoNavContent({
         keyboardShouldPersistTaps="handled"
       >
         {view === "sessions" ? (
-          <>
+          /* key=staggerTick：抽屉每次展开重挂列表子树，分组头/行重播入场 stagger；
+             平时的数据变化不换 key，不会闪。 */
+          <Fragment key={staggerTick}>
             {archivedSessions.length > 0 ? (
-              <Pressable
-                style={[styles.archiveEntry, { backgroundColor: t.panel }]}
-                onPress={() => setView("archived")}
-                accessibilityRole="button"
-                accessibilityLabel={`已归档 ${archivedSessions.length} 个会话`}
-              >
-                <Icon name="archive" size={13} color={t.inkSub} />
-                <Text style={[styles.archiveEntryText, { color: t.inkSub }]}>
-                  已归档 · {archivedSessions.length}
-                </Text>
-                <Icon name="chevron-right" size={12} color={t.inkFaint} />
-              </Pressable>
+              <AppearIn delay={staggerDelay(staggerIndex++, 24, 240)}>
+                <PressableScale
+                  scaleTo={0.985}
+                  style={({ pressed }) => [
+                    styles.archiveEntry,
+                    { backgroundColor: pressed ? t.hover : t.surfaceSoft },
+                  ]}
+                  onPress={() => setView("archived")}
+                  accessibilityRole="button"
+                  accessibilityLabel={`已归档 ${archivedSessions.length} 个会话`}
+                >
+                  <Icon name="archive" size={13} color={t.inkSub} />
+                  <Text style={[styles.archiveEntryText, { color: t.inkSub }]}>
+                    已归档 · {archivedSessions.length}
+                  </Text>
+                  <Icon name="chevron-right" size={12} color={t.inkGhost} />
+                </PressableScale>
+              </AppearIn>
             ) : null}
             {sessions.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>
@@ -307,48 +340,76 @@ export function GoNavContent({
             ) : groups.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
             ) : (
-              groups.map((group) => (
-                <View key={group.day}>
-                  <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
-                  {group.items.map((session) => {
-                    const active = session.sessionId === activeSessionId;
-                    return (
-                      <Pressable
-                        key={session.sessionId}
-                        onPress={() => {
-                          onOpenSession?.(session.sessionId);
-                          onNavigate?.();
-                        }}
-                        onLongPress={() => openRowMenu(session)}
-                        delayLongPress={400}
-                        style={[styles.sessionRow, active && { backgroundColor: t.panel }]}
-                        accessibilityRole="button"
-                        accessibilityHint="长按归档这条会话"
-                      >
-                        <Text
-                          numberOfLines={1}
-                          style={[styles.sessionTitle, { color: active ? t.ink : t.inkSub }]}
+              groups.map((group) => {
+                const headDelay = staggerDelay(staggerIndex++, 24, 240);
+                return (
+                  <View key={group.day}>
+                    <AppearIn delay={headDelay}>
+                      <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
+                    </AppearIn>
+                    {group.items.map((session) => {
+                      // 行级选中态（区别于抽屉的 active 开合 prop，避免同名遮蔽）。
+                      const rowActive = session.sessionId === activeSessionId;
+                      return (
+                        <AppearIn
+                          key={session.sessionId}
+                          delay={staggerDelay(staggerIndex++, 24, 240)}
                         >
-                          {session.title || "新对话"}
-                        </Text>
-                        <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
-                          {sessionTime(session.updatedAt ?? session.createdAt)}
-                        </Text>
-                        <Pressable
-                          onPress={() => openRowMenu(session)}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${session.title || "新对话"} 的会话操作`}
-                        >
-                          <Icon name="ellipsis" size={14} color={t.inkFaint} />
-                        </Pressable>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ))
+                          <PressableScale
+                            scaleTo={0.985}
+                            onPress={() => {
+                              onOpenSession?.(session.sessionId);
+                              onNavigate?.();
+                            }}
+                            onLongPress={() => openRowMenu(session)}
+                            delayLongPress={400}
+                            accessibilityRole="button"
+                            accessibilityHint="长按归档这条会话"
+                            style={({ pressed }) => [
+                              styles.sessionRow,
+                              {
+                                backgroundColor: rowActive
+                                  ? t.card
+                                  : pressed
+                                    ? t.hover
+                                    : "transparent",
+                              },
+                              // 选中行：card 底 + card 级投影，从纸面上浮一档。
+                              rowActive ? { borderColor: t.hairline, ...t.elevation.card } : null,
+                            ]}
+                          >
+                            {rowActive ? (
+                              <View style={[styles.activeRail, { backgroundColor: t.brandSoft }]} />
+                            ) : null}
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.sessionTitle,
+                                { color: rowActive ? t.ink : t.inkSub },
+                              ]}
+                            >
+                              {session.title || "新对话"}
+                            </Text>
+                            <Text style={[styles.sessionTime, { color: t.inkGhost }]}>
+                              {sessionTime(session.updatedAt ?? session.createdAt)}
+                            </Text>
+                            <Pressable
+                              onPress={() => openRowMenu(session)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${session.title || "新对话"} 的会话操作`}
+                            >
+                              <Icon name="ellipsis" size={14} color={t.inkFaint} />
+                            </Pressable>
+                          </PressableScale>
+                        </AppearIn>
+                      );
+                    })}
+                  </View>
+                );
+              })
             )}
-          </>
+          </Fragment>
         ) : (
           <>
             <View style={styles.archiveHead}>
@@ -369,7 +430,7 @@ export function GoNavContent({
                   accessibilityLabel="删除所有归档会话"
                   hitSlop={6}
                 >
-                  <Text style={styles.archiveDeleteAll}>全部删除</Text>
+                  <Text style={[styles.archiveDeleteAll, { color: t.red }]}>全部删除</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -390,13 +451,10 @@ export function GoNavContent({
                     accessibilityRole="button"
                     accessibilityHint="打开并取消归档"
                   >
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.sessionTitle, { color: t.inkSub }]}
-                    >
+                    <Text numberOfLines={1} style={[styles.sessionTitle, { color: t.inkSub }]}>
                       {session.title || "新对话"}
                     </Text>
-                    <Text style={[styles.sessionTime, { color: t.inkFaint }]}>
+                    <Text style={[styles.sessionTime, { color: t.inkGhost }]}>
                       {sessionTime(session.updatedAt ?? session.createdAt)}
                     </Text>
                   </Pressable>
@@ -414,7 +472,7 @@ export function GoNavContent({
                     accessibilityRole="button"
                     accessibilityLabel={`删除 ${session.title || "新对话"}`}
                   >
-                    <Icon name="trash" size={15} color="#b3261e" />
+                    <Icon name="trash" size={15} color={t.red} />
                   </Pressable>
                 </View>
               ))
@@ -423,7 +481,7 @@ export function GoNavContent({
         )}
       </ScrollView>
 
-      {/* 底部工具条：本机状态 / 位置切换 / 设置 */}
+      {/* 底部工具条：本机状态 / WORK / 插件 / 设置（38px 玻璃圆键） */}
       <View style={[styles.foot, { borderTopColor: t.hairline, paddingBottom: insetBottom + space(2) }]}>
         <View style={styles.footStatus}>
           <Dot size={6} color={suspended ? t.inkGhost : t.ok} ring={suspended ? t.inkGhost : undefined} />
@@ -432,8 +490,9 @@ export function GoNavContent({
           </Text>
         </View>
         <View style={styles.footActions}>
-          <Pressable
-            style={[styles.footBtn, { backgroundColor: t.steelSoft }]}
+          <PressableScale
+            scaleTo={0.94}
+            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
             onPress={() => {
               onNavigate?.();
               router.push("/work");
@@ -441,27 +500,29 @@ export function GoNavContent({
             accessibilityRole="button"
             accessibilityLabel="切换到桌面电脑"
           >
-            <Icon name="monitor" size={16} color={t.steel} />
+            <Icon name="monitor" size={17} color={t.steel} />
             {onlineDevices > 0 ? (
               <View style={[styles.footBadge, { backgroundColor: t.ok }]}>
-                <Text style={styles.footBadgeText}>{onlineDevices}</Text>
+                <Text style={[styles.footBadgeText, { color: t.card }]}>{onlineDevices}</Text>
               </View>
             ) : null}
-          </Pressable>
-          <Pressable
-            style={[styles.footBtn, { backgroundColor: t.panel }]}
+          </PressableScale>
+          <PressableScale
+            scaleTo={0.94}
+            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
             accessibilityLabel="插件"
             onPress={() => leaveFor("/plugins")}
           >
-            <Icon name="puzzle" size={16} color={t.inkSub} />
-          </Pressable>
-          <Pressable
-            style={[styles.footBtn, { backgroundColor: t.panel }]}
+            <Icon name="puzzle" size={17} color={t.inkSub} />
+          </PressableScale>
+          <PressableScale
+            scaleTo={0.94}
+            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
             accessibilityLabel="设置"
             onPress={() => leaveFor("/settings")}
           >
-            <Icon name="sliders" size={16} color={t.inkSub} />
-          </Pressable>
+            <Icon name="sliders" size={17} color={t.inkSub} />
+          </PressableScale>
         </View>
       </View>
     </>
@@ -516,21 +577,41 @@ export function GoDrawer({
 
   const slide = useRef(new Animated.Value(0)).current;
   const dim = useRef(new Animated.Value(0)).current;
+  // 面板内容的轻视差：展开时内容再从 -8px 滑到位（晚 40ms 起步），与面板滑动错开一点层次。
+  // 收起不复位（面板已在滑出，看不见）；下次展开前 setValue(0) 重新起跑。
+  const content = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    // 面板是「大件」，走 slow 320 + standard 曲线（动效契约）；遮罩更快一档，跟手不拖沓。
     Animated.timing(slide, {
       toValue: open ? 1 : 0,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      duration: motion.duration.slow,
+      easing: easingStandard,
       useNativeDriver: true,
     }).start();
-    Animated.timing(dim, { toValue: open ? 1 : 0, duration: 220, useNativeDriver: true }).start();
-  }, [open, slide, dim]);
+    Animated.timing(dim, {
+      toValue: open ? 1 : 0,
+      duration: motion.duration.base,
+      easing: easingStandard,
+      useNativeDriver: true,
+    }).start();
+    if (open) {
+      content.setValue(0);
+      Animated.timing(content, {
+        toValue: 1,
+        delay: 40,
+        duration: motion.duration.base,
+        easing: easingStandard,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [open, slide, dim, content]);
 
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-panelWidth, 0] });
+  const contentX = content.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] });
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents={open ? "auto" : "none"}>
-      <Animated.View style={[styles.dim, { opacity: dim }]}>
+      <Animated.View style={[styles.dim, { opacity: dim, backgroundColor: t.backdrop }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭抽屉" />
       </Animated.View>
       <Animated.View
@@ -542,28 +623,32 @@ export function GoDrawer({
             borderRightColor: t.hairline,
             paddingTop: insets.top,
             transform: [{ translateX }],
+            // 弹层投影（elevation.menu）：压在正文上要有「浮起来」的一档。
+            ...t.elevation.menu,
           },
         ]}
       >
-        <GoNavContent
-          petState={petState}
-          insetTop={0}
-          insetBottom={insets.bottom}
-          active={open}
-          onNavigate={onClose}
-          onBeforeNavigate={onBeforeNavigate}
-          onlineDevices={onlineDevices}
-          sessions={sessions}
-          archivedSessions={archivedSessions}
-          activeSessionId={activeSessionId}
-          onOpenSession={onOpenSession}
-          onNewSession={onNewSession}
-          onArchiveSession={onArchiveSession}
-          onUnarchiveSession={onUnarchiveSession}
-          onDeleteSession={onDeleteSession}
-          onDeleteAllArchived={onDeleteAllArchived}
-        onSessionActions={onSessionActions}
-        />
+        <Animated.View style={[styles.panelContent, { transform: [{ translateX: contentX }] }]}>
+          <GoNavContent
+            petState={petState}
+            insetTop={0}
+            insetBottom={insets.bottom}
+            active={open}
+            onNavigate={onClose}
+            onBeforeNavigate={onBeforeNavigate}
+            onlineDevices={onlineDevices}
+            sessions={sessions}
+            archivedSessions={archivedSessions}
+            activeSessionId={activeSessionId}
+            onOpenSession={onOpenSession}
+            onNewSession={onNewSession}
+            onArchiveSession={onArchiveSession}
+            onUnarchiveSession={onUnarchiveSession}
+            onDeleteSession={onDeleteSession}
+            onDeleteAllArchived={onDeleteAllArchived}
+            onSessionActions={onSessionActions}
+          />
+        </Animated.View>
       </Animated.View>
     </View>
   );
@@ -658,15 +743,19 @@ export function GoRail({
     onPress?: () => void,
     label?: string,
   ) => (
-    <Pressable
+    <PressableScale
       key={icon}
+      scaleTo={0.94}
       onPress={onPress}
-      style={[styles.railKey, { backgroundColor: t.glass, borderColor: t.glassBorder }]}
+      style={[
+        styles.railKey,
+        { ...t.elevation.card, backgroundColor: t.glass, borderColor: t.glassBorder },
+      ]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
       <Icon name={icon} size={18} color={onPress ? t.ink : t.inkFaint} />
-    </Pressable>
+    </PressableScale>
   );
 
   return (
@@ -677,7 +766,12 @@ export function GoRail({
       </View>
       <View style={styles.flex1} />
       <View style={[styles.railGroup, { paddingBottom: insets.bottom + space(2) }]}>
-        <View style={[styles.railKey, { backgroundColor: t.glass, borderColor: t.glassBorder }]}>
+        <View
+          style={[
+            styles.railKey,
+            { ...t.elevation.card, backgroundColor: t.glass, borderColor: t.glassBorder },
+          ]}
+        >
           <Icon name="phone" size={18} color={suspended ? t.inkFaint : t.ink} />
           <View style={styles.railBadge}>
             <Dot size={7} color={t.inkGhost} ring={t.inkGhost} />
@@ -698,7 +792,6 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(28,47,78,0.08)",
     zIndex: 19,
   },
   panel: {
@@ -709,67 +802,93 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
     zIndex: 20,
   },
+  panelContent: { flex: 1 },
   sidebar: { width: 320, height: "100%", borderRightWidth: StyleSheet.hairlineWidth },
   head: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: space(2),
     paddingHorizontal: space(3.5),
     paddingBottom: space(3),
   },
-  logo: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  wordmark: { flex: 1, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 },
+  // 品牌砖 40px：size 阶梯没有 40 这一档，用 space(10) 表达（space 允许做尺寸用）。
+  logo: {
+    width: space(10),
+    height: space(10),
+    borderRadius: radius.control,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  brandCol: { flex: 1, gap: space(0.5) },
+  wordmark: { ...text("bodyLg"), fontWeight: "700", letterSpacing: 0.5 },
+  brandSub: { ...text("micro"), letterSpacing: 0.4 },
   newChat: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: space(1),
     paddingHorizontal: space(2.5),
-    paddingVertical: 6,
+    height: size.chip,
     borderRadius: radius.chip,
   },
-  newChatText: { fontSize: 11.5, fontWeight: "700" },
+  newChatText: { ...text("micro"), fontWeight: "700" },
   search: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: space(2),
     marginHorizontal: space(3.5),
     marginBottom: space(2),
     paddingHorizontal: space(3),
-    paddingVertical: 9,
-    borderRadius: 12,
+    paddingVertical: space(2),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  searchInput: { flex: 1, fontSize: 12.5, padding: 0 },
+  searchInput: { flex: 1, ...text("small"), padding: 0 },
   scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
-  emptyText: { fontSize: 12, lineHeight: 19, paddingTop: space(2) },
+  emptyText: { ...text("small"), paddingTop: space(2) },
   groupLabel: {
-    fontSize: 10.5,
+    ...text("micro"),
     fontWeight: "600",
     letterSpacing: 0.4,
     paddingHorizontal: space(2.5),
     paddingTop: space(2),
-    paddingBottom: 2,
+    paddingBottom: space(0.5),
   },
   sessionRow: {
+    minHeight: size.row,
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
     paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
+    paddingVertical: space(1.5),
     borderRadius: radius.control,
-    marginBottom: 2,
+    // 透明边框占位：选中行只换边框色，不引起 1px 布局抖动。
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "transparent",
+    marginBottom: space(0.5),
   },
-  sessionTitle: { flex: 1, fontSize: 12.5, fontWeight: "600" },
-  sessionTime: { fontSize: 10.5 },
+  // 选中行的 3px 品牌导轨（规格定值；绝对定位，不占行内布局）。
+  activeRail: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderRadius: radius.xs,
+  },
+  sessionTitle: { flex: 1, ...text("small"), fontWeight: "600" },
+  sessionTime: { ...text("micro") },
   archiveEntry: {
+    minHeight: size.row,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: space(2),
     paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
+    paddingVertical: space(1.5),
     borderRadius: radius.control,
     marginBottom: space(2),
   },
-  archiveEntryText: { flex: 1, fontSize: 11.5, fontWeight: "600" },
+  archiveEntryText: { flex: 1, ...text("small"), fontWeight: "600" },
   archiveHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -777,12 +896,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2.5),
     paddingBottom: space(2),
   },
-  archiveBack: { flexDirection: "row", alignItems: "center", gap: 2 },
-  archiveBackText: { fontSize: 11.5, fontWeight: "600" },
-  archiveTitle: { flex: 1, fontSize: 12.5, fontWeight: "700" },
-  archiveDeleteAll: { fontSize: 11.5, fontWeight: "700", color: "#b3261e" },
+  archiveBack: { flexDirection: "row", alignItems: "center", gap: space(0.5) },
+  archiveBackText: { ...text("micro"), fontWeight: "600" },
+  archiveTitle: { flex: 1, ...text("small"), fontWeight: "700" },
+  archiveDeleteAll: { ...text("micro"), fontWeight: "700" },
   archivedBody: { flex: 1, minWidth: 0 },
-  restoreText: { fontSize: 11.5, fontWeight: "600" },
+  restoreText: { ...text("micro"), fontWeight: "600" },
   foot: {
     flexDirection: "row",
     alignItems: "center",
@@ -790,36 +909,39 @@ const styles = StyleSheet.create({
     paddingTop: space(2.5),
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  footStatus: { flex: 1, flexDirection: "row", alignItems: "center", gap: 5 },
-  footStatusText: { fontSize: 11, fontWeight: "600" },
+  footStatus: { flex: 1, flexDirection: "row", alignItems: "center", gap: space(1) },
+  footStatusText: { ...text("micro"), fontWeight: "600" },
   footActions: { flexDirection: "row", gap: space(2) },
-  footBtn: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  footBadge: {
-    position: "absolute",
-    top: 3,
-    right: 3,
-    minWidth: 13,
-    height: 13,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 3,
-  },
-  footBadgeText: { fontSize: 8.5, fontWeight: "700", color: "#fffdf9" },
-  rail: { width: 68, height: "100%", alignItems: "center", paddingBottom: space(2) },
-  railGroup: { alignItems: "center", gap: space(2) },
-  railKey: {
-    width: 44,
-    height: 44,
+  footBtn: {
+    width: size.button,
+    height: size.button,
     borderRadius: radius.chip,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
-  railBadge: { position: "absolute", right: 7, bottom: 7 },
+  // 在线数徽标放大到 18px：字阶最小是 micro(11)，8.5px 那种字面量不再出现。
+  footBadge: {
+    position: "absolute",
+    top: space(0.5),
+    right: space(0.5),
+    minWidth: 18,
+    height: 18,
+    borderRadius: radius.chip,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space(0.5),
+  },
+  footBadgeText: { ...text("micro"), fontWeight: "700" },
+  rail: { width: 68, height: "100%", alignItems: "center", paddingBottom: space(2) },
+  railGroup: { alignItems: "center", gap: space(2) },
+  railKey: {
+    width: size.buttonLg,
+    height: size.buttonLg,
+    borderRadius: radius.chip,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  railBadge: { position: "absolute", right: space(2), bottom: space(2) },
 });

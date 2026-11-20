@@ -10,6 +10,7 @@
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
+  Animated,
   Keyboard,
   PanResponder,
   Pressable,
@@ -41,6 +42,9 @@ import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus } from "../components/SideStatus";
 import { PET_STATE } from "../components/petStates";
+import { PressableScale } from "../motion/PressableScale";
+import { AppearIn } from "../motion/appear";
+import { useKeyboardFollow } from "../motion/keyboard";
 import { useConversationPreferences } from "../conversation/useConversationPreferences";
 import { useKernelConversation } from "../kernel/useKernelConversation";
 import { useProviderCatalog } from "../kernel/useProviderCatalog";
@@ -73,7 +77,7 @@ import { leaveComposerForNavigation } from "../composer/leave";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
-import { radius, space, type as t, useNibiTheme } from "../theme";
+import { radius, space, text, useNibiTheme } from "../theme";
 
 interface SheetEntry {
   plugin: LoadedPlugin;
@@ -109,17 +113,9 @@ export default function GoHomeScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // edge-to-edge 下 adjustResize 不一定会缩小窗口：直接把输入栏抬到键盘上方。
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", (event) =>
-      setKeyboardHeight(event.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  // 2.0：高度走 Animated.Value（键盘抬起时输入栏跟手滑动，不再硬跳一下）。
+  const keyboard = useKeyboardFollow();
+  const keyboardHeight = keyboard.height;
 
   const layout = resolveAdaptiveLayout({ width, height, sidebarOpen });
   // 首页即会话（D2）：内核会话与消息流直接挂在这页。
@@ -786,10 +782,50 @@ export default function GoHomeScreen() {
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
       ?.title || "新对话";
-  // C0 已就绪：空闲时用 idle，不再一律睡着的鸟（内核能跑，但还没接线到本页的活动）。
-  // dev 下点宠物可循环九个状态，用来核对切换与过渡（发布构建不生效）。
+  // 2.0：桌宠接会话状态机（此前只播 idle）——
+  //   等审批 → waiting；流式（还没出正文）→ thinking；流式/工具 → working；
+  //   回合刚完成 → done（2.4s 后回 idle）；内核不可用 → sleeping；连接失败 → error。
+  // dev 下点宠物仍可循环九个状态，用来核对切换与过渡（发布构建不生效）。
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
-  const petState = previewState ?? PET_STATE.idle;
+  const [celebrating, setCelebrating] = useState(false);
+  const livePetState = useMemo<PetStateId>(() => {
+    if (conversation.statusKind === "error") return PET_STATE.error;
+    if (conversation.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
+      return PET_STATE.waiting;
+    }
+    if (conversation.turn === "running") {
+      const streaming = [...conversation.rows]
+        .reverse()
+        .find((row) => row.kind === "assistant" && row.streaming);
+      // 长推理段（只有思考、还没正文）用 thinking；其余（正文流式/工具）用 working。
+      if (streaming?.kind === "assistant" && streaming.text.trim().length === 0) {
+        return PET_STATE.thinking;
+      }
+      return PET_STATE.working;
+    }
+    if (celebrating) return PET_STATE.done;
+    if (!conversation.ready) return PET_STATE.sleeping;
+    return PET_STATE.idle;
+  }, [conversation.statusKind, conversation.rows, conversation.turn, conversation.ready, celebrating]);
+  // 回合完成 → 播一次 done（只在「从 running 变 idle 且最后一轮 completed」时触发）。
+  const lastTurnState = useMemo(() => {
+    for (let i = conversation.rows.length - 1; i >= 0; i--) {
+      const row = conversation.rows[i];
+      if (row.kind === "turn") return row.state;
+    }
+    return null;
+  }, [conversation.rows]);
+  const runningRef = useRef(false);
+  useEffect(() => {
+    const wasRunning = runningRef.current;
+    runningRef.current = conversation.turn === "running";
+    if (!wasRunning || runningRef.current) return;
+    if (lastTurnState !== "completed") return;
+    setCelebrating(true);
+    const timer = setTimeout(() => setCelebrating(false), 2400);
+    return () => clearTimeout(timer);
+  }, [conversation.turn, lastTurnState]);
+  const petState = previewState ?? livePetState;
   const cyclePetState = () => {
     if (!__DEV__) return;
     const ids = Object.values(PET_STATE);
@@ -927,17 +963,21 @@ export default function GoHomeScreen() {
             <View style={[styles.topbar, { paddingTop: insets.top + space(1) }]}>
               <View style={styles.topLeft}>
                 {!hasRail ? (
-                  <Pressable
-                    style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                  <PressableScale
+                    style={[
+                      styles.fab,
+                      { backgroundColor: th.glass, borderColor: th.glassBorder },
+                      th.elevation.card,
+                    ]}
                     onPress={onMenu}
                     accessibilityRole="button"
                     accessibilityLabel={layout.menuAction === "collapse" ? "折叠对话列表" : "打开对话列表"}
                   >
                     <Icon name="menu" size={17} color={th.ink} />
-                  </Pressable>
+                  </PressableScale>
                 ) : null}
 
-                <Pressable
+                <PressableScale
                   ref={sessionChipRef}
                   onPress={() => {
                     sessionChipRef.current?.measureInWindow((x, y, width, height) => {
@@ -964,11 +1004,11 @@ export default function GoHomeScreen() {
                     </View>
                   </View>
                   <Icon name="chevron-down" size={13} color={th.inkFaint} />
-                </Pressable>
+                </PressableScale>
               </View>
 
               <View style={styles.topRight}>
-                <Pressable
+                <PressableScale
                   onPress={() => {
                     setModelPickerOpen(true);
                     void providerCatalog.reload();
@@ -989,10 +1029,14 @@ export default function GoHomeScreen() {
                     {modelLabel}
                   </Text>
                   <Icon name="chevron-down" size={12} color={th.inkGhost} />
-                </Pressable>
+                </PressableScale>
 
-                <Pressable
-                  style={[styles.fab, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                <PressableScale
+                  style={[
+                    styles.fab,
+                    { backgroundColor: th.glass, borderColor: th.glassBorder },
+                    th.elevation.card,
+                  ]}
                   accessibilityLabel="新建对话"
                   onPress={() => {
                     setDraft("");
@@ -1000,13 +1044,14 @@ export default function GoHomeScreen() {
                   }}
                 >
                   <Icon name="pen" size={17} color={th.ink} />
-                </Pressable>
+                </PressableScale>
               </View>
             </View>
 
             {/* 状态横幅：内核连接/重启/失败常驻显示（此前只发 4 秒 hint）；失败可重试。 */}
             {conversation.statusKind !== "ok" ? (
-              <Pressable
+              <PressableScale
+                scaleTo={0.985}
                 onPress={
                   conversation.statusKind === "error" && conversation.statusRetryable
                     ? () => void conversation.retryStatus()
@@ -1015,6 +1060,7 @@ export default function GoHomeScreen() {
                 style={[
                   styles.statusBanner,
                   { backgroundColor: th.glass, borderColor: th.glassBorder },
+                  th.elevation.card,
                 ]}
                 accessibilityRole={conversation.statusRetryable ? "button" : "text"}
                 accessibilityLabel={`内核状态：${conversation.status}`}
@@ -1038,7 +1084,7 @@ export default function GoHomeScreen() {
                 {conversation.statusKind === "error" && conversation.statusRetryable ? (
                   <Text style={[styles.statusRetry, { color: th.brand }]}>重试</Text>
                 ) : null}
-              </Pressable>
+              </PressableScale>
             ) : null}
 
             {/* 正文区：有消息就是会话流；没有消息才是空态说明（会话即首页）。 */}
@@ -1071,22 +1117,34 @@ export default function GoHomeScreen() {
                   }}
                 />
               ) : (
-                <View style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}>
-                  <Text style={[styles.stageTitle, { color: th.ink }]}>本机 AGENT 已就绪</Text>
+                // 空态：品牌印记（静态鸟格）→ 标题 → 引导 → 状态胶囊。整块入场一次。
+                <AppearIn
+                  distance={10}
+                  style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}
+                >
+                  <View style={styles.emptyMark}>
+                    <PetView state={PET_STATE.idle} targetSize={64} animated={false} crop={0.8} />
+                  </View>
+                  <Text style={[styles.stageTitle, { color: th.ink }]}>开始一段对话</Text>
                   <Text style={[styles.stageSub, { color: th.inkSub }]}>
                     内核在本机运行。直接在下方输入，跟它说话、派任务。
                   </Text>
                   <View style={styles.stageChips}>
-                    <View style={[styles.badge, { backgroundColor: th.panel }]}>
-                      <Text style={[styles.badgeText, { color: th.inkFaint }]}>
+                    <View
+                      style={[styles.badge, { backgroundColor: th.card, borderColor: th.hairline }]}
+                    >
+                      <Dot size={6} color={th.ok} />
+                      <Text style={[styles.badgeText, { color: th.inkSub }]}>
                         {selectedProvider ? `发往 ${selectedProvider.name}` : "本机内核"}
                       </Text>
                     </View>
-                    <View style={[styles.badge, { backgroundColor: th.steelSoft }]}>
+                    <View
+                      style={[styles.badge, { backgroundColor: th.steelSoft, borderColor: "transparent" }]}
+                    >
                       <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
                     </View>
                   </View>
-                </View>
+                </AppearIn>
               )}
 
               {/* 底部渐隐：键盘抬起时舞台变矮，渐隐会变成明显色块，所以只在键盘收起时显示 */}
@@ -1113,6 +1171,7 @@ export default function GoHomeScreen() {
                       style={[
                         styles.annotationBadge,
                         { backgroundColor: th.card, borderColor: th.hairline },
+                        th.elevation.card,
                       ]}
                     >
                       <Icon name="quote" size={12} color={th.brand} />
@@ -1184,18 +1243,20 @@ export default function GoHomeScreen() {
               </View>
             ) : null}
 
-            {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token */}
-            <View
+            {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token。
+                2.0：marginBottom 由键盘动画驱动（抬起时整条输入栏跟手上滑）。 */}
+            <Animated.View
               style={[
                 styles.composer,
                 {
                   backgroundColor: th.glass,
                   borderColor: th.glassBorder,
-                  marginBottom: keyboardHeight > 0 ? keyboardHeight + space(2) : insets.bottom + space(2),
+                  marginBottom: Animated.add(keyboard.offset, insets.bottom + space(2)),
                 },
+                th.elevation.float,
               ]}
             >
-              <Pressable
+              <PressableScale
                 ref={plusRef}
                 onPress={openPlusMenu}
                 style={[styles.plus, { backgroundColor: th.panel }]}
@@ -1203,7 +1264,7 @@ export default function GoHomeScreen() {
                 accessibilityLabel="选择插件"
               >
                 <Icon name="plus" size={13} color={th.inkSub} />
-              </Pressable>
+              </PressableScale>
               <ComposerAttachments
                 attachments={attachments}
                 onRemove={(id) =>
@@ -1233,7 +1294,7 @@ export default function GoHomeScreen() {
               />
               {conversation.turn === "running" ? (
                 /* 流式期间发送键变停止键（内核 `stop` → Interrupt）；草稿保留，停止后可继续发。 */
-                <Pressable
+                <PressableScale
                   accessibilityLabel="停止生成"
                   onPress={() => {
                     void conversation.stopTurn().then((error) => {
@@ -1243,9 +1304,9 @@ export default function GoHomeScreen() {
                   style={[styles.send, { backgroundColor: th.brand }]}
                 >
                   <Icon name="stop" size={15} color={th.brandFg} />
-                </Pressable>
+                </PressableScale>
               ) : (
-                <Pressable
+                <PressableScale
                   accessibilityLabel="发送"
                   disabled={!canSend}
                   onPress={() => {
@@ -1260,9 +1321,9 @@ export default function GoHomeScreen() {
                   ]}
                 >
                   <Icon name="arrow-up" size={16} color={th.brandFg} />
-                </Pressable>
+                </PressableScale>
               )}
-            </View>
+            </Animated.View>
           </View>
         </View>
       </View>
@@ -1676,11 +1737,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   chip: {
@@ -1700,9 +1756,9 @@ const styles = StyleSheet.create({
   },
   chipBody: { gap: 1, flexGrow: 1, flexShrink: 1, minWidth: 0 },
   // 标题吃剩余宽度；权限名只有 3–4 字，不参与收缩（否则会变成「完全…」）。
-  chipTitle: { fontSize: 13.5, fontWeight: "700", flexShrink: 1 },
+  chipTitle: { ...text("small"), fontSize: 13, fontWeight: "700", flexShrink: 1 },
   chipStatus: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
-  chipSub: { fontSize: 9.5, flexShrink: 0 },
+  chipSub: { ...text("micro"), fontSize: 10, flexShrink: 0 },
   modelChip: {
     height: TOPBAR_H,
     flexDirection: "row",
@@ -1716,7 +1772,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  modelText: { fontSize: 11.5, fontWeight: "600", flexShrink: 1 },
+  modelText: { ...text("micro"), fontSize: 11.5, fontWeight: "600", flexShrink: 1 },
   effortMeter: {
     width: 3,
     height: 16,
@@ -1730,12 +1786,21 @@ const styles = StyleSheet.create({
   stageList: { alignItems: "stretch", justifyContent: "flex-start", paddingHorizontal: 0 },
   stageLandscape: { justifyContent: "flex-start", paddingTop: space(3) },
   stageText: { alignItems: "center", gap: space(2) },
+  emptyMark: { marginBottom: space(1), alignItems: "center" },
   stageTextLandscape: { alignItems: "center", maxWidth: 460, gap: space(1) },
-  stageTitle: { fontSize: t.heading, fontWeight: "700" },
-  stageSub: { fontSize: t.small, textAlign: "center", lineHeight: 20 },
+  stageTitle: { ...text("title"), fontWeight: "700" },
+  stageSub: { ...text("small"), fontSize: 13.5, textAlign: "center" },
   stageChips: { flexDirection: "row", gap: space(2), marginTop: space(1) },
-  badge: { paddingHorizontal: space(3), paddingVertical: 4, borderRadius: radius.chip },
-  badgeText: { fontSize: 11, fontWeight: "600" },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+    paddingHorizontal: space(3),
+    paddingVertical: space(1),
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  badgeText: { ...text("micro"), fontWeight: "600" },
   startCta: {
     marginTop: space(3),
     borderRadius: radius.control,
@@ -1743,7 +1808,7 @@ const styles = StyleSheet.create({
     paddingVertical: space(3),
     alignSelf: "center",
   },
-  startCtaText: { fontSize: 14, fontWeight: "700" },
+  startCtaText: { ...text("body"), fontWeight: "700" },
   // 宠物 + 胶囊浮在会话流底部：绝对定位，列表高度不再为它们让位，消息可以滚到输入栏上方。
   petOverlay: {
     position: "absolute",
@@ -1786,8 +1851,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   menuText: { flex: 1, gap: 1 },
-  menuLabel: { fontSize: 12.5, fontWeight: "600" },
-  menuDetail: { fontSize: 10 },
+  menuLabel: { ...text("small"), fontWeight: "600" },
+  menuDetail: { ...text("micro"), fontSize: 10.5 },
   menuDivider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
   plusScroll: { height: 430 },
   plusSection: { paddingBottom: space(1.5) },
@@ -1824,13 +1889,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2.5),
     paddingVertical: 4,
     marginBottom: space(1),
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
-  annotationBadgeText: { fontSize: 10.5, fontWeight: "700" },
+  annotationBadgeText: { ...text("micro"), fontSize: 10.5, fontWeight: "700" },
   hint: {
     alignSelf: "center",
     borderWidth: StyleSheet.hairlineWidth,
@@ -1839,7 +1899,7 @@ const styles = StyleSheet.create({
     paddingVertical: space(1.5),
     marginBottom: space(1.5),
   },
-  hintText: { fontSize: 11, lineHeight: 15 },
+  hintText: { ...text("micro") },
   statusBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1852,8 +1912,8 @@ const styles = StyleSheet.create({
     marginBottom: space(1.5),
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusBannerText: { flex: 1, fontSize: 11.5, lineHeight: 15 },
-  statusRetry: { fontSize: 12, fontWeight: "700" },
+  statusBannerText: { ...text("micro"), flex: 1, fontSize: 11.5 },
+  statusRetry: { ...text("small"), fontWeight: "700" },
   editStrip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1864,7 +1924,7 @@ const styles = StyleSheet.create({
     paddingVertical: space(1.5),
     marginBottom: space(1.5),
   },
-  editStripText: { flex: 1, fontSize: 11.5, lineHeight: 15 },
+  editStripText: { ...text("micro"), flex: 1, fontSize: 11.5 },
   composer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1875,13 +1935,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     minHeight: 52,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.09,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
   },
   plus: { width: 32, height: 32, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
-  composerInput: { flex: 1, fontSize: 14, paddingVertical: space(1) },
+  composerInput: { ...text("body"), flex: 1, paddingVertical: space(1) },
   send: { width: 38, height: 38, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
 });
