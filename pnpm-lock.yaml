@@ -126,6 +126,9 @@ importers:
         specifier: 14.0.1
         version: 14.0.1(react-native@0.88.1(@babel/core@7.29.13)(@react-native/metro-config@0.88.1(@babel/core@7.29.13))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
     devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
       '@types/react':
         specifier: ~19.3.0
         version: 19.3.0
@@ -134,7 +137,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: ^5.1.0
-        version: 5.1.0(@types/node@26.6.6)(vite@7.3.8(@types/node@26.6.6)(lightningcss@1.33.0)(terser@5.51.2)(tsx@4.23.15))
+        version: 5.1.0(@types/node@24.19.2)(vite@7.3.8(@types/node@24.19.2)(lightningcss@1.33.0)(terser@5.51.2)(tsx@4.23.15))
 
   app/modules/kernel-host: {}
 

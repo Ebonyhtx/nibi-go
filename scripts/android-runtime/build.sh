@@ -112,6 +112,8 @@ log "bash 5.2.37"
   CPPFLAGS="-I$OUT/include -I$OUT/include/ncursesw" \
   LDFLAGS="-L$OUT/lib $LDFLAGS_TARGET" \
   bash_cv_getcwd_malloc=yes \
+  CC_FOR_BUILD=gcc \
+  CFLAGS_FOR_BUILD="-O2 -std=gnu17" \
   ./configure --host=aarch64-linux-android --prefix="$OUT" \
     --without-bash-malloc --disable-nls \
     --with-installed-readline="$OUT" >/dev/null
