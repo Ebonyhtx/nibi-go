@@ -29,3 +29,74 @@ export async function fetchBytes(
     external?.removeEventListener("abort", forwardAbort);
   }
 }
+
+export interface FetchProgressOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  /** loaded/total（total 未知时为 null）。 */
+  onProgress?: (loaded: number, total: number | null) => void;
+}
+
+/**
+ * 带下载进度的取字节。RN 的 fetch 不暴露进度，这里用 XHR（RN 内置）；
+ * 环境没有 XHR（Node 单测）时退回 fetch，只在结束时回调一次。
+ */
+export async function fetchBytesWithProgress(
+  url: string,
+  maxBytes: number,
+  options: FetchProgressOptions = {},
+): Promise<Uint8Array> {
+  if (typeof XMLHttpRequest === "undefined") {
+    const bytes = await fetchBytes(url, maxBytes, options);
+    options.onProgress?.(bytes.byteLength, bytes.byteLength);
+    return bytes;
+  }
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const timeout = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", onAbort);
+      fn();
+    };
+    const onAbort = () => {
+      xhr.abort();
+      finish(() => reject(new Error("已取消")));
+    };
+
+    xhr.open("GET", url);
+    xhr.responseType = "arraybuffer";
+    xhr.timeout = timeout;
+    xhr.setRequestHeader("accept", "application/json, application/octet-stream");
+    xhr.onprogress = (event) => {
+      options.onProgress?.(event.loaded, event.lengthComputable ? event.total : null);
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        finish(() => reject(new Error(`HTTP ${xhr.status}`)));
+        return;
+      }
+      const buffer = xhr.response as ArrayBuffer | null;
+      if (!buffer) {
+        finish(() => reject(new Error("响应为空")));
+        return;
+      }
+      if (buffer.byteLength > maxBytes) {
+        finish(() => reject(new Error("响应超过大小上限")));
+        return;
+      }
+      finish(() => resolve(new Uint8Array(buffer)));
+    };
+    xhr.onerror = () => finish(() => reject(new Error("网络错误")));
+    xhr.ontimeout = () => finish(() => reject(new Error("下载超时")));
+    xhr.onabort = () => finish(() => reject(new Error("已取消")));
+    options.signal?.addEventListener("abort", onAbort);
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    xhr.send();
+  });
+}

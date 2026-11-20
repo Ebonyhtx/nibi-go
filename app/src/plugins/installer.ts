@@ -9,7 +9,7 @@ import { unzipSync } from "fflate";
 import { verifyPackageDigest, type MarketPluginEntry } from "@nibi-go/market-index";
 import { readPluginManifest, type PluginManifest } from "@nibi-go/plugin-contract";
 
-import { fetchBytes } from "./fetchBytes";
+import { fetchBytesWithProgress } from "./fetchBytes";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
 import { forgetInstalledPlugin, recordInstalledPlugin } from "./paid";
 import { inspectPluginArchive } from "./packageFiles";
@@ -45,7 +45,7 @@ export function readInstalledManifest(dir: string): PluginManifest | null {
 
 export async function installMarketPlugin(
   entry: MarketPluginEntry,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; onProgress?: (loaded: number, total: number | null) => void } = {},
 ): Promise<InstallOutcome> {
   if (entry.paid) {
     await ensureLicenseLoaded();
@@ -59,8 +59,9 @@ export async function installMarketPlugin(
 
   let bytes: Uint8Array;
   try {
-    bytes = await fetchBytes(entry.package.url, entry.package.size + 64 * 1024, {
+    bytes = await fetchBytesWithProgress(entry.package.url, entry.package.size + 64 * 1024, {
       signal: options.signal,
+      onProgress: options.onProgress,
     });
   } catch (error) {
     if (options.signal?.aborted) return { ok: false, reason: "已取消" };

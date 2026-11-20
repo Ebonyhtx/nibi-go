@@ -118,8 +118,9 @@
 # 2) 在 NIBI-GO 仓签名（私钥读 ~/.nibi/market/<keyId>.json）
 node scripts/market/sign-index.mjs ../nibi-go-market/index.json
 # 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）并 push
-# 4) 镜像到 CDN：按运维 RUNBOOK 的「免费内容同步」流程，把 index.json、index.json.sig
-#    与 packages/*.zip 以同一份字节放到 dl.nibistudio.cn 的 nibi-go-market/ 前缀下。
+# 4) 镜像到 CDN（不写死主机/桶/密钥，全部从环境变量读）：
+MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI_MARKET_REMOTE_DIR=<远端临时目录> NIBI_MARKET_OSS_PREFIX=<oss://bucket/prefix> NIBI_MARKET_OSS_CONF=<ossutil 配置路径> NIBI_MARKET_SUDO=1 node scripts/market/mirror-cdn.mjs ../nibi-go-market
+# 脚本会先本地验签 + 校验包 sha256，再 ssh cat 到远端并 ossutil cp 到 CDN。
 ```
 
 客户端刷新顺序：取 `index.json` 与 `.sig` → 验签 → schema → 与本地快照比较

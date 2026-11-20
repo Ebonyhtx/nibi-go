@@ -150,6 +150,7 @@ export default function MarketScreen() {
   const [license, setLicense] = useState(licenseSummary());
   const [corruptSnapshot, setCorruptSnapshot] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const readVersions = useCallback((entries: MarketPluginEntry[]) => {
@@ -211,11 +212,15 @@ export default function MarketScreen() {
     const controller = new AbortController();
     abortRef.current = controller;
     setBusyId(entry.id);
+    setProgress({ loaded: 0, total: entry.package.size });
     setMessage(`正在下载并校验 ${entry.name} v${entry.version}…`);
     try {
-      const outcome = await installMarketPlugin(entry, { signal: controller.signal });
+      const outcome = await installMarketPlugin(entry, {
+        signal: controller.signal,
+        onProgress: (loaded, total) => setProgress({ loaded, total: total ?? entry.package.size }),
+      });
       if (!outcome.ok) {
-        setMessage(`${entry.name} 安装失败：${outcome.reason}`);
+        setMessage(`${entry.name} 安装失败：${outcome.reason}${outcome.reason === "已取消" ? "" : "（可重试）"}`);
         return;
       }
       setVersions((current) => ({ ...current, [entry.id]: outcome.manifest.version }));
@@ -224,6 +229,7 @@ export default function MarketScreen() {
     } finally {
       abortRef.current = null;
       setBusyId(null);
+      setProgress(null);
     }
   }
 
@@ -336,6 +342,25 @@ export default function MarketScreen() {
           </View>
         ) : null}
 
+        {busyId && progress ? (
+          <View style={styles.progressWrap}>
+            <View style={[styles.progressTrack, { backgroundColor: t.panel }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: t.brand,
+                    width: `${Math.max(4, Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1))))}%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={[styles.progressText, { color: t.inkFaint }]}>
+              {Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1)))}%
+            </Text>
+          </View>
+        ) : null}
+
         {loading ? (
           <View style={styles.loading}>
             <ActivityIndicator color={t.brand} />
@@ -393,6 +418,10 @@ const styles = StyleSheet.create({
   body: { padding: space(4), gap: space(3) },
   hint: { fontSize: 12, lineHeight: 18 },
   licenseRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
+  progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },
+  progressTrack: { flex: 1, height: 6, borderRadius: 999, overflow: "hidden" },
+  progressFill: { height: 6, borderRadius: 999 },
+  progressText: { fontSize: 10.5, minWidth: 32, textAlign: "right" },
   syncButton: {
     borderRadius: 999,
     paddingHorizontal: space(2.5),
