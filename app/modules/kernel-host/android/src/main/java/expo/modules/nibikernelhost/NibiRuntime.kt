@@ -214,11 +214,21 @@ internal object NibiRuntime {
     }
     // CPython 的 getpath 按可执行文件位置推导 prefix：bin/python3 是指向
     // nativeLibraryDir/libpython_bin.so 的 symlink，而 stdlib 在 runtime/python/lib。
-    // 给 runtime/lib 建一座指向 python/lib 的桥后，`python3 -I`（忽略 PYTHONHOME）
-    // 和 venv 的 `_call_new_python`（会清掉 PYTHONHOME）都能自己找到 stdlib。
+    // `-I` 会忽略 PYTHONHOME、并把可执行文件 realpath 到 nativeLibraryDir，单靠
+    // runtime/lib 桥不够；在 bin/pyvenv.cfg 里把 home 指到 runtime/bin 后，
+    // base_prefix=runtime，stdlib 走 runtime/lib（`-I` 与 venv 的
+    // `_call_new_python` 都能自己找到 stdlib）。
     linkDirectory(File(root, "lib"), File(root, "python/lib"))
     val nativeDir = context.applicationInfo.nativeLibraryDir
     val bin = File(root, "bin").apply { mkdirs() }
+    val pythonVersion = manifest.optJSONObject("packages")?.optString("python") ?: "3.13"
+    File(bin, "pyvenv.cfg").writeText(
+      buildString {
+        appendLine("home = ${bin.absolutePath}")
+        appendLine("include-system-site-packages = false")
+        appendLine("version = $pythonVersion")
+      },
+    )
     val binMap = manifest.optJSONObject("bin")
     if (binMap != null) {
       for (name in binMap.keys()) {

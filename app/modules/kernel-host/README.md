@@ -189,8 +189,10 @@ assets/nibi-runtime.{zip,json}  # 由构建脚本生成，不进版本库
   pip + `_sqlite3` 在 `assets/nibi-langs.zip`（约 16MB，解压后 `filesDir/runtime/python`）。
   `NibiRuntime` 设置 `PYTHONHOME` / `PYTHONUSERBASE` / `LD_LIBRARY_PATH`（nativeLibraryDir，
   仅语言运行时进程需要），并建 `python3`/`python`/`pip`/`pip3` 链接。
-  **`runtime/lib` 是到 `python/lib` 的目录 symlink**：CPython 从可执行文件位置推导 prefix，
-  `-I`（忽略 `PYTHONHOME`）和 `venv`（会清掉 `PYTHONHOME`）因此也能自己找到 stdlib。
+  **`runtime/lib` 是到 `python/lib` 的目录 symlink**，并在 `runtime/bin/pyvenv.cfg` 把
+  `home` 指到 `runtime/bin`：`-I` 会忽略 `PYTHONHOME` 并把可执行文件 realpath 到
+  nativeLibraryDir，只有 pyvenv 配置 + lib 桥一起才能让 `-I` 与 `venv`（会清掉
+  `PYTHONHOME`）自己找到 stdlib。
   真机通过：`python 3.13.18 + OpenSSL 3.5.4`、`ssl/zlib/ctypes/sqlite3`、`pip 26.2.2`、
   `python3 -I`、`python3 -m venv`、`pip install requests`、`pyfiglet` console script。
 - **Node 24.22.3（自建）已完成**：`scripts/android-runtimes/build-node.sh` +
