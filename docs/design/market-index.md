@@ -123,8 +123,10 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 # 脚本会先本地验签 + 校验包 sha256，再 ssh cat 到远端并 ossutil cp 到 CDN。
 ```
 
-客户端刷新顺序：取 `index.json` 与 `.sig` → 验签 → schema → 与本地快照比较
-（`evaluateMarketRefresh` + `checkPluginPins`）→ 通过后原子替换 `filesDir/nibi-market.json`。
+客户端刷新顺序：对每个源取 `index.json` 与 `.sig` → 验签 → schema → **取 revision 最大的
+一份**（同 revision 不同字节视为冲突）→ 与本地快照比较（`evaluateMarketRefresh` +
+`checkPluginPins`）→ 通过后原子替换 `filesDir/nibi-market.json`。镜像落后于市场仓是安全的：
+旧 revision 永远不会覆盖新 revision，新装设备也会选到最新的一份。
 
 ## 7. 已验证
 
@@ -173,4 +175,6 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 
 1. 凭证获取（账号侧签发/同步）与在线拒绝、宽限期（需要服务端配合）；
 2. 下载进度百分比与失败重试（当前是可取消的不确定进度）；
-3. CDN 镜像自动同步（当前是手工 `ossutil`；可并进发布脚本）。
+3. CDN 镜像自动同步：当前**未部署自动化**（`scripts/market/mirror-cdn.mjs` 是手工脚本）。
+   候选方案：服务端 cron 定时从市场仓拉取并镜像（GitHub 不存服务端凭据）或 GitHub Action
+   用受限 RAM 凭据推送；需运营者定。

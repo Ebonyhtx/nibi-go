@@ -6,7 +6,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 
 import {
-  refreshMarketIndex,
+  refreshMarketIndexFromSources,
   type MarketIndex,
   type MarketRefreshResult,
   type MarketSnapshotState,
@@ -83,28 +83,24 @@ export interface RefreshMarketOutcome {
 /** 拉取并校验官方索引；accept 时原子写入快照。 */
 export async function refreshMarket(): Promise<RefreshMarketOutcome> {
   const previous = await loadMarketSnapshot();
-  let lastFailure: MarketRefreshResult | null = null;
-  for (const source of MARKET_INDEX_URLS) {
-    const result = await refreshMarketIndex((url) => fetchBytes(url, INDEX_MAX_BYTES), {
-      indexUrl: source,
+  // 多源取 revision 最大的一份（镜像落后时不会被旧索引卡住；同 revision 不同字节算冲突）。
+  const result = await refreshMarketIndexFromSources(
+    (url) => fetchBytes(url, INDEX_MAX_BYTES),
+    {
+      indexUrls: MARKET_INDEX_URLS,
       previous: previous?.state ?? null,
       previousIndex: previous?.index ?? null,
-    });
-    if (!result.ok) {
-      lastFailure = result;
-      continue;
-    }
-    if (result.kind === "unchanged") return { result, snapshot: null };
-    const snapshot: MarketSnapshotFile = {
-      version: 1,
-      fetchedAt: new Date().toISOString(),
-      state: result.state,
-      index: result.index,
-    };
-    await writeSnapshot(snapshot);
-    return { result, snapshot };
-  }
-  return { result: lastFailure ?? { ok: false, kind: "fetch", detail: "没有可用的市场源" }, snapshot: null };
+    },
+  );
+  if (!result.ok || result.kind === "unchanged") return { result, snapshot: null };
+  const snapshot: MarketSnapshotFile = {
+    version: 1,
+    fetchedAt: new Date().toISOString(),
+    state: result.state,
+    index: result.index,
+  };
+  await writeSnapshot(snapshot);
+  return { result, snapshot };
 }
 
 /** 当前索引里某个 id 的条目（快照为空时返回 undefined）。 */
