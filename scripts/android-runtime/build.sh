@@ -124,8 +124,14 @@ log "busybox 1.36.1"
   # Applets that bionic cannot compile (SysV IPC, utmp, mntent, kd.h, ...) or
   # that make no sense for an app uid (mount/swap/tc). This list is part of the
   # product boundary, not an accident: it is documented in T9/T10.
+  #
+  # FEATURE_SUID must stay off: with it, every applet tagged BB_SUID_DROP calls
+  # setgid(ruid)/setuid(ruid) at startup. Android's app seccomp policy kills
+  # setgid (arm64 syscall 144) with SIGSYS, so every busybox applet dies with
+  # "Unknown signal 31" inside the app process (shell/run-as domains don't).
   make ARCH=arm64 CROSS_COMPILE= HOSTCC=gcc CC="$CC" defconfig >/dev/null
   for k in LOADFONT SETFONT HOSTID FEATURE_UTMP FEATURE_WTMP LOGNAME SU \
+    FEATURE_SUID FEATURE_SUID_CONFIG FEATURE_SUID_CONFIG_QUIET \
     FEATURE_SYNC_FANCY ADJTIMEX ETHER_WAKE CONSPY SEEDRNG LOGREAD \
     FEATURE_IPC_SYSLOG SHELL_HUSH HUSH HUSH_BASH_COMPAT HUSH_BRACE_EXPANSION \
     HUSH_LINENO_VAR HUSH_ECHO HUSH_PRINTF HUSH_TEST HUSH_HELP HUSH_EXPORT \

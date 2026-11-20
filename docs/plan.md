@@ -359,6 +359,10 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
    全部 16 KB LOAD 对齐、API 24 符号面零越界（仅 OpenSSL 的 `getentropy`/`memfd_create`
    弱符号，旧系统可为空）。`build.mjs` 校验 + `.runtime-stamp.json`；CI `android-runtime.yml`。
    许可与 GPL 对应源码说明进 `NOTICE.md` / `THIRD-PARTY-NOTICES.md`。
+   **2026-11-20 修**：busybox 关闭 `FEATURE_SUID`（含 SUID_CONFIG/QUIET）。开着时所有
+   `BB_SUID_DROP` 小程序启动即调 `setgid/setuid`，Android 应用 seccomp 对 `setgid`
+   （arm64 syscall 144）直接 SIGSYS，现象是应用内 `ls/cat/grep/sed/awk/find/tar/ps…`
+   全部 `Unknown signal 31`（shell/run-as 域不复现）；关掉后重编 `libbusybox.so`。
 2. ✅ 打包：jniLibs `libbash.so` / `libbusybox.so` / `libgit.so` / `libgit_remote_http.so` /
    `libnibi_run.so` / `libnibi_hook.so`；`assets/nibi-runtime.zip` 放 git 脚本/templates/
    `BASH_ENV`/applet 名单；`NibiRuntime.install()` 解包并在 `filesDir/runtime/{bin,git-core,hooks}`
