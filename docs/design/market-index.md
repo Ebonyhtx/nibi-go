@@ -118,7 +118,8 @@
 # 2) 在 NIBI-GO 仓签名（私钥读 ~/.nibi/market/<keyId>.json）
 node scripts/market/sign-index.mjs ../nibi-go-market/index.json
 # 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）并 push
-# 4) 镜像到 CDN（不写死主机/桶/密钥，全部从环境变量读）：
+# 4) 镜像到 CDN：主线是服务器上的定时任务（每 10 分钟拉取市场仓 main → 验签/校验 →
+#    只上传变化文件；失败保留上一份成功状态）。下面是手工补跑用的脚本（不写死主机/桶/密钥）：
 MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI_MARKET_REMOTE_DIR=<远端临时目录> NIBI_MARKET_OSS_PREFIX=<oss://bucket/prefix> NIBI_MARKET_OSS_CONF=<ossutil 配置路径> NIBI_MARKET_SUDO=1 node scripts/market/mirror-cdn.mjs ../nibi-go-market
 # 脚本会先本地验签 + 校验包 sha256，再 ssh cat 到远端并 ossutil cp 到 CDN。
 ```
@@ -137,6 +138,10 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 - license 单测 12 项（`packages/plugin-license`）：JWS 验签、payload 篡改、未知 kid、
   错误 iss、claims 形状、覆盖范围/通配、过期、设备不匹配、无凭证、坏凭证。
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
+- **CDN 自动镜像（2026-11-20 部署）**：服务器定时任务每 10 分钟拉取市场仓 main，
+  `openssl pkeyutl` 验签 + 包 sha256/大小 + revision/版本不变量，只上传变化的文件；
+  先包后索引，状态文件原子更新。实测：首次全量上传、第二次「已是最新」、cron 连续两分钟
+  成功执行；把状态 revision 人为调高后运行被「revision 倒退」拒绝（未覆盖索引）。
 - **真机（PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建）**：
   - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
   - 安装 `nibi.market.hello` 0.1.0：下载 → sha256 校验 → 解包 → 清单 id/version 校验 →
@@ -175,6 +180,5 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 
 1. 凭证获取（账号侧签发/同步）与在线拒绝、宽限期（需要服务端配合）；
 2. 下载进度百分比与失败重试（当前是可取消的不确定进度）；
-3. CDN 镜像自动同步：当前**未部署自动化**（`scripts/market/mirror-cdn.mjs` 是手工脚本）。
-   候选方案：服务端 cron 定时从市场仓拉取并镜像（GitHub 不存服务端凭据）或 GitHub Action
-   用受限 RAM 凭据推送；需运营者定。
+3. 镜像监控：定时任务只在服务器本地留状态/日志，尚未接入心跳告警；可加「state.updatedAt
+   超过 N 小时未更新」的告警。
