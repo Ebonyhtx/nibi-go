@@ -496,7 +496,12 @@ shared-extract 仍按 D17 的抽取件流程（来源 commit + 契约测试）�
   （`{"command":"id"}`）→ 悬浮审批卡「允许一次」→ 结果 `uid=2000(shell) gid=2000(shell) …`
   `context=u:r:shell:s0`、退出码 0，证明 shell uid 执行链（非 root）打通。写操作同轮验证：
   `/sdcard/Download/nibi_probe` 创建/读取/删除、`settings put/get/delete global nibi_probe`
-  全部成功且无残留；`pm install/uninstall`、`am force-stop` 等应用管理写操作仍未验。
+  全部成功且无残留（应用管理类写操作见下一条）。
+- 真机第五轮（2026-11-20）：自建 8.5 KB 测试 APK 验证应用管理写操作。`pm install` 需先把
+  APK 从 `/sdcard`（FUSE，system_server 读不到）`cp` 到 `/data/local/tmp`；ColorOS 会弹系统
+  安装器要求点「安装」，确认后安装成功（等待确认会超过工具默认 60 s 超时，但安装已完成）。
+  `am start` 后 `pidof`=29552，`am force-stop` 后 `pidof` 为空，`pm uninstall` 返回 `Success`
+  且宿主侧确认包已移除。
 - 发布（2026-11-20）：`v0.1.1` 已通过 `release.mjs` 发布到 GitHub Releases
   （asset digest `sha256:825d80dd…` 校验通过）；PHK110 上 0.1.0→0.1.1 覆盖升级实测通过
   （versionCode 2、内核/无障碍/39617 正常，数据保留）。

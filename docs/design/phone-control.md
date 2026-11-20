@@ -256,11 +256,22 @@ MCP `instructions` 在握手时按同一份状态生成（无障碍/截屏/高�
   `uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),… context=u:r:shell:s0`，
   退出码 0 —— 执行身份是 shell uid，不是 root。开关 2 未开启与 Shizuku 未运行的
   错误路径此前已在真机验证。
-- **写操作也已验证（2026-11-20，同一台 PHK110）**：一次 `android_shell` 调用内完成
+- **文件与系统设置写操作（2026-11-20）**：一次 `android_shell` 调用内完成
   `/sdcard/Download/nibi_probe` 的创建（3 字节，`-rw-rw----`，owner `u0_a241`）→ 读取
   （`ok`）→ 删除，以及 `settings put global nibi_probe 1` → `settings get`（`1`）→
   `settings delete`（`Deleted 1 rows`）→ 再读（`null`）。宿主侧复核：文件不存在、设置键为
-  `null`，无残留。仍未验证：`pm install/uninstall`、`am force-stop` 等应用管理写操作。
+  `null`，无残留。
+- **应用管理写操作也已验证（2026-11-20，同一台 PHK110）**：用自建 8.5 KB 测试 APK
+  `top.nibistudio.nibiprobe` 走完整链路：
+  - `pm install`：先 `cp /sdcard/Download/… /data/local/tmp/` 再 `pm install -r`（`/sdcard`
+    是 FUSE 挂载，`system_server` 读不到，直接装会报 `Failure [INSTALL_FAILED_INVALID_URI]`）。
+    ColorOS 会对 shell 发起的未知来源安装弹系统安装器要求点「安装」；确认后安装成功
+    （`am start` 能起、`pm list packages` 能查到）。注意：等待用户点确认的时间会超过
+    `android_shell` 默认 60 s 宿主超时，工具调用报超时但安装实际已完成；需要人工确认时
+    应把 `timeout_ms` 调大或改为后台执行 + 读日志。
+  - `am start` + `pidof`：进程存活（pid 29552）。
+  - `am force-stop`：`pidof` 由 29552 变为空，进程确实终止。
+  - `pm uninstall`：输出 `Success`、exit 0，宿主侧 `pm list packages` 确认包已移除。
 - `FLAG_SECURE`：已用自建测试 APK 验证。PHK110 的系统 `takeScreenshot` 对安全窗口
   不返回错误码，而是给一张除状态栏外全黑的图；已在 `PhoneActuator` 里检测近全黑画面
   并返回「安全页面不可截屏…」，不再把黑图交给模型。非安全页面截屏回归正常。
