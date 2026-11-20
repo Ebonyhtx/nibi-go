@@ -41,9 +41,9 @@ const APPEARANCE_MODES: readonly {
   title: string;
   detail: string;
 }[] = [
-  { mode: "system", icon: "question", tone: "plain", title: "跟随系统", detail: "与系统深浅色保持一致" },
-  { mode: "light", icon: "sun", tone: "amber", title: "浅色", detail: "纸面浅色主题" },
-  { mode: "dark", icon: "moon", tone: "steel", title: "墨夜深色", detail: "深色主题（深色下不用蓝）" },
+  { mode: "system", icon: "monitor", tone: "plain", title: "跟随系统", detail: "系统切深浅色时自动跟随" },
+  { mode: "light", icon: "sun", tone: "amber", title: "浅色", detail: "暖纸面，白天与户外更好读" },
+  { mode: "dark", icon: "moon", tone: "steel", title: "墨夜深色", detail: "中性炭底 + 奶油金，长会话不刺眼" },
 ];
 
 export default function SettingsHomeScreen() {

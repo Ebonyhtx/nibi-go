@@ -986,6 +986,7 @@ export default function GoHomeScreen() {
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`会话与权限模式：${permissionLabel}`}
+                  containerStyle={styles.chipFlex}
                   style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
                 >
                   <View style={styles.chipBody}>
@@ -1015,6 +1016,7 @@ export default function GoHomeScreen() {
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
+                  containerStyle={styles.modelChipFlex}
                   style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
                 >
                   <View style={styles.effortMeter}>
@@ -1739,6 +1741,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
+  // flex 约束必须落在按压原语的外层 Pressable 上（内层是视觉层，不参与父级 flex 分配）。
+  // 不许再给 minWidth：左组一旦超过分到的宽度就会压到模型 chip 上（两 chip 重叠）。
+  chipFlex: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   chip: {
     height: TOPBAR_H,
     flexDirection: "row",
@@ -1748,9 +1753,6 @@ const styles = StyleSheet.create({
     paddingRight: space(2),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
-    flexGrow: 1,
-    flexShrink: 1,
-    // 不许再给 minWidth：左组一旦超过分到的宽度就会压到模型 chip 上（两 chip 重叠）。
     // 宽度不够时先截标题（chipTitle 可收缩），权限名靠 chipStatus 不收缩保住。
     minWidth: 0,
   },
@@ -1759,13 +1761,12 @@ const styles = StyleSheet.create({
   chipTitle: { ...text("small"), fontSize: 13, fontWeight: "700", flexShrink: 1 },
   chipStatus: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
   chipSub: { ...text("micro"), fontSize: 10, flexShrink: 0 },
+  // 模型 chip 按内容定宽、不抢空间；剩余宽度全给会话 chip（标题可截，权限名不截）。
+  modelChipFlex: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   modelChip: {
     height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
-    // 模型 chip 按内容定宽、不抢空间；剩余宽度全给会话 chip（标题可截，权限名不截）。
-    flexGrow: 0,
-    flexShrink: 0,
     minWidth: 0,
     gap: 5,
     paddingHorizontal: space(3),
