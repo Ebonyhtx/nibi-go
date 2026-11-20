@@ -150,3 +150,5 @@ Released under the **Apache License 2.0**. Protocol contracts in
 [nibi-client](https://github.com/Ebonyhtx/nibi-client) (Apache-2.0, commit
 `ff1c5f4f`); upstream lineage (ZCode v3.16.2) and third-party notices are in
 [NOTICE.md](NOTICE.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+See [LICENSING.md](LICENSING.md) for the license map and
+[TRADEMARKS.md](TRADEMARKS.md) for names and marks.

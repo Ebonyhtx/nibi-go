@@ -569,7 +569,7 @@ mod tests {
         let secret = fallback_v1_secret("win32", Path::new("C:/Users/dev"), "dev");
         assert_eq!(
             secret,
-            "nibi-credential-fallback:win32:C:/Users/dev:ebony"
+            "nibi-credential-fallback:win32:C:/Users/dev:dev"
         );
     }
 }
