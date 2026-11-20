@@ -16,7 +16,10 @@ import path from "node:path";
 const ROOT = path.resolve(import.meta.dirname, "..");
 const APP_JSON = path.join(ROOT, "app", "app.json");
 const RELEASE_REPO = process.env.NIBI_RELEASE_REPO || "Ebonyhtx/nibi-go";
-const KEYSTORE = path.join(os.homedir(), ".nibi", "keystore", "release.p12");
+// 密钥库位置可用 NIBI_KEYSTORE_FILE 覆盖（与 app/android 的 gradle 配置同一变量名）；
+// 缺省仍是 keystore.mjs restore 落盘的标准位置。
+const KEYSTORE =
+  process.env.NIBI_KEYSTORE_FILE || path.join(os.homedir(), ".nibi", "keystore", "release.p12");
 const PASSFILE = path.join(os.homedir(), ".nibi", "keystore", "passphrase.txt");
 const APK = path.join(ROOT, "app", "android", "app", "build", "outputs", "apk", "release", "app-release.apk");
 
