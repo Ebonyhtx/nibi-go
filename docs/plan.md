@@ -141,7 +141,7 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   `scripts/market/sign-index.mjs`（Node crypto 签名，输出 `.sig`）。
 - 已生成 keyId `nibi-go-market-2026-11`（公钥已登记，fingerprint `09d17d31cb00b43c`）；
   私钥需运营者备份到私有运维仓。
-- 单测 29 项 + CLI 冒烟（签名 → 验签 true，改一字节 → false；node:crypto 与客户端 noble 互通）。
+- 单测 55 项 + CLI 冒烟（签名 → 验签 true，改一字节 → false；node:crypto 与客户端 noble 互通）。
 - 市场 UI 与安装器（2026-11-20）：`/market` 页（刷新/安装/更新/卸载、失败原因与 revision 展示）、
   `marketStore`（`filesDir/nibi-market.json` 快照，accept 才覆盖）、`installer`
   （下载 → sha256 → 解包路径校验 → 清单 id/version 校验 → staging 原子替换）、
@@ -174,6 +174,15 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   最高 revision（镜像落后不会卡住新装设备），同 revision 不同字节判冲突。
 - CDN 自动镜像已部署（服务端 cron，每 10 分钟；拉取市场仓 → 验签/摘要/revision 校验 →
   只传变化文件；GitHub 不存服务端凭据）。手工补跑仍可用 `scripts/market/mirror-cdn.mjs`。
+- 提交流程：`packages/market-index/src/submission.ts`（提交 schema + 合并规则：版本前进、
+  同版本摘要不可变、包地址固定）与 `pnpm market:publish`（校验包摘要 → revision+1 → 签名 →
+  回读验签）；市场仓新增 `submissions/` 与 CI `check-submissions.mjs`（摘要/清单/许可/
+  contact/caps/paid）。临时仓实测 dry-run、正式发布与幂等重跑。
+- 撤回（下架）机制：`packages/market-index/src/yank.ts` + `pnpm market:yank`，索引移除
+  （revision+1）并追加公开记录 `yanked.json`（id/版本/理由/时间/revision）；市场仓
+  `check-yanks.mjs` 校验形状、重复撤回、revision 递增与「索引里不得仍有被撤回版本」；
+  客户端市场页把本地已装但已下架的插件单列「已下架」（只提供卸载）。临时仓实跑与三种
+  负例（仍含被撤回版本/重复撤回/revision 不递增）均验证。
 - 下一步：登录后授权链路复验（换证/撤销/宽限期）；镜像新鲜度告警接入心跳；下载重试/
   断点续传（可选）。
   设计见 `docs/design/market-index.md`。

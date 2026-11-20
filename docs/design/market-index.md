@@ -119,6 +119,9 @@
 pnpm market:publish ../nibi-go-market ../nibi-go-market/submissions/<id>-<version>.json
 #    也可以手工改 index.json 后单独签名：
 #    node scripts/market/sign-index.mjs ../nibi-go-market/index.json
+# 2b) 撤回（下架）：从索引移除条目并追加公开记录 yanked.json
+pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因"
+#    可选 --version <版本>（与索引不一致会拒绝）、--dry-run、--key <keyId>
 # 3) 把 index.json 与 index.json.sig 一起提交（包 zip 放 packages/）并 push
 # 4) 镜像到 CDN：主线是服务器上的定时任务（每 10 分钟拉取市场仓 main → 验签/校验 →
 #    只上传变化文件；失败保留上一份成功状态）。下面是手工补跑用的脚本（不写死主机/桶/密钥）：
@@ -133,10 +136,12 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 
 ## 7. 已验证
 
-- 单测 29 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
+- 单测 55 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
   坏 schema（带路径）、http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、
   插件版本不变量、刷新判决（accept/unchanged/fetch/verify/rollback/pins）、
-  `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥。
+  `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥；
+  提交合并（版本前进/同版本摘要不可变/包地址约定）与撤回记录（移除/版本不一致拒绝/
+  重复撤回/revision 递增/更高版本回归）。
 - license 单测 12 项（`packages/plugin-license`）：JWS 验签、payload 篡改、未知 kid、
   错误 iss、claims 形状、覆盖范围/通配、过期、设备不匹配、无凭证、坏凭证。
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
@@ -144,6 +149,10 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
   `openssl pkeyutl` 验签 + 包 sha256/大小 + revision/版本不变量，只上传变化的文件；
   先包后索引，状态文件原子更新。实测：首次全量上传、第二次「已是最新」、cron 连续两分钟
   成功执行；把状态 revision 人为调高后运行被「revision 倒退」拒绝（未覆盖索引）。
+- **撤回工具（2026-11-20 实跑）**：在临时市场仓副本执行 `pnpm market:yank`，revision 5 → 6，
+  条目移除、签名回读验签通过、`yanked.json` 追加记录；市场仓 `check-yanks.mjs` 对
+  「索引仍含被撤回版本」「重复撤回」「revision 不递增」三种夹具均报红，正常记录通过；
+  对已移除的 id 再次撤回被拒绝。
 - **真机（PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建）**：
   - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
   - 安装 `nibi.market.hello` 0.1.0：下载 → sha256 校验 → 解包 → 清单 id/version 校验 →
@@ -200,7 +209,11 @@ MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*' NIBI_MARKET_SSH=<ssh-alias> NIBI
 - 插件作者向市场仓提 PR：`packages/<id>-<version>.zip` + `submissions/<id>-<version>.json`；
   **不修改** `index.json`（签名由维护者在本机完成）。
 - CI 门禁：提交字段/包摘要/包内清单一致性/许可与联系信息/已知 caps/泄露白名单；
-  索引本身的签名、schema、包摘要、revision 单调与同版本摘要不可变也每次校验。
+  索引本身的签名、schema、包摘要、revision 单调与同版本摘要不可变也每次校验；
+  撤回记录 `yanked.json` 的形状、重复撤回、revision 递增与「索引里不得仍有被撤回版本」同样校验。
+- 撤回是公开、追加式的：`yanked.json` 记录 id、版本、理由、时间与生效 revision；撤回后同一
+  id 只能以更高版本回归。客户端市场页把本地已装但已从索引消失的插件单列为「已下架」，
+  只提供卸载——已安装副本不会被远程删除。
 - 人工审查清单见市场仓 `CONTRIBUTING.md`（许可、隐私、权限面、包内容、可维护性）；
   通过后维护者更新并签名索引，服务器定时任务再把变更镜像到 CDN。
 

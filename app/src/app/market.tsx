@@ -244,6 +244,13 @@ export default function MarketScreen() {
     setMessage(removed ? `${entry.name} 已卸载` : "没有可卸载的目录");
   }
 
+  // 本地已装、但已不在索引里的插件（被市场撤回）；只允许卸载，不提供更新。
+  async function uninstallDelisted(dir: string, name: string) {
+    const removed = await uninstallMarketPlugin(dir);
+    await plugins.reload();
+    setMessage(removed ? `${name} 已卸载` : "没有可卸载的目录");
+  }
+
   async function doSync() {
     if (syncing) return;
     setSyncing(true);
@@ -270,6 +277,12 @@ export default function MarketScreen() {
   }
 
   const entries = snapshot?.index.plugins ?? [];
+  const delisted = snapshot
+    ? plugins.plugins.filter(
+        (plugin) =>
+          !plugin.bundled && !entries.some((entry) => entry.id === plugin.parsed.manifest.id),
+      )
+    : [];
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
@@ -393,6 +406,46 @@ export default function MarketScreen() {
             revision {snapshot.state.revision} · 拉取于 {snapshot.fetchedAt}
           </Text>
         ) : null}
+
+        {delisted.length > 0 ? (
+          <View style={styles.delisted}>
+            <Text style={[styles.sectionTitle, { color: t.inkSub }]}>已下架</Text>
+            <Text style={[styles.hint, { color: t.inkFaint }]}>
+              这些插件还装在本地，但已从市场索引撤回：不会再收到更新，也可能不再安全。
+              本地副本不会被远程删除，需要时在这里卸载。
+            </Text>
+            {delisted.map((plugin) => (
+              <View
+                key={plugin.dir}
+                style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
+              >
+                <View style={styles.cardHead}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.name, { color: t.ink }]}>{plugin.parsed.manifest.name}</Text>
+                    <Text style={[styles.meta, { color: t.inkFaint }]}>
+                      {plugin.parsed.manifest.id} · v{plugin.parsed.manifest.version}
+                    </Text>
+                  </View>
+                  <View style={[styles.badge, { backgroundColor: t.amberSoft }]}>
+                    <Text style={[styles.badgeText, { color: t.amber }]}>已下架</Text>
+                  </View>
+                </View>
+                <View style={styles.actions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`卸载 ${plugin.parsed.manifest.name}`}
+                    onPress={() =>
+                      void uninstallDelisted(plugin.dir, plugin.parsed.manifest.name)
+                    }
+                    style={[styles.secondary, { borderColor: t.hairline }]}
+                  >
+                    <Text style={[styles.secondaryText, { color: t.red }]}>卸载</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -473,4 +526,6 @@ const styles = StyleSheet.create({
   },
   secondaryText: { fontSize: 12.5, fontWeight: "700" },
   footnote: { fontSize: 10.5, marginTop: space(2) },
+  delisted: { gap: space(2), marginTop: space(3) },
+  sectionTitle: { fontSize: 12.5, fontWeight: "700" },
 });
