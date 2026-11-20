@@ -74,7 +74,7 @@ GO 走**自有内核（fork）+ 自有 Android 原生用户态 + 声明式 UI �
 ```
 nativeLibraryDir/arm64/           # 只能扁平 lib*.so；可 exec（Android 36 已验证）
   libbash.so  libbusybox.so  libgit.so
-  libjq.so    libzip.so
+  libjq.so    libzip.so      libcurl.so  librg.so
   libnode.so  libpython.so
   libnibi_run.so                  # 兼容执行器（关键）
   libnibi_hook.so                 # git hook dispatcher

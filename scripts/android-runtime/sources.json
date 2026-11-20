@@ -83,7 +83,7 @@
       ],
       "sha256": "40c8cddbcb6cc6251c03dea423a472a6cea4037be654ba5cf5dec6eb2d22ff1d",
       "license": "curl",
-      "role": "git http/https 传输（静态进 git-remote-http）"
+      "role": "git http/https 传输（静态进 remote helper）+ curl CLI（NIBI_BIN/curl）"
     },
     {
       "name": "git",
@@ -116,6 +116,16 @@
       "sha256": "f0e8bb1f9b7eb0b01285495a2699df3a4b766784c1765a8f1aeedf63c0806369",
       "license": "Info-ZIP",
       "role": "创建 zip 包（zip；NIBI_BIN/zip）"
+    },
+    {
+      "name": "ripgrep",
+      "version": "15.2.0",
+      "archive": "ripgrep-15.2.0.crate",
+      "url": "https://static.crates.io/crates/ripgrep/ripgrep-15.2.0.crate",
+      "mirrors": [],
+      "sha256": "a30750b6d0743bfdd2656ebbaf4555aa278c43144b84bc389bcbfa399485ec71",
+      "license": "MIT",
+      "role": "快速递归代码搜索（rg；NIBI_BIN/rg，Rust 交叉编译）"
     }
   ],
   "caBundle": {

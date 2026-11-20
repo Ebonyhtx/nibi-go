@@ -1,7 +1,7 @@
 name: Android runtime
 
-# D25 Phase 2：随包 bash/busybox/git 的 bionic 构建与校验。
-# 与 `Android kernel` 分开：运行时只用 NDK + autotools，不编译 Rust。
+# D25 Phase 2：随包 bash/busybox/git/jq/zip/rg/curl 的 bionic 构建与校验。
+# 与 `Android kernel` 分开：运行时主要用 NDK + autotools，ripgrep 需 cargo 交叉编译。
 on:
   push:
     paths:
@@ -39,6 +39,11 @@ jobs:
             unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
           fi
           echo "NDK=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Install Rust (ripgrep cross target)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android
 
       - name: Unit tests (pure helpers)
         run: node --test scripts/android-runtime/lib.test.mjs
