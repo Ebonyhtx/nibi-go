@@ -43,15 +43,25 @@ function parseSnapshot(text: string): MarketSnapshotFile | null {
   }
 }
 
-/** 读本地快照；没有或坏掉都返回 null（坏文件不影响下一次刷新）。 */
-export async function loadMarketSnapshot(): Promise<MarketSnapshotFile | null> {
+/** 读本地快照，并区分“没有”与“坏掉”（坏文件不影响下一次刷新）。 */
+export async function readMarketSnapshot(): Promise<{
+  snapshot: MarketSnapshotFile | null;
+  corrupt: boolean;
+}> {
   const file = snapshotFile();
-  if (!file.exists) return null;
+  if (!file.exists) return { snapshot: null, corrupt: false };
   try {
-    return parseSnapshot(await file.text());
+    const text = await file.text();
+    const snapshot = parseSnapshot(text);
+    return { snapshot, corrupt: snapshot === null };
   } catch {
-    return null;
+    return { snapshot: null, corrupt: true };
   }
+}
+
+/** 读本地快照；没有或坏掉都返回 null。 */
+export async function loadMarketSnapshot(): Promise<MarketSnapshotFile | null> {
+  return (await readMarketSnapshot()).snapshot;
 }
 
 async function writeSnapshot(snapshot: MarketSnapshotFile): Promise<void> {

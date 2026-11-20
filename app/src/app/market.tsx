@@ -4,7 +4,7 @@
 // 安装前校验包 sha256，解包后校验清单 id/version 与索引一致。
 
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -12,7 +12,7 @@ import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-i
 
 import { Icon } from "../components/Icon";
 import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
-import { loadMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
+import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
 import { ensureLicenseLoaded, licenseSummary, pluginLicenseDecision } from "../plugins/license";
 import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
@@ -46,6 +46,7 @@ function MarketRow({
   paidDecision,
   onInstall,
   onUninstall,
+  onCancel,
 }: {
   entry: MarketPluginEntry;
   installedVersion: string | null;
@@ -53,6 +54,7 @@ function MarketRow({
   paidDecision: { allowed: boolean; reason: string } | null;
   onInstall: () => void;
   onUninstall: () => void;
+  onCancel: () => void;
 }) {
   const t = useNibiTheme();
   const hasUpdate =
@@ -108,7 +110,17 @@ function MarketRow({
             <Text style={[styles.primaryText, { color: t.brandFg }]}>{action}</Text>
           )}
         </Pressable>
-        {installedVersion !== null ? (
+        {busy ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`取消安装 ${entry.name}`}
+            onPress={onCancel}
+            style={[styles.secondary, { borderColor: t.hairline }]}
+          >
+            <Text style={[styles.secondaryText, { color: t.inkSub }]}>取消</Text>
+          </Pressable>
+        ) : null}
+        {installedVersion !== null && !busy ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`卸载 ${entry.name}`}
@@ -135,6 +147,8 @@ export default function MarketScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [versions, setVersions] = useState<Record<string, string | null>>({});
   const [license, setLicense] = useState(licenseSummary());
+  const [corruptSnapshot, setCorruptSnapshot] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const readVersions = useCallback((entries: MarketPluginEntry[]) => {
     const next: Record<string, string | null> = {};
@@ -145,7 +159,8 @@ export default function MarketScreen() {
   const loadLocal = useCallback(async () => {
     await ensureLicenseLoaded();
     setLicense(licenseSummary());
-    const local = await loadMarketSnapshot();
+    const { snapshot: local, corrupt } = await readMarketSnapshot();
+    setCorruptSnapshot(corrupt);
     setSnapshot(local);
     if (local) readVersions(local.index.plugins);
     setLoading(false);
@@ -191,10 +206,12 @@ export default function MarketScreen() {
 
   async function install(entry: MarketPluginEntry) {
     if (busyId) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusyId(entry.id);
-    setMessage(null);
+    setMessage(`正在下载并校验 ${entry.name} v${entry.version}…`);
     try {
-      const outcome = await installMarketPlugin(entry);
+      const outcome = await installMarketPlugin(entry, { signal: controller.signal });
       if (!outcome.ok) {
         setMessage(`${entry.name} 安装失败：${outcome.reason}`);
         return;
@@ -203,8 +220,13 @@ export default function MarketScreen() {
       await plugins.reload();
       setMessage(`${entry.name} v${outcome.manifest.version} 已安装`);
     } finally {
+      abortRef.current = null;
       setBusyId(null);
     }
+  }
+
+  function cancelInstall() {
+    abortRef.current?.abort();
   }
 
   async function uninstall(entry: MarketPluginEntry) {
@@ -256,6 +278,14 @@ export default function MarketScreen() {
             : `付费授权：${license.reason}`}
         </Text>
 
+        {corruptSnapshot ? (
+          <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
+            <Text style={[styles.messageText, { color: t.amber }]}>
+              本地市场快照损坏，已忽略；刷新会重新建立快照。
+            </Text>
+          </View>
+        ) : null}
+
         {message ? (
           <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
             <Text style={[styles.messageText, { color: t.inkSub }]}>{message}</Text>
@@ -284,6 +314,7 @@ export default function MarketScreen() {
               paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
               onInstall={() => void install(entry)}
               onUninstall={() => void uninstall(entry)}
+              onCancel={cancelInstall}
             />
           ))
         )}
