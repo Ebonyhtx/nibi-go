@@ -23,6 +23,13 @@ export const submissionSchema = z.object({
   homepage: z.string().max(2048).optional(),
   source: z.string().max(2048).optional(),
   contact: z.string().min(1).max(200),
+  /** 插件 id 的归属人；市场 CI 要求它等于 PR 作者，且 source 仓库属于同一账号。 */
+  publisher: z
+    .object({
+      name: z.string().min(1).max(64),
+      github: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u),
+    })
+    .optional(),
   caps: z.array(z.string().max(32)).max(16),
   runtime: z.enum(["node", "declarative"]).optional(),
   /** 付费条目不走公开提交流程。 */
@@ -67,6 +74,15 @@ export function applySubmission(
     return { ok: false, reason: `package.file 必须是 ${expectedFile}` };
   }
   const existing = index.plugins.find((plugin) => plugin.id === submission.id);
+  if (
+    existing?.publisherGithub &&
+    submission.publisher?.github?.toLowerCase() !== existing.publisherGithub.toLowerCase()
+  ) {
+    return {
+      ok: false,
+      reason: `插件 id ${submission.id} 归 @${existing.publisherGithub} 所有，不能由其他账号更新`,
+    };
+  }
   if (existing) {
     const cmp = compareVersions(submission.version, existing.version);
     if (cmp < 0) {
@@ -80,6 +96,8 @@ export function applySubmission(
     }
   }
 
+  const publisherName = submission.publisher?.name ?? existing?.publisher;
+  const publisherGithub = submission.publisher?.github ?? existing?.publisherGithub;
   const entry: MarketPluginEntry = {
     id: submission.id,
     name: submission.name,
@@ -88,6 +106,8 @@ export function applySubmission(
     caps: submission.caps,
     ...(submission.runtime ? { runtime: submission.runtime } : {}),
     license: submission.license,
+    ...(publisherName ? { publisher: publisherName } : {}),
+    ...(publisherGithub ? { publisherGithub } : {}),
     package: {
       url: `${MARKET_RAW_PREFIX}${expectedFile}`,
       sha256: submission.package.sha256,

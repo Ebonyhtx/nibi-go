@@ -39,6 +39,8 @@ export const marketPluginSchema = z.object({
   runtime: z.enum(["node", "declarative"]).optional(),
   package: packageSchema,
   publisher: z.string().max(64).optional(),
+  /** 发布者的 GitHub 登录名；首次上架时绑定，后续同 id 更新必须同一账号。 */
+  publisherGithub: z.string().max(39).optional(),
   license: z.string().max(64).optional(),
   /** 付费占位：本阶段只透传，不做门禁。 */
   paid: z.object({ priceId: z.string().max(64) }).optional(),

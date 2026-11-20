@@ -12,6 +12,7 @@ export default function DevicesScreen() {
   const { session, snapshot } = useSession();
   const [devices, setDevices] = useState<WebRemoteControlRelayV2Device[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -33,12 +34,36 @@ export default function DevicesScreen() {
     void load();
   }, [load]);
 
+  async function login() {
+    if (loggingIn) return;
+    setLoggingIn(true);
+    setLoadError(null);
+    try {
+      await session.login();
+      const current = session.getSnapshot();
+      if (!current.loggedIn) {
+        setLoadError(current.error?.message ?? "登录没有完成，请重试");
+        return;
+      }
+      await load();
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
   if (!snapshot.loggedIn) {
     return (
       <View style={styles.center}>
-        <Text style={styles.empty}>请先在 NIBI-WORK 屏登录账号。</Text>
-        <Pressable style={styles.button} onPress={() => router.back()}>
-          <Text style={styles.buttonText}>返回</Text>
+        <Text style={styles.empty}>登录 NIBI 账号后即可查看并连接你的电脑。</Text>
+        <Text style={styles.hint}>
+          手机远控的网页登录与这里的账号登录是两套；在这里登录一次，GO 的配对、设备列表和插件授权都会用它。
+        </Text>
+        {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
+        <Pressable style={styles.button} onPress={() => void login()} disabled={loggingIn}>
+          <Text style={styles.buttonText}>{loggingIn ? "正在登录…" : "登录 NIBI 账号"}</Text>
+        </Pressable>
+        <Pressable style={styles.back} onPress={() => router.back()}>
+          <Text style={styles.linkText}>返回</Text>
         </Pressable>
       </View>
     );
@@ -121,6 +146,7 @@ const styles = StyleSheet.create({
   arrow: { fontSize: 18, color: "#888" },
   error: { fontSize: 13, color: "#c0392b", textAlign: "center", padding: 8 },
   empty: { fontSize: 13, color: "#888", textAlign: "center", paddingVertical: 16 },
+  hint: { fontSize: 12, lineHeight: 18, color: "#888", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   button: { padding: 14, borderRadius: 12, backgroundColor: "#e8f0fe" },
   buttonText: { fontSize: 15, fontWeight: "600" },

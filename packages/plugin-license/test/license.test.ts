@@ -133,6 +133,40 @@ describe("evaluatePluginLicense", () => {
     });
   });
 
+  it("超过 72h 但在 7 天宽限内：grace 仍放行", () => {
+    const decision = evaluatePluginLicense({
+      ...base,
+      token: sign(claims({ exp: Math.floor(NOW / 1000) + 30 * 24 * 60 * 60 }), seed),
+      lastCheckAt: new Date(NOW - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    expect(decision).toMatchObject({ status: "grace", allowed: true });
+    expect(decision.reason).toContain("宽限");
+  });
+
+  it("超过 7 天宽限：expired 拒绝", () => {
+    const decision = evaluatePluginLicense({
+      ...base,
+      token: sign(claims({ exp: Math.floor(NOW / 1000) + 30 * 24 * 60 * 60 }), seed),
+      lastCheckAt: new Date(NOW - 8 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    expect(decision).toMatchObject({ status: "expired", allowed: false });
+    expect(decision.reason).toContain("宽限期");
+  });
+
+  it("凭证账号与当前登录账号不一致：account_mismatch", () => {
+    const decision = evaluatePluginLicense({
+      ...base,
+      token: sign(claims({ sub: "user-1" }), seed),
+      accountId: "user-2",
+    });
+    expect(decision).toMatchObject({ status: "account_mismatch", allowed: false });
+  });
+
+  it("没有上次检查时间时不做宽限判定（旧快照兼容）", () => {
+    const decision = evaluatePluginLicense({ ...base, token: sign(claims(), seed) });
+    expect(decision).toMatchObject({ status: "active", allowed: true });
+  });
+
   it("没有凭证返回 not_activated", () => {
     expect(evaluatePluginLicense({ ...base, token: null })).toMatchObject({
       status: "not_activated",

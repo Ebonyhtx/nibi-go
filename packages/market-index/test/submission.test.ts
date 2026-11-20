@@ -20,6 +20,7 @@ function submission(overrides: Partial<PluginSubmission> = {}): PluginSubmission
     description: "演示插件",
     license: "MIT",
     contact: "mailto:dev@example.com",
+    publisher: { name: "Demo Author", github: "demo-author" },
     caps: ["mcp.v1"],
     runtime: "node",
     package: { file: packageFileFor("com.example.demo", "1.0.0"), sha256: SHA, size: 1234 },
@@ -67,6 +68,8 @@ describe("applySubmission", () => {
       `${MARKET_RAW_PREFIX}packages/com.example.demo-1.0.0.zip`,
     );
     expect(result.entry.license).toBe("MIT");
+    expect(result.entry.publisher).toBe("Demo Author");
+    expect(result.entry.publisherGithub).toBe("demo-author");
     expect(result.index.plugins).toHaveLength(1);
   });
 
@@ -89,7 +92,13 @@ describe("applySubmission", () => {
   });
 
   it("版本倒退被拒绝", () => {
-    const first = applySubmission(emptyIndex(), submission({ version: "1.2.0" }));
+    const first = applySubmission(
+      emptyIndex(),
+      submission({
+        version: "1.2.0",
+        publisher: { name: "Demo Author", github: "demo-author" },
+      }),
+    );
     if (!first.ok) return;
     const older = submission({
       version: "1.1.0",

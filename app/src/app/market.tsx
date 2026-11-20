@@ -5,7 +5,15 @@
 
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-index";
@@ -13,10 +21,18 @@ import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-i
 import { Icon } from "../components/Icon";
 import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
 import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
-import { ensureLicenseLoaded, licenseSummary, pluginLicenseDecision } from "../plugins/license";
+import {
+  currentLicenseToken,
+  ensureLicenseLoaded,
+  licenseNeedsSync,
+  licenseSnapshot,
+  licenseSummary,
+  pluginLicenseDecision,
+} from "../plugins/license";
 import { syncLicense } from "../plugins/licenseSync";
 import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
+import { useSession } from "../relay/useSession";
 import { radius, space, type as typeScale, useNibiTheme } from "../theme";
 
 function formatSize(bytes: number): string {
@@ -40,11 +56,38 @@ function describeFailure(kind: string, detail: string): string {
   }
 }
 
+/** 服务端拒绝原因 → 用户能执行下一步的中文；登录态与会员是两件事，不能混成“需会员”。 */
+function describeLicenseRefusal(reason: string | null, detail?: string | null): string {
+  switch (reason) {
+    case "no_membership":
+      return "账号已登录，但这个账号还没有开通 NIBI 会员；付费插件需要会员授权。";
+    case "membership_expired":
+      return "NIBI 会员已到期，续费后同步即可。";
+    case "device_limit":
+      return detail ?? "这个账号绑定的设备数已达上限，请先在用户中心移除不用的设备。";
+    case "device_mismatch":
+      return "本机授权与设备不匹配，请重新登录并同步授权。";
+    case "account_mismatch":
+      return "本机授权属于另一个 NIBI 账号，请重新登录并同步授权。";
+    case "activation_revoked":
+      return "这台设备的激活已被撤销，请重新登录或联系支持。";
+    case "not_entitled":
+      return "当前会员不包含这个插件。";
+    case "http_401":
+      return "登录已过期，请重新登录。";
+    default:
+      return detail ?? (reason ? `服务端拒绝：${reason}` : "本机还没有同步付费授权");
+  }
+}
+
 function MarketRow({
   entry,
   installedVersion,
   busy,
   paidDecision,
+  blockedReason,
+  accessLabel,
+  onResolveAccess,
   onInstall,
   onUninstall,
   onCancel,
@@ -53,6 +96,9 @@ function MarketRow({
   installedVersion: string | null;
   busy: boolean;
   paidDecision: { allowed: boolean; reason: string } | null;
+  blockedReason?: string;
+  accessLabel: string;
+  onResolveAccess: () => void;
   onInstall: () => void;
   onUninstall: () => void;
   onCancel: () => void;
@@ -61,7 +107,7 @@ function MarketRow({
   const hasUpdate =
     installedVersion !== null && comparePluginVersions(entry.version, installedVersion) > 0;
   const blocked = paidDecision !== null && !paidDecision.allowed;
-  const action = blocked ? "需会员" : installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
+  const action = blocked ? accessLabel : installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
       <View style={styles.cardHead}>
@@ -94,16 +140,18 @@ function MarketRow({
         <Text style={[styles.description, { color: t.inkSub }]}>{entry.description}</Text>
       ) : null}
       {blocked ? (
-        <Text style={[styles.description, { color: t.amber }]}>{paidDecision?.reason}</Text>
+        <Text style={[styles.description, { color: t.amber }]}>
+          {blockedReason ?? paidDecision?.reason}
+        </Text>
       ) : null}
 
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${action} ${entry.name}`}
-          disabled={busy || blocked}
-          onPress={onInstall}
-          style={[styles.primary, { backgroundColor: t.brand, opacity: busy || blocked ? 0.5 : 1 }]}
+          disabled={busy}
+          onPress={blocked ? onResolveAccess : onInstall}
+          style={[styles.primary, { backgroundColor: t.brand, opacity: busy ? 0.5 : 1 }]}
         >
           {busy ? (
             <ActivityIndicator color={t.brandFg} />
@@ -141,6 +189,7 @@ export default function MarketScreen() {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
   const plugins = usePlugins();
+  const { session, snapshot: sessionSnapshot } = useSession();
   const [snapshot, setSnapshot] = useState<MarketSnapshotFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -148,10 +197,16 @@ export default function MarketScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [versions, setVersions] = useState<Record<string, string | null>>({});
   const [license, setLicense] = useState(licenseSummary());
+  const [refusal, setRefusal] = useState<string | null>(licenseSnapshot().lastRefusal);
+  const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
+  const [hasLicenseToken, setHasLicenseToken] = useState(currentLicenseToken() !== null);
   const [corruptSnapshot, setCorruptSnapshot] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const syncingRef = useRef(false);
+  const autoSyncAt = useRef(0);
 
   const readVersions = useCallback((entries: MarketPluginEntry[]) => {
     const next: Record<string, string | null> = {};
@@ -162,6 +217,8 @@ export default function MarketScreen() {
   const loadLocal = useCallback(async () => {
     await ensureLicenseLoaded();
     setLicense(licenseSummary());
+    setRefusal(licenseSnapshot().lastRefusal);
+    setHasLicenseToken(currentLicenseToken() !== null);
     const { snapshot: local, corrupt } = await readMarketSnapshot();
     setCorruptSnapshot(corrupt);
     setSnapshot(local);
@@ -170,17 +227,47 @@ export default function MarketScreen() {
     return local;
   }, [readVersions]);
 
+  /**
+   * 进入市场时静默换证：原生已登录或本机已有 license 才发请求；10 分钟节流，
+   * 先用本地快照渲染，失败不打断浏览（与桌面启动检查同口径）。
+   */
+  const autoSync = useCallback(async () => {
+    if (syncingRef.current) return;
+    if (!sessionSnapshot.loggedIn && !currentLicenseToken()) return;
+    if (!licenseNeedsSync()) return;
+    if (Date.now() - autoSyncAt.current < 60_000) return;
+    autoSyncAt.current = Date.now();
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      const outcome = await syncLicense();
+      setLicense(licenseSummary());
+      setRefusal(licenseSnapshot().lastRefusal);
+      setHasLicenseToken(currentLicenseToken() !== null);
+      if (outcome.ok) {
+        setUpgradeUrl(outcome.authorized ? null : (outcome.upgradeUrl ?? null));
+      }
+    } catch {
+      // 自动检查失败保留上一次结果；用户可手动点「同步」重试。
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }, [sessionSnapshot.loggedIn]);
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       void loadLocal().then((local) => {
-        if (alive && local === null) void doRefresh(true);
+        if (!alive) return;
+        if (local === null) void doRefresh(true);
+        void autoSync();
       });
       return () => {
         alive = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loadLocal]),
+    }, [loadLocal, autoSync]),
   );
 
   async function doRefresh(quiet = false) {
@@ -252,28 +339,75 @@ export default function MarketScreen() {
   }
 
   async function doSync() {
-    if (syncing) return;
+    if (syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
     setMessage(null);
     try {
       const outcome = await syncLicense();
       setLicense(licenseSummary());
+      setRefusal(licenseSnapshot().lastRefusal);
+      setHasLicenseToken(currentLicenseToken() !== null);
       if (outcome.ok) {
-        setMessage(
-          outcome.authorized
-            ? `授权已同步${outcome.plan ? `（${outcome.plan}）` : ""}`
-            : `服务端拒绝：${outcome.reason ?? "未授权"}`,
-        );
+        if (outcome.authorized) {
+          setUpgradeUrl(null);
+          setMessage(`授权已同步${outcome.plan ? `（${outcome.plan}）` : ""}`);
+        } else {
+          setUpgradeUrl(outcome.upgradeUrl ?? null);
+          setMessage(describeLicenseRefusal(outcome.reason, outcome.detail));
+        }
       } else {
         setMessage(
           outcome.kind === "login-required"
-            ? "同步需要登录 NIBI 账号（在「连桌面」页登录后重试）"
+            ? "还没有登录 NIBI 账号。登录后会自动同步本机授权。"
             : `同步失败：${outcome.detail}`,
         );
       }
     } finally {
+      syncingRef.current = false;
       setSyncing(false);
     }
+  }
+
+  /** 原生账号登录（与 WORK 网页会话是两套；登录成功立刻换证）。 */
+  async function doLogin() {
+    if (loggingIn) return;
+    setLoggingIn(true);
+    setMessage(null);
+    try {
+      await session.login();
+      const current = session.getSnapshot();
+      if (!current.loggedIn) {
+        setMessage(current.error?.message ?? "登录没有完成，请重试");
+        return;
+      }
+      await doSync();
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  /**
+   * 付费行的主按钮：未登录 → 登录；服务端明确说没会员/已到期且有购买页 → 打开购买页；
+   * 其余情况 → 同步。安装本身仍由 installer 的 fail-closed 门禁兜底。
+   */
+  async function resolveAccess() {
+    if (!sessionSnapshot.loggedIn) {
+      await doLogin();
+      return;
+    }
+    if (
+      (refusal === "no_membership" || refusal === "membership_expired") &&
+      upgradeUrl
+    ) {
+      try {
+        await Linking.openURL(upgradeUrl);
+      } catch {
+        setMessage("无法打开会员页面，请手动打开官网后重试。");
+      }
+      return;
+    }
+    await doSync();
   }
 
   const entries = snapshot?.index.plugins ?? [];
@@ -283,6 +417,28 @@ export default function MarketScreen() {
           !plugin.bundled && !entries.some((entry) => entry.id === plugin.parsed.manifest.id),
       )
     : [];
+
+  const accountText = sessionSnapshot.loggedIn
+    ? `已登录${sessionSnapshot.displayName ? `：${sessionSnapshot.displayName}` : ""}`
+    : "未登录 NIBI 账号";
+  const licenseText = license.activated
+    ? `付费授权${license.grace ? "处于离线宽限期" : "已激活"}${
+        license.plan ? `（${license.plan}）` : ""
+      }${license.expiresAt ? `，至 ${license.expiresAt.slice(0, 10)}` : ""}`
+    : `付费授权：${license.reason}`;
+  const blockedReason = !hasLicenseToken
+    ? sessionSnapshot.loggedIn
+      ? "已登录，本机授权尚未同步。"
+      : "未登录 NIBI 账号，本机还没有付费授权。手机远控的网页登录只用于远控，不会自动给这台手机发授权。"
+    : refusal
+      ? describeLicenseRefusal(refusal)
+      : undefined;
+  const accessLabel =
+    !sessionSnapshot.loggedIn
+      ? "登录账号"
+      : (refusal === "no_membership" || refusal === "membership_expired") && upgradeUrl
+        ? "开通会员"
+        : "同步授权";
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg, paddingTop: insets.top }]}>
@@ -318,27 +474,38 @@ export default function MarketScreen() {
         <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
           {MARKET_INDEX_URL}
         </Text>
-        <View style={styles.licenseRow}>
-          <Text style={[styles.hint, { flex: 1, color: license.activated ? t.inkFaint : t.amber }]}>
-            {license.activated
-              ? `付费授权已激活${license.plan ? `（${license.plan}）` : ""}${
-                  license.expiresAt ? `，至 ${license.expiresAt.slice(0, 10)}` : ""
-                }`
-              : `付费授权：${license.reason}`}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="同步付费授权"
-            disabled={syncing}
-            onPress={() => void doSync()}
-            style={[styles.syncButton, { backgroundColor: t.panel, opacity: syncing ? 0.6 : 1 }]}
-          >
-            {syncing ? (
-              <ActivityIndicator color={t.brand} />
-            ) : (
-              <Text style={[styles.syncText, { color: t.inkSub }]}>同步</Text>
-            )}
-          </Pressable>
+        <View style={[styles.accountCard, { backgroundColor: t.card, borderColor: t.hairline }]}>
+          <View style={styles.licenseRow}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.accountName, { color: t.ink }]}>{accountText}</Text>
+              <Text style={[styles.hint, { color: license.activated ? t.inkFaint : t.amber }]}>
+                {licenseText}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={sessionSnapshot.loggedIn ? "同步付费授权" : "登录 NIBI 账号"}
+              disabled={syncing || loggingIn}
+              onPress={() => void (sessionSnapshot.loggedIn ? doSync() : doLogin())}
+              style={[
+                styles.syncButton,
+                { backgroundColor: t.panel, opacity: syncing || loggingIn ? 0.6 : 1 },
+              ]}
+            >
+              {syncing || loggingIn ? (
+                <ActivityIndicator color={t.brand} />
+              ) : (
+                <Text style={[styles.syncText, { color: t.inkSub }]}>
+                  {sessionSnapshot.loggedIn ? "同步" : "登录"}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+          {!sessionSnapshot.loggedIn ? (
+            <Text style={[styles.hint, { color: t.inkGhost }]}>
+              手机远控的登录是网页会话；付费插件授权按本机设备签发，需要在 NIBI-GO 内登录账号并同步一次。
+            </Text>
+          ) : null}
         </View>
 
         {corruptSnapshot ? (
@@ -394,6 +561,9 @@ export default function MarketScreen() {
               installedVersion={versions[entry.id] ?? null}
               busy={busyId === entry.id}
               paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
+              blockedReason={blockedReason}
+              accessLabel={accessLabel}
+              onResolveAccess={() => void resolveAccess()}
               onInstall={() => void install(entry)}
               onUninstall={() => void uninstall(entry)}
               onCancel={cancelInstall}
@@ -470,6 +640,13 @@ const styles = StyleSheet.create({
   title: { flex: 1, textAlign: "center", fontSize: typeScale.heading, fontWeight: "700" },
   body: { padding: space(4), gap: space(3) },
   hint: { fontSize: 12, lineHeight: 18 },
+  accountCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    padding: space(3),
+    gap: space(2),
+  },
+  accountName: { fontSize: 13, fontWeight: "700" },
   licenseRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
   progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },
   progressTrack: { flex: 1, height: 6, borderRadius: 999, overflow: "hidden" },
