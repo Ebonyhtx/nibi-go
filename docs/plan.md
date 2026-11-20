@@ -164,8 +164,11 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
 - 市场仓 CI `validate-market` 已上线（签名/schema/包摘要/revision 单调/同版本摘要不可变），
   实际 push 跑通；本地负例（改字节不重签）被拒绝。安装支持取消与「下载并校验」状态；
   快照损坏显式提示。
-- 下一步：凭证获取（账号侧签发/同步）与在线拒绝/宽限期（需服务端）；下载进度百分比/
-  重试；CDN 镜像自动同步。设计见 `docs/design/market-index.md`。
+- 授权同步已接（复用服务端 `POST /api/v1/licenses/check`，**无需改服务端**）：Bearer 换证、
+  X-Nibi-License 复查、403/authorized:false 写入 refusal 立即拒绝、401 不写拒绝；市场页
+  「同步」按钮，未登录明确提示。真机已验证未登录分支；登录后的换证/撤销待有账号态复验。
+- 下一步：登录后授权链路复验（换证/撤销/宽限期）；下载进度百分比/重试；CDN 镜像自动
+  同步。设计见 `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
 

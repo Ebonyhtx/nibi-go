@@ -159,7 +159,14 @@ node scripts/market/sign-index.mjs ../nibi-go-market/index.json
   工具面（`loadPlugins` 把未授权付费插件按停用处理，MCP 服务器不下发；内核配置同样写 disabled）。
 - `paid` 判定取「市场快照 paid ∪ 安装记录 paid」（`nibi-market-installed.json`），
   防复制缓存绕过。
-- 本阶段不启动收费：没有凭证入口/在线拒绝/宽限期；凭证签发与购买流程接入账号侧后再补。
+- 凭证同步（复用桌面同一条服务端链路）：`POST /api/v1/licenses/check`
+  - 已登录：`Authorization: Bearer <NIBI access token>`（GO 的 OIDC 登录态，续期走 relay 的令牌刷新）；
+  - 无登录态但有本机凭证：`X-Nibi-License` 日常检查；
+  - 200 + `authorized` + `license.token` → 落 SecureStore 并清 refusal；
+  - 401（Bearer）→ 提示登录，不写拒绝；403 / `authorized:false` → 写 `lastRefusal`（判定层立即 deny）；
+  - 网络失败不动缓存。
+  - 市场页「同步」按钮触发；未登录时明确提示去「连桌面」页登录。
+- 本阶段仍不启动收费：没有购买入口/激活码 UI/宽限期；在线拒绝已生效。
 
 ## 9. 下一步
 

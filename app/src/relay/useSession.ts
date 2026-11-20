@@ -9,3 +9,8 @@ export function useSession(): { session: RelaySession; snapshot: SessionSnapshot
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
   return { session, snapshot };
 }
+
+/** 业务 API 的 NIBI access token（未登录会抛 auth-required）。 */
+export function getNibiAccessToken(): Promise<string> {
+  return session.accessToken();
+}
