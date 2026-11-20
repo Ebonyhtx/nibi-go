@@ -8,3 +8,4 @@ export * from "./keys";
 export * from "./digest";
 export * from "./verify";
 export * from "./rollback";
+export * from "./refresh";

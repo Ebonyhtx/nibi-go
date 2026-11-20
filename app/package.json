@@ -14,6 +14,7 @@
   "dependencies": {
     "@nibi-go/chat-core": "workspace:*",
     "@nibi-go/kernel-session": "workspace:*",
+    "@nibi-go/market-index": "workspace:*",
     "@nibi-go/phone-tools": "workspace:*",
     "@nibi-go/plugin-contract": "workspace:*",
     "@nibi-go/relay-client": "workspace:*",
@@ -34,6 +35,7 @@
     "expo-secure-store": "~58.0.2",
     "expo-status-bar": "~58.0.4",
     "expo-web-browser": "~58.0.7",
+    "fflate": "^0.8.2",
     "nibi-keepalive": "workspace:*",
     "nibi-kernel-host": "workspace:*",
     "nibi-phone": "workspace:*",
