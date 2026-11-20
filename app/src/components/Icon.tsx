@@ -6,6 +6,7 @@ export type IconName =
   | "menu"
   | "plus"
   | "arrow-up"
+  | "stop"
   | "chevron-right"
   | "chevron-left"
   | "chevron-down"
@@ -58,6 +59,11 @@ export function Icon({ name, size = 20, color, strokeWidth = 1.8 }: IconProps) {
           <Path path="M12 5V19M5 12H19" {...paint} />
         ) : name === "arrow-up" ? (
           <Path path="M12 19V6M6.5 11.5L12 6L17.5 11.5" {...paint} />
+        ) : name === "stop" ? (
+          <Path
+            path="M8.5 7.5H15.5C16.05 7.5 16.5 7.95 16.5 8.5V15.5C16.5 16.05 16.05 16.5 15.5 16.5H8.5C7.95 16.5 7.5 16.05 7.5 15.5V8.5C7.5 7.95 7.95 7.5 8.5 7.5Z"
+            {...paint}
+          />
         ) : name === "chevron-right" ? (
           <Path path="M9.5 6L15.5 12L9.5 18" {...paint} />
         ) : name === "chevron-left" ? (

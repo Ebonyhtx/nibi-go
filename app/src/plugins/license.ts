@@ -126,6 +126,33 @@ export async function clearLicense(): Promise<void> {
   await SecureStore.deleteItemAsync(STATE_KEY).catch(() => {});
 }
 
+// 【仅调试构建】宽限/过期现场模拟：把 lastCheckAt 回拨，让 evaluate 走到 grace/expired 分支。
+// 模拟期间必须抑制自动同步（一同步 lastCheckAt 就回到“刚刚在线”，模拟立即失效）；
+// release 构建没有这些入口（__DEV__ 恒为 false），生产语义不变。
+let debugSimActive = false;
+
+export function debugLicenseSimActive(): boolean {
+  return __DEV__ && debugSimActive;
+}
+
+/** 【仅调试】回拨 N 天；只动状态文件，不动 token 与设备绑定。 */
+export async function debugSimulateLastCheckAge(days: number): Promise<void> {
+  if (!__DEV__) return;
+  const parsed = state.lastCheckAt ? Date.parse(state.lastCheckAt) : NaN;
+  const base = Number.isFinite(parsed) ? parsed : Date.now();
+  debugSimActive = true;
+  await saveLicenseSnapshot({
+    lastCheckAt: new Date(base - days * 24 * 60 * 60 * 1000).toISOString(),
+  });
+}
+
+/** 【仅调试】退出模拟：重读真实状态；随后一次同步会把 lastCheckAt 拉回当下。 */
+export async function debugClearLicenseSim(): Promise<void> {
+  if (!__DEV__) return;
+  debugSimActive = false;
+  await refreshLicense();
+}
+
 export function currentLicenseToken(): string | null {
   return state.token;
 }

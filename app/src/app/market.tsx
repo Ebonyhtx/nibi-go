@@ -7,6 +7,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -23,6 +24,9 @@ import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } fro
 import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
 import {
   currentLicenseToken,
+  debugClearLicenseSim,
+  debugLicenseSimActive,
+  debugSimulateLastCheckAge,
   ensureLicenseLoaded,
   licenseNeedsSync,
   licenseSnapshot,
@@ -234,6 +238,7 @@ export default function MarketScreen() {
   const autoSync = useCallback(async () => {
     if (syncingRef.current) return;
     if (!sessionSnapshot.loggedIn && !currentLicenseToken()) return;
+    if (debugLicenseSimActive()) return; // 模拟宽限/过期期间不自动同步（一同步模拟就失效）。
     if (!licenseNeedsSync()) return;
     if (Date.now() - autoSyncAt.current < 60_000) return;
     autoSyncAt.current = Date.now();
@@ -369,6 +374,40 @@ export default function MarketScreen() {
     }
   }
 
+  /**
+   * 【仅调试构建】授权状态模拟入口（长按「同步」）：回拨 lastCheckAt 现场验证
+   * 宽限/过期文案与安装门禁；退出模拟后手动同步一次即恢复真实状态。
+   */
+  const showLicenseDebugMenu = () => {
+    if (!__DEV__) return;
+    const apply = (days: number) => {
+      void debugSimulateLastCheckAge(days).then(() => {
+        setLicense(licenseSummary());
+        setRefusal(licenseSnapshot().lastRefusal);
+        setMessage(`已模拟 lastCheckAt 回拨 ${days} 天（自动同步已暂停）`);
+      });
+    };
+    Alert.alert(
+      "授权状态模拟（仅调试）",
+      "回拨本机 lastCheckAt 验证宽限/过期状态；模拟期间不自动同步，退出后重新同步即恢复。",
+      [
+        { text: "模拟 4 天未检查（宽限）", onPress: () => apply(4) },
+        { text: "模拟 8 天未检查（过期）", onPress: () => apply(8) },
+        {
+          text: "退出模拟（恢复真实状态）",
+          onPress: () => {
+            void debugClearLicenseSim().then(() => {
+              setLicense(licenseSummary());
+              setRefusal(licenseSnapshot().lastRefusal);
+              setMessage("已退出模拟，点「同步」刷新真实授权。");
+            });
+          },
+        },
+        { text: "取消", style: "cancel" },
+      ],
+    );
+  };
+
   /** 原生账号登录（与 WORK 网页会话是两套；登录成功立刻换证）。 */
   async function doLogin() {
     if (loggingIn) return;
@@ -487,6 +526,7 @@ export default function MarketScreen() {
               accessibilityLabel={sessionSnapshot.loggedIn ? "同步付费授权" : "登录 NIBI 账号"}
               disabled={syncing || loggingIn}
               onPress={() => void (sessionSnapshot.loggedIn ? doSync() : doLogin())}
+              onLongPress={showLicenseDebugMenu}
               style={[
                 styles.syncButton,
                 { backgroundColor: t.panel, opacity: syncing || loggingIn ? 0.6 : 1 },

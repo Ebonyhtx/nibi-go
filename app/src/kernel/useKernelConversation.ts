@@ -178,6 +178,12 @@ export interface KernelConversation {
   rows: readonly ChatRow[];
   turn: TurnState;
   status: string;
+  /** 状态横幅分类：ok 不显示；busy 是进行中（初始化/重启）；error 常驻并可带重试。 */
+  statusKind: "ok" | "busy" | "error";
+  /** 这条失败状态有没有对应的重试动作（横幅只在此为 true 时画「重试」）。 */
+  statusRetryable: boolean;
+  /** 状态横幅的「重试」：发送失败原样重发；初始化/重连失败重建连接。 */
+  retryStatus: () => Promise<void>;
   /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）。 */
   modelLabel: string;
   /** 当前会话快照里的模型选择（打开会话时同步给 COMPOSE）。 */
@@ -204,6 +210,13 @@ export interface KernelConversation {
   archivedSessions: readonly KernelSessionSummary[];
   activeSessionId: string | null;
   send: (text: string, options?: KernelSendOptions) => Promise<void>;
+  /** 停止当前轮（内核 `stop`）；返回错误文案，成功为 null。 */
+  stopTurn: () => Promise<string | null>;
+  /** 编辑并重发最后一条用户输入（内核 `editUserQuery`）；返回错误文案，成功为 null。 */
+  editResend: (
+    target: { rowId: number; entityId: string },
+    newText: string,
+  ) => Promise<string | null>;
   /** 压缩上下文（内核 `compact`）；返回错误文案，成功为 null。 */
   compact: () => Promise<string | null>;
   /** 重试最后一轮（内核 `retryTurn`）；返回错误文案，成功为 null。 */
@@ -346,6 +359,8 @@ export function useKernelConversation(): KernelConversation {
     }>
   >([]);
   const pendingSeq = useRef(1);
+  // 最近一次发送的内容（含附件/引用/模式）：发送失败后状态横幅的「重试」原样重发。
+  const lastSendRef = useRef<{ text: string; options: KernelSendOptions } | null>(null);
 
   const syncPending = useCallback((controller: ConversationController) => {
     const snapshot = controller.snapshot;
@@ -709,6 +724,21 @@ export function useKernelConversation(): KernelConversation {
       previousClient.close();
     }
 
+    // 重连入口也被「内核不可用」的状态重试复用：宿主不在时先按启动路径拉起
+    // （服务优先，起不来回退进程内），否则 client 的请求只会全部失败。
+    if (!kernelHostAvailable()) {
+      const env = { ...((await kernelStartEnv()) ?? {}), ...(await providerKeysEnv()) };
+      const startEnv = Object.keys(env).length > 0 ? env : undefined;
+      let started = await startKernelHost(startEnv, { useService: KERNEL_MODE === "service" });
+      if (!started && KERNEL_MODE === "service") {
+        started = await startKernelHost(startEnv, { useService: false });
+      }
+      if (!started && !kernelHostAvailable()) {
+        setStatus("内核不可用");
+        return;
+      }
+    }
+
     await loadMemoryPreferences();
     const client = new KernelSessionClient({
       transport: { sendLine: sendKernelLine, onLine: onKernelLine },
@@ -794,6 +824,8 @@ export function useKernelConversation(): KernelConversation {
         return;
       }
       setSending(true);
+      // 记下这次发送：失败后横幅「重试」原样重发；成功即清掉。
+      lastSendRef.current = { text: content, options };
       const snapshot = controllerRef.current?.snapshot;
       const baselineRowId = snapshot
         ? snapshot.rows.window.reduce((max, row) => Math.max(max, row.rowId), 0)
@@ -836,6 +868,7 @@ export function useKernelConversation(): KernelConversation {
           pluginReferences,
         });
         await refreshSessions(client);
+        lastSendRef.current = null;
       } catch (error) {
         // 发送失败时把乐观气泡收掉，避免它一直停在“发送中”。
         pendingRef.current = pendingRef.current.filter((entry) => entry.id !== pendingId);
@@ -893,6 +926,57 @@ export function useKernelConversation(): KernelConversation {
         return null;
       } catch (error) {
         const message = `重试失败：${error instanceof Error ? error.message : String(error)}`;
+        setStatus(message);
+        return message;
+      }
+    },
+    [],
+  );
+
+  /** 停止当前轮（内核 `stop` → `Command::Interrupt`）；空闲竞态的 noop 是良性结果。 */
+  const stopTurn = useCallback(async (): Promise<string | null> => {
+    const client = clientRef.current;
+    if (!client || client.currentSessionId === null) return null;
+    try {
+      await client.stop();
+      return null;
+    } catch (error) {
+      const message = `停止失败：${error instanceof Error ? error.message : String(error)}`;
+      setStatus(message);
+      return message;
+    }
+  }, []);
+
+  /**
+   * 编辑并重发最后一条用户输入（内核 `editUserQuery`，CAS 提交）；返回错误文案，成功为 null。
+   *
+   * 只改正文：原行的附件/引用不随编辑重发（内核会整体重建这条输入），带附件/引用的行
+   * 由 UI 挡掉。拒绝（不是最新输入/行过期）不抛异常，文案直接给横幅提示。
+   */
+  const editResend = useCallback(
+    async (
+      target: { rowId: number; entityId: string },
+      newText: string,
+    ): Promise<string | null> => {
+      const client = clientRef.current;
+      if (!client || client.currentSessionId === null) return "没有可编辑的会话";
+      const snapshot = controllerRef.current?.snapshot;
+      if (!snapshot) return "会话还没准备好";
+      const text = newText.trim();
+      if (!text) return "编辑后的内容不能为空";
+      try {
+        const result = await client.editUserQuery(target, text, {
+          revision: snapshot.revision,
+          logEpoch: snapshot.logEpoch,
+        });
+        if (!result.accepted) {
+          const message = result.message || "这条消息已不是最新输入，不能再编辑";
+          setStatus(`编辑重发被拒绝：${message}`);
+          return message;
+        }
+        return null;
+      } catch (error) {
+        const message = `编辑重发失败：${error instanceof Error ? error.message : String(error)}`;
         setStatus(message);
         return message;
       }
@@ -1108,10 +1192,40 @@ function localizeGoalReply(response: string): string {
     [],
   );
 
+  // 状态横幅分类：就绪不显示；失败类可重试；其余（初始化…/内核重启中…）是进行中的提示。
+  // 这里只认字符串前缀，因为 setStatus 的调用点分散在各条失败路径上。
+  const statusKind = useMemo<"ok" | "busy" | "error">(() => {
+    if (status === "就绪") return "ok";
+    if (status.includes("失败") || status === "内核不可用") return "error";
+    return "busy";
+  }, [status]);
+  const statusRetryable = useMemo(
+    () =>
+      status.startsWith("发送失败") ||
+      status.startsWith("内核重连失败") ||
+      status.startsWith("失败：") ||
+      status === "内核不可用",
+    [status],
+  );
+  /** 状态横幅的「重试」：发送失败原样重发；初始化/重连失败统一走 reconnect（内部会先拉起宿主）。 */
+  const retryStatus = useCallback(async () => {
+    if (status.startsWith("发送失败")) {
+      const last = lastSendRef.current;
+      if (last) await send(last.text, last.options);
+      return;
+    }
+    if (status.startsWith("内核重连失败") || status.startsWith("失败：") || status === "内核不可用") {
+      await reconnect();
+    }
+  }, [status, send, reconnect]);
+
   return {
     rows,
     turn,
     status,
+    statusKind,
+    statusRetryable,
+    retryStatus,
     modelLabel,
     currentModelSelection,
     sessionMode,
@@ -1123,6 +1237,8 @@ function localizeGoalReply(response: string): string {
     archivedSessions,
     activeSessionId,
     send,
+    stopTurn,
+    editResend,
     compact,
     retryTurn,
     runGoal,

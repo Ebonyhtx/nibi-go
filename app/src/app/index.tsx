@@ -259,6 +259,21 @@ export default function GoHomeScreen() {
     instructionLabel?: string;
   } | null>(null);
   const [annotationManagerOpen, setAnnotationManagerOpen] = useState(false);
+  // 编辑重发：草稿承载改写文本，发送走 editUserQuery（内核截断历史后重发）；× 取消并清草稿。
+  const [editTarget, setEditTarget] = useState<{
+    rowId: number;
+    entityId: string;
+  } | null>(null);
+  // 内核判定可编辑的用户行（actions.canEdit 只标最新一条 realUser 输入；旧帧没有 rowId）。
+  const lastEditableUserRow = useMemo(() => {
+    for (let i = conversation.rows.length - 1; i >= 0; i--) {
+      const row = conversation.rows[i];
+      if (row.kind === "user" && row.canEdit && typeof row.rowId === "number" && row.entityId) {
+        return row;
+      }
+    }
+    return null;
+  }, [conversation.rows]);
   const canSend =
     conversation.ready &&
     !conversation.sending &&
@@ -625,6 +640,18 @@ export default function GoHomeScreen() {
   const annotationCountFor = (messageKey: string): number =>
     annotations.filter((annotation) => annotation.messageKey === messageKey).length;
   const sendDraft = () => {
+    // 编辑重发：只发改写文本（内核 editUserQuery 截断历史后重发），不走普通发送链路。
+    if (editTarget) {
+      const text = draft.trim();
+      if (!text) return;
+      const target = editTarget;
+      setEditTarget(null);
+      setDraft("");
+      void conversation.editResend(target, text).then((error) => {
+        if (error) showHint(error);
+      });
+      return;
+    }
     // 压缩是内核动作，不是一条消息：走 `compact` RPC，不留用户气泡、不发文本。
     // 带别的输入（附件/注释/引用）时不吞掉它们，只提示先单独压缩。
     const compactToken = tokens.find(
@@ -977,6 +1004,43 @@ export default function GoHomeScreen() {
               </View>
             </View>
 
+            {/* 状态横幅：内核连接/重启/失败常驻显示（此前只发 4 秒 hint）；失败可重试。 */}
+            {conversation.statusKind !== "ok" ? (
+              <Pressable
+                onPress={
+                  conversation.statusKind === "error" && conversation.statusRetryable
+                    ? () => void conversation.retryStatus()
+                    : undefined
+                }
+                style={[
+                  styles.statusBanner,
+                  { backgroundColor: th.glass, borderColor: th.glassBorder },
+                ]}
+                accessibilityRole={conversation.statusRetryable ? "button" : "text"}
+                accessibilityLabel={`内核状态：${conversation.status}`}
+              >
+                <View
+                  style={[
+                    styles.statusDot,
+                    {
+                      backgroundColor:
+                        conversation.statusKind === "error"
+                          ? th.red
+                          : conversation.statusKind === "busy"
+                            ? th.brand
+                            : th.inkFaint,
+                    },
+                  ]}
+                />
+                <Text style={[styles.statusBannerText, { color: th.inkSub }]} numberOfLines={2}>
+                  {conversation.status}
+                </Text>
+                {conversation.statusKind === "error" && conversation.statusRetryable ? (
+                  <Text style={[styles.statusRetry, { color: th.brand }]}>重试</Text>
+                ) : null}
+              </Pressable>
+            ) : null}
+
             {/* 正文区：有消息就是会话流；没有消息才是空态说明（会话即首页）。 */}
             <View
               style={[
@@ -1099,6 +1163,27 @@ export default function GoHomeScreen() {
               </View>
             ) : null}
 
+            {/* 编辑重发条：草稿现在是「最后一条消息的改写文本」，发送即替换原文。 */}
+            {editTarget ? (
+              <View
+                style={[styles.editStrip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+              >
+                <Text style={[styles.editStripText, { color: th.brand }]} numberOfLines={1}>
+                  正在编辑重发最后一条消息，发送后替换原文
+                </Text>
+                <Pressable
+                  accessibilityLabel="取消编辑"
+                  hitSlop={8}
+                  onPress={() => {
+                    setEditTarget(null);
+                    setDraft("");
+                  }}
+                >
+                  <Icon name="x" size={13} color={th.inkSub} />
+                </Pressable>
+              </View>
+            ) : null}
+
             {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token */}
             <View
               style={[
@@ -1146,22 +1231,37 @@ export default function GoHomeScreen() {
                   if (canSend) sendDraft();
                 }}
               />
-              <Pressable
-                accessibilityLabel="发送"
-                disabled={!canSend}
-                onPress={() => {
-                  if (canSend) sendDraft();
-                }}
-                style={[
-                  styles.send,
-                  {
-                    backgroundColor: th.brand,
-                    opacity: canSend ? 1 : 0.4,
-                  },
-                ]}
-              >
-                <Icon name="arrow-up" size={16} color={th.brandFg} />
-              </Pressable>
+              {conversation.turn === "running" ? (
+                /* 流式期间发送键变停止键（内核 `stop` → Interrupt）；草稿保留，停止后可继续发。 */
+                <Pressable
+                  accessibilityLabel="停止生成"
+                  onPress={() => {
+                    void conversation.stopTurn().then((error) => {
+                      if (error) showHint(error);
+                    });
+                  }}
+                  style={[styles.send, { backgroundColor: th.brand }]}
+                >
+                  <Icon name="stop" size={15} color={th.brandFg} />
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityLabel="发送"
+                  disabled={!canSend}
+                  onPress={() => {
+                    if (canSend) sendDraft();
+                  }}
+                  style={[
+                    styles.send,
+                    {
+                      backgroundColor: th.brand,
+                      opacity: canSend ? 1 : 0.4,
+                    },
+                  ]}
+                >
+                  <Icon name="arrow-up" size={16} color={th.brandFg} />
+                </Pressable>
+              )}
             </View>
           </View>
         </View>
@@ -1415,6 +1515,44 @@ export default function GoHomeScreen() {
           </View>
           <Icon name="chevron-right" size={13} color={th.inkGhost} />
         </Pressable>
+        {/* 编辑重发：只出现在内核判定可编辑（最新一条 realUser 输入）的用户消息上。 */}
+        {popup?.kind === "message" &&
+        popup.messageRole === "user" &&
+        lastEditableUserRow?.key === popup.messageKey ? (
+          <Pressable
+            onPress={() => {
+              if (popup?.kind !== "message") return;
+              const row = lastEditableUserRow;
+              if (!row || typeof row.rowId !== "number" || !row.entityId) return;
+              setPopup(null);
+              if (
+                (row.conversationQuotes?.length ?? 0) > 0 ||
+                (row.attachments?.length ?? 0) > 0 ||
+                (row.pluginReferences?.length ?? 0) > 0
+              ) {
+                showHint("带附件或引用的消息暂不支持编辑重发");
+                return;
+              }
+              setEditTarget({ rowId: row.rowId, entityId: row.entityId });
+              setDraft(row.text);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="编辑重发"
+            style={({ pressed }) => [
+              styles.menuRow,
+              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
+              <Icon name="pen" size={15} color={th.inkSub} />
+            </View>
+            <View style={styles.menuText}>
+              <Text style={[styles.menuLabel, { color: th.ink }]}>编辑重发</Text>
+              <Text style={[styles.menuDetail, { color: th.inkFaint }]}>改写后替换这条输入</Text>
+            </View>
+            <Icon name="chevron-right" size={13} color={th.inkGhost} />
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={() => {
             if (popup?.kind !== "message") return;
@@ -1702,6 +1840,31 @@ const styles = StyleSheet.create({
     marginBottom: space(1.5),
   },
   hintText: { fontSize: 11, lineHeight: 15 },
+  statusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1.5),
+    marginHorizontal: space(3),
+    marginBottom: space(1.5),
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusBannerText: { flex: 1, fontSize: 11.5, lineHeight: 15 },
+  statusRetry: { fontSize: 12, fontWeight: "700" },
+  editStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1.5),
+    marginBottom: space(1.5),
+  },
+  editStripText: { flex: 1, fontSize: 11.5, lineHeight: 15 },
   composer: {
     flexDirection: "row",
     alignItems: "center",
