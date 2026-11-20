@@ -43,7 +43,10 @@ export function readInstalledManifest(dir: string): PluginManifest | null {
   }
 }
 
-export async function installMarketPlugin(entry: MarketPluginEntry): Promise<InstallOutcome> {
+export async function installMarketPlugin(
+  entry: MarketPluginEntry,
+  options: { signal?: AbortSignal } = {},
+): Promise<InstallOutcome> {
   if (entry.paid) {
     await ensureLicenseLoaded();
     const decision = pluginLicenseDecision(entry.id);
@@ -56,8 +59,11 @@ export async function installMarketPlugin(entry: MarketPluginEntry): Promise<Ins
 
   let bytes: Uint8Array;
   try {
-    bytes = await fetchBytes(entry.package.url, entry.package.size + 64 * 1024);
+    bytes = await fetchBytes(entry.package.url, entry.package.size + 64 * 1024, {
+      signal: options.signal,
+    });
   } catch (error) {
+    if (options.signal?.aborted) return { ok: false, reason: "已取消" };
     return { ok: false, reason: `下载失败：${error instanceof Error ? error.message : String(error)}` };
   }
   if (!verifyPackageDigest(bytes, entry.package.sha256)) {

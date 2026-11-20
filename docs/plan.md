@@ -161,8 +161,11 @@ GuardedButton 三拒绝 + armed 窗口、悬浮条三态、多任务 taskId 贯�
   revision 5（免费）后自动回到「可用」。license 单测 12 项。
 - 网络：GitHub raw 在手机侧 body 卡住/超时；市场已镜像到 `dl.nibistudio.cn/nibi-go-market/`，
   客户端多源回退（dl → raw），真机 2.7s 拉通。
-- 下一步：凭证获取（账号侧签发/同步）与在线拒绝/宽限期；安装进度/取消与快照损坏提示；
-  发布链 CI 校验签名/摘要，CDN 镜像自动同步。设计见 `docs/design/market-index.md`。
+- 市场仓 CI `validate-market` 已上线（签名/schema/包摘要/revision 单调/同版本摘要不可变），
+  实际 push 跑通；本地负例（改字节不重签）被拒绝。安装支持取消与「下载并校验」状态；
+  快照损坏显式提示。
+- 下一步：凭证获取（账号侧签发/同步）与在线拒绝/宽限期（需服务端）；下载进度百分比/
+  重试；CDN 镜像自动同步。设计见 `docs/design/market-index.md`。
 
 **C0 进展（2026-11-15）**
 
