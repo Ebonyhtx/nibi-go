@@ -34,7 +34,7 @@ import { usePhoneApprovalOverlay } from "../phone/approval";
 import { motion, radius, size, space, text, type NibiTheme, useNibiTheme } from "../theme";
 import { AgentFace, type AgentFaceStatus } from "./AgentFace";
 import { Disclosure } from "./Disclosure";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
 import {
   matchPluginToolCard,
@@ -589,9 +589,9 @@ export function ConversationList({
           const tone = toolTone(th, row.running ? "running" : "success");
           return withEnter(
             row.key,
-            <View key={row.key} style={styles.toolRow}>
+              <View key={row.key} style={styles.toolRow}>
               <Disclosure
-                icon={<Icon name="sliders" size={12} color={tone} />}
+                icon={<Icon name="wrench" size={12} color={tone} />}
                 title={
                   <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
                     {row.tools.length} 次工具调用
@@ -934,7 +934,7 @@ function ToolRowView({
           isAgentTool ? (
             <AgentFace name={faceName} status={faceStatus} size={18} badge />
           ) : (
-            <Icon name="sliders" size={12} color={toolTone(th, row.status)} />
+            <Icon name={toolIcon(row.name)} size={12} color={toolTone(th, row.status)} />
           )
         }
         title={
@@ -980,6 +980,28 @@ function ToolRowView({
   );
 }
 
+/** 已知工具的专属图标（Agent 走瓦片脸；其余落 wrench——通用工具语义）。 */
+const TOOL_ICONS: Partial<Record<string, IconName>> = {
+  Bash: "terminal",
+  PowerShell: "terminal",
+  Read: "doc",
+  Write: "doc",
+  NotebookEdit: "doc",
+  Edit: "pen",
+  Grep: "search",
+  Glob: "folder",
+  WebFetch: "globe",
+  WebSearch: "globe",
+  TodoWrite: "checklist",
+  Skill: "sparkles",
+  TaskStop: "stop",
+  TaskOutput: "clock",
+};
+
+function toolIcon(name: string): IconName {
+  return TOOL_ICONS[name] ?? "wrench";
+}
+
 /** 工具状态 → 词；未知状态原样显示，不吞信息。 */
 function toolStatusLabel(status: string): string {
   switch (status) {
@@ -1005,11 +1027,74 @@ function toolTone(th: NibiTheme, status: string): string {
   return th.amber;
 }
 
-/** 折叠行里的目标摘要：参数压成一行，只留前 ~40 字。 */
+/** 参数 JSON（可能被截断）里抓一个字符串键的值；做最小反转义。
+ * 不要求闭合引号：detail 截 120 字常把长值拦腰截断，抓到开头就够用。 */
+function paramOf(raw: string, key: string): string | undefined {
+  const match = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, "u").exec(raw);
+  if (!match) return undefined;
+  return match[1]
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    )
+    .replace(/\\(.)/gu, "$1");
+}
+
+function cap(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * 折叠行里的目标摘要：按工具挑人能读的参数（命令/文件名/模式/URL），
+ * 不再把裸 JSON 摆进消息流；认不出的工具回退到参数摘要前 40 字。
+ */
 function toolTarget(row: Extract<ChatRow, { kind: "tool" }>): string {
-  const raw = row.detail?.replace(/\s+/g, " ").trim();
-  if (!raw) return "";
-  return raw.length > 40 ? `${raw.slice(0, 40)}…` : raw;
+  const raw = row.detail ?? "";
+  const squash = (value: string) => value.replace(/\s+/g, " ").trim();
+  switch (row.name) {
+    case "Bash":
+    case "PowerShell": {
+      const command = paramOf(raw, "command");
+      if (command) return cap(squash(command), 56);
+      break;
+    }
+    case "Read":
+    case "Write":
+    case "Edit":
+    case "NotebookEdit": {
+      const path = paramOf(raw, "file_path") ?? paramOf(raw, "notebook_path");
+      if (path) {
+        // 只留文件名：目录是工程细节，展开后看全路径。
+        return cap(path.split(/[\\/]/u).pop() ?? path, 40);
+      }
+      break;
+    }
+    case "Grep":
+    case "Glob": {
+      const pattern = paramOf(raw, "pattern");
+      if (pattern) return cap(pattern, 40);
+      break;
+    }
+    case "WebFetch":
+    case "WebSearch": {
+      const target = paramOf(raw, "url") ?? paramOf(raw, "query");
+      if (target) return cap(target.replace(/^https?:\/\//u, ""), 48);
+      break;
+    }
+    case "Agent": {
+      const description = paramOf(raw, "description");
+      if (description) return cap(squash(description), 40);
+      break;
+    }
+    case "Skill": {
+      const skill = paramOf(raw, "skill") ?? paramOf(raw, "command");
+      if (skill) return cap(squash(skill), 40);
+      break;
+    }
+    default:
+      break;
+  }
+  const fallback = squash(raw);
+  return fallback ? cap(fallback, 40) : "";
 }
 
 /** 思考块：折叠一行（标签 / 耗时 / 流式尾部预览），展开是纯文本滚动区。 */
@@ -1066,32 +1151,35 @@ function ThinkingDisclosure({
   );
 }
 
-/** 思考正文：普通文本、限高内滚；流式时贴底，用户往上翻后不再抢滚动。 */
+/** 思考正文：引用轨样式（左侧竖线 + 弱色文字），限高内滚；流式时贴底。 */
 function ThinkingBody({ text, streaming }: { text: string; streaming: boolean }) {
   const th = useNibiTheme();
   const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
   const stickToBottom = useRef(true);
   return (
-    <ScrollView
-      ref={ref}
-      style={styles.thinkingScroll}
-      contentContainerStyle={styles.thinkingContent}
-      nestedScrollEnabled
-      showsVerticalScrollIndicator={false}
-      scrollEventThrottle={16}
-      onScroll={(event) => {
-        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-        stickToBottom.current =
-          contentOffset.y + layoutMeasurement.height >= contentSize.height - 24;
-      }}
-      onContentSizeChange={() => {
-        if (streaming && stickToBottom.current) {
-          ref.current?.scrollToEnd({ animated: false });
-        }
-      }}
-    >
-      <Text style={[styles.thinkingText, { color: th.inkSub }]}>{text}</Text>
-    </ScrollView>
+    <View style={styles.thinkingWell}>
+      <View style={[styles.thinkingRail, { backgroundColor: th.brandSoft }]} />
+      <ScrollView
+        ref={ref}
+        style={styles.thinkingScroll}
+        contentContainerStyle={styles.thinkingContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          stickToBottom.current =
+            contentOffset.y + layoutMeasurement.height >= contentSize.height - 24;
+        }}
+        onContentSizeChange={() => {
+          if (streaming && stickToBottom.current) {
+            ref.current?.scrollToEnd({ animated: false });
+          }
+        }}
+      >
+        <Text style={[styles.thinkingText, { color: th.inkFaint }]}>{text}</Text>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1395,9 +1483,11 @@ const styles = StyleSheet.create({
   },
   thinkingTitle: { ...text("micro"), fontWeight: "600" },
   thinkingPreview: { ...text("micro") },
-  thinkingScroll: { maxHeight: 240 },
+  thinkingWell: { flexDirection: "row" },
+  thinkingRail: { width: 2, borderRadius: 1, marginRight: space(1.5), marginBottom: space(1) },
+  thinkingScroll: { flex: 1, maxHeight: 240 },
   thinkingContent: { paddingRight: space(1), paddingBottom: space(1) },
-  thinkingText: { ...text("small") },
+  thinkingText: { ...text("small"), lineHeight: 19 },
   toolRow: { paddingVertical: 1 },
   toolRowName: { ...text("small"), fontWeight: "600" },
   toolRowMeta: { ...text("micro") },

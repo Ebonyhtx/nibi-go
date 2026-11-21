@@ -214,7 +214,7 @@ export function NewChatSheet({
           ]}
         >
           <View style={[styles.rowIcon, { backgroundColor: th.panel }]}>
-            <Icon name="sliders" size={15} color={th.inkSub} />
+            <Icon name="folder" size={15} color={th.inkSub} />
           </View>
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: th.ink }]}>管理项目…</Text>

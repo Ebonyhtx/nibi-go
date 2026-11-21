@@ -421,7 +421,7 @@ export function GoNavContent({
             accessibilityLabel="管理项目"
             style={[styles.projectChip, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
           >
-            <Icon name="sliders" size={11} color={t.inkSub} />
+            <Icon name="folder" size={11} color={t.inkSub} />
             <Text style={[styles.projectChipText, { color: t.inkSub }]}>管理</Text>
           </PressableScale>
         </View>
@@ -647,7 +647,7 @@ export function GoNavContent({
             accessibilityLabel="插件"
             onPress={() => leaveFor("/plugins")}
           >
-            <Icon name="puzzle" size={17} color={t.inkSub} />
+            <Icon name="plug" size={17} color={t.inkSub} />
           </PressableScale>
           <PressableScale
             scaleTo={0.94}
@@ -655,7 +655,7 @@ export function GoNavContent({
             accessibilityLabel="设置"
             onPress={() => leaveFor("/settings")}
           >
-            <Icon name="sliders" size={17} color={t.inkSub} />
+            <Icon name="gear" size={17} color={t.inkSub} />
           </PressableScale>
         </View>
       </View>
@@ -881,7 +881,7 @@ export function GoRail({
   const insets = useSafeAreaInsets();
   const suspended = petState === PET_STATE.sleeping;
   const key = (
-    icon: "menu" | "search" | "phone" | "sliders" | "puzzle",
+    icon: "menu" | "search" | "phone" | "gear" | "plug",
     onPress?: () => void,
     label?: string,
   ) => (
@@ -919,8 +919,8 @@ export function GoRail({
             <Dot size={7} color={t.inkGhost} ring={t.inkGhost} />
           </View>
         </View>
-        {key("sliders", onSettings, "设置")}
-        {onPlugins ? key("puzzle", onPlugins, "插件") : null}
+        {key("gear", onSettings, "设置")}
+        {onPlugins ? key("plug", onPlugins, "插件") : null}
       </View>
     </View>
   );

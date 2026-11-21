@@ -304,7 +304,7 @@ export default function SettingsHomeScreen() {
             />
             <Divider />
             <Row
-              icon="sliders"
+              icon="info"
               tone="steel"
               title="诊断"
               detail="用量与网络状态"
@@ -401,7 +401,7 @@ export default function SettingsHomeScreen() {
         <AppearIn delay={staggerDelay(8, 32, 240)}>
           <SectionCard label="插件">
             <Row
-              icon="puzzle"
+              icon="plug"
               title="插件管理"
               onPress={() => router.push("/plugins")}
             />
