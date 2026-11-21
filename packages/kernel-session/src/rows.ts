@@ -231,6 +231,8 @@ export type ChatRow =
       summary: string;
       childSessionId?: string;
       backgrounded?: boolean;
+      /** 触发它的 Agent/Task 工具调用 id（后台运行判定用：工具行 success ≠ 子代理完成）。 */
+      parentToolCallId?: string;
     }
   | {
       /** GO 还不能处理的交互（如 workspaceHookReview）：不静默丢弃。 */
@@ -681,6 +683,7 @@ export function deriveRows(
             summary: subagent.summaryText,
             ...(subagent.childSessionId ? { childSessionId: subagent.childSessionId } : {}),
             ...(subagent.backgrounded ? { backgrounded: true } : {}),
+            ...(subagent.parentToolCallId ? { parentToolCallId: subagent.parentToolCallId } : {}),
           });
           break;
         }

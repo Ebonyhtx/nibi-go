@@ -141,7 +141,7 @@ export function GoNavContent({
     if (!wasActive.current && active) setStaggerTick((n) => n + 1);
     wasActive.current = active;
   }, [active]);
-  const leaveFor = (path: "/settings" | "/plugins") => {
+  const leaveFor = (path: "/settings" | "/settings/projects" | "/plugins") => {
     leaveComposerForNavigation({
       blur: () => {
         onBeforeNavigate?.();
@@ -174,6 +174,49 @@ export function GoNavContent({
     () => filterSessionsByTitle(archivedSessions, search),
     [archivedSessions, search],
   );
+
+  // 「全部」视图按项目分组（运营者 2026-11-21：项目与会话管理不明确）——每条会话
+  // 归在哪个项目一眼可见；没归进项目的进「独立会话」。选了项目筛选才按日期分组
+  // （那时已经在单看一个项目）。项目组内保持 updatedAt 倒序（session/list 已排好）。
+  const displayGroups = useMemo(() => {
+    if (projectFilter !== null || projects.length === 0) {
+      return groups.map((group) => ({
+        key: group.day,
+        label: group.label,
+        items: group.items,
+        project: false,
+      }));
+    }
+    const out: Array<{
+      key: string;
+      label: string;
+      items: KernelSessionSummary[];
+      project: boolean;
+    }> = [];
+    for (const project of projects) {
+      const items = filterSessionsByTitle(
+        sessions.filter(
+          (session) =>
+            !!workspaceRoot &&
+            projectIdOfWorkspace(workspaceRoot, session.workspace?.workspacePath) === project.id,
+        ),
+        search,
+      );
+      if (items.length > 0)
+        out.push({ key: project.id, label: project.name, items, project: true });
+    }
+    const loose = filterSessionsByTitle(
+      sessions.filter(
+        (session) =>
+          !workspaceRoot ||
+          projectIdOfWorkspace(workspaceRoot, session.workspace?.workspacePath) === null,
+      ),
+      search,
+    );
+    if (loose.length > 0)
+      out.push({ key: "independent", label: "独立会话", items: loose, project: true });
+    return out;
+  }, [groups, sessions, search, projects, projectFilter, workspaceRoot]);
 
   const run = (action: (() => void | Promise<void>) | undefined, message: string) => {
     if (!action) return;
@@ -370,6 +413,17 @@ export function GoNavContent({
               </PressableScale>
             );
           })}
+          {/* 管理入口放在筛选 chips 行尾：chips 是筛选，管理才是建/删/重命名的地方。 */}
+          <PressableScale
+            scaleTo={0.94}
+            onPress={() => leaveFor("/settings/projects")}
+            accessibilityRole="button"
+            accessibilityLabel="管理项目"
+            style={[styles.projectChip, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+          >
+            <Icon name="sliders" size={11} color={t.inkSub} />
+            <Text style={[styles.projectChipText, { color: t.inkSub }]}>管理</Text>
+          </PressableScale>
         </View>
       ) : null}
 
@@ -406,15 +460,26 @@ export function GoNavContent({
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>
                 {suspended ? "还没有对话" : "还没有对话，点右上角开始"}
               </Text>
-            ) : groups.length === 0 ? (
+            ) : displayGroups.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
             ) : (
-              groups.map((group) => {
+              displayGroups.map((group) => {
                 const headDelay = staggerDelay(staggerIndex++, 24, 240);
                 return (
-                  <View key={group.day}>
+                  <View key={group.key}>
                     <AppearIn delay={headDelay}>
-                      <Text style={[styles.groupLabel, { color: t.inkFaint }]}>{group.label}</Text>
+                      <View style={styles.groupLabelRow}>
+                        {group.project ? (
+                          <Icon
+                            name="doc"
+                            size={11}
+                            color={t.inkFaint}
+                          />
+                        ) : null}
+                        <Text style={[styles.groupLabel, { color: t.inkFaint }]}>
+                          {group.label}
+                        </Text>
+                      </View>
                     </AppearIn>
                     {group.items.map((session) => {
                       // 行级选中态（区别于抽屉的 active 开合 prop，避免同名遮蔽）。
@@ -937,12 +1002,17 @@ const styles = StyleSheet.create({
   projectChipText: { ...text("micro"), fontWeight: "600" },
   scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
   emptyText: { ...text("small"), paddingTop: space(2) },
+  groupLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
+    paddingHorizontal: space(2.5),
+    paddingTop: space(2),
+  },
   groupLabel: {
     ...text("micro"),
     fontWeight: "600",
     letterSpacing: 0.4,
-    paddingHorizontal: space(2.5),
-    paddingTop: space(2),
     paddingBottom: space(0.5),
   },
   sessionRow: {

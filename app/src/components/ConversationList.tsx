@@ -32,7 +32,7 @@ import type { LoadedPlugin } from "../plugins/store";
 import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
 import { usePhoneApprovalOverlay } from "../phone/approval";
 import { motion, radius, size, space, text, type NibiTheme, useNibiTheme } from "../theme";
-import { AgentFace } from "./AgentFace";
+import { AgentFace, type AgentFaceStatus } from "./AgentFace";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
@@ -323,6 +323,27 @@ export function ConversationList({
   // 插件随工具结果推到槽的数据（`_meta.nibiGo.push`）：按轮收集，turn.note 用 `data.push.*` 绑定。
   const turnPushes = useMemo(() => collectTurnPushes(rows), [rows]);
 
+  // 仍在后台运行的子代理 → 触发它的 Agent/Task 工具行 key 集合。
+  // 工具行本身早就 success（spawn 完即返回），但后台代理还在干活——
+  // 这时工具行的脸与状态词必须继续显示「运行中」，不能落成「已完成」。
+  const agentRunningTools = useMemo(() => {
+    const keys = new Set<string>();
+    const visit = (list: readonly ChatRow[]) => {
+      for (const row of list) {
+        if (row.kind === "subagent") {
+          const running = row.status === "running" || (!row.status && row.backgrounded);
+          if (running && row.parentToolCallId) keys.add(`t${row.parentToolCallId}`);
+        } else if (row.kind === "process") {
+          visit(row.rows);
+        } else if (row.kind === "toolGroup") {
+          visit(row.tools);
+        }
+      }
+    };
+    visit(rows);
+    return keys;
+  }, [rows]);
+
   // 模型名只标「变更回合」：与上一条助手行的 model 不同才显示一次。
   // 单模型会话不再每个气泡重复顶栏已有的信息（2.0.1 审查）。
   const modelChangeKeys = useMemo(() => {
@@ -556,6 +577,7 @@ export function ConversationList({
               row={row}
               open={isOpen(row.key, !autoCollapseTools)}
               onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
+              agentRunning={agentRunningTools.has(row.key)}
             />,
           );
         }
@@ -590,6 +612,7 @@ export function ConversationList({
                     row={tool}
                     open={isOpen(tool.key, !autoCollapseTools)}
                     onToggle={() => toggleOpen(tool.key, !autoCollapseTools)}
+                    agentRunning={agentRunningTools.has(tool.key)}
                   />
                 ))}
               </Disclosure>
@@ -679,31 +702,32 @@ export function ConversationList({
         }
 
         if (row.kind === "subagent") {
-          const tone =
-            row.status === "failed"
+          // 后台行可能没带 status（旧日志）：backgrounded 且无状态按运行中处理。
+          const running = row.status === "running" || (!row.status && row.backgrounded);
+          const tone = running
+            ? th.amber
+            : row.status === "failed"
               ? th.red
-              : row.status === "running"
-                ? th.amber
-                : row.status === "cancelled"
-                  ? th.inkFaint
-                  : th.ok;
+              : row.status === "cancelled"
+                ? th.inkFaint
+                : th.ok;
           // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）；徽标补一眼可辨的完成/失败。
-          const faceStatus =
-            row.status === "failed"
+          const faceStatus: AgentFaceStatus = running
+            ? "running"
+            : row.status === "failed"
               ? "failed"
-              : row.status === "running"
-                ? "running"
-                : row.status === "cancelled"
-                  ? "cancelled"
-                  : "completed";
-          const statusLabel =
-            row.status === "failed"
+              : row.status === "cancelled"
+                ? "cancelled"
+                : "completed";
+          const statusLabel = running
+            ? row.backgrounded
+              ? "后台运行中"
+              : "进行中"
+            : row.status === "failed"
               ? "失败"
-              : row.status === "running"
-                ? "进行中"
-                : row.status === "cancelled"
-                  ? "已停止"
-                  : "已完成";
+              : row.status === "cancelled"
+                ? "已停止"
+                : "已完成";
           const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
           return withEnter(
             row.key,
@@ -760,6 +784,7 @@ export function ConversationList({
               showTools={showTools}
               autoCollapseThinking={autoCollapseThinking}
               autoCollapseTools={autoCollapseTools}
+              agentRunningTools={agentRunningTools}
             />,
           );
         }
@@ -873,13 +898,16 @@ function ToolRowView({
   row,
   open,
   onToggle,
+  agentRunning = false,
 }: {
   row: Extract<ChatRow, { kind: "tool" }>;
   open: boolean;
   onToggle: () => void;
+  /** 触发的子代理仍在后台跑（工具行本身已 success）：脸保持运行态，状态词显示后台运行中。 */
+  agentRunning?: boolean;
 }) {
   const th = useNibiTheme();
-  const tone = toolTone(th, row.status);
+  const tone = agentRunning ? th.amber : toolTone(th, row.status);
   const target = toolTarget(row);
   const hasDetail = Boolean(row.detail || row.output || row.error);
   // Agent 工具行 = 消息流里的子代理脸（桌面 WorkflowAgentFace 同源：名字散列九色
@@ -889,14 +917,16 @@ function ToolRowView({
     isAgentTool && row.detail
       ? /"subagent_type"\s*:\s*"([^"]+)"/u.exec(row.detail)?.[1] ?? "Agent"
       : row.name;
-  const faceStatus =
-    row.status === "failed" || row.status === "error"
+  const faceStatus: AgentFaceStatus = isAgentTool && agentRunning
+    ? "running"
+    : row.status === "failed" || row.status === "error"
       ? "failed"
       : row.status === "cancelled"
         ? "cancelled"
         : row.status === "running" || row.status === "inputStreaming" || row.status === "pendingApproval"
           ? "running"
           : "completed";
+  const statusWord = isAgentTool && agentRunning ? "后台运行中" : toolStatusLabel(row.status);
   return (
     <View style={styles.toolRow}>
       <Disclosure
@@ -914,7 +944,7 @@ function ToolRowView({
         }
         subtitle={
           <Text style={[styles.toolRowMeta, { color: th.inkFaint }]} numberOfLines={1}>
-            <Text style={{ color: tone }}>{toolStatusLabel(row.status)}</Text>
+            <Text style={{ color: tone }}>{statusWord}</Text>
             {target ? ` · ${target}` : ""}
           </Text>
         }
@@ -1086,6 +1116,7 @@ function TurnProcessCard({
   showTools,
   autoCollapseThinking,
   autoCollapseTools,
+  agentRunningTools,
 }: {
   row: Extract<ChatRow, { kind: "process" }>;
   renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
@@ -1097,6 +1128,8 @@ function TurnProcessCard({
   showTools: boolean;
   autoCollapseThinking: boolean;
   autoCollapseTools: boolean;
+  /** 仍在后台跑的子代理对应的工具行 key（TurnProcessCard 传给子工具行）。 */
+  agentRunningTools?: Set<string>;
 }) {
   const th = useNibiTheme();
   const [open, setOpen] = useState(false);
@@ -1137,6 +1170,7 @@ function TurnProcessCard({
               toggleOpen={toggleOpen}
               autoCollapseThinking={autoCollapseThinking}
               autoCollapseTools={autoCollapseTools}
+              agentRunningTools={agentRunningTools}
             />
           ))}
         </View>
@@ -1153,6 +1187,7 @@ function ProcessChild({
   toggleOpen,
   autoCollapseThinking,
   autoCollapseTools,
+  agentRunningTools,
 }: {
   row: ChatRow;
   renderTool?: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
@@ -1160,6 +1195,7 @@ function ProcessChild({
   toggleOpen: (id: string, fallback: boolean) => void;
   autoCollapseThinking: boolean;
   autoCollapseTools: boolean;
+  agentRunningTools?: Set<string>;
 }) {
   const th = useNibiTheme();
   if (row.kind === "assistant") {
@@ -1194,6 +1230,7 @@ function ProcessChild({
         row={row}
         open={isOpen(row.key, !autoCollapseTools)}
         onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
+        agentRunning={agentRunningTools?.has(row.key) ?? false}
       />
     );
   }
@@ -1207,6 +1244,7 @@ function ProcessChild({
             row={tool}
             open={isOpen(tool.key, !autoCollapseTools)}
             onToggle={() => toggleOpen(tool.key, !autoCollapseTools)}
+            agentRunning={agentRunningTools?.has(tool.key) ?? false}
           />
         ))}
       </View>

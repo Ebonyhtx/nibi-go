@@ -45,6 +45,7 @@ import { PluginActionSheet, type PluginSheetItem } from "../components/PluginAct
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus, type SessionTodoState } from "../components/SideStatus";
+import { NewChatSheet } from "../components/NewChatSheet";
 import type { AgentFaceStatus } from "../components/AgentFace";
 import type { ChatRow } from "@nibi-go/kernel-session";
 import { PET_STATE } from "../components/petStates";
@@ -297,15 +298,9 @@ export default function GoHomeScreen() {
     items: PluginSheetItem[];
   } | null>(null);
   const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
-  // 新建对话的项目选择菜单（FAB anchor）：有项目时点 FAB 先选归属；
+  // 新建对话归属弹层（底部 sheet）：FAB 与抽屉「新对话」共用——先选归属再开会话，
   // 也可以就地新建项目（名称 + 文件夹名），不必先去设置。
-  const fabRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
-  const [newChatMenu, setNewChatMenu] = useState<PopupAnchor | null>(null);
-  const [newProjectDraft, setNewProjectDraft] = useState<{
-    name: string;
-    folder: string;
-    touchedFolder: boolean;
-  } | null>(null);
+  const [newChatOpen, setNewChatOpen] = useState(false);
   // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
   const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
@@ -870,7 +865,8 @@ export default function GoHomeScreen() {
   };
 
   // 悬浮工具卡的会话状态面：子代理（subagent 行 + Agent 工具行归并）与最新待办进度。
-  // 递归收 toolGroup/process 里的嵌套行；同名运行中条目去重（subagent 行优先，它带子会话）。
+  // 递归收 toolGroup/process 里的嵌套行；Agent 工具行本身 success ≠ 子代理完成——
+  // 触发的子代理仍在后台跑时工具行按运行中计。
   const sessionTools = useMemo(() => {
     type Face = {
       key: string;
@@ -880,25 +876,35 @@ export default function GoHomeScreen() {
     };
     const faces: Face[] = [];
     let todos: SessionTodoState | undefined;
-    const faceStatus = (raw: string): AgentFaceStatus =>
+    const faceStatus = (raw: string | undefined, backgrounded?: boolean): AgentFaceStatus =>
       raw === "failed" || raw === "error"
         ? "failed"
         : raw === "cancelled"
           ? "cancelled"
           : raw === "running" || raw === "inputStreaming" || raw === "pendingApproval"
             ? "running"
-            : "completed";
+            : !raw && backgrounded
+              ? "running"
+              : "completed";
+    const runningByTool = new Set<string>();
     const visit = (rows: readonly ChatRow[]) => {
       for (const row of rows) {
         if (row.kind === "subagent") {
-          faces.push({ key: row.key, name: row.subagentType, status: faceStatus(row.status), fromRow: true });
+          const status = faceStatus(row.status, row.backgrounded);
+          if (status === "running" && row.parentToolCallId) runningByTool.add(`t${row.parentToolCallId}`);
+          faces.push({ key: row.key, name: row.subagentType, status, fromRow: true });
         } else if (row.kind === "tool") {
           if (row.name === "Agent") {
             const name =
               row.detail
                 ? /"subagent_type"\s*:\s*"([^"]+)"/u.exec(row.detail)?.[1] ?? "Agent"
                 : "Agent";
-            faces.push({ key: row.key, name, status: faceStatus(row.status), fromRow: false });
+            faces.push({
+              key: row.key,
+              name,
+              status: runningByTool.has(row.key) ? "running" : faceStatus(row.status),
+              fromRow: false,
+            });
           }
           if (row.name === "TodoWrite" && row.todos) {
             const done = row.todos.filter((item) => item.status === "completed").length;
@@ -917,7 +923,7 @@ export default function GoHomeScreen() {
       }
     };
     visit(conversation.rows);
-    // 时间倒序后运行中排前；同一名字的运行中条目只留 subagent 行那份。
+    // 时间倒序后运行中排前；同一把手的运行中条目只留 subagent 行那份（它带子会话）。
     const latestFirst = [...faces].reverse();
     const deduped = latestFirst.filter(
       (face, index) =>
@@ -1022,10 +1028,7 @@ export default function GoHomeScreen() {
             archivedSessions={conversation.archivedSessions}
             activeSessionId={conversation.activeSessionId}
             onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
-            onNewSession={() => {
-              setDraft("");
-              void conversation.newSession(activeProjectId ?? undefined);
-            }}
+            onNewSession={() => setNewChatOpen(true)}
             onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
             onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
             onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
@@ -1149,14 +1152,11 @@ export default function GoHomeScreen() {
                     { backgroundColor: th.glass, borderColor: th.glassBorder },
                     th.elevation.card,
                   ]}
-                  ref={fabRef}
                   accessibilityLabel="新建对话"
                   onPress={() => {
-                    // 始终弹归属菜单（独立会话/项目/就地新建）——静默新建正是
+                    // 始终弹归属 sheet（独立会话/项目/就地新建）——静默新建正是
                     // 运营者抱怨的「点了没反应」形态。
-                    fabRef.current?.measureInWindow((x, y, width, height) => {
-                      setNewChatMenu({ x, y, width, height });
-                    });
+                    setNewChatOpen(true);
                   }}
                 >
                   <Icon name="pen" size={17} color={th.ink} />
@@ -1452,10 +1452,7 @@ export default function GoHomeScreen() {
           archivedSessions={conversation.archivedSessions}
           activeSessionId={conversation.activeSessionId}
           onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
-          onNewSession={() => {
-            setDraft("");
-            void conversation.newSession(activeProjectId ?? undefined);
-          }}
+          onNewSession={() => setNewChatOpen(true)}
           onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
           onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
           onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
@@ -1575,171 +1572,31 @@ export default function GoHomeScreen() {
         }}
       />
 
-      {/* 新建对话的项目归属：独立会话 / 各项目（当前项目高亮）/ 管理入口。 */}
-      <PluginPopup
-        visible={newChatMenu !== null}
-        anchor={newChatMenu}
-        onClose={() => setNewChatMenu(null)}
-        width={260}
-      >
-        <Text style={[styles.popupTitle, { color: th.ink }]}>新建到…</Text>
-        <Pressable
-          onPress={() => {
-            setNewChatMenu(null);
-            setDraft("");
-            void conversation.newSession();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="新建独立会话"
-          style={({ pressed }) => [
-            styles.menuRow,
-            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
-          ]}
-        >
-          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
-            <Icon name="pen" size={15} color={th.inkSub} />
-          </View>
-          <View style={styles.menuText}>
-            <Text style={[styles.menuLabel, { color: th.ink }]}>独立会话</Text>
-          </View>
-        </Pressable>
-        {projects.projects.map((project) => {
-          const active = project.id === projects.activeProjectId;
-          return (
-            <Pressable
-              key={project.id}
-              onPress={() => {
-                setNewChatMenu(null);
-                setDraft("");
-                void conversation.newSession(project.id);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={`新建到项目 ${project.name}`}
-              style={({ pressed }) => [
-                styles.menuRow,
-                { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
-              ]}
-            >
-              <View
-                style={[
-                  styles.toolIconSmall,
-                  { backgroundColor: active ? th.brandSoft : th.panel },
-                ]}
-              >
-                <Icon name="doc" size={15} color={active ? th.brand : th.inkSub} />
-              </View>
-              <View style={styles.menuText}>
-                <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
-                  {project.name}
-                </Text>
-              </View>
-              {active ? <Icon name="check" size={13} color={th.brand} /> : null}
-            </Pressable>
-          );
-        })}
-        {newProjectDraft === null ? (
-          <Pressable
-            onPress={() => setNewProjectDraft({ name: "", folder: "", touchedFolder: false })}
-            accessibilityRole="button"
-            accessibilityLabel="新建项目"
-            style={({ pressed }) => [
-              styles.menuRow,
-              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <View style={[styles.toolIconSmall, { backgroundColor: th.brandSoft }]}>
-              <Icon name="plus" size={15} color={th.brand} />
-            </View>
-            <View style={styles.menuText}>
-              <Text style={[styles.menuLabel, { color: th.ink }]}>新建项目…</Text>
-            </View>
-          </Pressable>
-        ) : (
-          <View style={styles.newProjectForm}>
-            <Text style={[styles.popupTitle, { color: th.ink }]}>新建项目</Text>
-            <TextInput
-              value={newProjectDraft.name}
-              onChangeText={(name) => {
-                const slug = name
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/gu, "-")
-                  .replace(/^-+|-+$/gu, "")
-                  .slice(0, 40);
-                setNewProjectDraft({
-                  name,
-                  folder: newProjectDraft.touchedFolder ? newProjectDraft.folder : slug,
-                  touchedFolder: newProjectDraft.touchedFolder,
-                });
-              }}
-              placeholder="项目名称"
-              placeholderTextColor={th.inkFaint}
-              style={[
-                styles.projectInput,
-                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
-              ]}
-            />
-            <TextInput
-              value={newProjectDraft.folder}
-              onChangeText={(folder) =>
-                setNewProjectDraft({ ...newProjectDraft, folder, touchedFolder: true })
-              }
-              placeholder="文件夹名（a-z、0-9、-）"
-              placeholderTextColor={th.inkFaint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[
-                styles.projectInput,
-                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
-              ]}
-            />
-            <View style={styles.projectActions}>
-              <PillButton
-                label="取消"
-                variant="secondary"
-                onPress={() => setNewProjectDraft(null)}
-              />
-              <PillButton
-                label="创建并新建会话"
-                variant="primary"
-                onPress={() => {
-                  const name = newProjectDraft.name.trim();
-                  const folder = newProjectDraft.folder.trim();
-                  if (!name || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(folder)) return;
-                  setNewProjectDraft(null);
-                  setNewChatMenu(null);
-                  void createProject(name, folder)
-                    .then(() => setActiveProject(folder))
-                    .then(() => conversation.newSession(folder));
-                }}
-              />
-            </View>
-          </View>
-        )}
-        <Pressable
-          onPress={() => {
-            setNewChatMenu(null);
-            setNewProjectDraft(null);
-            leaveComposerForNavigation({
-              blur: () => composerInputRef.current?.blur(),
-              dismiss: Keyboard.dismiss,
-              navigate: () => router.push("/settings/projects"),
-            });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="管理项目"
-          style={({ pressed }) => [
-            styles.menuRow,
-            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
-          ]}
-        >
-          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
-            <Icon name="sliders" size={15} color={th.inkSub} />
-          </View>
-          <View style={styles.menuText}>
-            <Text style={[styles.menuLabel, { color: th.ink }]}>管理项目…</Text>
-          </View>
-        </Pressable>
-      </PluginPopup>
+      {/* 新建对话归属（底部 sheet）：独立会话 / 各项目 / 就地新建项目 / 管理入口。
+          FAB 与抽屉「新对话」都走这一份交互（此前抽屉直接静默新建）。 */}
+      <NewChatSheet
+        visible={newChatOpen}
+        onClose={() => setNewChatOpen(false)}
+        onPick={(projectId) => {
+          setDraft("");
+          void conversation.newSession(projectId);
+        }}
+        onCreateProject={async (name, folder) => {
+          await createProject(name, folder);
+          await setActiveProject(folder);
+          setDraft("");
+          await conversation.newSession(folder);
+        }}
+        onManage={() => {
+          leaveComposerForNavigation({
+            blur: () => composerInputRef.current?.blur(),
+            dismiss: Keyboard.dismiss,
+            navigate: () => router.push("/settings/projects"),
+          });
+        }}
+        projects={projects.projects}
+        activeProjectId={projects.activeProjectId}
+      />
 
       <PluginPopup
         visible={permissionMenu !== null}

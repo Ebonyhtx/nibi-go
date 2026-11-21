@@ -13,12 +13,15 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
+import kotlin.math.roundToInt
 
 /**
  * 全局悬浮状态气泡：NIBI 瓦片鸟脸（与消息流 AgentFace 同一形象——圆角方块机身 +
@@ -40,6 +43,10 @@ class StatusBubble(private val context: Context) {
 
   private var view: View? = null
   private var autoHide: Runnable? = null
+
+  // 悬浮球位置（绝对坐标，TOP|START；拖动后跨状态保留，进程内有效）。
+  private var positionX = -1f
+  private var positionY = -1f
 
   companion object {
     private const val BG_RUNNING = "#1c2f4e"
@@ -108,8 +115,8 @@ class StatusBubble(private val context: Context) {
       root.isClickable = true
       root.isFocusable = false
       root.elevation = dp(6).toFloat()
-      root.contentDescription = "NIBI-GO 运行状态，点按回到应用"
-      root.setOnClickListener { openMain() }
+      root.contentDescription = "NIBI-GO 运行状态，点按回到应用，按住可拖动"
+      root.setOnTouchListener(dragTouch)
       try {
         windowManager.addView(root, params())
         view = root
@@ -120,6 +127,66 @@ class StatusBubble(private val context: Context) {
       }
     }
     (((view as? ViewGroup)?.getChildAt(0)) as? TileFaceView)?.applyConfig(config)
+  }
+
+  /**
+   * 拖动/点按手势：位移超过 touchSlop 按拖动处理（实时 updateViewLayout 跟手），
+   * 否则松手视为单击（回应用）。悬浮窗不抢焦点，触摸只落在球上。
+   */
+  private val dragTouch = object : View.OnTouchListener {
+    private var downX = 0f
+    private var downY = 0f
+    private var startX = 0
+    private var startY = 0
+    private var dragging = false
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop
+
+    override fun onTouch(target: View, event: MotionEvent): Boolean {
+      when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN -> {
+          downX = event.rawX
+          downY = event.rawY
+          startX = positionX.roundToInt()
+          startY = positionY.roundToInt()
+          dragging = false
+          return true
+        }
+        MotionEvent.ACTION_MOVE -> {
+          val dx = event.rawX - downX
+          val dy = event.rawY - downY
+          if (!dragging && Math.hypot(dx.toDouble(), dy.toDouble()) < slop) return true
+          dragging = true
+          val params = view?.layoutParams as? WindowManager.LayoutParams ?: return true
+          params.x = clampX(startX + dx.roundToInt())
+          params.y = clampY(startY + dy.roundToInt())
+          positionX = params.x.toFloat()
+          positionY = params.y.toFloat()
+          try {
+            windowManager.updateViewLayout(view, params)
+          } catch (_: Throwable) {
+            // 窗口刚被系统移除时忽略；松手后下一轮状态会重建。
+          }
+          return true
+        }
+        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+          if (!dragging && event.actionMasked == MotionEvent.ACTION_UP) openMain()
+          dragging = false
+          return true
+        }
+        else -> return false
+      }
+    }
+  }
+
+  /** 贴边收拢：x 限制在 [0, 屏宽-球径]，y 限制在 [0, 屏高-球径]。 */
+  private fun clampX(value: Int): Int {
+    val max = context.resources.displayMetrics.widthPixels - dp(60)
+    return value.coerceIn(0, max)
+  }
+
+  private fun clampY(value: Int): Int {
+    val max = context.resources.displayMetrics.heightPixels - dp(60)
+    return value.coerceIn(0, max)
   }
 
   /**
@@ -356,9 +423,13 @@ class StatusBubble(private val context: Context) {
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
       PixelFormat.TRANSLUCENT,
     ).apply {
-      // 右侧竖直居中，贴边留一点缝。
-      gravity = Gravity.END or Gravity.CENTER_VERTICAL
-      x = dp(4)
+      // 绝对坐标（TOP|START）才能拖动：初始位置 = 右侧竖直居中，拖过之后沿用记忆位。
+      gravity = Gravity.TOP or Gravity.START
+      val metrics = context.resources.displayMetrics
+      if (positionX < 0) positionX = (metrics.widthPixels - dp(60) - dp(4)).toFloat()
+      if (positionY < 0) positionY = (metrics.heightPixels - dp(60)) / 2f
+      x = clampX(positionX.roundToInt())
+      y = clampY(positionY.roundToInt())
     }
   }
 
