@@ -455,30 +455,37 @@ export function ConversationList({
     );
   };
 
+  // 「回到底部」按钮：离开底部翻历史时出现，点击跳到最新消息后消失。
+  // stickToBottom 本来就有（贴底跟随用），这里补一份可渲染的状态。
+  const [atBottom, setAtBottom] = useState(true);
+
   return (
-    <ScrollView
-      ref={ref}
-      style={styles.scroll}
-      contentContainerStyle={[
-        styles.content,
-        bottomInset > 0 ? { paddingBottom: space(2) + bottomInset } : null,
-      ]}
-      showsVerticalScrollIndicator={false}
-      nestedScrollEnabled
-      onScroll={(event) => {
-        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-        stickToBottom.current =
-          contentOffset.y + layoutMeasurement.height >= contentSize.height - 32;
-      }}
-      scrollEventThrottle={16}
-      onContentSizeChange={() => {
-        if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
-      }}
-      onLayout={() => {
-        // 键盘/旋转改变可视高度时也贴底，避免最后一条被输入栏或宠物切一半。
-        if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
-      }}
-    >
+    <View style={styles.scrollWrap}>
+      <ScrollView
+        ref={ref}
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          bottomInset > 0 ? { paddingBottom: space(2) + bottomInset } : null,
+        ]}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          const bottom =
+            contentOffset.y + layoutMeasurement.height >= contentSize.height - 32;
+          stickToBottom.current = bottom;
+          setAtBottom(bottom);
+        }}
+        scrollEventThrottle={16}
+        onContentSizeChange={() => {
+          if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
+        }}
+        onLayout={() => {
+          // 键盘/旋转改变可视高度时也贴底，避免最后一条被输入栏或宠物切一半。
+          if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
+        }}
+      >
       {rows.map((row) => {
         if (row.kind === "pending") {
           const parsed = parseComposerText(row.text, plugins ?? []);
@@ -968,7 +975,25 @@ export function ConversationList({
           </View>,
         );
       })}
-    </ScrollView>
+      </ScrollView>
+      {!atBottom ? (
+        <Pressable
+          onPress={() => {
+            stickToBottom.current = true;
+            setAtBottom(true);
+            ref.current?.scrollToEnd({ animated: true });
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="跳到最新消息"
+          style={({ pressed }) => [
+            styles.jumpButton,
+            { backgroundColor: pressed ? th.hover : th.card, borderColor: th.hairline, ...th.elevation.card },
+          ]}
+        >
+          <Icon name="chevron-down" size={15} color={th.inkSub} />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -1487,7 +1512,21 @@ function formatTokens(tokens: number): string {
 // 字阶取整规则：≤11.5 收到 micro(11)，12–12.5 收到 small(12.5)，14 收到 body——
 // 行高一律用 text() 配对值，不再手写 lineHeight（原 15/17 与配对值一致，其余差 1px 非刻意）。
 const styles = StyleSheet.create({
+  scrollWrap: { flex: 1 },
   scroll: { flex: 1 },
+  // 「回到底部」浮钮：右下角悬在最新消息上方，避开输入栏高度由父级 bottomInset 决定不了——
+  // 这里给固定下边距，视觉上落在输入栏上方。
+  jumpButton: {
+    position: "absolute",
+    right: space(3),
+    bottom: space(3),
+    width: 36,
+    height: 36,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   content: { paddingVertical: space(2), gap: space(3) },
   row: { width: "100%" },
   bubble: {

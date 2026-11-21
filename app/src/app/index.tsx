@@ -45,6 +45,7 @@ import { PluginActionSheet, type PluginSheetItem } from "../components/PluginAct
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus, type SessionTodoState } from "../components/SideStatus";
+import { WorkspacePanel, type WorkspaceSubagent } from "../components/WorkspacePanel";
 import { NewChatSheet } from "../components/NewChatSheet";
 import type { AgentFaceStatus } from "../components/AgentFace";
 import type { ChatRow } from "@nibi-go/kernel-session";
@@ -301,6 +302,8 @@ export default function GoHomeScreen() {
   // 新建对话归属弹层（底部 sheet）：FAB 与抽屉「新对话」共用——先选归属再开会话，
   // 也可以就地新建项目（名称 + 文件夹名），不必先去设置。
   const [newChatOpen, setNewChatOpen] = useState(false);
+  // 右侧工作区面板（文件/子代理）：顶栏文件夹键或右缘往左滑呼出。
+  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
   const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
@@ -864,6 +867,26 @@ export default function GoHomeScreen() {
     setPreviewState(ids[(i + 1) % ids.length]!);
   };
 
+  // 右侧工作区面板：当前会话的 workspace 目录 + 本会话子代理状态。
+  const activeWorkspacePath = useMemo(() => {
+    const session = conversation.sessions.find(
+      (entry) => entry.sessionId === conversation.activeSessionId,
+    );
+    return session?.workspace?.workspacePath ?? null;
+  }, [conversation.sessions, conversation.activeSessionId]);
+  // 右缘往左滑：打开工作区面板（只认水平左滑，纵向交给列表滚动，由热区窄条保证）。
+  const rightEdgePan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dx < -24) setWorkspacePanelOpen(true);
+        },
+      }),
+    [],
+  );
+
   // 悬浮工具卡的会话状态面：子代理（subagent 行 + Agent 工具行归并）与最新待办进度。
   // 递归收 toolGroup/process 里的嵌套行；Agent 工具行本身 success ≠ 子代理完成——
   // 触发的子代理仍在后台跑时工具行按运行中计。
@@ -1144,6 +1167,18 @@ export default function GoHomeScreen() {
                     {modelLabel}
                   </Text>
                   <Icon name="chevron-down" size={12} color={th.inkGhost} />
+                </PressableScale>
+
+                <PressableScale
+                  style={[
+                    styles.fab,
+                    { backgroundColor: th.glass, borderColor: th.glassBorder },
+                    th.elevation.card,
+                  ]}
+                  accessibilityLabel="打开工作区面板"
+                  onPress={() => setWorkspacePanelOpen(true)}
+                >
+                  <Icon name="folder" size={17} color={th.ink} />
                 </PressableScale>
 
                 <PressableScale
@@ -1447,6 +1482,7 @@ export default function GoHomeScreen() {
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
+          onSwipeOpen={() => setDrawerOpen(true)}
           petState={petState}
           sessions={conversation.sessions}
           archivedSessions={conversation.archivedSessions}
@@ -1461,6 +1497,24 @@ export default function GoHomeScreen() {
           onBeforeNavigate={() => composerInputRef.current?.blur()}
         />
       ) : null}
+
+      {/* 右缘热区：往左滑打开工作区面板（zIndex 压在悬浮工具卡之下，不挡状态环）。 */}
+      {!workspacePanelOpen ? (
+        <View style={styles.rightEdge} {...rightEdgePan.panHandlers} pointerEvents="auto" />
+      ) : null}
+
+      <WorkspacePanel
+        visible={workspacePanelOpen}
+        onClose={() => setWorkspacePanelOpen(false)}
+        workspacePath={activeWorkspacePath}
+        subagents={sessionTools.subagents.map(
+          (entry): WorkspaceSubagent => ({
+            key: entry.key,
+            name: entry.name,
+            status: entry.status,
+          }),
+        )}
+      />
 
       <SideStatus
         plugins={plugins.enabled}
@@ -1864,6 +1918,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  // 右缘手势热区：从 28dp 起、宽 20dp（同左缘：让出 ColorOS 系统返回手势区，
+  // 系统区实测到 ~27dp；RN style 是 dp 不是 px）。zIndex 低于悬浮工具卡（5）。
+  rightEdge: {
+    position: "absolute",
+    right: 28,
+    top: 0,
+    bottom: 0,
+    width: 20,
+    zIndex: 4,
   },
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   // flex 约束必须落在按压原语的外层 Pressable 上（内层是视觉层，不参与父级 flex 分配）。

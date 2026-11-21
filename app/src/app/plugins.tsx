@@ -373,13 +373,16 @@ export default function PluginsScreen() {
         title="插件"
         onBack={() => router.back()}
         right={
+          // 市场入口带店形图标 + 全名：只写「市场」两个字没人知道是插件市场
+          // （运营者 2026-11-22：容易误会）。
           <PressableScale
             onPress={() => router.push("/market")}
             accessibilityRole="button"
             accessibilityLabel="打开插件市场"
             style={[styles.marketButton, { backgroundColor: t.brandSoft }]}
           >
-            <Text style={[styles.marketText, { color: t.brand }]}>市场</Text>
+            <Icon name="store" size={12} color={t.brand} />
+            <Text style={[styles.marketText, { color: t.brand }]}>插件市场</Text>
           </PressableScale>
         }
       />
@@ -440,8 +443,11 @@ export default function PluginsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   marketButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
     borderRadius: radius.chip,
-    paddingHorizontal: space(3),
+    paddingHorizontal: space(2.5),
     paddingVertical: space(1),
   },
   marketText: { ...text("small"), fontWeight: "700" },

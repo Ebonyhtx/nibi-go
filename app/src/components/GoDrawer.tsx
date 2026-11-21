@@ -14,6 +14,7 @@ import {
   Animated,
   Image,
   Keyboard,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -138,7 +139,15 @@ export function GoNavContent({
       searchRef.current?.blur();
       Keyboard.dismiss();
     }
-    if (!wasActive.current && active) setStaggerTick((n) => n + 1);
+    if (!wasActive.current && active) {
+      setStaggerTick((n) => n + 1);
+      // 抽屉出现时系统可能把焦点自动给搜索框（首次可聚焦输入），再点设置/插件
+      // 就会出现「键盘闪一下」——运营者反馈过多次的复发点。开场立刻压掉焦点。
+      requestAnimationFrame(() => {
+        searchRef.current?.blur();
+        Keyboard.dismiss();
+      });
+    }
     wasActive.current = active;
   }, [active]);
   const leaveFor = (path: "/settings" | "/settings/projects" | "/plugins") => {
@@ -681,9 +690,12 @@ export function GoDrawer({
   onDeleteAllArchived,
   onSessionActions,
   onBeforeNavigate,
+  onSwipeOpen,
 }: {
   open: boolean;
   onClose: () => void;
+  /** 左缘手势把抽屉拖出来后的停靠回调（父级把 open 置 true）。 */
+  onSwipeOpen?: () => void;
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
@@ -746,12 +758,80 @@ export function GoDrawer({
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-panelWidth, 0] });
   const contentX = content.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] });
 
+  // 左缘跟手滑：从屏幕左缘往右拖，面板跟着手指出来；松手过阈值（位移 35% 或
+  // 速度 0.5）就停靠打开，否则弹回。运营者 2026-11-22：抽屉要像桌面端那样跟手。
+  const dragProgress = useRef(0);
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
+  const edgePan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dx > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+        onPanResponderGrant: () => {
+          slide.stopAnimation();
+          slide.setValue(0);
+          dim.setValue(0);
+          dragProgress.current = 0;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const progress = Math.min(1, Math.max(0, gesture.dx / panelWidthRef.current));
+          dragProgress.current = progress;
+          slide.setValue(progress);
+          dim.setValue(progress);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const shouldOpen = dragProgress.current > 0.35 || gesture.vx > 0.5;
+          if (shouldOpen) {
+            onSwipeOpen?.();
+          } else {
+            Animated.timing(slide, {
+              toValue: 0,
+              duration: motion.duration.base,
+              easing: easingStandard,
+              useNativeDriver: true,
+            }).start();
+            Animated.timing(dim, {
+              toValue: 0,
+              duration: motion.duration.base,
+              easing: easingStandard,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          dragProgress.current = 0;
+          Animated.timing(slide, {
+            toValue: 0,
+            duration: motion.duration.base,
+            easing: easingStandard,
+            useNativeDriver: true,
+          }).start();
+          Animated.timing(dim, {
+            toValue: 0,
+            duration: motion.duration.base,
+            easing: easingStandard,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [slide, dim, onSwipeOpen],
+  );
+
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents={open ? "auto" : "none"}>
-      <Animated.View style={[styles.dim, { opacity: dim, backgroundColor: t.backdrop }]}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <Animated.View
+        style={[styles.dim, { opacity: dim, backgroundColor: t.backdrop }]}
+        pointerEvents={open ? "auto" : "none"}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭抽屉" />
       </Animated.View>
+      {!open ? (
+        // 左缘手势条：只占屏幕最左 28px，不挡正文（容器 box-none，其余区域穿透）。
+        <View style={styles.edgeStrip} {...edgePan.panHandlers} pointerEvents="auto" />
+      ) : null}
       <Animated.View
+        pointerEvents={open ? "auto" : "none"}
         style={[
           styles.panel,
           {
@@ -935,6 +1015,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 19,
+  },
+  // 左缘手势热区：从 28dp（≈96px @560dpi）起、宽 20dp。真机实测 ColorOS 手势导航的
+  // 「边缘返回」区覆盖最外侧 ~27dp（96px）——贴边起滑会把 App 直接退回桌面
+  // （起步 64/80px 实测退出，96px 起完好）。让出系统区是 App 侧唯一共存方式。
+  // 注意 RN style 是 dp：别把 px 探测值直接写进来（曾把 96dp 当 96px 用，热区飞到 336px）。
+  edgeStrip: {
+    position: "absolute",
+    left: 28,
+    top: 0,
+    bottom: 0,
+    width: 20,
+    zIndex: 21,
   },
   panel: {
     position: "absolute",

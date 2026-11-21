@@ -5,7 +5,7 @@
 // 流式中的消息不进这里：每帧全量重排太重，落定后才升级富排版（ConversationList 分流）。
 import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { Sheet } from "./ui/Sheet";
@@ -54,12 +54,14 @@ function artifactHtml(lang: "html" | "svg", code: string): string {
   return /<html[\s>]/iu.test(code) ? code : `${shell}${code}</body></html>`;
 }
 
-/** 可视化工件卡：折叠一行（语言+行数），「预览」弹全高 WebView。
+/** 可视化工件卡：折叠一行（语言+行数），「预览」弹全高 WebView，右上角可切全屏。
  * 必须放在消息的长按 Pressable 之外——嵌套 Pressable 会被外层吞掉触摸
  * （运营者真机验证过：预览按钮点不动、长按全落到消息菜单上）。 */
 export function ArtifactCard({ artifact }: { artifact: VisualArtifact }) {
   const th = useNibiTheme();
+  const { height: screenHeight } = useWindowDimensions();
   const [open, setOpen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const lines = artifact.code.trim().split("\n").length;
   return (
     <View style={[styles.artifact, { borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}>
@@ -84,14 +86,38 @@ export function ArtifactCard({ artifact }: { artifact: VisualArtifact }) {
           <Text style={[styles.artifactButtonText, { color: th.brand }]}>预览</Text>
         </Pressable>
       </View>
-      <Sheet visible={open} onClose={() => setOpen(false)} maxHeightRatio={0.94}>
-        <View style={styles.artifactSheetHead}>
+      <Sheet
+        visible={open}
+        onClose={() => {
+          setOpen(false);
+          setMaximized(false);
+        }}
+        maxHeightRatio={maximized ? 1 : 0.94}
+      >
+        <View style={maximized ? styles.artifactSheetFull : styles.artifactSheetHead}>
           <Icon name="globe" size={15} color={th.brand} />
           <Text style={[styles.artifactSheetTitle, { color: th.ink }]}>
             可视化 · {artifact.lang.toUpperCase()}
           </Text>
+          <Pressable
+            onPress={() => setMaximized((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={maximized ? "退出全屏" : "全屏查看"}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.artifactMaxButton,
+              { backgroundColor: pressed ? th.hover : "transparent" },
+            ]}
+          >
+            <Icon name="maximize" size={15} color={th.inkSub} />
+          </Pressable>
         </View>
-        <View style={styles.artifactWeb}>
+        <View
+          style={[
+            styles.artifactWeb,
+            { height: maximized ? Math.round(screenHeight * 0.92) - 52 : 540 },
+          ]}
+        >
           <WebView source={{ html: artifactHtml(artifact.lang, artifact.code) }} />
         </View>
       </Sheet>
@@ -208,6 +234,23 @@ const styles = StyleSheet.create({
     gap: space(2),
     paddingHorizontal: space(4),
     paddingVertical: space(3),
+  },
+  artifactSheetFull: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    paddingHorizontal: space(4),
+    paddingVertical: space(3),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(0,0,0,0.06)",
+  },
+  artifactMaxButton: {
+    marginLeft: "auto",
+    width: 32,
+    height: 32,
+    borderRadius: radius.control,
+    alignItems: "center",
+    justifyContent: "center",
   },
   artifactSheetTitle: { ...text("body"), fontWeight: "700" },
   artifactWeb: { height: 540 },
