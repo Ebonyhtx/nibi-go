@@ -100,7 +100,7 @@ export function ModelPickerSheet({
 
         {providers.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyText, { color: t.inkSub }]}>还没有可用的模型供应商。</Text>
+            <Text style={[styles.emptyText, { color: t.inkSub }]}>还没有可用的模型服务。</Text>
             <PillButton label="去设置模型" onPress={onManage} />
           </View>
         ) : (
@@ -132,7 +132,7 @@ export function ModelPickerSheet({
                       }
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`供应商 ${entry.name}`}
+                    accessibilityLabel={`模型服务 ${entry.name}`}
                     style={({ pressed }) => [
                       styles.providerChip,
                       {
@@ -159,7 +159,7 @@ export function ModelPickerSheet({
             <ScrollView style={styles.models} nestedScrollEnabled>
               {provider?.models.length === 0 ? (
                 <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                  这个供应商还没有模型；在设置里添加模型 ID。
+                  这个服务还没有模型；在设置里添加模型 ID。
                 </Text>
               ) : null}
               {provider?.models.map((modelId) => {

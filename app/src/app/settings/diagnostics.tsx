@@ -88,7 +88,7 @@ export default function DiagnosticsScreen() {
         setMemoryBytes(memory.totalBytes);
       }
       if (!hasSession) {
-        setError("还没有打开的本机会话：先配置模型并新建一个对话；记忆体量仍可查看。");
+        setError("还没有打开的会话：先配置模型并新建对话；记忆数据仍可查看。");
       }
       setCheckedAt(new Date());
     } catch (cause) {
@@ -149,7 +149,7 @@ export default function DiagnosticsScreen() {
         pointerEvents="none"
       />
       <ScreenHeader
-        title="记忆与链路诊断"
+        title="诊断"
         onBack={() => router.back()}
         right={
           // 头部右槽刷新：与 ScreenHeader 返回钮同一档玻璃圆钮。
@@ -175,10 +175,10 @@ export default function DiagnosticsScreen() {
       />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+        {/* 2.0.1：页顶只留一句（只读性质）；「cacheRead / input_tokens 口径」是实现细节，删。 */}
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: th.inkSub }]}>
-            诊断只看本机事实，不会改动会话。逐轮命中率的口径是 cacheRead / input_tokens，
-            与右侧上下文面板的会话级口径不同。
+            只读本机数据，不改动会话。
           </Text>
         </AppearIn>
 
@@ -215,7 +215,7 @@ export default function DiagnosticsScreen() {
             <View style={[styles.banner, { backgroundColor: th.panel, borderColor: th.hairline }]}>
               <Text style={[styles.bannerTitle, { color: th.inkSub }]}>还没有可诊断的回合</Text>
               <Text style={[styles.bannerText, { color: th.inkFaint }]}>
-                先发一条消息，让内核产生一轮用量与模型网络状态；记忆占用仍可在这里查看。
+                发一条消息后，这里会出现用量与网络状态。
               </Text>
             </View>
           </AppearIn>
@@ -227,13 +227,13 @@ export default function DiagnosticsScreen() {
               <View style={styles.kv}>
                 <Text style={[styles.kvKey, { color: th.inkFaint }]}>开关</Text>
                 <Text style={[styles.kvValue, { color: preferences.enabled ? th.ok : th.inkSub }]}>
-                  {preferences.enabled ? "开启（本机共享）" : "关闭"}
+                  {preferences.enabled ? "开启" : "关闭"}
                 </Text>
               </View>
               <View style={styles.kv}>
                 <Text style={[styles.kvKey, { color: th.inkFaint }]}>磁盘占用</Text>
                 <Text style={[styles.kvValue, { color: th.ink }]}>
-                  {memoryBytes === null ? "—" : memoryBytes === 0 ? "没有保存记忆" : formatBytes(memoryBytes)}
+                  {memoryBytes === null ? "—" : memoryBytes === 0 ? "暂无数据" : formatBytes(memoryBytes)}
                 </Text>
               </View>
               {memoryEntries.map((entry) => (
@@ -245,7 +245,7 @@ export default function DiagnosticsScreen() {
                 </View>
               ))}
               <View style={styles.kv}>
-                <Text style={[styles.kvKey, { color: th.inkFaint }]}>抽取请求</Text>
+                <Text style={[styles.kvKey, { color: th.inkFaint }]}>记忆写入</Text>
                 <Text
                   style={[
                     styles.kvValue,
@@ -274,7 +274,7 @@ export default function DiagnosticsScreen() {
               <Text style={[styles.detail, { color: th.inkFaint }]}>
                 {cache
                   ? `${cache.hitRateRequestCount} 轮 · 输入 ${cache.totalInputTokens} · 命中 ${cache.totalCacheReadTokens}`
-                  : "还没有可统计的回合"}
+                  : "暂无数据"}
               </Text>
               {lastRound ? (
                 <Text style={[styles.detail, { color: th.inkFaint }]}>
@@ -290,7 +290,7 @@ export default function DiagnosticsScreen() {
           <SectionCard label="逐轮用量">
             <View style={styles.cardBody}>
               {rounds.length === 0 ? (
-                <Text style={[styles.detail, { color: th.inkFaint }]}>还没有结束的回合。</Text>
+                <Text style={[styles.detail, { color: th.inkFaint }]}>暂无数据</Text>
               ) : (
                 rounds
                   .slice(-8)
@@ -319,7 +319,7 @@ export default function DiagnosticsScreen() {
           <SectionCard label="模型网络状态">
             <View style={styles.cardBody}>
               {network.length === 0 ? (
-                <Text style={[styles.detail, { color: th.inkFaint }]}>还没有模型请求记录。</Text>
+                <Text style={[styles.detail, { color: th.inkFaint }]}>暂无数据</Text>
               ) : (
                 network
                   .slice(-12)
@@ -348,8 +348,7 @@ export default function DiagnosticsScreen() {
 
         <AppearIn delay={staggerDelay(6, 32, 240)}>
           <Text style={[styles.footnote, { color: th.inkGhost }]}>
-            {checkedAt ? `检查于 ${checkedAt.toLocaleTimeString()}` : "尚未检查"} ·
-            记忆抽取是旁路请求，失败不会中断主回合。
+            {checkedAt ? `检查于 ${checkedAt.toLocaleTimeString()}` : "尚未检查"}
           </Text>
         </AppearIn>
       </ScrollView>

@@ -302,7 +302,7 @@ export default function SettingsScreen() {
   const test = (provider: ProviderSummary) => {
     const selection = usableSelection(provider);
     if (!selection) {
-      setNote("这个 Provider 没有模型，先在编辑里填模型 ID");
+      setNote("这个服务还没有模型，先在编辑里填模型 ID");
       return;
     }
     setBusy(`test:${provider.id}`);
@@ -317,7 +317,7 @@ export default function SettingsScreen() {
   const makeDefault = (provider: ProviderSummary) => {
     const selection = usableSelection(provider);
     if (!selection) {
-      setNote("这个 Provider 没有模型，不能设为默认");
+      setNote("这个服务还没有模型，不能设为默认");
       return;
     }
     setBusy(`default:${provider.id}`);
@@ -380,7 +380,7 @@ export default function SettingsScreen() {
           <SectionCard>
             <View style={styles.formBody}>
               <Text style={[styles.formTitle, { color: t.ink }]}>
-                {editing.providerId ? "编辑供应商" : "添加供应商"}
+                {editing.providerId ? "编辑供应商" : "添加模型服务"}
               </Text>
               {!editing.providerId && state.presets.length > 0 && (
                 <>
@@ -389,7 +389,7 @@ export default function SettingsScreen() {
                     <TextInput
                       value={presetQuery}
                       onChangeText={setPresetQuery}
-                      placeholder="搜索预设：名称 / 地址 / 模板 ID"
+                      placeholder="搜索预设"
                       placeholderTextColor={t.inkFaint}
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -405,6 +405,7 @@ export default function SettingsScreen() {
                     <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>没有匹配的预设</Text>
                   ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
+                      {/* 内容两端都给卡内边距：最后一张预设卡不再被卡片右缘硬裁（2.0.1 审查 P0）。 */}
                       {visiblePresets.map((preset) => {
                         const active = editing.template === preset.id;
                         return (
@@ -524,7 +525,7 @@ export default function SettingsScreen() {
                 style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
               />
               <Text style={[styles.hint, { color: t.inkFaint }]}>
-                Key 存在 Android Keystore，不写进配置文件；只在内核内存里使用。
+                Key 只保存在本机。
               </Text>
 
               <View style={styles.rowBetween}>
@@ -533,7 +534,7 @@ export default function SettingsScreen() {
                   value={editing.enabled}
                   onValueChange={(enabled) => setEditing({ ...editing, enabled })}
                   trackColor={{ false: t.surfaceSoft, true: t.brandSoft }}
-                  thumbColor={editing.enabled ? t.brand : t.inkGhost}
+                  thumbColor={editing.enabled ? t.brand : t.inkFaint}
                   ios_backgroundColor={t.surfaceSoft}
                 />
               </View>
@@ -564,9 +565,8 @@ export default function SettingsScreen() {
     return (
       <>
         {state.providers.length === 0 && !loading && (
-          <Text style={[styles.empty, { color: t.inkSub }]}>
-            还没有 Provider。添加一个模型服务后，新会话就能选它。
-          </Text>
+          // 空态一句话 + 下方主 CTA（随容器垂直居中）；「Provider」改用户语言。
+          <Text style={[styles.empty, { color: t.inkSub }]}>还没有模型服务</Text>
         )}
         {state.providers.map((provider, providerIndex) => {
           const isDefault =
@@ -740,7 +740,7 @@ export default function SettingsScreen() {
 
         <AppearIn delay={staggerDelay(state.providers.length, 32, 240)}>
           <PillButton
-            label="添加供应商"
+            label="添加模型服务"
             variant="primary"
             icon="plus"
             buttonSize="lg"
@@ -759,11 +759,18 @@ export default function SettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="模型设置" subtitle="供应商 · 模型 · 思考档位" onBack={() => router.back()} />
+      <ScreenHeader title="模型设置" onBack={() => router.back()} />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(8) }]}
+        contentContainerStyle={[
+          styles.content,
+          // 没有任何供应商时内容垂直居中：空态不再堆在左上角、下半屏全空（2.0.1 审查）。
+          state.providers.length === 0 && !loading && !editing ? styles.contentEmpty : null,
+          { paddingBottom: insets.bottom + space(8) },
+        ]}
       >
-        <Text style={[styles.section, { color: t.inkSub }]}>供应商</Text>
+        {state.providers.length > 0 ? (
+          <Text style={[styles.section, { color: t.inkSub }]}>供应商</Text>
+        ) : null}
         {loading && <ActivityIndicator style={styles.loading} />}
         {error && <Text style={[styles.noteText, { color: t.red }]}>{error}</Text>}
         {note && (
@@ -798,6 +805,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
+  contentEmpty: { flexGrow: 1, justifyContent: "center" },
   section: {
     ...text("micro"),
     letterSpacing: 1,
@@ -819,7 +827,7 @@ const styles = StyleSheet.create({
   },
   presetSearch: { ...text("small") },
   presetEmpty: { ...text("micro"), paddingVertical: space(1) },
-  presetRow: { gap: space(2), paddingVertical: space(0.5) },
+  presetRow: { gap: space(2), paddingVertical: space(0.5), paddingHorizontal: space(3.5) },
   presetTitle: { flexDirection: "row", alignItems: "center", gap: space(1.25) },
   presetName: { ...text("micro"), fontWeight: "700" },
   presetUrl: { ...text("micro") },

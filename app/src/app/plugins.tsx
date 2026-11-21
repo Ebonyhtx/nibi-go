@@ -101,7 +101,7 @@ function PluginCard({
     <SectionCard>
       <Row
         title={manifest.name}
-        detail={`${manifest.id} · v${manifest.version}`}
+        detail={`v${manifest.version}`}
         right={
           <View style={styles.headRight}>
             <View style={[styles.status, { backgroundColor: toneSoft }]}>
@@ -201,7 +201,7 @@ function PluginCard({
                 icon="globe"
                 tone="steel"
                 label={island.title}
-                detail="Web Island · 路由守卫 + 超时降级"
+                detail="内置网页"
                 disabled={!canEnable}
                 onPress={() =>
                   router.push({
@@ -225,11 +225,7 @@ function PluginCard({
               accessibilityLabel={`${showDetails ? "收起" : "展开"} ${manifest.name} 的设置与命令`}
               style={styles.detailsHead}
             >
-              <Text style={[styles.detailsTitle, { color: t.inkSub }]}>
-                设置与命令
-                {settings.length > 0 ? ` · ${settings.length} 项设置` : ""}
-                {commands.length > 0 ? ` · ${commands.length} 个命令` : ""}
-              </Text>
+              <Text style={[styles.detailsTitle, { color: t.inkSub }]}>设置与命令</Text>
               <View style={showDetails ? styles.chevronOpen : undefined}>
                 <Icon name="chevron-down" size={13} color={t.inkFaint} />
               </View>
@@ -375,7 +371,6 @@ export default function PluginsScreen() {
       />
       <ScreenHeader
         title="插件"
-        subtitle="声明式槽 · 插件代码跑在子进程"
         onBack={() => router.back()}
         right={
           <PressableScale
@@ -426,17 +421,17 @@ export default function PluginsScreen() {
           </AppearIn>
         ))}
 
-        <AppearIn delay={staggerDelay(plugins.plugins.length, 32, 240)}>
-          <View style={[styles.note, { borderColor: t.hairline }]}>
-            <Text style={[styles.noteText, { color: t.inkFaint }]}>
-              插件只能渲染受限 JSON 视图（文字/行/列/卡/徽标/进度/列表/按钮），不能改导航、主题或
-              权限。工具卡的数据来自插件的 MCP 工具；插件子进程拿不到 Provider key。
-            </Text>
-            <Text style={[styles.noteText, { color: t.inkFaint }]}>
-              远端桌面会话没有插件槽：同一份清单会如实降级为不渲染。
-            </Text>
-          </View>
-        </AppearIn>
+        {/* 2.0.1：两段实现说明（受限 JSON 视图/子进程/Provider key/远端降级）整删——
+            沙箱边界用户无从行动；真需要安全声明时用一句用户语言。 */}
+        {plugins.plugins.length === 0 && !plugins.loading && !plugins.error ? (
+          <AppearIn delay={staggerDelay(0, 32, 240)}>
+            <View style={[styles.note, { borderColor: t.hairline }]}>
+              <Text style={[styles.noteText, { color: t.inkFaint }]}>
+                插件只能显示受限内容，无法更改应用权限。去「市场」安装更多插件。
+              </Text>
+            </View>
+          </AppearIn>
+        ) : null}
       </ScrollView>
     </View>
   );

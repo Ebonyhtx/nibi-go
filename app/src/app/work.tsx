@@ -185,7 +185,7 @@ export default function WorkScreen() {
         <View style={styles.barCenter}>
           <Text style={[styles.barTitle, { color: th.ink }]}>NIBI-WORK</Text>
           <Text style={[styles.barSub, { color: th.inkFaint }]} numberOfLines={1}>
-            {phase === "failed" ? "加载失败" : phase === "loading" ? `加载中 ${Math.round(progress * 100)}%` : "桌面远控 · 与桌面同源"}
+            {phase === "failed" ? "加载失败" : phase === "loading" ? `加载中 ${Math.round(progress * 100)}%` : "桌面远控"}
           </Text>
         </View>
         <Pressable

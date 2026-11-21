@@ -184,7 +184,7 @@ export default function ComposerSettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="COMPOSE 快捷动作" onBack={() => router.back()} />
+      <ScreenHeader title="快捷动作" onBack={() => router.back()} />
 
       {loading || !preferences ? (
         <View style={styles.loading}>
@@ -193,15 +193,11 @@ export default function ComposerSettingsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-          <AppearIn delay={staggerDelay(0, 32, 240)}>
-            <Text style={[styles.intro, { color: th.inkSub }]}>
-              胶囊是快捷触发；加号是完整列表；长按消息是“引用这条消息后触发命令/技能”。三处都能在这里启用和排序。
-            </Text>
-          </AppearIn>
+          {/* 2.0.1：删掉页顶整段说明书——分组标题已经说明每个入口是什么。 */}
 
           <AppearIn delay={staggerDelay(1, 32, 240)}>
             <GroupCard
-              title="COMPOSE 上方胶囊（快捷触发）"
+              title="输入框上方"
               items={capsules}
               ids={preferences.capsules}
               onToggle={(id, checked) =>
@@ -289,7 +285,7 @@ export default function ComposerSettingsScreen() {
 
           <AppearIn delay={staggerDelay(PLUS_GROUPS.length + 2, 32, 240)}>
             <GroupCard
-              title="长按消息菜单（内置「注释」始终保留）"
+              title="长按消息菜单"
               items={messageItems}
               ids={preferences.messageActions}
               onToggle={(id, checked) =>
@@ -305,11 +301,7 @@ export default function ComposerSettingsScreen() {
             />
           </AppearIn>
 
-          <AppearIn delay={staggerDelay(PLUS_GROUPS.length + 3, 32, 240)}>
-            <Text style={[styles.footnote, { color: th.inkGhost }]}>
-              开关只影响显示；动作是否执行仍由内核权限/审批与插件能力决定。新安装的插件/技能会自动出现在对应分组末尾。
-            </Text>
-          </AppearIn>
+          {/* 2.0.1：删页底免责段（「开关只影响显示…由内核权限/审批…决定」是实现自白）。 */}
         </ScrollView>
       )}
     </View>

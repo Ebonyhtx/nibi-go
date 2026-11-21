@@ -337,7 +337,7 @@ export function SideStatus({
                 { color: memoryPreferences.enabled ? t.ok : t.inkFaint },
               ]}
             >
-              {memoryPreferences.enabled ? "开（本机共享）" : "关"}
+              {memoryPreferences.enabled ? "开" : "关"}
             </Text>
           </View>
           {breakdown.length > 0 ? (
@@ -360,11 +360,8 @@ export function SideStatus({
                   </Text>
                 </View>
               ))}
-              {/* 这个数字是内核 /context 的本地估算（工具表按 JSON/2 + 500/个），
-                  通常比供应商实际计费的输入 token 高；说清楚免得当成账单。 */}
-              <Text style={[styles.breakdownNote, { color: t.inkGhost }]}>
-                本地估算，不等于实际计费
-              </Text>
+              {/* 本地估算与计费口径的差异压成三个字——整句免责占一行不值得（2.0.1 审查）。 */}
+              <Text style={[styles.breakdownNote, { color: t.inkGhost }]}>估算值</Text>
             </View>
           ) : null}
           {pluginText ? (

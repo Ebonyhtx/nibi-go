@@ -250,7 +250,7 @@ export function GoNavContent({
         </View>
         <View style={styles.brandCol}>
           <Text style={[styles.wordmark, { color: t.ink }]}>NIBI-GO</Text>
-          <Text style={[styles.brandSub, { color: t.inkFaint }]}>本机 AGENT</Text>
+          {/* 2.0.1：删「本机 AGENT」副标——应用名已说明身份，对用户无信息量。 */}
         </View>
         <PressableScale
           scaleTo={0.94}
@@ -333,9 +333,7 @@ export function GoNavContent({
             ) : null}
             {sessions.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                {suspended
-                  ? "还没有对话。本机内核 Phase C 挂起中。"
-                  : "还没有对话。点右上角铅笔开始新对话。"}
+                {suspended ? "还没有对话" : "还没有对话，点右上角开始"}
               </Text>
             ) : groups.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
@@ -486,7 +484,7 @@ export function GoNavContent({
         <View style={styles.footStatus}>
           <Dot size={6} color={suspended ? t.inkGhost : t.ok} ring={suspended ? t.inkGhost : undefined} />
           <Text style={[styles.footStatusText, { color: suspended ? t.inkFaint : t.ok }]}>
-            {suspended ? "本机挂起" : "本机就绪"}
+            {suspended ? "未连接" : "本机就绪"}
           </Text>
         </View>
         <View style={styles.footActions}>
@@ -820,9 +818,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
   },
-  brandCol: { flex: 1, gap: space(0.5) },
+  brandCol: { flex: 1 },
   wordmark: { ...text("bodyLg"), fontWeight: "700", letterSpacing: 0.5 },
-  brandSub: { ...text("micro"), letterSpacing: 0.4 },
   newChat: {
     flexDirection: "row",
     alignItems: "center",

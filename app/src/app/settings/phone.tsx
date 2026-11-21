@@ -181,7 +181,7 @@ export default function PhoneSettingsScreen() {
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: t.inkSub }]}>
-            开启后，当前会话可以读取屏幕并操作手机；每次工具调用仍需在聊天里批准。工具能力固定，未开启时会说明原因。
+            开启后助手可读屏并操作手机；每次操作都会先在聊天里征求批准。
           </Text>
         </AppearIn>
 
@@ -205,8 +205,9 @@ export default function PhoneSettingsScreen() {
             />
             <Divider />
             <View style={styles.cardBody}>
+              {/* 2.0.1：与页顶重复的「每次都批准」删掉；只留打码这条隐私承诺。 */}
               <Text style={[styles.copy, { color: t.inkSub }]}>
-                会读取当前屏幕的文字并模拟点按、滑动与输入。密码、验证码、身份证与银行卡号在读屏结果里打码；每次工具调用仍需在聊天里批准。
+                密码与验证码在读屏结果里会打码。
               </Text>
               <StatusRow title="系统无障碍" view={a11yView} />
               <View style={styles.actions}>
@@ -256,7 +257,7 @@ export default function PhoneSettingsScreen() {
               icon="shield"
               tone="steel"
               title="高级手机操控（Shizuku）"
-              detail="通过 shell uid 执行安装、停止与系统设置命令"
+              detail="安装、停止与系统设置命令"
               value={status.shell.enabled}
               onChange={toggleShell}
               disabled={!status.available}
@@ -264,7 +265,7 @@ export default function PhoneSettingsScreen() {
             <Divider />
             <View style={styles.cardBody}>
               <Text style={[styles.copy, { color: t.inkSub }]}>
-                需要 Shizuku 已安装并运行。开启前会列出 shell uid 的能力与边界；它不等同于 root。
+                需要先安装并运行 Shizuku；权限不等同于 root。
               </Text>
               <StatusRow title="Shizuku" view={shellView} />
               <StatusRow
@@ -288,7 +289,7 @@ export default function PhoneSettingsScreen() {
               </View>
               <Text style={[styles.hint, { color: t.inkFaint }]}>
                 {status.shell.wirelessDebugging
-                  ? "系统无线调试已开启；在 Shizuku 里启动服务并授权后回到本页。"
+                  ? "在 Shizuku 里启动服务并授权后回到本页。"
                   : "安装并启动 Shizuku（可用无线调试配对）后回到本页授权。"}
               </Text>
             </View>
@@ -296,7 +297,7 @@ export default function PhoneSettingsScreen() {
         </AppearIn>
 
         <AppearIn delay={staggerDelay(4, 32, 240)}>
-          <SectionCard label="当前能力">
+          <SectionCard label="状态">
             <View style={styles.chips}>
               {capabilities.map((item) => {
                 const active = item !== "未开启" && item !== "不可用";
@@ -313,12 +314,6 @@ export default function PhoneSettingsScreen() {
               })}
             </View>
           </SectionCard>
-        </AppearIn>
-
-        <AppearIn delay={staggerDelay(5, 32, 240)}>
-          <Text style={[styles.footnote, { color: t.inkGhost }]}>
-            开关保存后，正在运行的回合结束时会自动刷新当前会话，不会新开对话；下一条消息起生效。
-          </Text>
         </AppearIn>
       </ScrollView>
 
@@ -366,5 +361,4 @@ const styles = StyleSheet.create({
   },
   chip: { paddingHorizontal: space(2.5), paddingVertical: space(0.75), borderRadius: radius.chip },
   chipText: { ...text("micro"), fontWeight: "600" },
-  footnote: { ...text("micro") },
 });

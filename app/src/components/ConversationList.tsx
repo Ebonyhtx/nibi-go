@@ -6,7 +6,6 @@
 import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
 import type { AttachmentRef, ConversationSelectionText } from "@nibi-go/shared-extract";
-import * as Clipboard from "expo-clipboard";
 import {
   type ComponentRef,
   type ReactNode,
@@ -16,7 +15,6 @@ import {
   useState,
 } from "react";
 import {
-  AccessibilityInfo,
   Animated,
   Pressable,
   ScrollView,
@@ -44,48 +42,26 @@ import {
 } from "./PluginView";
 import type { PopupAnchor } from "./PluginPopup";
 
-/** 消息复制按钮：GO 没有 hover，按桌面“手机远控”分支常显，而不是藏在长按里。
- * 按压反馈走 PressableScale；字色静默态 inkFaint、按下加深一档（比 opacity 抖动更稳）。 */
-function CopyMessageButton({ text, label }: { text: string; label: string }) {
+/** 消息正文：按 `` `行内代码` `` 切段，代码段给等宽字 + 井底色——
+ * 之前反引号原样露在正文里（2.0.1 审查 P0）。不引 markdown 库，只处理这一种最常见的标记。 */
+function BodyText({ text, color }: { text: string; color: string }) {
   const th = useNibiTheme();
-  const [copied, setCopied] = useState(false);
-  const [pressed, setPressed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-  if (!text.trim()) return null;
-  const copy = () => {
-    void Clipboard.setStringAsync(text)
-      .then((saved) => {
-        if (!saved) return;
-        setCopied(true);
-        AccessibilityInfo.announceForAccessibility("已复制");
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => setCopied(false), 1_200);
-      })
-      .catch(() => {
-        AccessibilityInfo.announceForAccessibility("复制失败");
-      });
-  };
-  const fg = copied ? th.ok : pressed ? th.inkSub : th.inkFaint;
+  const parts = text.split(/(`[^`\n]+`)/g);
+  if (parts.length === 1) {
+    return <Text style={[styles.text, { color }]}>{text}</Text>;
+  }
   return (
-    <PressableScale
-      onPress={copy}
-      scaleTo={0.94}
-      hitSlop={8}
-      accessibilityRole="button"
-      accessibilityLabel={copied ? "已复制" : label}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      style={styles.copyButton}
-    >
-      <Icon name={copied ? "check" : "copy"} size={10} color={fg} />
-      <Text style={[styles.copyText, { color: fg }]}>{copied ? "已复制" : "复制"}</Text>
-    </PressableScale>
+    <Text style={[styles.text, { color }]}>
+      {parts.map((part, index) =>
+        part.length > 2 && part.startsWith("`") && part.endsWith("`") ? (
+          <Text key={index} style={[styles.inlineCode, { backgroundColor: th.surfaceSoft, color: th.ink }]}>
+            {part.slice(1, -1)}
+          </Text>
+        ) : (
+          part
+        ),
+      )}
+    </Text>
   );
 }
 
@@ -346,6 +322,19 @@ export function ConversationList({
   // 插件随工具结果推到槽的数据（`_meta.nibiGo.push`）：按轮收集，turn.note 用 `data.push.*` 绑定。
   const turnPushes = useMemo(() => collectTurnPushes(rows), [rows]);
 
+  // 模型名只标「变更回合」：与上一条助手行的 model 不同才显示一次。
+  // 单模型会话不再每个气泡重复顶栏已有的信息（2.0.1 审查）。
+  const modelChangeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    let last: string | undefined;
+    for (const row of rows) {
+      if (row.kind !== "assistant" || row.text.trim().length === 0) continue;
+      if (row.model && row.model !== last) keys.add(row.key);
+      last = row.model ?? last;
+    }
+    return keys;
+  }, [rows]);
+
   // 新行入场判定（纸上鸟 2.0）：只给「增量到达」的行播淡入，历史恢复/换会话整批直出。
   // 判据：行数值身份大于已见最大 rowId 才算新行；一次渲染冒出超过 2 条新 id 视为整批回填
   // （快照回填/换会话的特征——正常增量一轮最多同时到 2 行：回显 + 轮脚注）。
@@ -478,7 +467,7 @@ export function ConversationList({
                 <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
                 <MessageTokens tokens={parsed.tokens} plugins={plugins} />
                 {parsed.body.length > 0 ? (
-                  <Text style={[styles.text, { color: th.ink }]}>{parsed.body}</Text>
+                  <BodyText text={parsed.body} color={th.ink} />
                 ) : null}
                 {/* 发送中的乐观气泡也带同款光标：和助手流式共用一套「正在直播」的语言。 */}
                 <View style={styles.pendingHintRow}>
@@ -538,9 +527,7 @@ export function ConversationList({
                 <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
                 <MessageTokens tokens={parsed.tokens} plugins={plugins} />
                 {parsed.body.length > 0 ? (
-                  <Text style={[styles.text, { color: th.ink }]}>
-                    {parsed.body}
-                  </Text>
+                  <BodyText text={parsed.body} color={th.ink} />
                 ) : null}
               </Pressable>
               {annotationCount > 0 ? (
@@ -551,10 +538,6 @@ export function ConversationList({
                   </Text>
                 </View>
               ) : null}
-              <CopyMessageButton
-                text={displayText || row.text}
-                label="复制用户消息"
-              />
             </View>,
           );
         }
@@ -614,8 +597,9 @@ export function ConversationList({
         }
 
         if (row.kind === "turn") {
+          // 2.0.1 减法：成功回合不再写「✓ 已完成 / 用时」——回复出现即已完成，耗时是调试数据；
+          // 只有失败/中断需要显式标注（配「重试」）。tokens/工具数/文件改动是有用增量，保留。
           const parts: string[] = [];
-          if (row.durationMs !== undefined) parts.push(`用时 ${formatDuration(row.durationMs)}`);
           // 折叠后工具数已在过程摘要行里，脚注不再重复。
           if (!row.folded && row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
           if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
@@ -627,7 +611,7 @@ export function ConversationList({
             );
           }
           const ok = row.state === "completedSuccess";
-          const stateLabel = row.folded ? "" : ok ? "✓ 已完成" : row.state === "failed" ? "✕ 失败" : "已中断";
+          const stateLabel = row.folded ? "" : ok ? "" : row.state === "failed" ? "✕ 失败" : "已中断";
           const files = turnChanges[row.key] ?? [];
           const note = plugins
             ? plugins
@@ -661,16 +645,15 @@ export function ConversationList({
           return withEnter(
             row.key,
             <View key={row.key} style={styles.turnBlock}>
-              <View style={styles.turnHeadRow}>
-                <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
-                  {stateLabel}
-                  {stateLabel && parts.length > 0 ? " · " : ""}
-                  {parts.join(" · ")}
-                </Text>
-                {row.copyText ? (
-                  <CopyMessageButton text={row.copyText} label="复制本轮回复" />
-                ) : null}
-              </View>
+              {stateLabel || parts.length > 0 ? (
+                <View style={styles.turnHeadRow}>
+                  <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
+                    {stateLabel}
+                    {stateLabel && parts.length > 0 ? " · " : ""}
+                    {parts.join(" · ")}
+                  </Text>
+                </View>
+              ) : null}
               {/* 失败/中断的回合给一个重试入口：内核 retryTurn 会截到这一轮的用户输入前重发。 */}
               {!ok && onRetryTurn && row.entityId ? (
                 <PressableScale
@@ -803,7 +786,7 @@ export function ConversationList({
               <View
                 style={[
                   styles.thinkingChip,
-                  { backgroundColor: th.card, borderColor: th.hairline },
+                  { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
                 ]}
               >
                 <ThinkingDisclosure
@@ -837,17 +820,17 @@ export function ConversationList({
                 accessibilityLabel="助手消息，长按打开动作"
                 style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
               >
-                {row.model ? (
+                {row.model && modelChangeKeys.has(row.key) ? (
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
                 ) : null}
-                <Text style={[styles.text, { color: th.ink }]}>{row.text}</Text>
+                <BodyText text={row.text} color={th.ink} />
                 {row.streaming ? <StreamingCursor /> : null}
               </Pressable>
             ) : row.streaming ? (
               // 只有思考、还没出正文：气泡不渲染，光标单独跟着思考块。
               <StreamingCursor variant="outside" />
             ) : showThinking ? null : (
-              <Text style={[styles.text, { color: th.ink }]}>…</Text>
+              <BodyText text={"…"} color={th.ink} />
             )}
             {annotationCount > 0 ? (
               <View style={styles.annotationMark}>
@@ -856,9 +839,6 @@ export function ConversationList({
                   已注释 {annotationCount}
                 </Text>
               </View>
-            ) : null}
-            {!row.streaming ? (
-              <CopyMessageButton text={row.text} label="复制助手消息" />
             ) : null}
           </View>,
         );
@@ -1252,14 +1232,6 @@ function dirName(path: string): string {
   return slash <= 0 ? "" : path.slice(0, slash);
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${Math.round(seconds % 60)}s`;
-}
-
 function formatTokens(tokens: number): string {
   if (tokens < 1000) return String(tokens);
   return `${(tokens / 1000).toFixed(1)}k`;
@@ -1321,16 +1293,11 @@ const styles = StyleSheet.create({
     marginLeft: space(1),
   },
   annotationMarkText: { ...text("micro"), fontWeight: "600" },
-  copyButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    marginTop: 2,
-  },
-  copyText: { ...text("micro") },
   text: { ...text("body") },
+  inlineCode: {
+    fontFamily: "monospace",
+    ...text("small"),
+  },
   streaming: { ...text("body"), fontWeight: "700" },
   streamingSmall: { ...text("micro"), fontWeight: "700" },
   streamingOutside: { ...text("body"), fontWeight: "700", marginTop: 2 },
@@ -1338,6 +1305,7 @@ const styles = StyleSheet.create({
   pendingHintRow: { flexDirection: "row", alignItems: "center", gap: space(1) },
   assistantRow: { gap: space(1.5) },
   // 思考块与气泡同列宽：折叠行能稳定做 head 省略，展开的滚动区也有确定宽度。
+  // 底色用 surfaceSoft 与正文卡（card）拉开一档——之前同色相邻黏成一列灰块（2.0.1 审查）。
   thinkingChip: {
     width: "86%",
     borderWidth: StyleSheet.hairlineWidth,

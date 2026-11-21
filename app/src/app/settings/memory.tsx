@@ -115,11 +115,10 @@ export default function MemorySettingsScreen() {
       <ScreenHeader title="记忆" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+        {/* 2.0.1：说明段压成一句——设备级共享是用户需要知道的行为差异，其余是实现。 */}
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: th.inkSub }]}>
-            NIBI-GO 的自动记忆是<Text style={{ fontWeight: "700" }}>本机共享</Text>
-            的：所有会话读写同一份记忆，不像桌面端那样按项目隔离。开启后，回合结束会额外调用一次模型做抽取，
-            可能增加 Token 成本。
+            记忆在本机的所有会话间共享。
           </Text>
         </AppearIn>
 
@@ -129,7 +128,7 @@ export default function MemorySettingsScreen() {
               icon="sparkles"
               tone="brand"
               title="启用本机记忆"
-              detail="关闭后，新会话不再读取或更新记忆；已打开的会话重新打开后生效。"
+              detail="关闭后新会话不再读写记忆"
               // 右槽直接放 Switch（与 ui/ToggleRow 同一配色）；写回逻辑保持原样（保存即提示）。
               right={
                 <Switch
@@ -139,7 +138,7 @@ export default function MemorySettingsScreen() {
                     setMessage("记忆设置已保存；对下一个新会话生效。");
                   }}
                   trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
-                  thumbColor={preferences.enabled ? th.brand : th.inkGhost}
+                  thumbColor={preferences.enabled ? th.brand : th.inkFaint}
                   ios_backgroundColor={th.surfaceSoft}
                 />
               }
@@ -185,7 +184,7 @@ export default function MemorySettingsScreen() {
               icon="trash"
               danger
               title="清空本机记忆"
-              detail="删除所有会话共享的记忆文件；不删除会话。"
+              detail="删除全部记忆，不影响会话"
               onPress={confirmClear}
             />
           </SectionCard>
@@ -196,8 +195,8 @@ export default function MemorySettingsScreen() {
             <Row
               icon="sliders"
               tone="steel"
-              title="记忆与链路诊断"
-              detail="看缓存命中率、逐轮用量与记忆抽取请求是否正常。"
+              title="诊断"
+              detail="用量与网络状态"
               onPress={() => router.push("/settings/diagnostics")}
             />
           </SectionCard>
@@ -210,12 +209,6 @@ export default function MemorySettingsScreen() {
             </View>
           </AppearIn>
         ) : null}
-
-        <AppearIn delay={staggerDelay(5, 32, 240)}>
-          <Text style={[styles.footnote, { color: th.inkGhost }]}>
-            记忆文件位置由内核按本机路径计算；GO 目前是设备级共享，不按项目隔离。开关本身不写会话记录。
-          </Text>
-        </AppearIn>
       </ScrollView>
     </View>
   );
@@ -255,5 +248,4 @@ const styles = StyleSheet.create({
     padding: space(3),
   },
   messageText: { ...text("small") },
-  footnote: { ...text("micro") },
 });

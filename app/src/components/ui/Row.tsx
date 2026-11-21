@@ -80,13 +80,14 @@ export function Row({
           {title}
         </Text>
         {detail ? (
-          <Text style={[styles.detail, { color: th.inkFaint }]} numberOfLines={2}>
+          // 副题限一行：行高密度回到上游设置的 72–80dp 档；文案一律 ≤18 字（审查口径）。
+          <Text style={[styles.detail, { color: th.inkFaint }]} numberOfLines={1}>
             {detail}
           </Text>
         ) : null}
       </View>
       {right ??
-        (onPress ? <Icon name="chevron-right" size={13} color={th.inkGhost} /> : null)}
+        (onPress ? <Icon name="chevron-right" size={13} color={th.inkFaint} /> : null)}
     </>
   );
   if (onPress) {
@@ -136,7 +137,7 @@ export function ToggleRow({
           onValueChange={onChange}
           disabled={disabled}
           trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
-          thumbColor={value ? th.brand : th.inkGhost}
+          thumbColor={value ? th.brand : th.inkFaint}
           ios_backgroundColor={th.surfaceSoft}
         />
       }

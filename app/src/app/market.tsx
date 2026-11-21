@@ -41,18 +41,11 @@ import {
   pluginLicenseDecision,
 } from "../plugins/license";
 import { syncLicense } from "../plugins/licenseSync";
-import { MARKET_INDEX_URL } from "../plugins/marketSource";
 import { usePlugins } from "../plugins/usePlugins";
 import { useSession } from "../relay/useSession";
 import { AppearIn, staggerDelay } from "../motion/appear";
 import { PressableScale } from "../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../theme";
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function describeFailure(kind: string, detail: string): string {
   switch (kind) {
@@ -102,6 +95,16 @@ function StatusPill({ bg, color, label }: { bg: string; color: string; label: st
   );
 }
 
+/** ISO 时间戳 → 本地「YYYY-MM-DD HH:mm」（原样 ISO 串不友好，2.0.1 审查）。 */
+function formatFetchedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
 function MarketRow({
   entry,
   installedVersion,
@@ -135,9 +138,8 @@ function MarketRow({
       <View style={styles.cardHead}>
         <View style={styles.cardTitleWrap}>
           <Text style={[styles.name, { color: t.ink }]}>{entry.name}</Text>
-          <Text style={[styles.meta, { color: t.inkFaint }]}>
-            {entry.id} · v{entry.version} · {formatSize(entry.package.size)}
-          </Text>
+          {/* 2.0.1：包 id 与体积是实现细节（id 归属校验在安装时自动做），meta 只留版本。 */}
+          <Text style={[styles.meta, { color: t.inkFaint }]}>v{entry.version}</Text>
         </View>
         {paidDecision !== null && blocked ? (
           <StatusPill bg={t.amberSoft} color={t.amber} label="付费" />
@@ -515,14 +517,7 @@ export default function MarketScreen() {
       />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        <AppearIn delay={staggerDelay(0, 32, 240)}>
-          <Text style={[styles.hint, { color: t.inkFaint }]}>
-            索引经 Ed25519 验签，包按 sha256 校验；刷新失败会保留上一份快照。
-          </Text>
-          <Text style={[styles.source, { color: t.inkGhost }]} numberOfLines={1}>
-            {MARKET_INDEX_URL}
-          </Text>
-        </AppearIn>
+        {/* 2.0.1：删页顶的验签/URL 两行——校验是本 app 对每个包自动做的事，用户无需决策。 */}
 
         <AppearIn delay={staggerDelay(1, 32, 240)}>
           <SectionCard label="账号与授权">
@@ -555,12 +550,13 @@ export default function MarketScreen() {
               }
             />
             <View style={styles.licenseBody}>
-              <Text style={[styles.licenseText, { color: license.activated ? t.inkFaint : t.amber }]}>
+              {/* 长句不用 amber：橙字 on 白 ≈2.6:1 不可读（2.0.1 审查）；强调留给「付费」徽标与按钮。 */}
+              <Text style={[styles.licenseText, { color: license.activated ? t.inkFaint : t.ink }]}>
                 {licenseText}
               </Text>
               {!sessionSnapshot.loggedIn ? (
                 <Text style={[styles.licenseHint, { color: t.inkGhost }]}>
-                  手机远控的登录是网页会话；付费插件授权按本机设备签发，需要在 NIBI-GO 内登录账号并同步一次。
+                  在本应用内登录并同步一次。
                 </Text>
               ) : null}
             </View>
@@ -615,9 +611,7 @@ export default function MarketScreen() {
           <AppearIn delay={staggerDelay(3, 32, 240)}>
             <View style={[styles.empty, { borderColor: t.hairline }]}>
               <Text style={[styles.emptyTitle, { color: t.inkSub }]}>市场里还没有插件</Text>
-              <Text style={[styles.hint, { color: t.inkFaint }]}>
-                官方索引当前为空。点右上角刷新；发布新索引后这里会出现条目。
-              </Text>
+              <Text style={[styles.hint, { color: t.inkFaint }]}>点右上角刷新</Text>
             </View>
           </AppearIn>
         ) : (
@@ -641,7 +635,7 @@ export default function MarketScreen() {
 
         {snapshot ? (
           <Text style={[styles.footnote, { color: t.inkGhost }]}>
-            revision {snapshot.state.revision} · 拉取于 {snapshot.fetchedAt}
+            更新于 {formatFetchedAt(snapshot.fetchedAt)}
           </Text>
         ) : null}
 

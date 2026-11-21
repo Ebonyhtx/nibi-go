@@ -37,6 +37,7 @@ export type IconName =
   | "moon"
   | "download"
   | "alert"
+  | "info"
   | "user"
   | "external";
 
@@ -156,6 +157,10 @@ const GLYPHS: Record<
   },
   moon: { paths: ["M20 14.5A8.5 8.5 0 019.5 4A8.5 8.5 0 1020 14.5Z"] },
   download: { paths: ["M12 4V15M7.5 10.5L12 15L16.5 10.5", "M4.5 19.5H19.5"] },
+  info: {
+    paths: ["M12 11.2V16.4", "M12 7.8V7.9"],
+    circles: [{ cx: 12, cy: 12, r: 8.3 }],
+  },
   alert: {
     paths: ["M12 4L21 19H3Z", "M12 10V14.5"],
     circles: [{ cx: 12, cy: 17, r: 0.9, filled: true }],

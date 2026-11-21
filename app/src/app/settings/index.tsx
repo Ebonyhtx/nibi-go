@@ -1,12 +1,13 @@
 // 设置首页：先分页，不再把所有配置堆在一页。
 //
-// 模型/Provider、COMPOSE 快捷动作、插件、关于分开；后续新设置按入口加，不继续往下堆。
-// 2.0：SectionCard 分组 + ui/Row 统一行；新增「外观」分组（主题三选，
-// 写 appearance/preferences——useNibiTheme 消费同一份偏好，切换即时生效）。
+// 模型、快捷动作、插件、关于分开；后续新设置按入口加，不继续往下堆。
+// 2.0：SectionCard 分组 + ui/Row 统一行；「外观」分组（主题三选写 appearance/preferences，
+// useNibiTheme 消费同一份偏好，切换即时生效）。2.0.1：外观三行压成单卡分段控件；
+// 行副标题只留有增量的（审查口径：标题已说明的事不再复述）。
 
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
-import { Fragment, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
@@ -29,21 +30,20 @@ import { Row, type RowTone } from "../../components/ui/Row";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { dismissKeyboardOnFocus } from "../../composer/leave";
+import { PressableScale } from "../../motion/PressableScale";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
 import { radius, space, text, useNibiTheme } from "../../theme";
 
-/** 主题三选（跟随系统/浅色/墨夜深色）。行保持轻量：切主题会触发全应用重渲染。 */
+/** 主题三选。分段控件里的短标签；详情不需要——图标+名称已自明。 */
 const APPEARANCE_MODES: readonly {
   mode: AppearanceMode;
   icon: IconName;
-  tone: RowTone;
-  title: string;
-  detail: string;
+  label: string;
 }[] = [
-  { mode: "system", icon: "monitor", tone: "plain", title: "跟随系统", detail: "系统切深浅色时自动跟随" },
-  { mode: "light", icon: "sun", tone: "amber", title: "浅色", detail: "暖纸面，白天与户外更好读" },
-  { mode: "dark", icon: "moon", tone: "steel", title: "墨夜深色", detail: "中性炭底 + 奶油金，长会话不刺眼" },
+  { mode: "system", icon: "monitor", label: "跟随系统" },
+  { mode: "light", icon: "sun", label: "浅色" },
+  { mode: "dark", icon: "moon", label: "墨夜" },
 ];
 
 export default function SettingsHomeScreen() {
@@ -118,11 +118,7 @@ export default function SettingsHomeScreen() {
                   ? `已登录${snapshot.displayName ? `：${snapshot.displayName}` : ""}`
                   : "登录 NIBI 账号"
               }
-              detail={
-                snapshot.loggedIn
-                  ? "切换账号；插件授权按本机设备同步"
-                  : "配对、设备列表与付费插件授权都用这个登录"
-              }
+              detail={snapshot.loggedIn ? "切换账号" : "设备配对与付费授权"}
               onPress={() => void login(snapshot.loggedIn)}
             />
             {snapshot.loggedIn ? (
@@ -132,7 +128,7 @@ export default function SettingsHomeScreen() {
                   icon="x"
                   danger
                   title="退出登录"
-                  detail="配对凭据保留；本机授权保留到过期"
+                  detail="凭据与授权保留"
                   onPress={logout}
                 />
               </>
@@ -153,15 +149,14 @@ export default function SettingsHomeScreen() {
           <SectionCard label="交互">
             <Row
               icon="sliders"
-              title="COMPOSE 快捷动作"
-              detail="胶囊、加号菜单、长按消息菜单的启用与排序"
+              title="快捷动作"
+              detail="输入框上方、加号菜单与长按消息"
               onPress={() => router.push("/settings/composer")}
             />
             <Divider />
             <Row
               icon="sparkles"
-              title="会话"
-              detail="思考与工具调用的显示方式"
+              title="会话显示"
               onPress={() => router.push("/settings/conversation")}
             />
           </SectionCard>
@@ -172,8 +167,7 @@ export default function SettingsHomeScreen() {
             <Row
               icon="monitor"
               tone="steel"
-              title="Provider 与模型"
-              detail="供应商、模型能力、思考档位与 API Key"
+              title="模型服务"
               onPress={() => router.push("/settings/provider")}
             />
           </SectionCard>
@@ -184,42 +178,65 @@ export default function SettingsHomeScreen() {
             <Row
               icon="sparkles"
               title="记忆"
-              detail="本机共享的自动记忆；开关、占用与清空"
+              detail="自动记忆"
               onPress={() => router.push("/settings/memory")}
             />
             <Divider />
             <Row
               icon="sliders"
               tone="steel"
-              title="记忆与链路诊断"
-              detail="缓存命中率、逐轮用量与模型网络状态"
+              title="诊断"
+              detail="用量与网络状态"
               onPress={() => router.push("/settings/diagnostics")}
             />
           </SectionCard>
         </AppearIn>
 
-        {/* 外观：三选一，选中项右槽画勾；点击即写入并即时换主题。 */}
+        {/* 外观：单卡三段分段控件——三行大卡表一个单选太重（2.0.1 审查）。
+            选中段给卡底+发丝线+轻投影，所选项无需说明文案。 */}
         <AppearIn delay={staggerDelay(5, 32, 240)}>
           <SectionCard label="外观">
-            {APPEARANCE_MODES.map((item, index) => (
-              <Fragment key={item.mode}>
-                {index > 0 ? <Divider /> : null}
-                <Row
-                  icon={item.icon}
-                  tone={item.tone}
-                  title={item.title}
-                  detail={item.detail}
-                  onPress={() => void saveAppearancePreferences({ version: 1, mode: item.mode })}
-                  right={
-                    appearanceMode === item.mode ? (
-                      <Icon name="check" size={14} color={th.brand} />
-                    ) : (
-                      <View />
-                    )
-                  }
-                />
-              </Fragment>
-            ))}
+            <View style={[styles.segTrack, { backgroundColor: th.surfaceSoft }]}>
+              {APPEARANCE_MODES.map((item) => {
+                const active = appearanceMode === item.mode;
+                return (
+                  <PressableScale
+                    key={item.mode}
+                    scaleTo={0.96}
+                    onPress={() =>
+                      void saveAppearancePreferences({ version: 1, mode: item.mode })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`外观：${item.label}`}
+                    accessibilityState={{ selected: active }}
+                    style={styles.segCellOuter}
+                  >
+                    <View
+                      style={[
+                        styles.segCell,
+                        {
+                          backgroundColor: active ? th.card : "transparent",
+                          borderColor: active ? th.hairline : "transparent",
+                        },
+                        ...(active ? [th.elevation.card] : []),
+                      ]}
+                    >
+                      <Icon
+                        name={item.icon}
+                        size={14}
+                        color={active ? th.brand : th.inkSub}
+                      />
+                      <Text
+                        style={[styles.segLabel, { color: active ? th.ink : th.inkSub }]}
+                        numberOfLines={1}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                  </PressableScale>
+                );
+              })}
+            </View>
           </SectionCard>
         </AppearIn>
 
@@ -228,7 +245,7 @@ export default function SettingsHomeScreen() {
             <Row
               icon="phone"
               title="手机操控"
-              detail="无障碍读屏/点按与 Shizuku 高级模式"
+              detail="读屏点按与高级模式"
               onPress={() => router.push("/settings/phone")}
             />
           </SectionCard>
@@ -239,7 +256,6 @@ export default function SettingsHomeScreen() {
             <Row
               icon="puzzle"
               title="插件管理"
-              detail="启用/停用插件、查看面板与网页入口"
               onPress={() => router.push("/plugins")}
             />
           </SectionCard>
@@ -247,12 +263,8 @@ export default function SettingsHomeScreen() {
 
         <AppearIn delay={staggerDelay(8, 32, 240)}>
           <SectionCard label="关于">
-            <View style={styles.about}>
-              <Text style={[styles.aboutTitle, { color: th.ink }]}>NIBI-GO</Text>
-              <Text style={[styles.aboutDetail, { color: th.inkFaint }]}>
-                版本 {version} · 本机内核 · 模型请求按当前 Provider 发出
-              </Text>
-            </View>
+            {/* 走 Row 的图标槽：标题左缘与其它卡对齐（2.0.1 审查）。 */}
+            <Row icon="info" tone="plain" title="NIBI-GO" detail={`版本 ${version}`} />
           </SectionCard>
         </AppearIn>
       </ScrollView>
@@ -272,7 +284,21 @@ const styles = StyleSheet.create({
     padding: space(3),
   },
   accountMessageText: { flex: 1, ...text("small") },
-  about: { padding: space(3), gap: space(0.5) },
-  aboutTitle: { ...text("body"), fontWeight: "700" },
-  aboutDetail: { ...text("small") },
+  segTrack: {
+    flexDirection: "row",
+    gap: space(1),
+    padding: space(1),
+    borderRadius: radius.control,
+  },
+  segCellOuter: { flex: 1 },
+  segCell: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space(1.5),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  segLabel: { ...text("small"), fontWeight: "600" },
 });

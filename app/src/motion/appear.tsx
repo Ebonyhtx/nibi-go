@@ -1,6 +1,11 @@
 // 入场动效原语：新行淡入 + 轻微上移（消息流/会话列表/分组 stagger 共用）。
 // 只在「挂载时」播一次：列表行按 key 复用，滚动复用不会重播；新 key 才触发。
 // 尊重系统「减少动态效果」：开了就直出终态，不做动画。
+//
+// 事故教训（2026-11-21 真机）：native 驱动的 timing 会被静默取消（JS finish 回调都不来），
+// 空态标题永久冻在半透明（浅色实测 opacity≈0.31 / 深色≈0.57，重启也不恢复）。
+// 所以除了 finished=false 时回填终值，再加一个「动画窗口过后强制 setValue(1)」的兜底——
+// 动效可以失败，终态不许失败。
 import { Animated } from "react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -39,13 +44,18 @@ export function AppearIn({
       progress.setValue(1);
       return;
     }
+    // 兜底：动画窗口结束（含 delay）后无论成败都钉在终态，清掉中途冻结的可能。
+    const settle = setTimeout(() => progress.setValue(1), delay + duration + 400);
     Animated.timing(progress, {
       toValue: 1,
       delay,
       duration,
       easing: easingStandard,
       useNativeDriver: true,
-    }).start();
+    }).start(({ finished }) => {
+      if (!finished) progress.setValue(1);
+    });
+    return () => clearTimeout(settle);
   }, [reduced, progress, delay, duration]);
   if (reduced) return <Animated.View style={style}>{children}</Animated.View>;
   return (

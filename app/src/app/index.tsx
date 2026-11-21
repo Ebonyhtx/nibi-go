@@ -782,6 +782,9 @@ export default function GoHomeScreen() {
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
       ?.title || "新对话";
+  // 配置缺失（没配模型服务）是设置问题，不是链路故障：横幅给「去设置」而不是「重试」，
+  // 宠物也不报 error。错误文案真源在 useKernelConversation（“还没有可用的模型服务”）。
+  const setupIssue = conversation.status.includes("还没有可用的模型服务");
   // 2.0：桌宠接会话状态机（此前只播 idle）——
   //   等审批 → waiting；流式（还没出正文）→ thinking；流式/工具 → working；
   //   回合刚完成 → done（2.4s 后回 idle）；内核不可用 → sleeping；连接失败 → error。
@@ -790,7 +793,7 @@ export default function GoHomeScreen() {
   const [celebrating, setCelebrating] = useState(false);
   const livePetState = useMemo<PetStateId>(() => {
     // 配置缺失（未配 Provider / 没默认模型）是设置问题，不是链路故障——别让宠物一直报红。
-    const setupIssue = conversation.status.includes("没有可用的默认模型");
+    if (conversation.statusKind === "error" && !setupIssue) return PET_STATE.error;
     if (conversation.statusKind === "error" && !setupIssue) return PET_STATE.error;
     if (conversation.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
       return PET_STATE.waiting;
@@ -809,7 +812,7 @@ export default function GoHomeScreen() {
     if (!conversation.ready) return PET_STATE.sleeping;
     return PET_STATE.idle;
   }, [
-    conversation.status,
+    setupIssue,
     conversation.statusKind,
     conversation.rows,
     conversation.turn,
@@ -1028,7 +1031,7 @@ export default function GoHomeScreen() {
                   containerStyle={styles.modelChipFlex}
                   style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
                 >
-                  <View style={styles.effortMeter}>
+                  <View style={[styles.effortMeter, { backgroundColor: th.hairline }]}>
                     <View
                       style={[
                         styles.effortMeterFill,
@@ -1059,21 +1062,30 @@ export default function GoHomeScreen() {
               </View>
             </View>
 
-            {/* 状态横幅：内核连接/重启/失败常驻显示（此前只发 4 秒 hint）；失败可重试。 */}
+            {/* 状态横幅：内核连接/重启/失败常驻显示（此前只发 4 秒 hint）。 */}
+            {/* 配置缺失 →「去设置」直达 Provider 页；链路失败 →「重试」。 */}
             {conversation.statusKind !== "ok" ? (
               <PressableScale
                 scaleTo={0.985}
                 onPress={
-                  conversation.statusKind === "error" && conversation.statusRetryable
-                    ? () => void conversation.retryStatus()
-                    : undefined
+                  setupIssue
+                    ? () => {
+                        leaveComposerForNavigation({
+                          blur: () => composerInputRef.current?.blur(),
+                          dismiss: Keyboard.dismiss,
+                          navigate: () => router.push("/settings/provider"),
+                        });
+                      }
+                    : conversation.statusKind === "error" && conversation.statusRetryable
+                      ? () => void conversation.retryStatus()
+                      : undefined
                 }
                 style={[
                   styles.statusBanner,
                   { backgroundColor: th.glass, borderColor: th.glassBorder },
                   th.elevation.card,
                 ]}
-                accessibilityRole={conversation.statusRetryable ? "button" : "text"}
+                accessibilityRole={setupIssue || conversation.statusRetryable ? "button" : "text"}
                 accessibilityLabel={`内核状态：${conversation.status}`}
               >
                 <View
@@ -1090,9 +1102,11 @@ export default function GoHomeScreen() {
                   ]}
                 />
                 <Text style={[styles.statusBannerText, { color: th.inkSub }]} numberOfLines={2}>
-                  {conversation.status}
+                  {setupIssue ? "还没有可用的模型服务" : conversation.status}
                 </Text>
-                {conversation.statusKind === "error" && conversation.statusRetryable ? (
+                {setupIssue ? (
+                  <Text style={[styles.statusRetry, { color: th.brand }]}>去设置</Text>
+                ) : conversation.statusKind === "error" && conversation.statusRetryable ? (
                   <Text style={[styles.statusRetry, { color: th.brand }]}>重试</Text>
                 ) : null}
               </PressableScale>
@@ -1128,7 +1142,9 @@ export default function GoHomeScreen() {
                   }}
                 />
               ) : (
-                // 空态：品牌印记（静态鸟格）→ 标题 → 引导 → 状态胶囊。整块入场一次。
+                // 空态：品牌印记 + 标题，一句不多——输入框 placeholder 与横幅已承担引导。
+                // 2.0.1 减法：删说明段（「内核在本机运行…」是实现自白）与两枚状态徽章
+                //（「本机内核/可先连桌面」无可执行动作），同屏只留一只鸟。
                 <AppearIn
                   distance={10}
                   style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}
@@ -1137,24 +1153,6 @@ export default function GoHomeScreen() {
                     <PetView state={PET_STATE.idle} targetSize={64} animated={false} crop={0.8} />
                   </View>
                   <Text style={[styles.stageTitle, { color: th.ink }]}>开始一段对话</Text>
-                  <Text style={[styles.stageSub, { color: th.inkSub }]}>
-                    内核在本机运行。直接在下方输入，跟它说话、派任务。
-                  </Text>
-                  <View style={styles.stageChips}>
-                    <View
-                      style={[styles.badge, { backgroundColor: th.card, borderColor: th.hairline }]}
-                    >
-                      <Dot size={6} color={th.ok} />
-                      <Text style={[styles.badgeText, { color: th.inkSub }]}>
-                        {selectedProvider ? `发往 ${selectedProvider.name}` : "本机内核"}
-                      </Text>
-                    </View>
-                    <View
-                      style={[styles.badge, { backgroundColor: th.steelSoft, borderColor: "transparent" }]}
-                    >
-                      <Text style={[styles.badgeText, { color: th.steel }]}>可先连桌面</Text>
-                    </View>
-                  </View>
                 </AppearIn>
               )}
 
@@ -1443,9 +1441,6 @@ export default function GoHomeScreen() {
             );
           })}
         </ScrollView>
-        <Text style={[styles.plusFootnote, { color: th.inkGhost }]}>
-          附件只传文件引用；命令/技能只插入 token，由内核展开。设置里可以调整这里的顺序和显示。
-        </Text>
       </PluginPopup>
 
       <ModelPickerSheet
@@ -1581,11 +1576,10 @@ export default function GoHomeScreen() {
           <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
             <Icon name="copy" size={15} color={th.inkSub} />
           </View>
+          {/* 菜单只留「图标+标题」：动作名称自解释，解释文让菜单高度翻倍（2.0.1 审查口径）。 */}
           <View style={styles.menuText}>
             <Text style={[styles.menuLabel, { color: th.ink }]}>复制</Text>
-            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>复制这条消息的正文</Text>
           </View>
-          <Icon name="chevron-right" size={13} color={th.inkGhost} />
         </Pressable>
         {/* 编辑重发：只出现在内核判定可编辑（最新一条 realUser 输入）的用户消息上。 */}
         {popup?.kind === "message" &&
@@ -1622,7 +1616,6 @@ export default function GoHomeScreen() {
               <Text style={[styles.menuLabel, { color: th.ink }]}>编辑重发</Text>
               <Text style={[styles.menuDetail, { color: th.inkFaint }]}>改写后替换这条输入</Text>
             </View>
-            <Icon name="chevron-right" size={13} color={th.inkGhost} />
           </Pressable>
         ) : null}
         <Pressable
@@ -1650,9 +1643,8 @@ export default function GoHomeScreen() {
           </View>
           <View style={styles.menuText}>
             <Text style={[styles.menuLabel, { color: th.ink }]}>注释</Text>
-            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>引用原文并写评论</Text>
           </View>
-          <Icon name="chevron-right" size={13} color={th.inkGhost} />
+          <Icon name="chevron-right" size={13} color={th.inkFaint} />
         </Pressable>
         {messageMenuItems.length > 0 ? (
           <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
@@ -1682,13 +1674,7 @@ export default function GoHomeScreen() {
             </View>
             <View style={styles.menuText}>
               <Text style={[styles.menuLabel, { color: th.ink }]}>{item.title}</Text>
-              <Text style={[styles.menuDetail, { color: th.inkFaint }]} numberOfLines={1}>
-                {item.group === "skill"
-                  ? "引用这条消息并使用技能"
-                  : "引用这条消息执行插件命令"}
-              </Text>
             </View>
-            <Icon name="chevron-right" size={13} color={th.inkGhost} />
           </Pressable>
         ))}
       </PluginPopup>
@@ -1787,7 +1773,6 @@ const styles = StyleSheet.create({
     width: 3,
     height: 16,
     borderRadius: 2,
-    backgroundColor: "rgba(74,121,184,0.16)",
     overflow: "hidden",
     justifyContent: "flex-end",
   },
@@ -1799,18 +1784,6 @@ const styles = StyleSheet.create({
   emptyMark: { marginBottom: space(1), alignItems: "center" },
   stageTextLandscape: { alignItems: "center", maxWidth: 460, gap: space(1) },
   stageTitle: { ...text("title"), fontWeight: "700" },
-  stageSub: { ...text("small"), fontSize: 13.5, textAlign: "center" },
-  stageChips: { flexDirection: "row", gap: space(2), marginTop: space(1) },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space(1.5),
-    paddingHorizontal: space(3),
-    paddingVertical: space(1),
-    borderRadius: radius.chip,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  badgeText: { ...text("micro"), fontWeight: "600" },
   startCta: {
     marginTop: space(3),
     borderRadius: radius.control,
@@ -1879,12 +1852,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2),
     paddingTop: space(1.5),
     paddingBottom: 1,
-  },
-  plusFootnote: {
-    fontSize: 9.5,
-    lineHeight: 13,
-    paddingHorizontal: space(2),
-    paddingTop: space(2),
   },
   // PetView 的方形画布底部有透明留白/飞行云海；裁到输入栏上沿，避免云海盖住 COMPOSE。
   petDock: { alignItems: "center", overflow: "hidden" },

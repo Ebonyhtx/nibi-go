@@ -124,7 +124,7 @@ async function createWithDefaultModel(client: KernelSessionClient) {
     // 看到失败，否则会静默建出一个内核默认模型（曾因此把 mock 写进会话并一路沿用）。
     if (!(error instanceof KernelProtocolError) || error.code !== -32601) throw error;
   }
-  if (!model) throw new Error("没有可用的默认模型：请先在设置里配置 Provider");
+  if (!model) throw new Error("还没有可用的模型服务");
   // 会话 ID 由 Host 先生成：workspace 目录名要用它，而内核在 create 之后才返回 ID。
   // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话）。
   const sessionId = Crypto.randomUUID();

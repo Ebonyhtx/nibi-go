@@ -53,7 +53,7 @@ export function MenuRow({
           </Text>
         ) : null}
       </View>
-      {right ?? (onPress ? <Icon name="chevron-right" size={13} color={th.inkGhost} /> : null)}
+      {right ?? (onPress ? <Icon name="chevron-right" size={13} color={th.inkFaint} /> : null)}
     </PressableScale>
   );
 }

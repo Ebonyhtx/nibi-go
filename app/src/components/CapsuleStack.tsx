@@ -19,12 +19,6 @@ function itemIcon(item: ComposerCatalogItem): IconName {
   return (item.icon ?? "sparkles") as IconName;
 }
 
-function kindLabel(item: ComposerCatalogItem): string {
-  if (item.group === "skill") return "技能";
-  if (item.token.kind === "mode") return "模式";
-  return "命令";
-}
-
 export function CapsuleStack({
   items,
   onItem,
@@ -50,7 +44,7 @@ export function CapsuleStack({
         scaleTo={0.96}
         onPress={open}
         accessibilityRole="button"
-        accessibilityLabel={`COMPOSE 快捷动作，共 ${items.length} 个`}
+        accessibilityLabel="快捷动作"
         style={styles.stack}
       >
         <View
@@ -79,7 +73,7 @@ export function CapsuleStack({
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
-          <Text style={[styles.count, { color: t.inkSub }]}>快捷 {items.length}</Text>
+          <Text style={[styles.count, { color: t.inkSub }]}>快捷</Text>
           <Icon name="chevron-down" size={11} color={t.inkFaint} />
         </View>
       </PressableScale>
@@ -98,18 +92,13 @@ export function CapsuleStack({
               icon={itemIcon(item)}
               tone={item.source === "plugin" ? "steel" : "brand"}
               label={item.title}
-              detail={item.detail ?? kindLabel(item)}
               onPress={() => {
                 setAnchor(null);
                 onItem(item);
               }}
-              right={<Text style={[styles.kind, { color: t.inkGhost }]}>{kindLabel(item)}</Text>}
             />
           ))}
         </ScrollView>
-        <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          选中后只在 COMPOSE 里加入动作名；提示词/技能由内核按 token 展开。
-        </Text>
       </PluginPopup>
     </>
   );
@@ -148,10 +137,4 @@ const styles = StyleSheet.create({
     paddingBottom: space(1.5),
   },
   list: { maxHeight: 330 },
-  kind: { ...text("micro") },
-  footnote: {
-    ...text("micro"),
-    paddingHorizontal: space(2),
-    paddingTop: space(2),
-  },
 });
