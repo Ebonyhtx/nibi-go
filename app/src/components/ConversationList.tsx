@@ -882,10 +882,31 @@ function ToolRowView({
   const tone = toolTone(th, row.status);
   const target = toolTarget(row);
   const hasDetail = Boolean(row.detail || row.output || row.error);
+  // Agent 工具行 = 消息流里的子代理脸（桌面 WorkflowAgentFace 同源：名字散列九色
+  // 机身 + 状态表情 + 眨眼）。名字从参数摘要里提 subagent_type，提不出按 "Agent"。
+  const isAgentTool = row.name === "Agent";
+  const faceName =
+    isAgentTool && row.detail
+      ? /"subagent_type"\s*:\s*"([^"]+)"/u.exec(row.detail)?.[1] ?? "Agent"
+      : row.name;
+  const faceStatus =
+    row.status === "failed"
+      ? "failed"
+      : row.status === "cancelled"
+        ? "cancelled"
+        : row.status === "running" || row.status === "inputStreaming" || row.status === "pendingApproval"
+          ? "running"
+          : "completed";
   return (
     <View style={styles.toolRow}>
       <Disclosure
-        icon={<Icon name="sliders" size={12} color={toolTone(th, row.status)} />}
+        icon={
+          isAgentTool ? (
+            <AgentFace name={faceName} status={faceStatus} size={16} />
+          ) : (
+            <Icon name="sliders" size={12} color={toolTone(th, row.status)} />
+          )
+        }
         title={
           <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
             {row.name || "tool"}
