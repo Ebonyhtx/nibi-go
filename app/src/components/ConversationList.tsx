@@ -32,6 +32,7 @@ import type { LoadedPlugin } from "../plugins/store";
 import { parseComposerText, type ComposerDisplayToken } from "../plugins/tokens";
 import { usePhoneApprovalOverlay } from "../phone/approval";
 import { motion, radius, size, space, text, type NibiTheme, useNibiTheme } from "../theme";
+import { AgentFace } from "./AgentFace";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
@@ -686,6 +687,23 @@ export function ConversationList({
                 : row.status === "cancelled"
                   ? th.inkFaint
                   : th.ok;
+          // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）。
+          const faceStatus =
+            row.status === "failed"
+              ? "failed"
+              : row.status === "running"
+                ? "running"
+                : row.status === "cancelled"
+                  ? "cancelled"
+                  : "completed";
+          const statusLabel =
+            row.status === "failed"
+              ? "失败"
+              : row.status === "running"
+                ? "进行中"
+                : row.status === "cancelled"
+                  ? "已停止"
+                  : "已完成";
           const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
           return withEnter(
             row.key,
@@ -693,11 +711,14 @@ export function ConversationList({
               key={row.key}
               style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
             >
-              <View style={styles.toolHead}>
-                <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
-                  子智能体 · {row.subagentType}
-                </Text>
-                <Text style={[styles.toolStatus, { color: tone }]}>{row.status}</Text>
+              <View style={styles.subagentHead}>
+                <AgentFace name={row.subagentType} status={faceStatus} size={22} />
+                <View style={styles.subagentTitleCol}>
+                  <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
+                    子智能体 · {row.subagentType}
+                  </Text>
+                  <Text style={[styles.subagentStatus, { color: tone }]}>{statusLabel}</Text>
+                </View>
               </View>
               {row.summary ? (
                 <Text style={[styles.toolDetail, { color: th.inkSub }]} numberOfLines={3}>
@@ -1373,6 +1394,11 @@ const styles = StyleSheet.create({
     paddingVertical: space(1.5),
   },
   toolOutput: { fontFamily: "monospace", ...text("micro") },
+  subagentHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+  },
   subagent: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
@@ -1380,6 +1406,8 @@ const styles = StyleSheet.create({
     paddingVertical: space(2),
     gap: 4,
   },
+  subagentTitleCol: { flex: 1, minWidth: 0, gap: 1 },
+  subagentStatus: { ...text("micro"), fontWeight: "600" },
   subagentFoot: {
     flexDirection: "row",
     alignItems: "center",

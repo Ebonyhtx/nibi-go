@@ -6,6 +6,8 @@
 
 import { canShowPhoneBubble, phoneToolsBusy, setPhoneBubbleState } from "nibi-phone";
 
+import { getCachedDevicePreferences } from "../settings/devicePreferences";
+
 export type PhoneBubbleState = "hidden" | "running" | "tools" | "waiting" | "done";
 
 /** 悬浮气泡是否可用（系统「显示在其他应用上层」已授权）。 */
@@ -13,8 +15,10 @@ export function canShowBubble(): boolean {
   return canShowPhoneBubble();
 }
 
-/** 驱动悬浮状态气泡（hidden/running/tools/waiting/done）；失败静默。 */
+/** 驱动悬浮状态气泡（hidden/running/tools/waiting/done）；失败静默。
+ * 「后台运行气泡」开关（设置 → 通知）关掉时一律不发 hidden 之外的态。 */
 export function setBubbleState(state: PhoneBubbleState): void {
+  if (state !== "hidden" && !getCachedDevicePreferences().statusBubble) return;
   setPhoneBubbleState(state);
 }
 

@@ -613,7 +613,19 @@ export function useKernelConversation(): KernelConversation {
         // 手机操控进行中：无论前后台都亮（工具信号来自 1s 轮询）。
         next = "tools";
       } else if (bubbleAppStateRef.current !== "active") {
-        if (current.turn === "running") {
+        // 后台子代理在跑（主回合已完成但 subagent 行仍在运行/后台）也是"还在干活"。
+        const subagentBusy = current.rows.some(
+          (row) =>
+            row.kind === "subagent" &&
+            (row.status === "running" || (row.status === undefined && row.backgrounded)),
+        );
+        if (subagentBusy) {
+          if (current.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
+            next = "waiting";
+          } else {
+            next = "running";
+          }
+        } else if (current.turn === "running") {
           // 审批/提问最高；其次执行中的工具行；纯流式是 running。
           if (current.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
             next = "waiting";

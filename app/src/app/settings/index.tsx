@@ -227,6 +227,15 @@ export default function SettingsHomeScreen() {
               }}
               disabled={!device.taskNotifications}
             />
+            <Divider />
+            <ToggleRow
+              icon="phone"
+              tone="steel"
+              title="后台运行气泡"
+              detail="会话/操控时悬浮提醒，点按切回"
+              value={device.statusBubble}
+              onChange={(value) => void updateDevicePreferences({ statusBubble: value })}
+            />
           </SectionCard>
         </AppearIn>
 

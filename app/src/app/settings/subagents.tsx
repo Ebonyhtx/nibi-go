@@ -40,6 +40,22 @@ import { documentRootOf, fileUriOf, projectWorkspacePath } from "../../kernel/wo
 const DOT_DIR = ".nibi";
 const AGENTS_DIR = "agents";
 const DISABLED_DIR = "disabled";
+/** 内置子智能体（与 kernel definitions.rs builtins() 同清单；描述为中文简述）。 */
+const BUILT_INS: readonly { name: string; description: string }[] = [
+  {
+    name: "general-purpose",
+    description: "通用代理：研究复杂问题、搜索代码、执行多步任务（可用全部工具）",
+  },
+  {
+    name: "Explore",
+    description: "只读搜索代理：广泛扫文件找结论，不做审计；可指定搜索广度",
+  },
+  {
+    name: "Plan",
+    description: "架构师代理：设计实现方案，给出分步计划与关键文件",
+  },
+];
+
 /** 新建时的预填模板（与桌面端同一份格式约定）。 */
 const TEMPLATE = `---
 name: my-agent
@@ -607,6 +623,24 @@ export default function SubagentsScreen() {
                 </PressableScale>
               ) : null}
             </View>
+          </AppearIn>
+
+          {/* 内置子智能体（kernel agents/src/definitions.rs builtins()）：只读展示。
+              桌面的内置模型覆盖依赖 Host 注入面，GO 内核侧没有该入口，不做假开关。 */}
+          <AppearIn delay={staggerDelay(0, 32, 240)}>
+            <SectionCard label="内置">
+              {BUILT_INS.map((builtin) => (
+                <View key={builtin.name}>
+                  <Row
+                    icon="sparkles"
+                    tone="steel"
+                    title={builtin.name}
+                    detail={builtin.description}
+                  />
+                  <Text style={[styles.agentMeta, { color: th.inkFaint }]}>内置 · 跟随主模型</Text>
+                </View>
+              ))}
+            </SectionCard>
           </AppearIn>
 
           {editor ? (

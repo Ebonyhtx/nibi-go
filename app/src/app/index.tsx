@@ -34,6 +34,7 @@ import { AnnotationManager, type AnnotationItem } from "../components/Annotation
 import { CapsuleStack } from "../components/CapsuleStack";
 import { ComposerAttachments } from "../components/ComposerAttachments";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { PillButton } from "../components/ui/PillButton";
 import { ModelPickerSheet, type ModelChoice } from "../components/ModelPickerSheet";
 import { thinkingLevelLabel } from "../components/ThinkingRail";
 import { ComposerTokens } from "../components/ComposerTokens";
@@ -77,7 +78,7 @@ import {
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
 import { leaveComposerForNavigation } from "../composer/leave";
-import { useProjects } from "../kernel/projects";
+import { createProject, setActiveProject, useProjects } from "../kernel/projects";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
@@ -294,9 +295,15 @@ export default function GoHomeScreen() {
     items: PluginSheetItem[];
   } | null>(null);
   const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
-  // 新建对话的项目选择菜单（FAB anchor）：有项目时点 FAB 先选归属。
+  // 新建对话的项目选择菜单（FAB anchor）：有项目时点 FAB 先选归属；
+  // 也可以就地新建项目（名称 + 文件夹名），不必先去设置。
   const fabRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
   const [newChatMenu, setNewChatMenu] = useState<PopupAnchor | null>(null);
+  const [newProjectDraft, setNewProjectDraft] = useState<{
+    name: string;
+    folder: string;
+    touchedFolder: boolean;
+  } | null>(null);
   // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
   const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
@@ -1557,9 +1564,88 @@ export default function GoHomeScreen() {
             </Pressable>
           );
         })}
+        {newProjectDraft === null ? (
+          <Pressable
+            onPress={() => setNewProjectDraft({ name: "", folder: "", touchedFolder: false })}
+            accessibilityRole="button"
+            accessibilityLabel="新建项目"
+            style={({ pressed }) => [
+              styles.menuRow,
+              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <View style={[styles.toolIconSmall, { backgroundColor: th.brandSoft }]}>
+              <Icon name="plus" size={15} color={th.brand} />
+            </View>
+            <View style={styles.menuText}>
+              <Text style={[styles.menuLabel, { color: th.ink }]}>新建项目…</Text>
+            </View>
+          </Pressable>
+        ) : (
+          <View style={styles.newProjectForm}>
+            <Text style={[styles.popupTitle, { color: th.ink }]}>新建项目</Text>
+            <TextInput
+              value={newProjectDraft.name}
+              onChangeText={(name) => {
+                const slug = name
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/gu, "-")
+                  .replace(/^-+|-+$/gu, "")
+                  .slice(0, 40);
+                setNewProjectDraft({
+                  name,
+                  folder: newProjectDraft.touchedFolder ? newProjectDraft.folder : slug,
+                  touchedFolder: newProjectDraft.touchedFolder,
+                });
+              }}
+              placeholder="项目名称"
+              placeholderTextColor={th.inkFaint}
+              style={[
+                styles.projectInput,
+                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+              ]}
+            />
+            <TextInput
+              value={newProjectDraft.folder}
+              onChangeText={(folder) =>
+                setNewProjectDraft({ ...newProjectDraft, folder, touchedFolder: true })
+              }
+              placeholder="文件夹名（a-z、0-9、-）"
+              placeholderTextColor={th.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[
+                styles.projectInput,
+                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+              ]}
+            />
+            <View style={styles.projectActions}>
+              <PillButton
+                label="取消"
+                variant="secondary"
+                onPress={() => setNewProjectDraft(null)}
+              />
+              <PillButton
+                label="创建并新建会话"
+                variant="primary"
+                onPress={() => {
+                  const name = newProjectDraft.name.trim();
+                  const folder = newProjectDraft.folder.trim();
+                  if (!name || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(folder)) return;
+                  setNewProjectDraft(null);
+                  setNewChatMenu(null);
+                  void createProject(name, folder)
+                    .then(() => setActiveProject(folder))
+                    .then(() => conversation.newSession(folder));
+                }}
+              />
+            </View>
+          </View>
+        )}
         <Pressable
           onPress={() => {
             setNewChatMenu(null);
+            setNewProjectDraft(null);
             leaveComposerForNavigation({
               blur: () => composerInputRef.current?.blur(),
               dismiss: Keyboard.dismiss,
@@ -1951,6 +2037,15 @@ const styles = StyleSheet.create({
   menuLabel: { ...text("small"), fontWeight: "600" },
   menuDetail: { ...text("micro"), fontSize: 10.5 },
   menuDivider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
+  newProjectForm: { paddingHorizontal: space(2), paddingBottom: space(2), gap: space(2) },
+  projectActions: { flexDirection: "row", justifyContent: "flex-end", gap: space(2) },
+  projectInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+    ...text("body"),
+  },
   plusScroll: { height: 430 },
   plusSection: { paddingBottom: space(1.5) },
   plusTitle: {

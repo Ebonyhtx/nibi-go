@@ -114,10 +114,20 @@ export async function updateProjects(
   await saveProjects(patch(getCachedProjects()));
 }
 
-export async function createProject(name: string): Promise<ProjectEntry> {
+export async function createProject(name: string, customId?: string): Promise<ProjectEntry> {
   const trimmed = name.trim().slice(0, 60);
   if (!trimmed) throw new Error("项目名不能为空");
-  const id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+  // 自定义文件夹名（FAB 新建流程）：校验安全字符与重名；缺省用自动 id。
+  let id: string;
+  if (customId !== undefined) {
+    if (!isSafeProjectId(customId)) throw new Error("文件夹名只能用小写字母、数字和连字符");
+    if (getCachedProjects().projects.some((entry) => entry.id === customId)) {
+      throw new Error(`文件夹名 ${customId} 已被占用`);
+    }
+    id = customId;
+  } else {
+    id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+  }
   const entry: ProjectEntry = { id, name: trimmed, createdAt: Date.now() };
   await updateProjects((current) => ({
     ...current,
