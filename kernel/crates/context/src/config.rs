@@ -35,12 +35,16 @@ impl Default for Attribution {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ContextConfig {
     pub surface: Surface,
-    /// 自动记忆目录（展示给模型的路径文本）；None 表示自动记忆关闭，不渲染记忆段。
-    /// 目录由 `StoragePaths::memory_dir` 解析，并由记忆能力保证已经存在（提示词说它已存在）。
-    pub memory_dir: Option<String>,
+    /// 自动记忆的 CLI 存储根：按**请求的 workspace** 解析
+    /// `<root>/memories/projects/<slug>-<hash>/memory`（与 Node `resolveProjectMemoryRoot`
+    /// 同口径）。None 表示自动记忆关闭。
+    /// 之前这里存的是启动时按单一 workspace 算死的目录——多会话宿主（NIBI-GO 的
+    /// app-server，每会话一个 workspace）会让所有会话共享同一份记忆（运营者 2026-11-21
+    /// 报告「记忆不是分项目的」）。目录的存在性由使用方按需 create_dir_all。
+    pub memory_cli_root: Option<std::path::PathBuf>,
     pub output_style: Option<OutputStyle>,
     pub attribution: Attribution,
     /// `--system-prompt`（docs/specs/rust-cli/cli-args.md §4）：替换缺省的 system prompt 段落；这时也不发 git 状态
@@ -54,7 +58,7 @@ impl ContextConfig {
     pub fn new(surface: Surface) -> Self {
         Self {
             surface,
-            memory_dir: None,
+            memory_cli_root: None,
             output_style: None,
             attribution: Attribution::default(),
             custom_system_prompt: None,

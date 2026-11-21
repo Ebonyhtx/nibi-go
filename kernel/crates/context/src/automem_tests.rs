@@ -11,9 +11,20 @@ use nibi_kernel_api::permission::PermissionMode;
 use nibi_kernel_api::project_memory::ProjectMemorySettings;
 use nibi_kernel_api::testing::{FixedClock, MemoryEnvironment, SequentialIds};
 
+use std::path::Path;
+
+use nibi_kernel_memory::project_memory_root;
+
 use crate::{ContextConfig, ContextPorts, NoListings, PromptAssembler, Surface};
 
-const MEMORY: &str = "/Users/dev/.nibi/projects/-Users-dev-w/memory";
+const CLI_ROOT: &str = "/Users/dev/.nibi";
+
+/// 与生产同口径：`memory_cli_root` + workspace 解析项目记忆目录（lib.rs memory_dir）。
+fn memory_dir() -> String {
+    project_memory_root(Path::new(CLI_ROOT), "/Users/dev/w", None)
+        .to_string_lossy()
+        .into_owned()
+}
 
 fn facts() -> EnvFacts {
     EnvFacts {
@@ -30,7 +41,7 @@ fn facts() -> EnvFacts {
 
 async fn instructions(env: MemoryEnvironment) -> Option<String> {
     let mut config = ContextConfig::new(Surface::Print);
-    config.memory_dir = Some(format!("{MEMORY}/"));
+    config.memory_cli_root = Some(std::path::PathBuf::from(CLI_ROOT));
     let env = Arc::new(env);
     let context = PromptAssembler::new(
         ContextPorts {
@@ -85,14 +96,15 @@ async fn memory_md_comes_last_with_the_auto_memory_label() {
     let env = MemoryEnvironment::new(facts())
         .with_file("/Users/dev/w/AGENTS.md", "project rules")
         .with_file(
-            &format!("{MEMORY}/MEMORY.md"),
+            &format!("{}/MEMORY.md", memory_dir()),
             "\n- [Fact](fact.md) — hook\n",
         );
     let text = instructions(env).await.unwrap();
     let project = text.find("Contents of /Users/dev/w/AGENTS.md").unwrap();
     let memory = text
         .find(&format!(
-            "Contents of {MEMORY}/MEMORY.md (user's auto-memory, persists across conversations):\n\n- [Fact](fact.md) — hook"
+            "Contents of {}/MEMORY.md (user's auto-memory, persists across conversations):\n\n- [Fact](fact.md) — hook",
+            memory_dir()
         ))
         .unwrap_or_else(|| panic!("{text}"));
     assert!(project < memory);
@@ -109,11 +121,11 @@ impl ProjectMemorySettings for MemoryOff {
 #[tokio::test]
 async fn the_session_switch_removes_both_the_section_and_the_index() {
     let env = Arc::new(MemoryEnvironment::new(facts()).with_file(
-        &format!("{MEMORY}/MEMORY.md"),
+        &format!("{}/MEMORY.md", memory_dir()),
         "\n- [Fact](fact.md) — hook\n",
     ));
     let mut config = ContextConfig::new(Surface::Print);
-    config.memory_dir = Some(format!("{MEMORY}/"));
+    config.memory_cli_root = Some(std::path::PathBuf::from(CLI_ROOT));
     let context = PromptAssembler::new(
         ContextPorts {
             info: env.clone(),
@@ -172,7 +184,7 @@ async fn the_session_switch_removes_both_the_section_and_the_index() {
 
 #[tokio::test]
 async fn a_missing_or_empty_memory_md_is_left_out() {
-    let env = MemoryEnvironment::new(facts()).with_file(&format!("{MEMORY}/MEMORY.md"), "  \n");
+    let env = MemoryEnvironment::new(facts()).with_file(&format!("{}/MEMORY.md", memory_dir()), "  \n");
     assert!(instructions(env).await.is_none());
     assert!(
         instructions(MemoryEnvironment::new(facts()))

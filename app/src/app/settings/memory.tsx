@@ -1,4 +1,5 @@
-// 本机记忆设置：GO 的自动记忆是设备级、所有会话共享（与桌面端按工作区不同）。
+// 本机记忆设置：自动记忆按会话的工作区（项目）分目录（与桌面端同一口径）。
+// 内核按每次请求的 workspace 解析 <cli>/memories/projects/<项目>-<hash>/memory；
 //
 // 开关只在会话物化时交给内核（session/requestRuntimePreferences.memoryEnabled）；
 // 已打开的会话要重新打开才生效。体量/清空复用 kernel 的 sessionData/measure|purge。
@@ -115,10 +116,10 @@ export default function MemorySettingsScreen() {
       <ScreenHeader title="记忆" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        {/* 2.0.1：说明段压成一句——设备级共享是用户需要知道的行为差异，其余是实现。 */}
+        {/* 2.0.1：说明段压成一句。内核按 workspace 分项目记忆（2026-11-21 运营者报告后修正）。 */}
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: th.inkSub }]}>
-            记忆在本机的所有会话间共享。
+            记忆按会话的工作区（项目）分开保存。
           </Text>
         </AppearIn>
 

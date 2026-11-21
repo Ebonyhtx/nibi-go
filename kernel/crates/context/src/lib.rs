@@ -165,8 +165,10 @@ impl PromptAssembler {
         self
     }
 
-    /// 这个会话现在是否读自动记忆（没接开关时按开启）。
-    fn memory_dir(&self, request: &ContextRequest) -> Option<&str> {
+    /// 这个会话现在是否读自动记忆（没接开关时按开启）；目录按请求的 workspace 解析——
+    /// 同一存储根下不同 workspace 各有一份项目记忆（NIBI-GO 每会话一个 workspace，
+    /// 之前按启动 workspace 算死导致记忆设备级共享）。
+    fn memory_dir(&self, request: &ContextRequest) -> Option<String> {
         if self
             .memory_settings
             .as_ref()
@@ -174,7 +176,21 @@ impl PromptAssembler {
         {
             return None;
         }
-        self.config.memory_dir.as_deref()
+        let root = self.config.memory_cli_root.as_ref()?;
+        if request.workspace.environment.as_str() != "local" {
+            // 远端工作区不读本机记忆（Node `runtime.isRemoteWorkspace()` 同样跳过）。
+            return None;
+        }
+        let dir = nibi_kernel_memory::project_memory_root(
+            root,
+            request.workspace.root.as_str(),
+            None,
+        );
+        // 提示词的记忆段说「目录已存在」：解析时确保它存在（建不了就不打开记忆段，与旧口径一致）。
+        if std::fs::create_dir_all(&dir).is_err() {
+            return None;
+        }
+        Some(dir.to_string_lossy().into_owned())
     }
 
     /// 接上会话的附加工作目录（runtime 建一个句柄，与判决链共用）。
@@ -223,7 +239,7 @@ impl PromptAssembler {
         let scope = self.scope(request, facts);
         let mut loaded = scope.startup(&facts.platform).await;
         if let Some(dir) = self.memory_dir(request)
-            && let Some(memory) = scope.auto_memory(dir).await
+            && let Some(memory) = scope.auto_memory(&dir).await
         {
             loaded.push(memory);
         }
@@ -512,12 +528,13 @@ impl ContextBuilder for PromptAssembler {
             .listings
             .listings_for(&request, since_boundary(history))
             .await?;
+        let memory_dir = self.memory_dir(&request);
         let facts = PromptFacts {
             surface: self.config.surface,
             system_turns: crate::system::facts_system_turns(&request),
             tool_names: &request.tool_names,
             has_skills: !listings.skills.is_empty(),
-            memory_dir: self.memory_dir(&request),
+            memory_dir: memory_dir.as_deref(),
             output_style: self.config.output_style.as_ref(),
             custom: self.config.custom_system_prompt.as_deref(),
             append: self.config.append_system_prompt.as_deref(),

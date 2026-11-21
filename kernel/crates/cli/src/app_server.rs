@@ -398,13 +398,7 @@ where
         limits: limits::limits(&startup.env, startup.max_output_tokens),
     };
     let mut context_config = ContextConfig::new(Surface::Interactive);
-    context_config.memory_dir = options::memory_dir(
-        local_machine.files().as_ref(),
-        &paths,
-        &workspace,
-        &startup.env,
-    )
-    .await;
+    context_config.memory_cli_root = options::memory_cli_root(&paths, &startup.env);
     let compact = options::compact(&startup.env, startup.max_output_tokens, model_limits);
     let mcp_flags = mcp::McpFlags {
         tool_search: limits::tool_search(&startup.env).allows(),

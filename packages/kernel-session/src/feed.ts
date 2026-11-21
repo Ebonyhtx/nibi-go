@@ -21,8 +21,10 @@ export interface ConversationFeedClient {
   subscribeConversation(
     sessionId: string,
     options?: { connectionId?: string; clientMode?: string },
-  ): Promise<{ topic: string; connectionId: string }>;
+  ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }>;
   unsubscribeConversation(): Promise<void>;
+  /** 对账：base 有效则续传缺失增量，force 一律重发快照（帧丢失后的恢复路径）。 */
+  resyncConversation(force?: boolean): Promise<void>;
   onNotification(listener: (notification: KernelNotification) => void): () => void;
 }
 
@@ -30,6 +32,12 @@ interface WireLike {
   logicalFrameId?: unknown;
   kind?: unknown;
 }
+
+/**
+ * 逻辑帧的分片等待窗口：超过就算分片丢失，清缓冲并对账重取快照。
+ * 增量帧是毫秒级的，10s 还没凑齐基本只剩「分片在传输里丢了」。
+ */
+const REASSEMBLE_STALE_MS = 10_000;
 
 /**
  * 插件槽的实时数据：serverName → slotId → 槽数据（`pluginSlot.data` 推送的当前值）。
@@ -71,9 +79,15 @@ export class ConversationFeed {
   private readonly listeners = new Set<() => void>();
   private readonly offNotification: () => void;
   private readonly pendingWires = new Map<string, unknown[]>();
+  /** 每个 incomplete 逻辑帧的首次见到时刻：超过窗口还没凑齐就视为分片丢失。 */
+  private readonly pendingSince = new Map<string, number>();
   private snapshotValue: ConversationSnapshot | null = null;
   private pluginSlotsValue: PluginSlotData = {};
   private disposed = false;
+  private sessionId: string | null = null;
+  /** 最后一次成功 apply 的帧时间：运行中的看门狗用它判「流是否还在动」。 */
+  private lastAppliedAt: number | null = null;
+  private resyncing = false;
 
   constructor(client: ConversationFeedClient) {
     this.client = client;
@@ -98,6 +112,8 @@ export class ConversationFeed {
 
   /** 订阅某个会话；首帧快照到达时 `snapshot` 就有了。 */
   async start(sessionId: string): Promise<void> {
+    this.sessionId = sessionId;
+    this.lastAppliedAt = null;
     await this.client.subscribeConversation(sessionId);
   }
 
@@ -106,11 +122,34 @@ export class ConversationFeed {
     this.disposed = true;
     this.offNotification();
     this.pendingWires.clear();
+    this.pendingSince.clear();
     this.listeners.clear();
     try {
       await this.client.unsubscribeConversation();
     } catch {
       // 连接已断开时取消订阅失败不影响本地状态。
+    }
+  }
+
+  /** 快照是否已经太久没有新帧（running 看门狗用；从未收到过帧也算陈旧）。 */
+  staleMs(): number | null {
+    if (this.disposed || this.lastAppliedAt === null) return null;
+    return Date.now() - this.lastAppliedAt;
+  }
+
+  /**
+   * 对账：强制让内核重发一帧快照。增量帧丢失后客户端的行状态会永久落后
+   * （行卡在 streaming/pendingApproval → 停止键卡死），快照重放即自愈。
+   */
+  async resync(force = true): Promise<void> {
+    if (this.disposed || this.resyncing || !this.sessionId) return;
+    this.resyncing = true;
+    try {
+      await this.client.resyncConversation(force);
+    } catch {
+      // 对账失败不致命：下一帧或下一次看门狗再试。
+    } finally {
+      this.resyncing = false;
     }
   }
 
@@ -121,22 +160,46 @@ export class ConversationFeed {
     const id = typeof wire.logicalFrameId === "string" ? wire.logicalFrameId : "unknown";
     const buffered = this.pendingWires.get(id) ?? [];
     buffered.push(wire);
+    if (!this.pendingSince.has(id)) this.pendingSince.set(id, Date.now());
     this.pendingWires.set(id, buffered);
 
     const result = reassembleTopicWireFrames(
       buffered as never,
       conversationTopicFrameSchema as never,
     );
-    if (result.kind === "incomplete") return; // 等其余分片。
+    if (result.kind === "incomplete") {
+      this.checkPendingStale();
+      return; // 等其余分片。
+    }
     this.pendingWires.delete(id);
+    this.pendingSince.delete(id);
     if (result.kind === "rejected") {
-      // 校验不过的帧不进状态；下一帧或重订阅会带回新快照。
+      // 校验不过的帧不进状态：这里的旧实现只等「下一帧」——丢一个带行状态迁移的分片
+      // 行就永久卡在旧状态（停止键卡死的真因）。现在立刻对账重取快照。
+      void this.resync(true);
       return;
     }
     this.apply(result.frame as unknown as ConversationTopicFrame);
+    this.checkPendingStale();
+  }
+
+  /** 有分片超过 REASSEMBLE_STALE_MS 还没凑齐：视为传输丢失，清掉并对账。 */
+  private checkPendingStale(): void {
+    if (this.pendingWires.size === 0) return;
+    const now = Date.now();
+    let stale = false;
+    for (const [id, since] of this.pendingSince) {
+      if (now - since > REASSEMBLE_STALE_MS) {
+        this.pendingWires.delete(id);
+        this.pendingSince.delete(id);
+        stale = true;
+      }
+    }
+    if (stale) void this.resync(true);
   }
 
   private apply(frame: ConversationTopicFrame): void {
+    this.lastAppliedAt = Date.now();
     const payload = frame.payload;
     if (payload.kind === "snapshot") {
       // 槽推送是 live-only：冷开/重订阅的快照不能把上一代际的推送复活。

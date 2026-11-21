@@ -498,8 +498,8 @@ impl LocalKernel {
             machine.info().clone(),
             machine.files().clone(),
         ));
-        // 抽取器要的目录必须在 `ContextConfig` 移进 `PromptAssembler` 之前取出。
-        let memory_dir = context.memory_dir.clone();
+        // 抽取器拿 CLI 存储根：目录按回合 workspace 现算（分项目记忆，见 memory.rs turn_memory_dir）。
+        let memory_dir = context.memory_cli_root.clone();
         let context = PromptAssembler::new(
             ContextPorts {
                 info: machine.info().clone(),
@@ -671,7 +671,7 @@ impl LocalKernel {
         let memory = Arc::new(memory::MemoryExtractor::new(
             parts.clone(),
             memory_prefs.clone(),
-            memory_dir.map(PathBuf::from),
+            memory_dir,
             scope.spawner(),
         ));
         let closer = Arc::new(Closer {

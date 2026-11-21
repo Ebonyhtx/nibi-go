@@ -32,6 +32,10 @@ nibi-kernel-hooks.workspace = true
 nibi-kernel-policy.workspace = true
 # /context 的延迟加载规则看模型卡片（docs/specs/rust-cli/context-usage.md §3）。
 nibi-kernel-prompts.workspace = true
+# 分项目记忆的路径解析（project_memory_root，Node resolveProjectMemoryRoot 同口径）；
+# 按回合 workspace 现算目录后要确保存在。
+nibi-kernel-memory.workspace = true
+nibi-kernel-fs.workspace = true
 nibi-kernel-query.workspace = true
 nibi-kernel-session.workspace = true
 nibi-kernel-tools.workspace = true

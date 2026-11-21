@@ -2111,6 +2111,7 @@ dependencies = [
  "nibi-kernel-ext",
  "nibi-kernel-fs",
  "nibi-kernel-hooks",
+ "nibi-kernel-memory",
  "nibi-kernel-policy",
  "nibi-kernel-prompts",
  "nibi-kernel-query",

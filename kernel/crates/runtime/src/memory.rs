@@ -114,7 +114,9 @@ struct ScheduledTurn {
 struct Inner {
     parts: QueryParts,
     prefs: Arc<MemoryPreferences>,
-    memory_dir: Option<PathBuf>,
+    /// 记忆的 CLI 存储根：按回合 workspace 解析 `<root>/memories/projects/<slug>-<hash>/memory`
+    /// （NIBI-GO 每会话一个 workspace；之前按启动 workspace 算死 → 记忆设备级共享）。
+    memory_cli_root: Option<PathBuf>,
     spawner: Spawner,
     state: Mutex<HashMap<SessionId, SessionState>>,
 }
@@ -129,14 +131,14 @@ impl MemoryExtractor {
     pub fn new(
         parts: QueryParts,
         prefs: Arc<MemoryPreferences>,
-        memory_dir: Option<PathBuf>,
+        memory_cli_root: Option<PathBuf>,
         spawner: Spawner,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 parts,
                 prefs,
-                memory_dir,
+                memory_cli_root,
                 spawner,
                 state: Mutex::new(HashMap::new()),
             }),
@@ -167,8 +169,19 @@ impl ProjectMemoryScheduler for MemoryExtractor {
 }
 
 impl Inner {
+
+    /// 这一回合的自动记忆目录：按回合自己的 workspace 解析并确保目录存在。
+    /// 远端工作区不落本机记忆（与 cli options::memory_dir 同判）。
+    fn turn_memory_dir(&self, workspace: &WorkspaceRef) -> Option<PathBuf> {
+        let root = self.memory_cli_root.as_ref()?;
+        if workspace.environment.as_str() != "local" {
+            return None;
+        }
+        let dir = nibi_kernel_memory::project_memory_root(root, workspace.root.as_str(), None);
+        Some(dir)
+    }
     fn schedule(self: &Arc<Self>, turn: ProjectMemoryTurn) {
-        if !self.prefs.enabled(&turn.session) || self.memory_dir.is_none() {
+        if !self.prefs.enabled(&turn.session) || self.turn_memory_dir(&turn.workspace).is_none() {
             return;
         }
         let boundary = turn.messages.last().map(|message| message.id().clone());
@@ -177,7 +190,7 @@ impl Inner {
         let decision = evaluate_extraction(
             &turn.messages,
             entry.cursor.as_ref(),
-            self.memory_dir.as_deref(),
+            self.turn_memory_dir(&turn.workspace).as_deref(),
             Path::new(turn.workspace.root.as_str()),
         );
         let message_count = match decision {
@@ -247,9 +260,12 @@ impl Inner {
         if cancel.is_cancelled() || !self.prefs.enabled(&turn.session) {
             return Err("cancelled".to_owned());
         }
-        let Some(root) = self.memory_dir.as_deref() else {
+        let Some(root) = self.turn_memory_dir(&turn.workspace) else {
             return Ok(());
         };
+        // 抽取/写入前确保目录存在（以前由启动时一次性建好；现在按 workspace 现算）。
+        nibi_kernel_fs::create_dir_all(&root).await.ok();
+        let root = root.as_path();
         let history: Vec<Message> = nibi_kernel_api::history::active(&turn.messages)
             .into_iter()
             .map(|message| message.as_ref().clone())
@@ -389,7 +405,7 @@ impl Inner {
         if let Err(message) = check_tool_policy(
             name,
             &input,
-            self.memory_dir.as_deref(),
+            self.turn_memory_dir(&turn.workspace).as_deref(),
             Path::new(turn.workspace.root.as_str()),
         ) {
             return (tool_use_id.clone(), error_output(message));

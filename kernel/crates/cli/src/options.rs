@@ -79,28 +79,17 @@ pub(crate) fn task_tools(snapshot: &[(String, String)]) -> Option<bool> {
     }
 }
 
-/// 自动记忆目录：建好后返回给提示词的展示文本（末尾带分隔符）；关闭或建不了时为 None。
+/// 自动记忆的 CLI 存储根：`ContextConfig.memory_cli_root` 按每个请求的 workspace 解析
+/// `<root>/memories/projects/<slug>-<hash>/memory`（Node `resolveProjectMemoryRoot` 同口径）。
+/// 这里只做启动级的开关判断；目录按需在使用方创建。关闭时 None。
 ///
-/// 路径与 Node `resolveProjectMemoryRoot` 同口径：`<cli>/memories/projects/<slug>-<hash>/memory`。
-/// 远端工作区不读本机记忆（Node `runtime.isRemoteWorkspace()` 同样跳过）。
-pub(crate) async fn memory_dir(
-    _files: &dyn Files,
-    paths: &StoragePaths,
-    workspace: &WorkspaceRef,
-    snapshot: &[(String, String)],
-) -> Option<String> {
+/// 之前在这里按启动 workspace 算死一个目录——多会话宿主（NIBI-GO app-server）所有会话
+/// 共享同一份记忆（运营者 2026-11-21 报告「记忆不是分项目的」），现在按回合解析。
+pub(crate) fn memory_cli_root(paths: &StoragePaths, snapshot: &[(String, String)]) -> Option<std::path::PathBuf> {
     if truthy(snapshot, "NIBI_DISABLE_AUTO_MEMORY") {
         return None;
     }
-    if workspace.environment.as_str() != "local" {
-        return None;
-    }
-    let cli_root = paths.cli_root();
-    let dir =
-        nibi_kernel_memory::project_memory_root(cli_root.as_path(), workspace.root.as_str(), None);
-    // 建不了目录时不打开记忆段（提示词会说目录已存在）。
-    nibi_kernel_fs::create_dir_all(&dir).await.ok()?;
-    Some(format!("{}{MAIN_SEPARATOR}", dir.display()))
+    Some(paths.cli_root().as_path().to_path_buf())
 }
 
 /// `NIBI_AUTO_COMPACT_WINDOW`：`200k`、`1m`、`100`–`1000`（按千计）或 token 数。

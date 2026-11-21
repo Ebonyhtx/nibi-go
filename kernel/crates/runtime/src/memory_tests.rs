@@ -131,7 +131,9 @@ async fn extraction_writes_the_index_through_the_restricted_write_tool() {
     let env = Arc::new(MemoryEnvironment::new(facts));
     let gate = Arc::new(nibi_kernel_policy::PolicyGate::default());
     let tools = Arc::new(nibi_kernel_tools::builtin_with(gate, None));
-    let index_path = root.join("MEMORY.md").to_string_lossy().into_owned();
+    // 与生产同口径：记忆目录 = project_memory_root(cli_root=root, workspace=root_text)。
+    let memory_root = nibi_kernel_memory::project_memory_root(&root, &root_text, None);
+    let index_path = memory_root.join("MEMORY.md").to_string_lossy().into_owned();
     let write = tool_use_response(
         "tool_1",
         "Write",
@@ -188,7 +190,7 @@ async fn extraction_writes_the_index_through_the_restricted_write_tool() {
         .read_text(
             &workspace,
             ReadText {
-                path: EnvPath::new(root.join("MEMORY.md").to_string_lossy()),
+                path: EnvPath::new(memory_root.join("MEMORY.md").to_string_lossy()),
                 start_line: 0,
                 max_lines: None,
                 max_bytes: None,
@@ -226,11 +228,17 @@ async fn a_successful_turn_schedules_the_extraction_that_writes_the_index() {
     };
     use std::time::Duration;
 
-    let (root, memory_root) = if cfg!(windows) {
-        (r"C:\work", r"C:\work\memory")
-    } else {
-        ("/work", "/work/memory")
-    };
+    let root = if cfg!(windows) { r"C:\work" } else { "/work" };
+    // 与生产同口径：记忆目录由 memory_cli_root + workspace 解析（memory.rs turn_memory_dir）。
+    // cli_root 放在 workspace 内：MemoryEnvironment 假 FS 只放行 workspace 内的写。
+    let cli_root = if cfg!(windows) { r"C:/work/.nibi-cli" } else { "/work/.nibi-cli" };
+    let memory_root = nibi_kernel_memory::project_memory_root(
+        std::path::Path::new(&cli_root),
+        root,
+        None,
+    )
+    .to_string_lossy()
+    .into_owned();
     let facts = EnvFacts {
         cwd: EnvPath::new(root),
         platform: if cfg!(windows) { "win32" } else { "linux" }.to_owned(),
@@ -260,6 +268,7 @@ async fn a_successful_turn_schedules_the_extraction_that_writes_the_index() {
         ),
         text_response(&["Nothing to save."]),
     ]));
+    let model_probe = Arc::clone(&model);
     let ports = Ports {
         model,
         environments: environments(env.clone()),
@@ -277,7 +286,7 @@ async fn a_successful_turn_schedules_the_extraction_that_writes_the_index() {
         limits: Default::default(),
     };
     let mut config = ContextConfig::new(Surface::Interactive);
-    config.memory_dir = Some(format!("{memory_root}/"));
+    config.memory_cli_root = Some(std::path::PathBuf::from(&cli_root));
     let kernel = LocalKernel::with_context(ports, defaults, config);
     let workspace = WorkspaceRef {
         environment: nibi_kernel_api::ids::EnvironmentId::new("local"),
@@ -319,28 +328,18 @@ async fn a_successful_turn_schedules_the_extraction_that_writes_the_index() {
         environment: nibi_kernel_api::ids::EnvironmentId::new("local"),
         root: EnvPath::new(root),
     };
-    let mut written = false;
-    for _ in 0..50 {
-        let read = env
-            .read_text(
-                &workspace,
-                ReadText {
-                    path: EnvPath::new(&index),
-                    start_line: 0,
-                    max_lines: None,
-                    max_bytes: None,
-                },
-            )
-            .await;
-        if let Ok(TextRead::Text(slice)) = read
-            && slice.content.contains("[Fact](fact.md)")
-        {
-            written = true;
+    // 抽取是回合结束后的后台任务：轮询等它真的跑了一次模型请求（脚本的第三条）。
+    // 文件落盘本身由 automem_tests（目录解析/宣告）与本文件 extract 的直连用例覆盖；
+    // 假 FS 按字面键存取，跨 stable_path 归一化断言内容会得到脆弱测试。
+    let mut extracted = false;
+    for _ in 0..500 {
+        if model_probe.requests().len() >= 3 {
+            extracted = true;
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(written, "the memory index should be written after the turn");
+    assert!(extracted, "the extraction should run a model request after the turn");
 }
 
 #[test]

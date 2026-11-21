@@ -196,6 +196,8 @@ export const KERNEL_METHODS = {
   conversationSubscribe: "v4/conversation/subscribe",
   conversationUnsubscribe: "v4/conversation/unsubscribe",
   conversationFrame: "v4/conversation/frame",
+  /** 增量帧丢失/状态怀疑不一致时的对账：base 有效则续传，forceSnapshot 一律重发快照。 */
+  conversationResync: "v4/conversation/resync",
   requestRuntimePreferences: "session/requestRuntimePreferences",
   /** 前向命令面：回答权限/提问等交互（`resolveInteraction`）。 */
   command: "v4/command",

@@ -205,7 +205,11 @@ export class KernelSessionClient {
   private stopSeq = 1;
   private editSeq = 1;
   private sessionId: string | null = null;
-  private subscribed: { topic: string; connectionId: string } | null = null;
+  private subscribed: {
+    topic: string;
+    connectionId: string;
+    subscriptionId: string | null;
+  } | null = null;
   private closed = false;
 
   constructor(options: KernelSessionClientOptions) {
@@ -704,20 +708,40 @@ export class KernelSessionClient {
   /**
    * 订阅会话的 V4 变更流（`v4/conversation/subscribe`）。
    * 之后内核会推送 `v4/conversation/frame` 通知：首帧 `{kind:"snapshot"}`，之后 `{kind:"deltas"}`。
+   * ACK 里的 subscriptionId 要存下来：`resyncConversation` 按它对账。
    */
   async subscribeConversation(
     sessionId: string,
     options?: { connectionId?: string; clientMode?: string },
-  ): Promise<{ topic: string; connectionId: string }> {
+  ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }> {
     const topic = `conversation/${sessionId}`;
     const connectionId = options?.connectionId ?? `nibi-go-${Date.now()}`;
-    await this.request(KERNEL_METHODS.conversationSubscribe, {
+    const ack = await this.request<{
+      ack?: { subscriptionId?: unknown; mode?: unknown; logEpoch?: unknown };
+    }>(KERNEL_METHODS.conversationSubscribe, {
       topic,
       connectionId,
       clientMode: options?.clientMode ?? "desktop-continuous",
     });
-    this.subscribed = { topic, connectionId };
-    return { topic, connectionId };
+    const subscriptionId =
+      typeof ack?.ack?.subscriptionId === "string" ? ack.ack.subscriptionId : null;
+    this.subscribed = { topic, connectionId, subscriptionId };
+    return { topic, connectionId, subscriptionId };
+  }
+
+  /**
+   * 对账（`v4/conversation/resync`）：base 有效则续传缺失增量，`forceSnapshot` 一律重发快照。
+   * 帧丢失/CRC 校验失败后客户端的行状态会永久落后（之前没有恢复路径，表现为停止键卡死），
+   * 怀疑不一致时调它。
+   */
+  async resyncConversation(force = true): Promise<void> {
+    const current = this.subscribed;
+    if (!current) return;
+    await this.request(KERNEL_METHODS.conversationResync, {
+      topic: current.topic,
+      subscriptionId: current.subscriptionId,
+      forceSnapshot: force,
+    });
   }
 
   /** 取消订阅（同一 connectionId）。 */

@@ -954,6 +954,11 @@ export function useKernelConversation(): KernelConversation {
     if (!client || client.currentSessionId === null) return null;
     try {
       await client.stop();
+      // 中断 ACK 之后对账一次：中断带来的行状态迁移如果丢了增量帧，快照重放自愈
+      // （不救的话停止键永远卡住，输入也没法用——2026-11-21 真机复现）。
+      setTimeout(() => {
+        void feedRef.current?.resync(true);
+      }, 3_000);
       return null;
     } catch (error) {
       const message = `停止失败：${error instanceof Error ? error.message : String(error)}`;
@@ -961,6 +966,18 @@ export function useKernelConversation(): KernelConversation {
       return message;
     }
   }, []);
+
+  // 运行中的陈旧看门狗：回合在跑但 90s 没有任何帧到达 → 疑似丢帧，强制对账。
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (turn !== "running") return;
+      const stale = feedRef.current?.staleMs();
+      if (stale !== null && stale !== undefined && stale > 90_000) {
+        void feedRef.current?.resync(true);
+      }
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [turn]);
 
   /**
    * 编辑并重发最后一条用户输入（内核 `editUserQuery`，CAS 提交）；返回错误文案，成功为 null。

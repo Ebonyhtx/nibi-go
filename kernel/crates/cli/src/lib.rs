@@ -566,17 +566,11 @@ async fn session(
         Mode::Print => Surface::Print,
         Mode::Tui | Mode::Version | Mode::Help => Surface::Interactive,
     };
-    // 自动记忆目录先建好，提示词的记忆段才能说“目录已存在”（memory.md §2）。
+    // 记忆的 CLI 存储根：目录按每个请求的 workspace 在 context/runtime 现算（分项目记忆）。
     let mut context = ContextConfig::new(surface);
     context.custom_system_prompt = resolved.system_prompt;
     context.append_system_prompt = resolved.append_system_prompt;
-    context.memory_dir = options::memory_dir(
-        local_machine.files().as_ref(),
-        &paths,
-        &workspace,
-        &startup.env,
-    )
-    .await;
+    context.memory_cli_root = options::memory_cli_root(&paths, &startup.env);
     // 压缩的上限两种模式都接（显式覆盖按内置规则，修复线 F61：以前显式覆盖时是“没有目录”，按 200,000）。
     let compact = options::compact(&startup.env, startup.max_output_tokens, limits);
     let mut extensions = setup::extensions(
