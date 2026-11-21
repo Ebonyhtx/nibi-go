@@ -26,13 +26,18 @@ import {
   type AppearanceMode,
 } from "../../appearance/preferences";
 import { Icon, type IconName } from "../../components/Icon";
-import { Row, type RowTone } from "../../components/ui/Row";
+import { Row, ToggleRow, type RowTone } from "../../components/ui/Row";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { dismissKeyboardOnFocus } from "../../composer/leave";
 import { PressableScale } from "../../motion/PressableScale";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
+import { syncNotificationChannel } from "../../relay/notifications";
+import {
+  updateDevicePreferences,
+  useDevicePreferences,
+} from "../../settings/devicePreferences";
 import { radius, space, text, useNibiTheme } from "../../theme";
 
 /** 主题三选。分段控件里的短标签；详情不需要——图标+名称已自明。 */
@@ -52,6 +57,7 @@ export default function SettingsHomeScreen() {
   const version = Constants.expoConfig?.version ?? "0.0.0";
   const { session, snapshot } = useSession();
   const appearanceMode = useAppearanceMode();
+  const device = useDevicePreferences();
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
@@ -145,7 +151,35 @@ export default function SettingsHomeScreen() {
           </AppearIn>
         ) : null}
 
+        {/* 通知（桌面「常规」组的任务通知/通知声音）：只在后台/锁屏弹，前台不影响。 */}
         <AppearIn delay={staggerDelay(2, 32, 240)}>
+          <SectionCard label="通知">
+            <ToggleRow
+              icon="download"
+              tone="steel"
+              title="任务通知"
+              detail="后台完成/待审批时提醒"
+              value={device.taskNotifications}
+              onChange={(value) => void updateDevicePreferences({ taskNotifications: value })}
+            />
+            <Divider />
+            <ToggleRow
+              icon="bell"
+              tone="brand"
+              title="通知声音"
+              detail="提醒时播放提示音"
+              value={device.notificationSound}
+              onChange={(value) => {
+                void updateDevicePreferences({ notificationSound: value });
+                // 渠道创建后不可变：切声音要删掉重建。
+                void syncNotificationChannel();
+              }}
+              disabled={!device.taskNotifications}
+            />
+          </SectionCard>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(3, 32, 240)}>
           <SectionCard label="交互">
             <Row
               icon="sliders"
@@ -162,7 +196,7 @@ export default function SettingsHomeScreen() {
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(3, 32, 240)}>
+        <AppearIn delay={staggerDelay(4, 32, 240)}>
           <SectionCard label="模型">
             <Row
               icon="monitor"
@@ -173,8 +207,17 @@ export default function SettingsHomeScreen() {
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(4, 32, 240)}>
+        <AppearIn delay={staggerDelay(5, 32, 240)}>
           <SectionCard label="Agent">
+            <ToggleRow
+              icon="clock"
+              tone="plain"
+              title="任务运行时保持唤醒"
+              detail="回合执行期间不休屏"
+              value={device.keepAwakeWhileRunning}
+              onChange={(value) => void updateDevicePreferences({ keepAwakeWhileRunning: value })}
+            />
+            <Divider />
             <Row
               icon="sparkles"
               title="记忆"
@@ -237,10 +280,20 @@ export default function SettingsHomeScreen() {
                 );
               })}
             </View>
+            {/* 界面动效（桌面「外观」同名项）：关掉后入场/按压动画直出终态；系统「减少动画」优先。 */}
+            <Divider />
+            <ToggleRow
+              icon="sparkles"
+              tone="plain"
+              title="界面动效"
+              detail="关闭后动画直出终态"
+              value={device.motionEnabled}
+              onChange={(value) => void updateDevicePreferences({ motionEnabled: value })}
+            />
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(6, 32, 240)}>
+        <AppearIn delay={staggerDelay(7, 32, 240)}>
           <SectionCard label="手机">
             <Row
               icon="phone"
@@ -251,7 +304,7 @@ export default function SettingsHomeScreen() {
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(7, 32, 240)}>
+        <AppearIn delay={staggerDelay(8, 32, 240)}>
           <SectionCard label="插件">
             <Row
               icon="puzzle"
@@ -261,7 +314,7 @@ export default function SettingsHomeScreen() {
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(8, 32, 240)}>
+        <AppearIn delay={staggerDelay(9, 32, 240)}>
           <SectionCard label="关于">
             {/* 走 Row 的图标槽：标题左缘与其它卡对齐（2.0.1 审查）。 */}
             <Row icon="info" tone="plain" title="NIBI-GO" detail={`版本 ${version}`} />

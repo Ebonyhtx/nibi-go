@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { loadAppearancePreferences } from "../appearance/preferences";
+import { loadDevicePreferences } from "../settings/devicePreferences";
 import { useNibiScheme } from "../theme";
 import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/notifications";
 
@@ -19,7 +20,8 @@ export default function RootLayout() {
     void ensureNotificationSetup();
     const unsubscribe = subscribeNotificationTap((route) => router.push(route as never));
     let alive = true;
-    void loadAppearancePreferences().finally(() => {
+    // 外观 + 设备偏好（通知/唤醒/动效）都先读再挂载：让持久化值直接进首帧。
+    void Promise.all([loadAppearancePreferences(), loadDevicePreferences()]).finally(() => {
       if (alive) setAppearanceReady(true);
     });
     return () => {

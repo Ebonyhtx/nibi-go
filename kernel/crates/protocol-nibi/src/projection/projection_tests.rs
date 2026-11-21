@@ -1501,3 +1501,71 @@ fn a_tool_result_display_is_projected_on_the_row() {
     assert_eq!(done[0]["row"]["display"]["ui"]["surface"], "panel");
     assert_eq!(done[0]["row"]["display"]["ui"]["pluginId"], "math-modeling");
 }
+
+/// HistoryRewritten 带截断点时只移除该行（含）之后的行：editUserQuery 的保留对话
+/// 不能被从 UI 抹掉（2026-11-21 真机报告——此前无条件 `row.removed{fromRowId:0}`）。
+#[test]
+fn a_history_rewrite_only_truncates_from_its_target_row() {
+    let mut feed = Feed::new();
+    for (index, (turn, user_id, assistant_id)) in
+        [("turn_1", "msg_u1", "msg_a1"), ("turn_2", "msg_u2", "msg_a2")]
+            .into_iter()
+            .enumerate()
+    {
+        feed.apply(KernelEvent::TurnStarted {
+            execution_kind: None,
+            input_source: None,
+            origin_meta: None,
+            workflow_launch: None,
+            turn: TurnId::new(turn),
+            command: Some(CommandId::new("c1")),
+        });
+        feed.apply(KernelEvent::MessageDone {
+            message: user(user_id, "q"),
+        });
+        feed.apply(KernelEvent::MessageDone {
+            message: assistant(
+                assistant_id,
+                vec![ContentBlock::Text { text: "a".into() }],
+            ),
+        });
+        feed.apply(KernelEvent::TurnFinished {
+            turn: TurnId::new(turn),
+            outcome: TurnOutcome::Success,
+            usage: Some(Usage {
+                input_tokens: 1,
+                output_tokens: 1,
+                ..Usage::default()
+            }),
+        });
+        let _ = index;
+    }
+    // 行号：1=turn_1 头、2=u1、3=a1、4=turn_2 头、5=u2、6=a2。
+    let rewritten = feed.apply(KernelEvent::HistoryRewritten {
+        generation: 1,
+        truncate_from_entity: Some("msg_u2".into()),
+    });
+    assert_eq!(
+        ops(&rewritten),
+        ["row.removed", "state(availability,control,inputRouting,revision)"]
+    );
+    assert_eq!(rewritten[0]["fromRowId"], 5);
+    let snapshot = feed.projection.snapshot(9, "epoch-1");
+    let kinds: Vec<&str> = snapshot["rows"]["window"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["turnHeader", "userInput", "assistantText", "turnHeader"]);
+    assert_eq!(snapshot["rows"]["firstRowId"], 1);
+
+    // 找不到截断点（旧行为兜底）：整表清空。
+    let rewritten = feed.apply(KernelEvent::HistoryRewritten {
+        generation: 2,
+        truncate_from_entity: None,
+    });
+    assert_eq!(rewritten[0]["fromRowId"], 0);
+    let snapshot = feed.projection.snapshot(9, "epoch-1");
+    assert_eq!(snapshot["rows"]["window"].as_array().unwrap().len(), 0);
+}

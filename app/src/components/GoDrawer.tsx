@@ -12,6 +12,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef } fro
 import {
   Alert,
   Animated,
+  Image,
   Keyboard,
   Pressable,
   ScrollView,
@@ -243,11 +244,12 @@ export function GoNavContent({
   return (
     <>
       <View style={[styles.head, { paddingTop: insetTop + space(3) }]}>
-        {/* 品牌砖：brandSoft 底 + brand 发丝描边。不换 Skia 手绘小鸟——sprite 太重、
-            现有铅笔就是「写」的标记，只把砖放大到 40px（size 阶梯没有 40，走 space(10)）。 */}
-        <View style={[styles.logo, { backgroundColor: t.brandSoft, borderColor: t.brand }]}>
-          <Icon name="pen" size={18} color={t.brand} />
-        </View>
+        {/* 品牌砖：NIBI 品牌图（纸上鸟），与桌面 icon_512@2x 同源。
+            之前用铅笔图标——看起来和「新对话」动作重复（运营者 2026-11-21 指出）。 */}
+        <Image
+          source={require("../../assets/icon.png")}
+          style={[styles.logo, { borderColor: t.hairline }]}
+        />
         <View style={styles.brandCol}>
           <Text style={[styles.wordmark, { color: t.ink }]}>NIBI-GO</Text>
           {/* 2.0.1：删「本机 AGENT」副标——应用名已说明身份，对用户无信息量。 */}
@@ -814,8 +816,6 @@ const styles = StyleSheet.create({
     width: space(10),
     height: space(10),
     borderRadius: radius.control,
-    alignItems: "center",
-    justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
   },
   brandCol: { flex: 1 },

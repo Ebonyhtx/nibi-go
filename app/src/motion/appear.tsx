@@ -1,20 +1,20 @@
 // 入场动效原语：新行淡入 + 轻微上移（消息流/会话列表/分组 stagger 共用）。
 // 只在「挂载时」播一次：列表行按 key 复用，滚动复用不会重播；新 key 才触发。
-// 尊重系统「减少动态效果」：开了就直出终态，不做动画。
+// 尊重两类「关动效」：系统「减少动态效果」（AccessibilityInfo）与应用内「界面动效」
+// 开关（桌面同名设置的移植语义，设备偏好 motionEnabled）——任一开启就直出终态。
 //
 // 事故教训（2026-11-21 真机）：native 驱动的 timing 会被静默取消（JS finish 回调都不来），
 // 空态标题永久冻在半透明（浅色实测 opacity≈0.31 / 深色≈0.57，重启也不恢复）。
 // 所以除了 finished=false 时回填终值，再加一个「动画窗口过后强制 setValue(1)」的兜底——
 // 动效可以失败，终态不许失败。
-import { Animated } from "react-native";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Animated, AccessibilityInfo } from "react-native";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
-import { AccessibilityInfo } from "react-native";
-
+import { getCachedDevicePreferences, subscribeDevicePreferences } from "../settings/devicePreferences";
 import { easingStandard } from "./easing";
 import { motion } from "../theme";
 
-/** 挂载时 opacity 0→1 + translateY(distance→0)。reduced-motion 时直出。 */
+/** 挂载时 opacity 0→1 + translateY(distance→0)。关动效时直出。 */
 export function AppearIn({
   distance = 8,
   delay = 0,
@@ -29,16 +29,24 @@ export function AppearIn({
   style?: object;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
-  const [reduced, setReduced] = useState(false);
+  const [systemReduced, setSystemReduced] = useState(false);
+  // 应用内动效开关：用外部 store 订阅（设置里切开关即时生效，本组件不重挂）。
+  const motionEnabled = useSyncExternalStore(
+    subscribeDevicePreferences,
+    () => getCachedDevicePreferences().motionEnabled,
+  );
   useEffect(() => {
     let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled?.().then((value) => {
-      if (alive) setReduced(Boolean(value));
-    }).catch(() => undefined);
+    AccessibilityInfo.isReduceMotionEnabled?.()
+      .then((value) => {
+        if (alive) setSystemReduced(Boolean(value));
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
   }, []);
+  const reduced = systemReduced || !motionEnabled;
   useEffect(() => {
     if (reduced) {
       progress.setValue(1);

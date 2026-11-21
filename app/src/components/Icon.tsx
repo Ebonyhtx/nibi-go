@@ -38,6 +38,7 @@ export type IconName =
   | "download"
   | "alert"
   | "info"
+  | "bell"
   | "user"
   | "external";
 
@@ -160,6 +161,12 @@ const GLYPHS: Record<
   info: {
     paths: ["M12 11.2V16.4", "M12 7.8V7.9"],
     circles: [{ cx: 12, cy: 12, r: 8.3 }],
+  },
+  bell: {
+    paths: [
+      "M12 4.2A5.3 5.3 0 0117.3 9.5V13.2L19 16H5L6.7 13.2V9.5A5.3 5.3 0 0112 4.2Z",
+      "M9.8 18.6A2.3 2.3 0 0014.2 18.6",
+    ],
   },
   alert: {
     paths: ["M12 4L21 19H3Z", "M12 10V14.5"],

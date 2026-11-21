@@ -6,8 +6,12 @@
 // 结果 onPress 整体失效（真机回归：所有按钮点了没反应），所以保持两层。
 // 需要 flex 约束的控件（顶栏 chip 要收缩、不能被长标题撑开压到隔壁）把约束放进 containerStyle。
 import { Animated, Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import {
+  getCachedDevicePreferences,
+  subscribeDevicePreferences,
+} from "../settings/devicePreferences";
 import { motion } from "../theme";
 
 /** 底层 Pressable 的 ref 类型（RN 0.88 是 ReactNativeElement，不是 View）。 */
@@ -25,20 +29,52 @@ export interface PressableScaleProps extends PressableProps {
 
 export const PressableScale = forwardRef<PressableRef, PressableScaleProps>(
   function PressableScale({ scaleTo = 0.97, style, containerStyle, children, ...rest }, ref) {
-    const scale = useRef(new Animated.Value(1)).current;
-    const [pressed, setPressed] = useState(false);
+  const scale = useRef(new Animated.Value(1)).current;
+  const [pressed, setPressed] = useState(false);
+  // 应用内「界面动效」开关：关掉就跳过弹簧（只留按压态，终态不变）。
+  const motionEnabled = useSyncExternalStore(
+    subscribeDevicePreferences,
+    () => getCachedDevicePreferences().motionEnabled,
+  );
 
-    useEffect(() => {
-      // disabled 翻 true 时如果还停在按下的缩放，回弹一次。
-      if (rest.disabled && pressed) {
-        setPressed(false);
+  useEffect(() => {
+    // disabled 翻 true 时如果还停在按下的缩放，回弹一次。
+    if (rest.disabled && pressed) {
+      setPressed(false);
+      if (motionEnabled) {
         Animated.spring(scale, {
           toValue: 1,
           useNativeDriver: true,
           ...motion.spring.snappy,
         }).start();
+      } else {
+        scale.setValue(1);
       }
-    }, [rest.disabled, pressed, scale]);
+    }
+  }, [rest.disabled, pressed, scale, motionEnabled]);
+
+  const pressIn = () => {
+    setPressed(true);
+    if (motionEnabled) {
+      Animated.spring(scale, {
+        toValue: scaleTo,
+        useNativeDriver: true,
+        ...motion.spring.snappy,
+      }).start();
+    }
+  };
+  const pressOut = () => {
+    setPressed(false);
+    if (motionEnabled) {
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        ...motion.spring.snappy,
+      }).start();
+    } else {
+      scale.setValue(1);
+    }
+  };
 
     const resolved: StyleProp<ViewStyle> = typeof style === "function" ? style({ pressed }) : style;
 
@@ -48,21 +84,11 @@ export const PressableScale = forwardRef<PressableRef, PressableScaleProps>(
         ref={ref}
         style={containerStyle}
         onPressIn={(event) => {
-          setPressed(true);
-          Animated.spring(scale, {
-            toValue: scaleTo,
-            useNativeDriver: true,
-            ...motion.spring.snappy,
-          }).start();
+          pressIn();
           rest.onPressIn?.(event);
         }}
         onPressOut={(event) => {
-          setPressed(false);
-          Animated.spring(scale, {
-            toValue: 1,
-            useNativeDriver: true,
-            ...motion.spring.snappy,
-          }).start();
+          pressOut();
           rest.onPressOut?.(event);
         }}
       >

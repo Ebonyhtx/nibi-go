@@ -4,6 +4,7 @@
 // 不再轮询 session/messages。dev 下没有真实 Provider 时按本机 mock 模型启动。
 import { Paths } from "expo-file-system";
 import * as Crypto from "expo-crypto";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import {
   ConversationController,
   ConversationFeed,
@@ -34,6 +35,7 @@ import {
 } from "nibi-kernel-host";
 
 import { getCachedMemoryPreferences, loadMemoryPreferences } from "../memory/preferences";
+import { getCachedDevicePreferences, subscribeDevicePreferences } from "../settings/devicePreferences";
 import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
 import { registerKernelClient, unregisterKernelClient } from "./kernelRegistry";
 import { kernelStartEnv } from "./kernelEnv";
@@ -254,6 +256,19 @@ export interface KernelConversation {
 export function useKernelConversation(): KernelConversation {
   const [rows, setRows] = useState<readonly ChatRow[]>([]);
   const [turn, setTurn] = useState<TurnState>("idle");
+  // 任务运行时保持唤醒（桌面 keepAwakeWhileRunning 的移植语义，设备偏好可开关）。
+  const keepAwakeRef = useRef(getCachedDevicePreferences().keepAwakeWhileRunning);
+  useEffect(() =>
+    subscribeDevicePreferences((preferences) => {
+      keepAwakeRef.current = preferences.keepAwakeWhileRunning;
+    }), []);
+  useEffect(() => {
+    if (turn !== "running" || !keepAwakeRef.current) return;
+    void activateKeepAwakeAsync("nibi-turn").catch(() => undefined);
+    return () => {
+      void deactivateKeepAwake("nibi-turn");
+    };
+  }, [turn]);
   const [status, setStatus] = useState("初始化…");
   const [modelLabel, setModelLabel] = useState("未配置模型");
   const [currentModelSelection, setCurrentModelSelection] = useState<{

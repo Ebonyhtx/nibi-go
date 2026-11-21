@@ -2,7 +2,7 @@
   "expo": {
     "name": "NIBI-GO",
     "slug": "nibi-go",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "scheme": "nibigo",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -12,7 +12,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F5E7D0",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -22,7 +22,7 @@
         "android.permission.CAMERA"
       ],
       "package": "top.nibistudio.nibigo",
-      "versionCode": 7
+      "versionCode": 8
     },
     "plugins": [
       "expo-router",

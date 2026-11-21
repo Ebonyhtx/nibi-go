@@ -638,15 +638,34 @@ impl Projection {
             KernelEvent::FilesRestored { turn } => {
                 self.files_restored(turn.as_str(), &mut out);
             }
-            KernelEvent::HistoryRewritten { .. } => {
-                // rewind 后投影重建（与 TUI 的 runner 同语义）：清空行、重置状态。
-                // 发 `row.removed{fromRowId:0}` 让客户端也清空（协议已有的 op，
-                // delta.ts:112）；后续事件的行追加到空投影上。
-                if !self.rows.is_empty() {
-                    out.push(json!({"op": "row.removed", "fromRowId": 0}));
+            KernelEvent::HistoryRewritten {
+                truncate_from_entity, ..
+            } => {
+                // rewind 后投影重建（与 TUI 的 runner 同语义）：清掉截断点（含）之后的行，
+                // 保留的历史继续留在投影里——客户端用 `row.removed{fromRowId}` 同步部分截断。
+                // 之前无条件整表清空，editUserQuery 的保留对话也被从 UI 抹掉（2026-11-21 真机
+                // 报告）；找不到截断点（旧日志/旧行）时退回整表清空语义。
+                let cut_at = truncate_from_entity.as_ref().and_then(|entity| {
+                    self.rows
+                        .iter()
+                        .position(|row| row.get("entityId").and_then(Value::as_str) == Some(entity.as_str()))
+                });
+                match cut_at {
+                    Some(at) if at > 0 => {
+                        let from_row_id = self.rows[at]["rowId"].as_u64().unwrap_or(1);
+                        out.push(json!({"op": "row.removed", "fromRowId": from_row_id}));
+                        self.rows.truncate(at);
+                        // index 存的是插入时的 rows.len()；截断后指向保留区间之外的条目全部失效。
+                        self.index.retain(|_, at_index| *at_index < at);
+                    }
+                    _ => {
+                        if !self.rows.is_empty() {
+                            out.push(json!({"op": "row.removed", "fromRowId": 0}));
+                        }
+                        self.rows.clear();
+                        self.index.clear();
+                    }
                 }
-                self.rows.clear();
-                self.index.clear();
                 self.turn = None;
                 self.active = None;
                 self.error = None;

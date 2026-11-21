@@ -477,8 +477,12 @@ impl Actor {
         let removed = self.messages.len() - index;
         self.messages.truncate(index);
         self.generation = generation;
-        self.log
-            .append(KernelEvent::HistoryRewritten { generation });
+        // 把截断点交给 v4 投影：保留的历史留在投影里（部分 row.removed），不再整表清空——
+        // 否则 editUserQuery 会把没被编辑的对话也从客户端 UI 上抹掉（2026-11-21 真机报告）。
+        self.log.append(KernelEvent::HistoryRewritten {
+            generation,
+            truncate_from_entity: Some(target.to_string()),
+        });
         Ok(removed)
     }
 }
