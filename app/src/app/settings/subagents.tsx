@@ -33,6 +33,7 @@ import { PressableScale } from "../../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 import { useProviderCatalog } from "../../kernel/useProviderCatalog";
+import { Icon } from "../../components/Icon";
 import { useProjects } from "../../kernel/projects";
 import { documentRootOf, fileUriOf, projectWorkspacePath } from "../../kernel/workspace";
 
@@ -64,13 +65,51 @@ interface AgentEntry {
   raw: string;
 }
 
-/** 页内编辑器状态：relPath 为 null 表示新建。 */
+/** 常用内置工具（chips 快选；桌面端表单的对应物）。 */
+const COMMON_TOOLS: readonly string[] = [
+  "Read",
+  "Glob",
+  "Grep",
+  "Bash",
+  "Write",
+  "Edit",
+  "WebFetch",
+  "Agent",
+];
+
+/** 页内编辑器状态：relPath 为 null 表示新建；mode=form 表单 / raw 原文兜底。 */
 interface EditorState {
   scope: Scope;
   relPath: string | null;
-  /** 进入编辑器时的原文，脏检查基准。 */
-  initial: string;
-  draft: string;
+  mode: "form" | "raw";
+  name: string;
+  description: string;
+  model: string;
+  tools: string[];
+  prompt: string;
+  /** 原文件 frontmatter 里表单之外的键（保存时原样保留；顺序不变）。 */
+  extraEntries: [string, string | string[]][];
+  /** 原文件全文（raw 模式直接编辑这段）。 */
+  raw: string;
+  /** 进入编辑器时的表单快照（脏检查基准）。 */
+  initialSnapshot: string;
+}
+
+/** 表单脏检查：与进入时的快照逐字段比。 */
+function formSnapshot(state: {
+  name: string;
+  description: string;
+  model: string;
+  tools: string[];
+  prompt: string;
+}): string {
+  return JSON.stringify([
+    state.name,
+    state.description,
+    state.model,
+    state.tools,
+    state.prompt,
+  ]);
 }
 
 // —— frontmatter 行解析（照 kernel frontmatter.rs 的口径，只为列表展示）——
@@ -198,6 +237,35 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|\u0000]/gu, "").trim();
 }
 
+/** 表单 → md 全文：四个表单键 + 表单外的键原样保留 + 正文。 */
+function buildDocument(fields: {
+  name: string;
+  description: string;
+  model: string;
+  tools: string[];
+  prompt: string;
+  extraEntries: [string, string | string[]][];
+}): string {
+  const lines = ["---"];
+  const emit = (key: string, value: string | string[]): void => {
+    if (Array.isArray(value)) {
+      if (value.length > 0) lines.push(`${key}: [${value.join(", ")}]`);
+      return;
+    }
+    if (value.trim() !== "") lines.push(`${key}: ${value}`);
+  };
+  emit("name", fields.name);
+  emit("description", fields.description);
+  // model 永远落一行（空 = 继承主模型），与桌面模板一致。
+  lines.push(`model: ${fields.model}`);
+  emit("tools", fields.tools);
+  for (const [key, value] of fields.extraEntries) {
+    if (["name", "description", "model", "tools"].includes(key)) continue;
+    emit(key, value);
+  }
+  lines.push("---", "", fields.prompt.trim());
+  return `${lines.join("\n")}\n`;
+}
 function fileStem(fileName: string): string {
   return fileName.replace(/\.md$/u, "");
 }
@@ -280,18 +348,52 @@ export default function SubagentsScreen() {
     void load();
   }, [load]);
 
-  const dirty = editor !== null && editor.draft !== editor.initial;
+  const dirty =
+    editor !== null &&
+    (editor.mode === "raw"
+      ? editor.raw !== editor.initialSnapshot
+      : formSnapshot(editor) !== editor.initialSnapshot);
+
+  /** 原文 → 表单字段；frontmatter 里表单之外的键收集进 extraEntries（保存时原样保留）。 */
+  function formStateOf(scope: Scope, relPath: string | null, raw: string): EditorState {
+    const values = splitFrontmatter(raw);
+    const textOf = (key: string): string => {
+      const value = values?.[key];
+      return typeof value === "string" ? value : "";
+    };
+    const tools = Array.isArray(values?.tools) ? (values?.tools as string[]) : [];
+    const extraEntries: [string, string | string[]][] = Object.entries(values ?? {})
+      .filter(([key]) => !["name", "description", "model", "tools"].includes(key))
+      .map(([key, value]) => [key, value] as [string, string | string[]]);
+    const promptText = (raw.split("---")[2] ?? "").replace(/^\r?\n/u, "");
+    const fields = {
+      name: textOf("name"),
+      description: textOf("description"),
+      model: textOf("model"),
+      tools,
+      prompt: promptText,
+    };
+    return {
+      scope,
+      relPath,
+      mode: "form",
+      ...fields,
+      extraEntries,
+      raw,
+      initialSnapshot: formSnapshot(fields),
+    };
+  }
 
   function openNew() {
     setMessage(null);
     setModelPickerOpen(false);
-    setEditor({ scope, relPath: null, initial: TEMPLATE, draft: TEMPLATE });
+    setEditor(formStateOf(scope, null, TEMPLATE));
   }
 
   function openEdit(entry: AgentEntry) {
     setMessage(null);
     setModelPickerOpen(false);
-    setEditor({ scope, relPath: entry.relPath, initial: entry.raw, draft: entry.raw });
+    setEditor(formStateOf(scope, entry.relPath, entry.raw));
   }
 
   async function save() {
@@ -301,7 +403,18 @@ export default function SubagentsScreen() {
     try {
       const root = agentsRoot(editor.scope);
       new Directory(fileUriOf(root)).create({ intermediates: true, idempotent: true });
-      const name = sanitizeFileName(frontText(splitFrontmatter(editor.draft) ?? {}, "name") ?? "");
+      const documentText =
+        editor.mode === "raw"
+          ? editor.raw
+          : buildDocument({
+              name: editor.name,
+              description: editor.description,
+              model: editor.model,
+              tools: editor.tools,
+              prompt: editor.prompt,
+              extraEntries: editor.extraEntries,
+            });
+      const name = sanitizeFileName(frontText(splitFrontmatter(documentText) ?? {}, "name") ?? "");
       let target: string;
       if (name) {
         target = `${name}.md`;
@@ -309,14 +422,14 @@ export default function SubagentsScreen() {
         // 没写 name 的老文件保留原文件名（内核仍会跳过，但原文不丢）。
         target = editor.relPath;
       } else {
-        setMessage("缺 name：在 frontmatter 补上再保存");
+        setMessage("缺名称：先填上再保存");
         return;
       }
       if (editor.relPath !== target && entries.some((entry) => entry.relPath === target)) {
-        setMessage(`${target} 已存在：换个 name 再保存`);
+        setMessage(`${target} 已存在：换个名称再保存`);
         return;
       }
-      await new File(fileUriOf(`${root}/${target}`)).write(editor.draft);
+      await new File(fileUriOf(`${root}/${target}`)).write(documentText);
       // 改名/换作用域时删旧文件：写在成功之后再删，失败也不会丢内容。
       if (editor.relPath && editor.relPath !== target) {
         const previous = new File(fileUriOf(`${agentsRoot(editor.scope)}/${editor.relPath}`));
@@ -408,24 +521,9 @@ export default function SubagentsScreen() {
     })();
   }
 
-  /** 把选中的模型写回原文 frontmatter 的 `model:` 行（没有就在首行 `---` 后插）。 */
+  /** 模型下拉选中：直接改表单字段（保存时由 buildDocument 写进 frontmatter）。 */
   function applyModel(modelId: string): void {
-    if (!editor) return;
-    const line = `model: ${modelId || '""'}`;
-    const lines = editor.draft.split("\n");
-    const first = lines[0]?.replace(/^\u{feff}/u, "") ?? "";
-    if (first.startsWith("---")) {
-      let replaced = false;
-      for (let i = 1; i < lines.length && lines[i].replace(/\r$/u, "") !== "---"; i++) {
-        if (/^\s*model\s*:/u.test(lines[i])) {
-          lines[i] = line;
-          replaced = true;
-          break;
-        }
-      }
-      if (!replaced) lines.splice(1, 0, line);
-    }
-    setEditor({ ...editor, draft: lines.join("\n") });
+    setEditor((current) => (current ? { ...current, model: modelId } : current));
   }
 
   /** 编辑器的可选模型：继承主模型 + 各供应商模型 id。 */
@@ -512,48 +610,136 @@ export default function SubagentsScreen() {
           </AppearIn>
 
           {editor ? (
-            // 编辑器：直接编辑 md 原文；模型字段给下拉快捷写入（其余键走原文）。
+            // 编辑器（表单）：每个字段独立控件——照桌面 SubagentsSection 的形态；
+            // 「编辑原始文件」折叠给需要 effort/maxTurns 等高级键的场景。
             <AppearIn>
               <SectionCard label={editor.relPath?.split("/").pop() ?? "新建子智能体"}>
-                <Row
-                  icon="sparkles"
-                  tone="steel"
-                  title={
-                    modelChoices.find((choice) => {
-                      const values = splitFrontmatter(editor.draft);
-                      return choice.value === (frontText(values ?? {}, "model") ?? "");
-                    })?.label ?? "模型"
-                  }
-                  detail="frontmatter 的 model 字段"
-                  onPress={() => setModelPickerOpen((value) => !value)}
-                />
-                {modelPickerOpen
-                  ? modelChoices.map((choice) => (
-                      <Row
-                        key={choice.value || "inherit"}
-                        tone="plain"
-                        title={choice.label}
-                        onPress={() => {
-                          applyModel(choice.value);
-                          setModelPickerOpen(false);
-                        }}
-                      />
-                    ))
-                  : null}
-                <Divider />
-                <TextInput
-                  value={editor.draft}
-                  onChangeText={(draft) => setEditor({ ...editor, draft })}
-                  placeholder={"---\nname: \ndescription: \n---\n\n……"}
-                  placeholderTextColor={th.inkFaint}
-                  multiline
-                  textAlignVertical="top"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={[styles.editor, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
-                />
-                <View style={styles.metaRow}>
-                  {dirty ? <Text style={[styles.meta, { color: th.amber }]}>未保存</Text> : null}
+                <View style={styles.formBody}>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>名称</Text>
+                  <TextInput
+                    value={editor.name}
+                    onChangeText={(name) => setEditor({ ...editor, name })}
+                    placeholder="my-agent"
+                    placeholderTextColor={th.inkFaint}
+                    style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+                  />
+
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>何时使用</Text>
+                  <TextInput
+                    value={editor.description}
+                    onChangeText={(description) => setEditor({ ...editor, description })}
+                    placeholder="何时使用这个子智能体（一句话）"
+                    placeholderTextColor={th.inkFaint}
+                    style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+                  />
+
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>模型</Text>
+                  <PressableScale
+                    scaleTo={0.98}
+                    onPress={() => setModelPickerOpen((value) => !value)}
+                    accessibilityRole="button"
+                    accessibilityLabel="选择模型"
+                    style={[styles.fieldInput, styles.modelRow, { borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+                  >
+                    <Text style={[styles.fieldValue, { color: th.ink }]} numberOfLines={1}>
+                      {modelChoices.find((choice) => choice.value === editor.model)?.label ?? editor.model ?? "继承主模型"}
+                    </Text>
+                    <Icon name="chevron-down" size={14} color={th.inkFaint} />
+                  </PressableScale>
+                  {modelPickerOpen
+                    ? modelChoices.map((choice) => (
+                        <Row
+                          key={choice.value || "inherit"}
+                          tone={editor.model === choice.value ? "brand" : "plain"}
+                          title={choice.label}
+                          onPress={() => {
+                            applyModel(choice.value);
+                            setModelPickerOpen(false);
+                          }}
+                          right={
+                            editor.model === choice.value ? (
+                              <Icon name="check" size={13} color={th.brand} />
+                            ) : undefined
+                          }
+                        />
+                      ))
+                    : null}
+
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>工具</Text>
+                  <View style={styles.toolChips}>
+                    {COMMON_TOOLS.map((tool) => {
+                      const on = editor.tools.includes(tool);
+                      return (
+                        <PressableScale
+                          key={tool}
+                          scaleTo={0.94}
+                          onPress={() =>
+                            setEditor({
+                              ...editor,
+                              tools: on
+                                ? editor.tools.filter((item) => item !== tool)
+                                : [...editor.tools, tool],
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={`工具 ${tool}`}
+                          accessibilityState={{ selected: on }}
+                          style={[
+                            styles.toolChip,
+                            {
+                              backgroundColor: on ? th.brandSoft : th.surfaceSoft,
+                              borderColor: on ? th.brand : th.hairline,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.toolChipText, { color: on ? th.brand : th.inkSub }]}>
+                            {tool}
+                          </Text>
+                        </PressableScale>
+                      );
+                    })}
+                  </View>
+                  <TextInput
+                    value={editor.tools.join(", ")}
+                    onChangeText={(value) =>
+                      setEditor({
+                        ...editor,
+                        tools: value
+                          .split(",")
+                          .map((item) => item.trim())
+                          .filter((item) => item !== ""),
+                      })
+                    }
+                    placeholder="其他工具（逗号分隔）"
+                    placeholderTextColor={th.inkFaint}
+                    style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+                  />
+
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>系统提示词</Text>
+                  <TextInput
+                    value={editor.prompt}
+                    onChangeText={(prompt) => setEditor({ ...editor, prompt })}
+                    placeholder="你是……（这个子智能体怎么做事）"
+                    placeholderTextColor={th.inkFaint}
+                    multiline
+                    textAlignVertical="top"
+                    style={[styles.fieldInput, styles.promptInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+                  />
+
+                  <View style={styles.rawToggleRow}>
+                    {dirty ? <Text style={[styles.meta, { color: th.amber }]}>未保存</Text> : null}
+                    <PressableScale
+                      scaleTo={0.98}
+                      onPress={() =>
+                        setEditor({ ...editor, mode: "raw", raw: buildDocument(editor) })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="编辑原始文件"
+                      style={styles.rawToggle}
+                    >
+                      <Text style={[styles.rawToggleText, { color: th.steel }]}>编辑原始文件…</Text>
+                    </PressableScale>
+                  </View>
                 </View>
               </SectionCard>
             </AppearIn>
@@ -691,6 +877,38 @@ const styles = StyleSheet.create({
     paddingVertical: space(1),
   },
   scopeChipText: { ...text("micro"), fontWeight: "600" },
+  formBody: { paddingHorizontal: space(3.5), paddingVertical: space(2.5), gap: space(2) },
+  formLabel: { ...text("micro"), fontWeight: "600" },
+  fieldInput: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+    ...text("body"),
+  },
+  modelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  fieldValue: { flex: 1, ...text("body") },
+  toolChips: { flexDirection: "row", flexWrap: "wrap", gap: space(1.5) },
+  toolChip: {
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+  },
+  toolChipText: { ...text("micro"), fontWeight: "600" },
+  promptInput: { minHeight: 200 },
+  rawToggleRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: space(3),
+  },
+  rawToggle: { paddingVertical: space(1) },
+  rawToggleText: { ...text("micro"), fontWeight: "600" },
   metaRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
