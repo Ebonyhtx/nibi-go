@@ -1166,7 +1166,9 @@ export default function GoHomeScreen() {
                 />
               ) : null}
 
-              {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE */}
+              {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE。
+                  空态时不渲染——中央已有品牌大鸟，同屏两只鸟抢主角（运营者 2026-11-21 指出）。 */}
+              {conversation.rows.length > 0 ? (
               <View style={styles.petOverlay} pointerEvents="box-none">
                 <View style={styles.actionsOverlay} pointerEvents="auto">
                   <CapsuleStack items={capsuleItems} onItem={applyCatalogItem} />
@@ -1220,6 +1222,7 @@ export default function GoHomeScreen() {
                   </View>
                 </View>
               </View>
+              ) : null}
             </View>
 
             {hint ? (
