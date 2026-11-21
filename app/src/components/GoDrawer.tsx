@@ -27,6 +27,8 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Dot, Icon } from "./Icon";
+import { useProjects } from "../kernel/projects";
+import { projectIdOfWorkspace } from "../kernel/workspace";
 import type { PetStateId } from "./PetView";
 import { PET_STATE } from "./petStates";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
@@ -56,8 +58,10 @@ export interface NavProps {
   /** 已归档会话（本地归档状态；内核不存归档）。 */
   archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
+  /** filesDir 绝对路径：项目 workspace 前缀反查用（项目筛选）。 */
+  workspaceRoot?: string;
   onOpenSession?: (sessionId: string) => void;
-  onNewSession?: () => void;
+  onNewSession?: (projectId?: string) => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
   onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
@@ -103,6 +107,7 @@ export function GoNavContent({
   sessions = [],
   archivedSessions = [],
   activeSessionId = null,
+  workspaceRoot,
   onOpenSession,
   onNewSession,
   onArchiveSession,
@@ -151,10 +156,20 @@ export function GoNavContent({
   };
   // 会话列表 / 归档管理（NIBI 客户端的「归档任务 → 归档管理里删除」同一套流程）。
   const [view, setView] = useState<"sessions" | "archived">("sessions");
-  const groups = useMemo(
-    () => groupSessionsByDay(filterSessionsByTitle(sessions, search)),
-    [sessions, search],
-  );
+  // 项目筛选：null=全部；选中的项目按 workspace 前缀过滤会话，「新对话」也归它。
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const { projects } = useProjects();
+  const groups = useMemo(() => {
+    const filtered =
+      projectFilter && workspaceRoot
+        ? sessions.filter(
+            (session) =>
+              projectIdOfWorkspace(workspaceRoot, session.workspace?.workspacePath) ===
+              projectFilter,
+          )
+        : sessions;
+    return groupSessionsByDay(filterSessionsByTitle(filtered, search));
+  }, [sessions, search, projectFilter, workspaceRoot]);
   const archivedRows = useMemo(
     () => filterSessionsByTitle(archivedSessions, search),
     [archivedSessions, search],
@@ -259,7 +274,7 @@ export function GoNavContent({
           style={({ pressed }) => [styles.newChat, { backgroundColor: pressed ? t.hover : t.panel }]}
           accessibilityRole="button"
           onPress={() => {
-            onNewSession?.();
+            onNewSession?.(projectFilter ?? undefined);
             onNavigate?.();
           }}
         >
@@ -303,6 +318,60 @@ export function GoNavContent({
           </Pressable>
         ) : null}
       </View>
+
+      {/* 项目筛选 chips：建了项目才出现；选中后列表只看该项目的会话，「新对话」也归它。 */}
+      {projects.length > 0 ? (
+        <View style={styles.projectChips}>
+          <PressableScale
+            scaleTo={0.94}
+            onPress={() => setProjectFilter(null)}
+            accessibilityRole="button"
+            accessibilityLabel="显示全部会话"
+            accessibilityState={{ selected: projectFilter === null }}
+            style={[
+              styles.projectChip,
+              {
+                backgroundColor: projectFilter === null ? t.brandSoft : t.surfaceSoft,
+                borderColor: projectFilter === null ? t.brand : t.hairline,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.projectChipText, { color: projectFilter === null ? t.brand : t.inkSub }]}
+              numberOfLines={1}
+            >
+              全部
+            </Text>
+          </PressableScale>
+          {projects.map((project) => {
+            const active = projectFilter === project.id;
+            return (
+              <PressableScale
+                key={project.id}
+                scaleTo={0.94}
+                onPress={() => setProjectFilter(active ? null : project.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`只看项目 ${project.name}`}
+                accessibilityState={{ selected: active }}
+                style={[
+                  styles.projectChip,
+                  {
+                    backgroundColor: active ? t.brandSoft : t.surfaceSoft,
+                    borderColor: active ? t.brand : t.hairline,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.projectChipText, { color: active ? t.brand : t.inkSub }]}
+                  numberOfLines={1}
+                >
+                  {project.name}
+                </Text>
+              </PressableScale>
+            );
+          })}
+        </View>
+      ) : null}
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -538,6 +607,7 @@ export function GoDrawer({
   sessions,
   archivedSessions,
   activeSessionId,
+  workspaceRoot,
   onOpenSession,
   onNewSession,
   onArchiveSession,
@@ -554,8 +624,10 @@ export function GoDrawer({
   sessions?: readonly KernelSessionSummary[];
   archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
+  /** filesDir 绝对路径：项目 workspace 前缀反查用（项目筛选）。 */
+  workspaceRoot?: string;
   onOpenSession?: (sessionId: string) => void;
-  onNewSession?: () => void;
+  onNewSession?: (projectId?: string) => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
   onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
@@ -637,6 +709,7 @@ export function GoDrawer({
             onNavigate={onClose}
             onBeforeNavigate={onBeforeNavigate}
             onlineDevices={onlineDevices}
+            workspaceRoot={workspaceRoot}
             sessions={sessions}
             archivedSessions={archivedSessions}
             activeSessionId={activeSessionId}
@@ -661,6 +734,7 @@ export function GoSidebar({
   sessions,
   archivedSessions,
   activeSessionId,
+  workspaceRoot,
   onOpenSession,
   onNewSession,
   onArchiveSession,
@@ -675,8 +749,10 @@ export function GoSidebar({
   sessions?: readonly KernelSessionSummary[];
   archivedSessions?: readonly KernelSessionSummary[];
   activeSessionId?: string | null;
+  /** filesDir 绝对路径：项目 workspace 前缀反查用（项目筛选）。 */
+  workspaceRoot?: string;
   onOpenSession?: (sessionId: string) => void;
-  onNewSession?: () => void;
+  onNewSession?: (projectId?: string) => void;
   onArchiveSession?: (sessionId: string) => void | Promise<void>;
   onUnarchiveSession?: (sessionId: string) => void | Promise<void>;
   onDeleteSession?: (sessionId: string) => void | Promise<unknown>;
@@ -705,6 +781,7 @@ export function GoSidebar({
         insetTop={insets.top}
         insetBottom={insets.bottom + space(2)}
         onlineDevices={onlineDevices}
+        workspaceRoot={workspaceRoot}
         sessions={sessions}
         archivedSessions={archivedSessions}
         activeSessionId={activeSessionId}
@@ -841,6 +918,23 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   searchInput: { flex: 1, ...text("small"), padding: 0 },
+  projectChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space(1.5),
+    paddingHorizontal: space(3.5),
+    paddingBottom: space(1.5),
+  },
+  projectChip: {
+    maxWidth: 120,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+  },
+  projectChipText: { ...text("micro"), fontWeight: "600" },
   scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
   emptyText: { ...text("small"), paddingTop: space(2) },
   groupLabel: {

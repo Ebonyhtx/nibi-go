@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Paths } from "expo-file-system";
 
 import { Icon } from "../../components/Icon";
 import { Row } from "../../components/ui/Row";
@@ -28,6 +29,8 @@ import { AppearIn, staggerDelay } from "../../motion/appear";
 import { PressableScale } from "../../motion/PressableScale";
 import { clearMemory, measureMemory, type MemoryUsageEntry } from "../../memory/usage";
 import { useMemoryPreferences } from "../../memory/useMemoryPreferences";
+import { useProjects } from "../../kernel/projects";
+import { documentRootOf, projectIdOfWorkspace } from "../../kernel/workspace";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 function formatBytes(bytes: number): string {
@@ -38,6 +41,7 @@ function formatBytes(bytes: number): string {
 
 export default function MemorySettingsScreen() {
   const th = useNibiTheme();
+  const projects = useProjects();
   const insets = useSafeAreaInsets();
   const { preferences, setEnabled } = useMemoryPreferences();
   const [entries, setEntries] = useState<MemoryUsageEntry[]>([]);
@@ -173,11 +177,18 @@ export default function MemorySettingsScreen() {
             </View>
             {totalBytes !== null && totalBytes > 0 ? (
               <View style={styles.usageEntries}>
-                {entries.map((entry) => (
-                  <Text key={entry.workspacePath} style={[styles.usageEntry, { color: th.inkFaint }]}>
-                    {entry.workspacePath} · {formatBytes(entry.bytes)}
-                  </Text>
-                ))}
+                {entries.map((entry) => {
+                  const root = documentRootOf(Paths.document.uri);
+                  const projectId = projectIdOfWorkspace(root, entry.workspacePath);
+                  const projectName = projectId
+                    ? (projects.projects.find((entry2) => entry2.id === projectId)?.name ?? projectId)
+                    : entry.workspacePath.split("/").filter(Boolean).pop() ?? entry.workspacePath;
+                  return (
+                    <Text key={entry.workspacePath} style={[styles.usageEntry, { color: th.inkFaint }]}>
+                      {projectName} · {formatBytes(entry.bytes)}
+                    </Text>
+                  );
+                })}
               </View>
             ) : null}
             <Divider />

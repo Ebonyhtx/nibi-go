@@ -181,6 +181,80 @@ export interface KernelDebugSnapshot {
   } | null;
 }
 
+/** `v4/usage/stats` 的范围档（`all` 是「从 0 起」，不是「从今天往前算」）。 */
+export type KernelUsageRange = "all" | "7d" | "30d";
+
+/** `v4/usage/stats` 的模型一行（`models[]`；老数据可能没有模型 id）。 */
+export interface KernelUsageModelRow {
+  modelId: string | null;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  requestCount: number;
+  /** 占模型 token 总和的比例（内核算好，0–1）。 */
+  share: number;
+}
+
+/** `v4/usage/stats` 的工具一行（`tools[]`）。 */
+export interface KernelUsageToolRow {
+  toolName: string;
+  callCount: number;
+  errorCount: number;
+  errorRate: number;
+  successRate: number;
+  errorTypes: Record<string, number>;
+  /** 平均耗时（ms）；没有可用行时为 null。 */
+  avgDurationMs: number | null;
+}
+
+/** 热力图的一天（内核按本地日索引归桶后回 `YYYY-MM-DD`）。 */
+export interface KernelUsageHeatmapDay {
+  date: string;
+  level: number;
+  totalTokens: number;
+  turnCount: number;
+  toolCallCount: number;
+}
+
+/** `v4/usage/stats` 快照（内核 `AppUsageSnapshot` 投影；会话无关的应用级用量）。 */
+export interface KernelUsageStats {
+  range: KernelUsageRange;
+  generatedAt: number;
+  timeZone: string;
+  source: string;
+  summary: {
+    totalTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    cacheHitRate: number;
+    totalSessions: number;
+    totalTurns: number;
+    toolCallCount: number;
+    toolErrorRate: number;
+    modelErrorRate: number;
+    avgTimeToFirstTokenMs: number | null;
+    avgTurnDurationMs: number | null;
+    activeDays: number;
+    currentStreakDays: number;
+    longestSessionMs: number;
+    longestStreakDays: number;
+    peakDayTokens: number;
+    favoriteModel: { modelId: string | null; totalTokens: number; share: number } | null;
+  };
+  heatmap: {
+    startDate: string;
+    endDate: string;
+    maxTokens: number;
+    weeks: { weekIndex: number; days: (KernelUsageHeatmapDay | null)[] }[];
+  };
+  dailyModelUsage: { date: string; models: { modelId: string | null; totalTokens: number }[] }[];
+  models: KernelUsageModelRow[];
+  tools: KernelUsageToolRow[];
+}
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
@@ -643,6 +717,17 @@ export class KernelSessionClient {
       sessionIds,
       directories,
     });
+  }
+
+  /**
+   * 应用级用量统计（`v4/usage/stats`）：总览 / 模型占比 / 每日趋势 / 工具调用。
+   *
+   * 会话无关——内核 strict_keys 只认 `range`/`timeZone`，带 sessionId 会直接回 -32602，
+   * 所以与 `listSessions`/`purgeSessionData` 同型：不经过 requireSessionId。
+   * `timeZone` 不传：内核用自己的设备偏移把用量归到本地日，App 不必重复取。
+   */
+  async usageStats(range: KernelUsageRange): Promise<KernelUsageStats> {
+    return this.request<KernelUsageStats>(KERNEL_METHODS.usageStats, { range });
   }
 
   /**

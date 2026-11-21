@@ -259,6 +259,17 @@ export default function SettingsHomeScreen() {
         </AppearIn>
 
         <AppearIn delay={staggerDelay(5, 32, 240)}>
+          <SectionCard label="项目">
+            <Row
+              icon="doc"
+              title="项目管理"
+              detail="共享工作区与项目记忆"
+              onPress={() => router.push("/settings/projects")}
+            />
+          </SectionCard>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(6, 32, 240)}>
           <SectionCard label="Agent">
             <Row
               icon="pen"
@@ -289,6 +300,22 @@ export default function SettingsHomeScreen() {
               title="诊断"
               detail="用量与网络状态"
               onPress={() => router.push("/settings/diagnostics")}
+            />
+            <Divider />
+            <Row
+              icon="user"
+              tone="steel"
+              title="子智能体"
+              detail="自定义助手与工具面"
+              onPress={() => router.push("/settings/subagents")}
+            />
+            <Divider />
+            <Row
+              icon="download"
+              tone="steel"
+              title="使用统计"
+              detail="Tokens、模型与趋势"
+              onPress={() => router.push("/settings/usage")}
             />
           </SectionCard>
         </AppearIn>

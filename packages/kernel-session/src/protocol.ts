@@ -208,4 +208,6 @@ export const KERNEL_METHODS = {
   /** 会话数据的彻底删除（行 + 附件/轨迹文件；`measure` 是它的只读体量查询）。 */
   sessionDataMeasure: "v4/storage/sessionData/measure",
   sessionDataPurge: "v4/storage/sessionData/purge",
+  /** 应用级用量统计（会话无关；入参只认 `range`/`timeZone`）。 */
+  usageStats: "v4/usage/stats",
 } as const;

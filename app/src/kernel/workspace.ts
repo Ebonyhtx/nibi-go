@@ -51,6 +51,39 @@ export function legacyWorkspaceRef(root: string): WorkspaceRefLike {
   return { workspacePath, workspaceKey: workspacePath };
 }
 
+export const PROJECTS_DIR = "projects";
+
+/** 项目的持久 workspace：`<root>/projects/<projectId>`。多个会话共享同一目录。 */
+export function projectWorkspacePath(root: string, projectId: string): string {
+  if (!isSafeProjectDirName(projectId)) {
+    throw new Error(`非法的项目 ID：${projectId}`);
+  }
+  return `${root.replace(/\/+$/u, "")}/${PROJECTS_DIR}/${projectId}`;
+}
+
+export function projectWorkspaceRef(root: string, projectId: string): WorkspaceRefLike {
+  const workspacePath = projectWorkspacePath(root, projectId);
+  return { workspacePath, workspaceKey: workspacePath };
+}
+
+/** 项目 id 同时是目录名：与 projects.ts 的 isSafeProjectId 同一条规则（这里不 import 避免循环）。 */
+function isSafeProjectDirName(id: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,39}$/.test(id);
+}
+
+/** 这个 workspace 属于哪个项目（按 `<root>/projects/<id>` 前缀反查）；不属于任何项目返回 null。 */
+export function projectIdOfWorkspace(
+  root: string,
+  workspacePath: string | undefined | null,
+): string | null {
+  if (!workspacePath) return null;
+  const prefix = `${root.replace(/\/+$/u, "")}/${PROJECTS_DIR}/`;
+  const normalized = workspacePath.replace(/\/+$/u, "");
+  if (!normalized.startsWith(prefix)) return null;
+  const name = normalized.slice(prefix.length);
+  return isSafeProjectDirName(name) ? name : null;
+}
+
 /**
  * 只认 `<root>/workspaces/<单个目录名>`。
  *

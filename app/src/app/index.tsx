@@ -24,6 +24,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Paths } from "expo-file-system";
+
+import { documentRootOf } from "../kernel/workspace";
 
 import { ConversationList } from "../components/ConversationList";
 import { AnnotationComposer, type AnnotationDraft } from "../components/AnnotationComposer";
@@ -74,6 +77,7 @@ import {
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
 import { leaveComposerForNavigation } from "../composer/leave";
+import { useProjects } from "../kernel/projects";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
 import type { Effect } from "@nibi-go/plugin-contract";
@@ -104,6 +108,11 @@ const PERMISSION_OPTIONS: ReadonlyArray<{
   { id: "guarded", label: "自主模式", detail: "在有风险时询问", icon: "shield" },
   { id: "yolo", label: "完全访问", detail: "减少确认次数。", icon: "question" },
 ];
+
+/** filesDir 绝对路径：抽屉的项目筛选按它反查会话归属。 */
+function workspaceRoot(): string {
+  return documentRootOf(Paths.document.uri);
+}
 
 export default function GoHomeScreen() {
   const th = useNibiTheme();
@@ -139,6 +148,9 @@ export default function GoHomeScreen() {
   const sessionChipRef = useRef<ComponentRef<typeof Pressable> | null>(null);
   // 内置插件的槽（工具卡/快捷动作/面板入口）；启停状态在插件中心改。
   const plugins = usePlugins();
+  const projects = useProjects();
+  // 新建对话默认进「当前项目」：设置 → 项目里切换；没有项目时沿用独立会话目录。
+  const activeProjectId = projects.activeProjectId;
   const providerCatalog = useProviderCatalog();
   const { preferences: conversationPrefs } = useConversationPreferences();
   const [modelChoice, setModelChoice] = useState<ModelChoice | null>(null);
@@ -919,6 +931,7 @@ export default function GoHomeScreen() {
       <View style={styles.shell}>
         {hasSidebar ? (
           <GoSidebar
+            workspaceRoot={workspaceRoot()}
             petState={petState}
             sessions={conversation.sessions}
             archivedSessions={conversation.archivedSessions}
@@ -926,7 +939,7 @@ export default function GoHomeScreen() {
             onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
             onNewSession={() => {
               setDraft("");
-              void conversation.newSession();
+              void conversation.newSession(activeProjectId ?? undefined);
             }}
             onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
             onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}
@@ -1054,7 +1067,7 @@ export default function GoHomeScreen() {
                   accessibilityLabel="新建对话"
                   onPress={() => {
                     setDraft("");
-                    void conversation.newSession();
+                    void conversation.newSession(activeProjectId ?? undefined);
                   }}
                 >
                   <Icon name="pen" size={17} color={th.ink} />
@@ -1342,6 +1355,7 @@ export default function GoHomeScreen() {
 
       {!inShell ? (
         <GoDrawer
+          workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           petState={petState}
@@ -1351,7 +1365,7 @@ export default function GoHomeScreen() {
           onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
           onNewSession={() => {
             setDraft("");
-            void conversation.newSession();
+            void conversation.newSession(activeProjectId ?? undefined);
           }}
           onArchiveSession={(sessionId) => conversation.archiveSession(sessionId)}
           onUnarchiveSession={(sessionId) => conversation.unarchiveSession(sessionId)}

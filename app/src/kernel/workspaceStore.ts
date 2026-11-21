@@ -1,16 +1,20 @@
 // 按会话 workspace 的磁盘操作（Expo FileSystem）。路径口径见 workspace.ts。
 //
-// 目录约定：`<filesDir>/workspaces/<sessionId>/`。创建在 session/create 之前完成，
-// 因为内核会把 workspace 持久化并据此设置 cwd/路径策略；删除只有在会话彻底 purged
-// 成功之后才做（见 useKernelConversation.deleteSession）。
+// 目录约定：`<filesDir>/workspaces/<sessionId>/`（无项目的独立会话）与
+// `<filesDir>/projects/<projectId>/`（项目 workspace，多个会话共享）。创建在
+// session/create 之前完成，因为内核会把 workspace 持久化并据此设置 cwd/路径策略；
+// 删除只有在会话彻底 purged 成功之后才做（见 useKernelConversation.deleteSession）。
+// 项目目录只在显式删除项目时清理，不参与启动清理。
 
 import { Directory } from "expo-file-system";
 
 import {
+  PROJECTS_DIR,
   WORKSPACES_DIR,
   fileUriOf,
   isSafeSessionId,
   ownedWorkspacePath,
+  projectWorkspacePath,
   sessionWorkspacePath,
   sessionWorkspaceRef,
   shouldPruneWorkspaceDir,
@@ -34,6 +38,13 @@ export function ensureSessionWorkspace(root: string, sessionId: string): Workspa
   const dir = directoryAt(sessionWorkspacePath(root, sessionId));
   if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
   return sessionWorkspaceRef(root, sessionId);
+}
+
+/** 建项目 workspace（幂等）：项目的多个会话共享这一个目录。 */
+export function ensureProjectWorkspace(root: string, projectId: string): WorkspaceRefLike {
+  const dir = directoryAt(projectWorkspacePath(root, projectId));
+  if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+  return { workspacePath: projectWorkspacePath(root, projectId), workspaceKey: projectWorkspacePath(root, projectId) };
 }
 
 /**

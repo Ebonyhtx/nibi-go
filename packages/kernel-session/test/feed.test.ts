@@ -143,11 +143,22 @@ class FakeFeedClient implements ConversationFeedClient {
   private readonly listeners = new Set<(notification: KernelNotification) => void>();
   private ordinal = 0;
 
-  async subscribeConversation(): Promise<{ topic: string; connectionId: string }> {
-    return { topic: "conversation/sess_1", connectionId: "conn_1" };
+  async subscribeConversation(): Promise<{
+    topic: string;
+    connectionId: string;
+    subscriptionId: string | null;
+  }> {
+    return { topic: "conversation/sess_1", connectionId: "conn_1", subscriptionId: "sub_1" };
   }
 
   async unsubscribeConversation(): Promise<void> {}
+
+  async resyncConversation(): Promise<void> {
+    this.resyncCalls.push(true);
+  }
+
+  /** 对账调用记录（丢帧自愈测试用）。 */
+  readonly resyncCalls: boolean[] = [];
 
   onNotification(listener: (notification: KernelNotification) => void): () => void {
     this.listeners.add(listener);

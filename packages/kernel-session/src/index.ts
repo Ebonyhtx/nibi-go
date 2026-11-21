@@ -15,6 +15,11 @@ export {
   type KernelSessionClientOptions,
   type KernelSessionCreateOptions,
   type KernelStopResult,
+  type KernelUsageHeatmapDay,
+  type KernelUsageModelRow,
+  type KernelUsageRange,
+  type KernelUsageStats,
+  type KernelUsageToolRow,
 } from "./client";
 export {
   ConversationController,

@@ -42,8 +42,9 @@ import { kernelStartEnv } from "./kernelEnv";
 import { providerKeysEnv, pushProviderKeys } from "./providerKeys";
 import { fetchProviderState } from "./providerSettings";
 import { splitSessions } from "./sessionArchive";
-import { documentRootOf, legacyWorkspaceRef } from "./workspace";
+import { documentRootOf, legacyWorkspaceRef, type WorkspaceRefLike } from "./workspace";
 import {
+  ensureProjectWorkspace,
   ensureSessionWorkspace,
   pruneOrphanWorkspaces,
   removeSessionTempDir,
@@ -106,7 +107,10 @@ async function sessionMcpServers(): Promise<KernelMcpServer[] | undefined> {
   return servers.length > 0 ? servers : undefined;
 }
 
-async function createWithDefaultModel(client: KernelSessionClient) {
+async function createWithDefaultModel(
+  client: KernelSessionClient,
+  workspaceRef?: WorkspaceRefLike,
+) {
   let model:
     | { providerId: string; modelId: string; thoughtLevel?: string }
     | undefined;
@@ -129,8 +133,9 @@ async function createWithDefaultModel(client: KernelSessionClient) {
   if (!model) throw new Error("还没有可用的模型服务");
   // 会话 ID 由 Host 先生成：workspace 目录名要用它，而内核在 create 之后才返回 ID。
   // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话）。
+  // 项目会话的 workspace 是项目目录（多会话共享；记忆/项目级 agents 都挂它），在创建前建好。
   const sessionId = Crypto.randomUUID();
-  const workspace = ensureSessionWorkspace(workspaceRoot(), sessionId);
+  const workspace = workspaceRef ?? ensureSessionWorkspace(workspaceRoot(), sessionId);
   return client.createSession(workspace, model, await sessionMcpServers(), {
     persistence: "deferred",
     sessionId,
@@ -228,7 +233,7 @@ export interface KernelConversation {
     action: "show" | "set" | "pause" | "resume" | "clear",
     objective?: string,
   ) => Promise<{ message: string; startedTurn: boolean }>;
-  newSession: () => Promise<void>;
+  newSession: (projectId?: string) => Promise<void>;
   openSession: (sessionId: string) => Promise<void>;
   /** 归档一条会话（隐藏出主列表，可在归档管理里恢复或删除）。 */
   archiveSession: (sessionId: string) => Promise<void>;
@@ -1071,11 +1076,14 @@ function localizeGoalReply(response: string): string {
     [],
   );
 
-  const newSession = useCallback(async () => {
+  const newSession = useCallback(async (projectId?: string) => {
     const client = clientRef.current;
     if (!client) return;
     try {
-      rememberSessionSnapshot(await createWithDefaultModel(client));
+      // 项目会话共享项目的 workspace 目录（记忆/文件/项目级 agents 都挂它）；
+      // 不带项目沿用旧路径（每个会话独立目录）。目录建好再 create。
+      const workspaceRef = projectId ? ensureProjectWorkspace(workspaceRoot(), projectId) : undefined;
+      rememberSessionSnapshot(await createWithDefaultModel(client, workspaceRef));
       const sessionId = client.currentSessionId;
       if (!sessionId) return;
       await attach(client, sessionId);
