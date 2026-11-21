@@ -1,11 +1,20 @@
-// 工作区右侧面板：手机主界面从右往左滑呼出（index.tsx 接线）。
-//   1. 文件：workspacePath 目录树（懒展开，目录在前、按名排序，相对路径显示）+
-//      文件名搜索（下钻整棵工作区，跳过 node_modules/.git 等重目录，限量防爆走）。
-//   2. 查看器：点文件后在面板内推入查看层（覆盖文件树）——md 走 MessageMarkdown、
-//      html/svg 走 WebView、图片自适应宽、其余等宽文本；>512KB 拒开，文本 >100KB 截断。
-//   3. 子智能体：本会话派出的 AgentFace 瓦片脸 + 状态词 + 两行摘要。
-// 动效与结构对齐 GoDrawer（slide/dim 两段 timing + 轻视差），只是方向从右、宽一档。
-import { Fragment, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+// 工作区右侧面板：手机主界面横向滑呼出（index.tsx 接线，中部滑动即可，跟手）。
+// 结构对齐 NIBI 客户端右侧面板（运营者 2026-11-22 定）：**先看到胶囊入口卡片**——
+//   1. 文件 → 工作区文件树（懒展开/搜索）→ 点文件进查看器（md/html/svg/图片/文本）；
+//   2. 辅助对话 → 由主线开一个与主对话并行的会话；
+//   3. 子智能体 → 本会话的瓦片脸列表 → 点有子会话的项回主线打开它的消息流。
+// 动效与结构对齐 GoDrawer（slide/dim 两段 timing + 轻视差），方向从右、宽一档；
+// 暴露 WorkspacePanelHandle 供主界面中部横向手势跟手拖动。
+import {
+  Fragment,
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ComponentRef,
+  type ReactNode,
+} from "react";
 import {
   Alert,
   Animated,
@@ -42,6 +51,8 @@ export interface WorkspaceSubagent {
   name: string;
   status: "running" | "completed" | "failed" | "cancelled" | "waiting";
   summary?: string;
+  /** 子会话 id：有它才能下钻看子智能体的消息流。 */
+  childSessionId?: string;
 }
 
 /** 树节点：absPath 供继续读目录/读文件，relPath 是展示与展开态的键。 */
@@ -162,22 +173,44 @@ async function listChildren(dirUri: string, dirRel: string): Promise<FileNode[]>
  * 工作区面板：右侧滑入的抽屉。面板常驻挂载（关闭只滑走，与 GoDrawer 同策略），
  * 内容分三块：文件树 / 查看层（覆盖文件树）/ 子智能体列表。
  */
-export function WorkspacePanel({
-  visible,
-  onClose,
-  workspacePath,
-  subagents,
-}: {
+/** 外部手势拖动 API（主界面中部横向滑：跟手拖动面板）。 */
+export interface WorkspacePanelHandle {
+  beginDrag: () => void;
+  moveDrag: (dx: number) => void;
+  /** 松手：过阈值停靠打开（父级 setVisible），否则弹回。 */
+  endDrag: (velocityX: number) => void;
+}
+
+/** 面板一级入口：胶囊卡片（对齐 NIBI 客户端右侧面板的语义——先选入口，再下钻）。 */
+type WorkspaceMode = "hub" | "files" | "agents";
+
+export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
   visible: boolean;
   onClose: () => void;
   /** 当前项目的绝对目录；null 时整块内容显示空态。 */
   workspacePath: string | null;
   subagents: readonly WorkspaceSubagent[];
-}) {
+  /** 辅助对话：开一个与主对话并行的会话（主线负责创建/切换）。 */
+  onSideChat?: () => void;
+  /** 子智能体下行：打开它的子会话消息流（主线用 openSession）。 */
+  onOpenAgent?: (sessionId: string) => void;
+}>(function WorkspacePanel(
+  {
+    visible,
+    onClose,
+    workspacePath,
+    subagents,
+    onSideChat,
+    onOpenAgent,
+  },
+  ref,
+) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(360, Math.round(width * 0.88));
+  // 一级入口；打开面板回到 hub（每次进来先选入口）。
+  const [mode, setMode] = useState<WorkspaceMode>("hub");
 
   const slide = useRef(new Animated.Value(0)).current;
   const dim = useRef(new Animated.Value(0)).current;
@@ -185,6 +218,50 @@ export function WorkspacePanel({
   const content = useRef(new Animated.Value(1)).current;
   // 搜索框 ref：收起时 blur 用（见上面的动效 effect）。
   const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
+  // 手势拖动进度 & 面板宽度引用（中部横滑跟手用）。
+  const dragProgress = useRef(0);
+  const dragWidthRef = useRef(panelWidth);
+  dragWidthRef.current = panelWidth;
+  const settleClosed = () => {
+    dragProgress.current = 0;
+    Animated.timing(slide, {
+      toValue: 0,
+      duration: motion.duration.base,
+      easing: easingStandard,
+      useNativeDriver: true,
+    }).start();
+    Animated.timing(dim, {
+      toValue: 0,
+      duration: motion.duration.base,
+      easing: easingStandard,
+      useNativeDriver: true,
+    }).start();
+  };
+  useImperativeHandle(
+    ref,
+    () => ({
+      beginDrag: () => {
+        slide.stopAnimation();
+        dim.stopAnimation();
+        slide.setValue(0);
+        dim.setValue(0);
+        dragProgress.current = 0;
+      },
+      moveDrag: (dx: number) => {
+        // dx < 0：往左滑动拉出面板（右侧抽屉），进度 0..1。
+        const progress = Math.min(1, Math.max(0, -dx / dragWidthRef.current));
+        dragProgress.current = progress;
+        slide.setValue(progress);
+        dim.setValue(progress);
+      },
+      endDrag: (velocityX: number) => {
+        const open = dragProgress.current > 0.35 || velocityX < -0.5;
+        if (!open) settleClosed();
+        // open 时父级 setVisible(true) 会把 slide 动画到 1（生效于 visible effect）。
+      },
+    }),
+    [slide, dim],
+  );
   useEffect(() => {
     // 面板是「大件」，走 slow 320 + standard 曲线（动效契约）；遮罩快一档跟手。
     Animated.timing(slide, {
@@ -200,6 +277,7 @@ export function WorkspacePanel({
       useNativeDriver: true,
     }).start();
     if (visible) {
+      setMode("hub");
       content.setValue(0);
       Animated.timing(content, {
         toValue: 1,
@@ -524,9 +602,26 @@ export function WorkspacePanel({
         ]}
       >
         <Animated.View style={[styles.panelContent, { transform: [{ translateX: contentX }] }]}>
-          {/* 顶部标题行 */}
+          {/* 顶部标题行：hub 显示「工作区」，下钻后带返回 + 段名。 */}
           <View style={styles.head}>
-            <Text style={[styles.headTitle, { color: t.ink }]}>工作区</Text>
+            {mode === "hub" ? null : (
+              <PressableScale
+                scaleTo={0.94}
+                onPress={() => {
+                  setMode("hub");
+                  setViewer(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="返回入口"
+                hitSlop={6}
+                style={styles.headBack}
+              >
+                <Icon name="chevron-left" size={16} color={t.inkSub} />
+              </PressableScale>
+            )}
+            <Text style={[styles.headTitle, { color: t.ink }]}>
+              {mode === "files" ? "文件" : mode === "agents" ? "子智能体" : "工作区"}
+            </Text>
             <PressableScale
               scaleTo={0.94}
               onPress={onClose}
@@ -539,12 +634,74 @@ export function WorkspacePanel({
             </PressableScale>
           </View>
 
-          {workspacePath === null ? (
-            /* 没有项目工作区：整块空态（文件树与查看层都不存在）。 */
-            <Text style={[styles.emptyText, { color: t.inkFaint, paddingHorizontal: space(3.5) }]}>
-              没有项目工作区
-            </Text>
-          ) : (
+          {mode === "hub" ? (
+            /* 一级入口：胶囊卡片（对齐 NIBI 客户端右侧面板的语义——先选入口再下钻）。 */
+            <View style={styles.hub}>
+              <PressableScale
+                scaleTo={0.97}
+                onPress={() => setMode("files")}
+                accessibilityRole="button"
+                accessibilityLabel="打开文件"
+                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+              >
+                <View style={[styles.capsuleIcon, { backgroundColor: t.brandSoft }]}>
+                  <Icon name="folder" size={18} color={t.brand} />
+                </View>
+                <View style={styles.capsuleCol}>
+                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>文件</Text>
+                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
+                    浏览工作区文件，点开即看内容
+                  </Text>
+                </View>
+                <Icon name="chevron-right" size={14} color={t.inkGhost} />
+              </PressableScale>
+              <PressableScale
+                scaleTo={0.97}
+                onPress={() => {
+                  onClose();
+                  onSideChat?.();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="开一个辅助对话"
+                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+              >
+                <View style={[styles.capsuleIcon, { backgroundColor: t.panel }]}>
+                  <Icon name="comment" size={18} color={t.inkSub} />
+                </View>
+                <View style={styles.capsuleCol}>
+                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>辅助对话</Text>
+                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
+                    开一个并行的会话，主对话留在列表里
+                  </Text>
+                </View>
+                <Icon name="chevron-right" size={14} color={t.inkGhost} />
+              </PressableScale>
+              <PressableScale
+                scaleTo={0.97}
+                onPress={() => setMode("agents")}
+                accessibilityRole="button"
+                accessibilityLabel="打开子智能体"
+                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+              >
+                <View style={[styles.capsuleIcon, { backgroundColor: t.panel }]}>
+                  <Icon name="users" size={18} color={t.inkSub} />
+                </View>
+                <View style={styles.capsuleCol}>
+                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>子智能体</Text>
+                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
+                    本会话派出的子智能体与消息流
+                  </Text>
+                </View>
+                <Icon name="chevron-right" size={14} color={t.inkGhost} />
+              </PressableScale>
+            </View>
+          ) : mode === "files" ? (
+            workspacePath === null ? (
+              /* 没有项目工作区：文件模式整块空态。 */
+              <Text style={[styles.emptyText, { color: t.inkFaint, paddingHorizontal: space(3.5) }]}>
+                没有项目工作区
+              </Text>
+            ) : (
             <View style={styles.content}>
               <ScrollView
                 style={styles.flex1}
@@ -552,7 +709,7 @@ export function WorkspacePanel({
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-                {/* 1. 文件：刷新 + 搜索井 + 懒展开目录树 */}
+                {/* 文件：刷新 + 搜索井 + 懒展开目录树（段名已在标题行） */}
                 <View style={styles.sectionHead}>
                   <Text style={[styles.sectionTitle, { color: t.inkFaint }]}>文件</Text>
                   <PressableScale
@@ -634,40 +791,6 @@ export function WorkspacePanel({
                 ) : (
                   renderTreeRows(rootNodes, 0)
                 )}
-
-                {/* 3. 子智能体：瓦片脸 + 状态词 + 两行摘要 */}
-                <View style={styles.sectionHead}>
-                  <Text style={[styles.sectionTitle, { color: t.inkFaint }]}>子智能体</Text>
-                </View>
-                {subagents.length === 0 ? (
-                  <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                    本会话还没有派出子智能体
-                  </Text>
-                ) : (
-                  subagents.map((agent) => (
-                    <View key={agent.key} style={styles.agentRow}>
-                      <AgentFace name={agent.name} status={agent.status} size={22} badge />
-                      <View style={styles.agentCol}>
-                        <View style={styles.agentTop}>
-                          <Text numberOfLines={1} style={[styles.agentName, { color: t.ink }]}>
-                            {agent.name}
-                          </Text>
-                          <Text style={[styles.agentStatus, { color: statusColor(agent.status) }]}>
-                            {STATUS_TEXT[agent.status]}
-                          </Text>
-                        </View>
-                        {agent.summary ? (
-                          <Text
-                            numberOfLines={2}
-                            style={[styles.agentSummary, { color: t.inkFaint }]}
-                          >
-                            {agent.summary}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  ))
-                )}
               </ScrollView>
 
               {/* 2. 查看层：点文件后覆盖整个内容区（顶栏返回 + 文件名 + 按类型渲染）。 */}
@@ -737,15 +860,107 @@ export function WorkspacePanel({
                 </View>
               ) : null}
             </View>
+            )
+          ) : (
+            /* 子智能体：瓦片脸列表；有子会话的行点进去回主线看它的消息流。 */
+            <ScrollView
+              style={styles.flex1}
+              contentContainerStyle={styles.scroll}
+              showsVerticalScrollIndicator={false}
+            >
+              {subagents.length === 0 ? (
+                <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                  本会话还没有派出子智能体
+                </Text>
+              ) : (
+                subagents.map((agent) => {
+                  const openable = Boolean(agent.childSessionId && onOpenAgent);
+                  const row = (
+                    <>
+                      <AgentFace name={agent.name} status={agent.status} size={22} badge />
+                      <View style={styles.agentCol}>
+                        <View style={styles.agentTop}>
+                          <Text numberOfLines={1} style={[styles.agentName, { color: t.ink }]}>
+                            {agent.name}
+                          </Text>
+                          <Text style={[styles.agentStatus, { color: statusColor(agent.status) }]}>
+                            {STATUS_TEXT[agent.status]}
+                          </Text>
+                        </View>
+                        {agent.summary ? (
+                          <Text
+                            numberOfLines={2}
+                            style={[styles.agentSummary, { color: t.inkFaint }]}
+                          >
+                            {agent.summary}
+                          </Text>
+                        ) : null}
+                      </View>
+                      {openable ? (
+                        <Icon name="chevron-right" size={13} color={t.inkGhost} />
+                      ) : null}
+                    </>
+                  );
+                  return openable ? (
+                    <PressableScale
+                      key={agent.key}
+                      scaleTo={0.97}
+                      onPress={() => {
+                        onClose();
+                        onOpenAgent?.(agent.childSessionId as string);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`查看 ${agent.name} 的消息流`}
+                      style={styles.agentRow}
+                    >
+                      {row}
+                    </PressableScale>
+                  ) : (
+                    <View key={agent.key} style={styles.agentRow}>
+                      {row}
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
           )}
         </Animated.View>
       </Animated.View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
+  headBack: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.control,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: space(1),
+  },
+  // 一级胶囊入口（对齐 NIBI 客户端右侧面板的卡片语义）
+  hub: { paddingHorizontal: space(3.5), paddingTop: space(1), gap: space(2) },
+  capsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    paddingHorizontal: space(3),
+    paddingVertical: space(3),
+  },
+  capsuleIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.control,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  capsuleCol: { flex: 1, minWidth: 0, gap: 2 },
+  capsuleTitle: { ...text("body"), fontWeight: "700" },
+  capsuleDetail: { ...text("micro") },
   dim: {
     position: "absolute",
     left: 0,

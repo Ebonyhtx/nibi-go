@@ -31,6 +31,8 @@ export type IconName =
   | "eye"
   | "maximize"
   | "store"
+  | "comment"
+  | "users"
   | "archive"
   | "trash"
   | "ellipsis"
@@ -83,6 +85,8 @@ const GLYPHS: Record<IconName, { set: "feather" | "ion" | "mci"; name: string }>
   eye: { set: "feather", name: "eye" },
   maximize: { set: "feather", name: "maximize" },
   store: { set: "feather", name: "shopping-bag" },
+  comment: { set: "feather", name: "message-circle" },
+  users: { set: "feather", name: "users" },
   archive: { set: "feather", name: "archive" },
   trash: { set: "feather", name: "trash-2" },
   ellipsis: { set: "feather", name: "more-horizontal" },

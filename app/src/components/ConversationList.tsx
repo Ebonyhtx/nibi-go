@@ -267,6 +267,8 @@ export function ConversationList({
   autoCollapseThinking = true,
   autoCollapseTools = true,
   onRetryTurn,
+  onAtBottomChange,
+  jumpSignal = 0,
 }: {
   rows: readonly ChatRow[];
   onRespond: InteractionResponder;
@@ -298,6 +300,10 @@ export function ConversationList({
   autoCollapseTools?: boolean;
   /** 失败/中断回合的「重试」入口（内核 retryTurn 重发最后一轮，target 取自轮头行）。 */
   onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
+  /** 是否停在最新消息（父级「回到底部」浮钮的显隐依据）。 */
+  onAtBottomChange?: (atBottom: boolean) => void;
+  /** 递增信号：父级浮钮点击后让列表跳到底部。 */
+  jumpSignal?: number;
 }) {
   const th = useNibiTheme();
   const { isOverlayApproval } = usePhoneApprovalOverlay(rows, onRespond);
@@ -456,8 +462,21 @@ export function ConversationList({
   };
 
   // 「回到底部」按钮：离开底部翻历史时出现，点击跳到最新消息后消失。
-  // stickToBottom 本来就有（贴底跟随用），这里补一份可渲染的状态。
+  // stickToBottom 本来就有（贴底跟随用）；按钮本体渲染在父级（index）——
+  // 放在这里的浮钮会被底部的渐变压住（运营者 2026-11-22 反馈）。
   const [atBottom, setAtBottom] = useState(true);
+  useEffect(() => {
+    onAtBottomChange?.(atBottom);
+  }, [atBottom, onAtBottomChange]);
+  // 父级浮钮点击后通过信号触发跳底（组件内部维持滚动引用）。
+  const jumpSignalRef = useRef(jumpSignal);
+  useEffect(() => {
+    if (jumpSignal === jumpSignalRef.current) return;
+    jumpSignalRef.current = jumpSignal;
+    stickToBottom.current = true;
+    setAtBottom(true);
+    ref.current?.scrollToEnd({ animated: true });
+  }, [jumpSignal]);
 
   return (
     <View style={styles.scrollWrap}>
@@ -976,23 +995,6 @@ export function ConversationList({
         );
       })}
       </ScrollView>
-      {!atBottom ? (
-        <Pressable
-          onPress={() => {
-            stickToBottom.current = true;
-            setAtBottom(true);
-            ref.current?.scrollToEnd({ animated: true });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="跳到最新消息"
-          style={({ pressed }) => [
-            styles.jumpButton,
-            { backgroundColor: pressed ? th.hover : th.card, borderColor: th.hairline, ...th.elevation.card },
-          ]}
-        >
-          <Icon name="chevron-down" size={15} color={th.inkSub} />
-        </Pressable>
-      ) : null}
     </View>
   );
 }
@@ -1514,19 +1516,6 @@ function formatTokens(tokens: number): string {
 const styles = StyleSheet.create({
   scrollWrap: { flex: 1 },
   scroll: { flex: 1 },
-  // 「回到底部」浮钮：右下角悬在最新消息上方，避开输入栏高度由父级 bottomInset 决定不了——
-  // 这里给固定下边距，视觉上落在输入栏上方。
-  jumpButton: {
-    position: "absolute",
-    right: space(3),
-    bottom: space(3),
-    width: 36,
-    height: 36,
-    borderRadius: radius.chip,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   content: { paddingVertical: space(2), gap: space(3) },
   row: { width: "100%" },
   bubble: {

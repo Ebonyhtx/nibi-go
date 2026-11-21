@@ -8,13 +8,21 @@
 //   2. 搜索井：surfaceSoft 内嵌面，聚焦时发丝线加深
 //   3. 会话列表：按日期分组；抽屉展开时分组头/行 stagger 入场；长按行菜单（归档）
 //   4. 底部工具条：本机状态点 + WORK / 插件 / 设置圆键（玻璃底 + 发丝线）
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
+import {
+  forwardRef,
+  Fragment,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+} from "react";
 import {
   Alert,
   Animated,
   Image,
   Keyboard,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -123,8 +131,31 @@ export function GoNavContent({
   const [search, setSearch] = useState("");
   // 聚焦环走静态样式：只换发丝线颜色（hairline → hairlineStrong），不做动画环。
   const [searchFocused, setSearchFocused] = useState(false);
+  // 搜索框「点击才激活」：抽屉打开时系统会把焦点自动给第一个可聚焦输入框，键盘随即
+  // 弹出、点设置/插件时又缩回去——运营者多次反馈的闪现复发点。未激活时不渲染
+  // TextInput（只画搜索样式的占位行），从根上断掉自动聚焦。
+  const [searchArmed, setSearchArmed] = useState(false);
   // 抽屉/侧栏出现时搜索框会被系统自动聚焦；转场前必须 blur，否则输入法会闪一下。
   const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
+  // 键盘可见性守卫：ColorOS 的百度输入法对「已经收起时的再次 dismiss」会反转成
+  // 弹出（真机截图抓到：抽屉打开后点设置/插件，键盘在首页上冒出又缩回）。
+  // 只对真正显示中的键盘发 dismiss。
+  const keyboardVisible = useRef(false);
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardDidShow", () => {
+      keyboardVisible.current = true;
+    });
+    const hidden = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardVisible.current = false;
+    });
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  const dismissKeyboardIfShown = () => {
+    if (keyboardVisible.current) Keyboard.dismiss();
+  };
   useEffect(() => {
     searchRef.current?.blur();
   }, []);
@@ -136,8 +167,11 @@ export function GoNavContent({
   const [staggerTick, setStaggerTick] = useState(0);
   useEffect(() => {
     if (wasActive.current && !active) {
+      // 只复位状态，不再重复 Keyboard.dismiss()：leaveFor / onMenu 已经在导航前
+      // 收过键盘，ColorOS 的输入法对同一时刻的第二次 dismiss 会反转成弹出
+      // （真机采样：点设置/插件时键盘闪一下又缩回）。
       searchRef.current?.blur();
-      Keyboard.dismiss();
+      setSearchArmed(false);
     }
     if (!wasActive.current && active) {
       setStaggerTick((n) => n + 1);
@@ -151,15 +185,18 @@ export function GoNavContent({
     wasActive.current = active;
   }, [active]);
   const leaveFor = (path: "/settings" | "/settings/projects" | "/plugins") => {
+    // 先关抽屉、收键盘，等抽屉滑出（~320ms）后再 push：导航转场和 IME 收起
+    // 同一帧发生会让键盘在新页面上闪一下（运营者反馈多次的复发点）。
     leaveComposerForNavigation({
       blur: () => {
         onBeforeNavigate?.();
         searchRef.current?.blur();
       },
-      dismiss: Keyboard.dismiss,
+      dismiss: dismissKeyboardIfShown,
       navigate: () => {
         onNavigate?.();
-        router.push(path);
+        // 抽屉关闭动画走完再 push（320ms + 余量），转场期间不再碰键盘 API。
+        setTimeout(() => router.push(path), 400);
       },
     });
   };
@@ -335,41 +372,58 @@ export function GoNavContent({
         </PressableScale>
       </View>
 
-      {/* 搜索井：surfaceSoft 内嵌在 card 面板里；聚焦只把发丝线加深一档。 */}
-      <View
-        style={[
-          styles.search,
-          {
-            backgroundColor: t.surfaceSoft,
-            borderColor: searchFocused ? t.hairlineStrong : t.hairline,
-          },
-        ]}
-      >
-        <Icon name="search" size={13} color={t.inkGhost} />
-        <TextInput
-          ref={searchRef}
-          value={search}
-          onChangeText={setSearch}
-          placeholder="搜索对话"
-          placeholderTextColor={t.inkFaint}
-          style={[styles.searchInput, { color: t.ink }]}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-        />
-        {search.length > 0 ? (
-          <Pressable
-            onPress={() => setSearch("")}
-            accessibilityRole="button"
-            accessibilityLabel="清除搜索"
-            hitSlop={8}
-          >
-            <Icon name="x" size={13} color={t.inkGhost} />
-          </Pressable>
-        ) : null}
-      </View>
+      {/* 搜索井：surfaceSoft 内嵌在 card 面板里；聚焦只把发丝线加深一档。
+          未点击前只画占位行（不渲染 TextInput），避免抽屉打开时被系统自动聚焦。 */}
+      {searchArmed || search.length > 0 ? (
+        <View
+          style={[
+            styles.search,
+            {
+              backgroundColor: t.surfaceSoft,
+              borderColor: searchFocused ? t.hairlineStrong : t.hairline,
+            },
+          ]}
+        >
+          <Icon name="search" size={13} color={t.inkGhost} />
+          <TextInput
+            ref={searchRef}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="搜索对话"
+            placeholderTextColor={t.inkFaint}
+            style={[styles.searchInput, { color: t.ink }]}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            autoFocus
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => {
+              setSearchFocused(false);
+              if (search.length === 0) setSearchArmed(false);
+            }}
+          />
+          {search.length > 0 ? (
+            <Pressable
+              onPress={() => setSearch("")}
+              accessibilityRole="button"
+              accessibilityLabel="清除搜索"
+              hitSlop={8}
+            >
+              <Icon name="x" size={13} color={t.inkGhost} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => setSearchArmed(true)}
+          accessibilityRole="button"
+          accessibilityLabel="搜索对话"
+          style={[styles.search, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+        >
+          <Icon name="search" size={13} color={t.inkGhost} />
+          <Text style={[styles.searchPlaceholder, { color: t.inkFaint }]}>搜索对话</Text>
+        </Pressable>
+      )}
 
       {/* 项目筛选 chips：建了项目才出现；选中后列表只看该项目的会话，「新对话」也归它。 */}
       {projects.length > 0 ? (
@@ -672,29 +726,19 @@ export function GoNavContent({
   );
 }
 
+/** 主界面中部横向手势的跟手拖动 API（index 接线）。 */
+export interface GoDrawerHandle {
+  beginDrag: () => void;
+  moveDrag: (dx: number) => void;
+  /** 松手：过阈值停靠打开（父级 setOpen(true)），否则弹回。 */
+  endDrag: (velocityX: number) => void;
+}
+
 /** compact：滑出抽屉。 */
-export function GoDrawer({
-  open,
-  onClose,
-  petState,
-  onlineDevices,
-  sessions,
-  archivedSessions,
-  activeSessionId,
-  workspaceRoot,
-  onOpenSession,
-  onNewSession,
-  onArchiveSession,
-  onUnarchiveSession,
-  onDeleteSession,
-  onDeleteAllArchived,
-  onSessionActions,
-  onBeforeNavigate,
-  onSwipeOpen,
-}: {
+export const GoDrawer = forwardRef<GoDrawerHandle, {
   open: boolean;
   onClose: () => void;
-  /** 左缘手势把抽屉拖出来后的停靠回调（父级把 open 置 true）。 */
+  /** 中部手势拖出后的停靠回调（父级把 open 置 true）。 */
   onSwipeOpen?: () => void;
   petState?: PetStateId;
   onlineDevices?: number;
@@ -718,7 +762,28 @@ export function GoDrawer({
   onSessionActions?: (sessionId: string) => void;
   /** 离屏导航前的清理（blur 首页输入框）。 */
   onBeforeNavigate?: () => void;
-}) {
+}>(function GoDrawer(
+  {
+    open,
+    onClose,
+    onSwipeOpen,
+    petState,
+    onlineDevices,
+    sessions,
+    archivedSessions,
+    activeSessionId,
+    workspaceRoot,
+    onOpenSession,
+    onNewSession,
+    onArchiveSession,
+    onUnarchiveSession,
+    onDeleteSession,
+    onDeleteAllArchived,
+    onSessionActions,
+    onBeforeNavigate,
+  },
+  ref,
+) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -758,63 +823,48 @@ export function GoDrawer({
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-panelWidth, 0] });
   const contentX = content.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] });
 
-  // 左缘跟手滑：从屏幕左缘往右拖，面板跟着手指出来；松手过阈值（位移 35% 或
-  // 速度 0.5）就停靠打开，否则弹回。运营者 2026-11-22：抽屉要像桌面端那样跟手。
+  // 跟手拖动 API：主界面中部横向手势（任意位置起滑）经 ref 驱动这里——
+  // 面板跟着手指出来，松手过阈值（位移 35% 或速度 0.5）停靠打开，否则弹回。
   const dragProgress = useRef(0);
   const panelWidthRef = useRef(panelWidth);
   panelWidthRef.current = panelWidth;
-  const edgePan = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          gesture.dx > 6 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
-        onPanResponderGrant: () => {
-          slide.stopAnimation();
-          slide.setValue(0);
-          dim.setValue(0);
-          dragProgress.current = 0;
-        },
-        onPanResponderMove: (_event, gesture) => {
-          const progress = Math.min(1, Math.max(0, gesture.dx / panelWidthRef.current));
-          dragProgress.current = progress;
-          slide.setValue(progress);
-          dim.setValue(progress);
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const shouldOpen = dragProgress.current > 0.35 || gesture.vx > 0.5;
-          if (shouldOpen) {
-            onSwipeOpen?.();
-          } else {
-            Animated.timing(slide, {
-              toValue: 0,
-              duration: motion.duration.base,
-              easing: easingStandard,
-              useNativeDriver: true,
-            }).start();
-            Animated.timing(dim, {
-              toValue: 0,
-              duration: motion.duration.base,
-              easing: easingStandard,
-              useNativeDriver: true,
-            }).start();
-          }
-        },
-        onPanResponderTerminate: () => {
-          dragProgress.current = 0;
-          Animated.timing(slide, {
-            toValue: 0,
-            duration: motion.duration.base,
-            easing: easingStandard,
-            useNativeDriver: true,
-          }).start();
-          Animated.timing(dim, {
-            toValue: 0,
-            duration: motion.duration.base,
-            easing: easingStandard,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
+  const settleClosed = () => {
+    dragProgress.current = 0;
+    Animated.timing(slide, {
+      toValue: 0,
+      duration: motion.duration.base,
+      easing: easingStandard,
+      useNativeDriver: true,
+    }).start();
+    Animated.timing(dim, {
+      toValue: 0,
+      duration: motion.duration.base,
+      easing: easingStandard,
+      useNativeDriver: true,
+    }).start();
+  };
+  useImperativeHandle(
+    ref,
+    () => ({
+      beginDrag: () => {
+        slide.stopAnimation();
+        dim.stopAnimation();
+        slide.setValue(0);
+        dim.setValue(0);
+        dragProgress.current = 0;
+      },
+      moveDrag: (dx: number) => {
+        const progress = Math.min(1, Math.max(0, dx / panelWidthRef.current));
+        dragProgress.current = progress;
+        slide.setValue(progress);
+        dim.setValue(progress);
+      },
+      endDrag: (velocityX: number) => {
+        const shouldOpen = dragProgress.current > 0.35 || velocityX > 0.5;
+        if (shouldOpen) onSwipeOpen?.();
+        else settleClosed();
+      },
+    }),
     [slide, dim, onSwipeOpen],
   );
 
@@ -826,10 +876,6 @@ export function GoDrawer({
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭抽屉" />
       </Animated.View>
-      {!open ? (
-        // 左缘手势条：只占屏幕最左 28px，不挡正文（容器 box-none，其余区域穿透）。
-        <View style={styles.edgeStrip} {...edgePan.panHandlers} pointerEvents="auto" />
-      ) : null}
       <Animated.View
         pointerEvents={open ? "auto" : "none"}
         style={[
@@ -870,7 +916,7 @@ export function GoDrawer({
       </Animated.View>
     </View>
   );
-}
+});
 
 /** expanded：常驻侧栏（内容同一份，宽度按 sidebarWidth 固定）。 */
 export function GoSidebar({
@@ -1016,18 +1062,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 19,
   },
-  // 左缘手势热区：从 28dp（≈96px @560dpi）起、宽 20dp。真机实测 ColorOS 手势导航的
-  // 「边缘返回」区覆盖最外侧 ~27dp（96px）——贴边起滑会把 App 直接退回桌面
-  // （起步 64/80px 实测退出，96px 起完好）。让出系统区是 App 侧唯一共存方式。
-  // 注意 RN style 是 dp：别把 px 探测值直接写进来（曾把 96dp 当 96px 用，热区飞到 336px）。
-  edgeStrip: {
-    position: "absolute",
-    left: 28,
-    top: 0,
-    bottom: 0,
-    width: 20,
-    zIndex: 21,
-  },
   panel: {
     position: "absolute",
     left: 0,
@@ -1075,6 +1109,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   searchInput: { flex: 1, ...text("small"), padding: 0 },
+  searchPlaceholder: { flex: 1, ...text("small") },
   projectChips: {
     flexDirection: "row",
     flexWrap: "wrap",

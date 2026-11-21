@@ -87,11 +87,13 @@ describe("入口接线（防回归）", () => {
     expect(drawer).toContain("onBeforeNavigate={onBeforeNavigate}");
   });
 
-  it("抽屉搜索框不会自动抢焦点，且 leaveFor 的 blur 先清首页再清搜索框", () => {
+  it("抽屉搜索框点击才激活（未激活不渲染 TextInput，系统无从自动聚焦）", () => {
     const drawer = source("src/components/GoDrawer.tsx");
-    // 搜索框若 autoFocus，抽屉一出现输入法就弹出来，这本身就是复发点。
-    const searchInput = drawer.slice(drawer.indexOf("ref={searchRef}"));
-    expect(searchInput.slice(0, 400)).not.toContain("autoFocus");
+    // 新不变量（2026-11-22 真机复盘）：搜索框默认渲染成占位行，点击后才挂 TextInput；
+    // 「抽屉一开就自动聚焦搜索框」正是键盘闪现的复发点，不能靠事后 blur 补。
+    expect(drawer).toContain("searchArmed");
+    expect(drawer).toContain("setSearchArmed(true)");
+    expect(drawer).toContain("搜索对话</Text>");
     // leaveFor 必须把两处焦点都清掉：首页输入框（由父级传下来的 onBeforeNavigate）
     // 和抽屉自己的搜索框。只清一处都不够——这正是之前复发的形态。
     const leaveFor = drawer.slice(drawer.indexOf("const leaveFor"), drawer.indexOf("// 会话列表"));
@@ -100,14 +102,21 @@ describe("入口接线（防回归）", () => {
     expect(leaveFor.indexOf("onBeforeNavigate?.()")).toBeLessThan(
       leaveFor.indexOf("searchRef.current?.blur()"),
     );
+    // dismiss 必须走可见性守卫：百度输入法对「已收起时的再次 dismiss」会反转弹出。
+    expect(leaveFor).toContain("dismiss: dismissKeyboardIfShown");
   });
 
-  it("抽屉关掉时清掉搜索焦点并收键盘（否则键盘会留在首页）", () => {
+  it("抽屉关掉时清搜索焦点、复位激活态，且不再重复 dismiss（双重 dismiss 会反转弹出）", () => {
     const drawer = source("src/components/GoDrawer.tsx");
     expect(drawer).toContain("active={open}");
     expect(drawer).toMatch(
-      /if \(wasActive\.current && !active\) \{\s*searchRef\.current\?\.blur\(\);\s*Keyboard\.dismiss\(\);\s*\}/,
+      /if \(wasActive\.current && !active\) \{[\s\S]*?searchRef\.current\?\.blur\(\);[\s\S]*?setSearchArmed\(false\);[\s\S]*?\}/,
     );
+    const closeEffect = drawer.slice(
+      drawer.indexOf("if (wasActive.current && !active)"),
+      drawer.indexOf("if (!wasActive.current && active)"),
+    );
+    expect(closeEffect).not.toMatch(/Keyboard\.dismiss\(\);/);
   });
 
   it("首屏 rail 的设置/插件入口走统一 helper", () => {
@@ -117,11 +126,18 @@ describe("入口接线（防回归）", () => {
     expect(home).toContain('router.push("/plugins")');
   });
 
-  it("开抽屉/展开侧栏前也先清掉输入框焦点", () => {
+  it("开抽屉/展开侧栏前也先清掉输入框焦点（聚焦守卫版 blurComposer）", () => {
     const home = source("src/app/index.tsx");
     // 顶栏 onMenu 的开抽屉分支必须走 helper；展开侧栏分支至少显式 blur。
+    // blur 统一走 blurComposer：只在输入框真正聚焦时调用——对未聚焦 EditText
+    // 调 blur() 会反向触发一次 IME 弹出。
     expect(home).toMatch(/onMenu = \(\) => \{[\s\S]*?leaveComposerForNavigation/);
-    expect(home).toMatch(/composerInputRef\.current\?\.blur\(\);\s*setSidebarOpen\(true\)/);
+    expect(home).toContain("blurComposer();");
+    expect(home).toMatch(/setSidebarOpen\(true\)/);
+    expect(home).toContain("composerFocusedRef");
+    // 离屏导航窗口期锁死 composer（editable=false 让 IME 失去 served view）。
+    expect(home).toContain("composerLocked");
+    expect(home).toContain("editable={conversation.ready && !composerLocked}");
   });
 
   it("设置页 focus 时仍明确收键盘", () => {

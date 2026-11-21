@@ -38,14 +38,18 @@ import { PillButton } from "../components/ui/PillButton";
 import { ModelPickerSheet, type ModelChoice } from "../components/ModelPickerSheet";
 import { thinkingLevelLabel } from "../components/ThinkingRail";
 import { ComposerTokens } from "../components/ComposerTokens";
-import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
+import { GoDrawer, GoRail, GoSidebar, type GoDrawerHandle } from "../components/GoDrawer";
 import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus, type SessionTodoState } from "../components/SideStatus";
-import { WorkspacePanel, type WorkspaceSubagent } from "../components/WorkspacePanel";
+import {
+  WorkspacePanel,
+  type WorkspacePanelHandle,
+  type WorkspaceSubagent,
+} from "../components/WorkspacePanel";
 import { NewChatSheet } from "../components/NewChatSheet";
 import type { AgentFaceStatus } from "../components/AgentFace";
 import type { ChatRow } from "@nibi-go/kernel-session";
@@ -306,6 +310,16 @@ export default function GoHomeScreen() {
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
   const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
+  // 输入框真实聚焦态：离屏导航只在有焦点时 blur。对未聚焦的 EditText 调 blur()
+  // 在 Android 上会反向触发一次 IME 弹出（真机高频采样抓到的闪现来源）。
+  const composerFocusedRef = useRef(false);
+  // 离屏导航窗口期锁死 composer：editable=false 会让 Android 清掉 IME 的 served view，
+  // ColorOS/百度输入法在抽屉关闭动画期间再无机会把键盘弹出来（真机截图复现三次后
+  // 用这一招正面压制）。推送完成后定时解锁。
+  const [composerLocked, setComposerLocked] = useState(false);
+  const blurComposer = () => {
+    if (composerFocusedRef.current) blurComposer();
+  };
 
   const pluginContext: PluginActionContext = {
     insertText: (text, mode) => {
@@ -874,18 +888,53 @@ export default function GoHomeScreen() {
     );
     return session?.workspace?.workspacePath ?? null;
   }, [conversation.sessions, conversation.activeSessionId]);
-  // 右缘往左滑：打开工作区面板（只认水平左滑，纵向交给列表滚动，由热区窄条保证）。
-  const rightEdgePan = useMemo(
+  // 中部横向手势：任意位置起滑（运营者 2026-11-22 要求，对齐豆包的手感）——
+  // 往右拖出左抽屉、往左拖出右侧工作区面板，面板跟手；纵向滑动让位给列表滚动。
+  // 用 capture 阶段抢水平手势，ScrollView 纵向不受影响。
+  const sideGestureRef = useRef<"drawer" | "panel" | null>(null);
+  const sidePan = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
-        onPanResponderRelease: (_event, gesture) => {
-          if (gesture.dx < -24) setWorkspacePanelOpen(true);
+        onMoveShouldSetPanResponderCapture: (_event, gesture) => {
+          if (Math.abs(gesture.dx) < 16) return false;
+          if (Math.abs(gesture.dx) < Math.abs(gesture.dy) * 1.6) return false;
+          if (gesture.dx > 0 && !drawerOpen) {
+            sideGestureRef.current = "drawer";
+            return true;
+          }
+          if (gesture.dx < 0 && !workspacePanelOpen) {
+            sideGestureRef.current = "panel";
+            return true;
+          }
+          return false;
         },
+        onPanResponderGrant: () => {
+          if (sideGestureRef.current === "drawer") drawerRef.current?.beginDrag();
+          else panelRef.current?.beginDrag();
+        },
+        onPanResponderMove: (_event, gesture) => {
+          if (sideGestureRef.current === "drawer") drawerRef.current?.moveDrag(gesture.dx);
+          else if (sideGestureRef.current === "panel") panelRef.current?.moveDrag(gesture.dx);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (sideGestureRef.current === "drawer") drawerRef.current?.endDrag(gesture.vx);
+          else if (sideGestureRef.current === "panel") panelRef.current?.endDrag(gesture.vx);
+          sideGestureRef.current = null;
+        },
+        onPanResponderTerminate: () => {
+          if (sideGestureRef.current === "drawer") drawerRef.current?.endDrag(0);
+          else if (sideGestureRef.current === "panel") panelRef.current?.endDrag(0);
+          sideGestureRef.current = null;
+        },
+        onPanResponderTerminationRequest: () => false,
       }),
-    [],
+    [drawerOpen, workspacePanelOpen],
   );
+  // 两个侧栏的句柄（跟手拖动）+ 「回到底部」浮钮状态。
+  const drawerRef = useRef<GoDrawerHandle | null>(null);
+  const panelRef = useRef<WorkspacePanelHandle | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [jumpSignal, setJumpSignal] = useState(0);
 
   // 悬浮工具卡的会话状态面：子代理（subagent 行 + Agent 工具行归并）与最新待办进度。
   // 递归收 toolGroup/process 里的嵌套行；Agent 工具行本身 success ≠ 子代理完成——
@@ -896,6 +945,8 @@ export default function GoHomeScreen() {
       name: string;
       status: AgentFaceStatus;
       fromRow: boolean;
+      summary?: string;
+      childSessionId?: string;
     };
     const faces: Face[] = [];
     let todos: SessionTodoState | undefined;
@@ -915,7 +966,14 @@ export default function GoHomeScreen() {
         if (row.kind === "subagent") {
           const status = faceStatus(row.status, row.backgrounded);
           if (status === "running" && row.parentToolCallId) runningByTool.add(`t${row.parentToolCallId}`);
-          faces.push({ key: row.key, name: row.subagentType, status, fromRow: true });
+          faces.push({
+            key: row.key,
+            name: row.subagentType,
+            status,
+            fromRow: true,
+            ...(row.summary ? { summary: row.summary } : {}),
+            ...(row.childSessionId ? { childSessionId: row.childSessionId } : {}),
+          });
         } else if (row.kind === "tool") {
           if (row.name === "Agent") {
             const name =
@@ -987,12 +1045,12 @@ export default function GoHomeScreen() {
     if (layout.menuAction === "collapse") setSidebarOpen(false);
     else if (layout.menuAction === "expand") {
       // 展开侧栏也先清掉输入框焦点：否则随后点设置时转场会把输入法再弹一下。
-      composerInputRef.current?.blur();
+      blurComposer();
       setSidebarOpen(true);
     } else {
       // 开抽屉前就 blur：抽屉本身会收键盘，但焦点还在输入框，点设置时输入法会闪。
       leaveComposerForNavigation({
-        blur: () => composerInputRef.current?.blur(),
+        blur: blurComposer,
         dismiss: Keyboard.dismiss,
         navigate: () => setDrawerOpen(true),
       });
@@ -1057,7 +1115,11 @@ export default function GoHomeScreen() {
             onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
             onDeleteAllArchived={conversation.deleteAllArchived}
             onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
-            onBeforeNavigate={() => composerInputRef.current?.blur()}
+            onBeforeNavigate={() => {
+              blurComposer();
+              setComposerLocked(true);
+              setTimeout(() => setComposerLocked(false), 1500);
+            }}
           />
         ) : null}
         {hasRail ? (
@@ -1065,7 +1127,7 @@ export default function GoHomeScreen() {
             petState={petState}
             onMenu={() => {
               leaveComposerForNavigation({
-                blur: () => composerInputRef.current?.blur(),
+                blur: blurComposer,
                 dismiss: Keyboard.dismiss,
                 navigate: () => setSidebarOpen(true),
               });
@@ -1073,14 +1135,14 @@ export default function GoHomeScreen() {
             onSearch={() => undefined}
             onSettings={() => {
               leaveComposerForNavigation({
-                blur: () => composerInputRef.current?.blur(),
+                blur: blurComposer,
                 dismiss: Keyboard.dismiss,
                 navigate: () => router.push("/settings"),
               });
             }}
             onPlugins={() => {
               leaveComposerForNavigation({
-                blur: () => composerInputRef.current?.blur(),
+                blur: blurComposer,
                 dismiss: Keyboard.dismiss,
                 navigate: () => router.push("/plugins"),
               });
@@ -1181,21 +1243,6 @@ export default function GoHomeScreen() {
                   <Icon name="folder" size={17} color={th.ink} />
                 </PressableScale>
 
-                <PressableScale
-                  style={[
-                    styles.fab,
-                    { backgroundColor: th.glass, borderColor: th.glassBorder },
-                    th.elevation.card,
-                  ]}
-                  accessibilityLabel="新建对话"
-                  onPress={() => {
-                    // 始终弹归属 sheet（独立会话/项目/就地新建）——静默新建正是
-                    // 运营者抱怨的「点了没反应」形态。
-                    setNewChatOpen(true);
-                  }}
-                >
-                  <Icon name="pen" size={17} color={th.ink} />
-                </PressableScale>
               </View>
             </View>
 
@@ -1208,7 +1255,7 @@ export default function GoHomeScreen() {
                   setupIssue
                     ? () => {
                         leaveComposerForNavigation({
-                          blur: () => composerInputRef.current?.blur(),
+                          blur: blurComposer,
                           dismiss: Keyboard.dismiss,
                           navigate: () => router.push("/settings/provider"),
                         });
@@ -1256,6 +1303,7 @@ export default function GoHomeScreen() {
                 conversation.rows.length > 0 && styles.stageList,
                 layout.landscapeCompact && styles.stageLandscape,
               ]}
+              {...sidePan.panHandlers}
             >
               {conversation.rows.length > 0 ? (
                 <ConversationList
@@ -1277,6 +1325,8 @@ export default function GoHomeScreen() {
                       if (error) showHint(error);
                     });
                   }}
+                  onAtBottomChange={setAtBottom}
+                  jumpSignal={jumpSignal}
                 />
               ) : (
                 // 空态：品牌印记 + 标题，一句不多——输入框 placeholder 与横幅已承担引导。
@@ -1436,7 +1486,13 @@ export default function GoHomeScreen() {
                 placeholderTextColor={th.inkFaint}
                 style={[styles.composerInput, { color: th.ink }]}
                 returnKeyType="send"
-                editable={conversation.ready}
+                editable={conversation.ready && !composerLocked}
+                onFocus={() => {
+                  composerFocusedRef.current = true;
+                }}
+                onBlur={() => {
+                  composerFocusedRef.current = false;
+                }}
                 onSubmitEditing={() => {
                   if (canSend) sendDraft();
                 }}
@@ -1479,6 +1535,7 @@ export default function GoHomeScreen() {
 
       {!inShell ? (
         <GoDrawer
+          ref={drawerRef}
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
@@ -1494,16 +1551,16 @@ export default function GoHomeScreen() {
           onDeleteSession={(sessionId) => conversation.deleteSession(sessionId)}
           onDeleteAllArchived={conversation.deleteAllArchived}
           onSessionActions={sessionActions.length > 0 ? openSessionSheet : undefined}
-          onBeforeNavigate={() => composerInputRef.current?.blur()}
+          onBeforeNavigate={() => {
+            blurComposer();
+            setComposerLocked(true);
+            setTimeout(() => setComposerLocked(false), 1500);
+          }}
         />
       ) : null}
 
-      {/* 右缘热区：往左滑打开工作区面板（zIndex 压在悬浮工具卡之下，不挡状态环）。 */}
-      {!workspacePanelOpen ? (
-        <View style={styles.rightEdge} {...rightEdgePan.panHandlers} pointerEvents="auto" />
-      ) : null}
-
       <WorkspacePanel
+        ref={panelRef}
         visible={workspacePanelOpen}
         onClose={() => setWorkspacePanelOpen(false)}
         workspacePath={activeWorkspacePath}
@@ -1512,9 +1569,39 @@ export default function GoHomeScreen() {
             key: entry.key,
             name: entry.name,
             status: entry.status,
+            ...(entry.summary ? { summary: entry.summary } : {}),
+            ...(entry.childSessionId ? { childSessionId: entry.childSessionId } : {}),
           }),
         )}
+        onSideChat={() => {
+          // 辅助对话：开一个与主对话并行的会话（同一项目）；主对话在抽屉里可切回。
+          setDraft("");
+          void conversation.newSession(projects.activeProjectId ?? undefined);
+        }}
+        onOpenAgent={(sessionId) => {
+          void conversation.openSession(sessionId);
+        }}
       />
+
+      {/* 「回到底部」浮钮：渲染在这层（晚于正文的渐变遮罩），离开底部时出现。 */}
+      {!atBottom && conversation.rows.length > 0 ? (
+        <Pressable
+          onPress={() => setJumpSignal((value) => value + 1)}
+          accessibilityRole="button"
+          accessibilityLabel="跳到最新消息"
+          style={({ pressed }) => [
+            styles.jumpButton,
+            {
+              backgroundColor: pressed ? th.hover : th.card,
+              borderColor: th.hairline,
+              bottom: composerBottom + 60,
+              ...th.elevation.card,
+            },
+          ]}
+        >
+          <Icon name="chevron-down" size={16} color={th.inkSub} />
+        </Pressable>
+      ) : null}
 
       <SideStatus
         plugins={plugins.enabled}
@@ -1643,7 +1730,7 @@ export default function GoHomeScreen() {
         }}
         onManage={() => {
           leaveComposerForNavigation({
-            blur: () => composerInputRef.current?.blur(),
+            blur: blurComposer,
             dismiss: Keyboard.dismiss,
             navigate: () => router.push("/settings/projects"),
           });
@@ -1919,15 +2006,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
   },
-  // 右缘手势热区：从 28dp 起、宽 20dp（同左缘：让出 ColorOS 系统返回手势区，
-  // 系统区实测到 ~27dp；RN style 是 dp 不是 px）。zIndex 低于悬浮工具卡（5）。
-  rightEdge: {
+  // 「回到底部」浮钮：在正文之上的独立层（不在滚动容器里，避免被底部渐变压住）。
+  jumpButton: {
     position: "absolute",
-    right: 28,
-    top: 0,
-    bottom: 0,
-    width: 20,
-    zIndex: 4,
+    right: space(3),
+    width: 38,
+    height: 38,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 6,
   },
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   // flex 约束必须落在按压原语的外层 Pressable 上（内层是视觉层，不参与父级 flex 分配）。
