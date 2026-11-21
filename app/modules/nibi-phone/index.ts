@@ -46,6 +46,9 @@ interface NativePhoneModule {
   canShowApproval(): boolean;
   openOverlaySettings(): boolean;
   openAppSettings(): boolean;
+  canShowBubble(): boolean;
+  setBubbleState(state: string): Promise<void>;
+  toolsBusy(): boolean;
   addListener(
     event: "onPhoneApproval",
     listener: (event: PhoneApprovalDecision) => void,
@@ -186,6 +189,23 @@ export function openPhoneOverlaySettings(): void {
 /** 打开本应用信息页：ColorOS 的「后台弹出界面」等权限在这里。 */
 export function openPhoneAppSettings(): void {
   call((module) => module.openAppSettings(), false);
+}
+
+/** 悬浮状态气泡权限（与审批悬浮卡同一条「显示在其他应用上层」）。 */
+export function canShowPhoneBubble(): boolean {
+  return call((module) => module.canShowBubble(), false);
+}
+
+/** 驱动悬浮状态气泡；失败只记日志（气泡是提醒，不是关键路径）。 */
+export function setPhoneBubbleState(state: string): void {
+  void native?.setBubbleState(state).catch((error) => {
+    console.warn("[nibigo] 悬浮气泡状态设置失败", error);
+  });
+}
+
+/** 原生侧当前是否有手机工具在执行（气泡 tools 状态的信号源）。 */
+export function phoneToolsBusy(): boolean {
+  return call((module) => module.toolsBusy(), false);
 }
 
 export function onPhoneApproval(

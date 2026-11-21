@@ -4,9 +4,13 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import expo.modules.nibiphone.mcp.McpHttpServer
+import expo.modules.nibiphone.mcp.PhoneToolHandler
+import expo.modules.nibiphone.mcp.ToolResult
 import expo.modules.nibiphone.shell.ShizukuShell
 import expo.modules.nibiphone.shell.ShellState
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 
 /**
  * 进程内的单例：开关、MCP 服务器与状态。
@@ -29,6 +33,10 @@ object PhoneRuntime {
 
   @Volatile
   private var tools: PhoneTools? = null
+
+  /** 在途工具调用计数（悬浮气泡的 tools 状态信号）；服务器未启动时为 null。 */
+  @Volatile
+  private var busyHandler: BusyTrackingHandler? = null
 
   /**
    * 服务器代次：启动或关闭时递增。App 侧比较代次，发现 loopback 服务器被重建
@@ -91,9 +99,13 @@ object PhoneRuntime {
       server?.stop()
       server = null
       tools = null
+      busyHandler = null
       generation += 1
     }
   }
+
+  /** 是否有手机工具正在执行（悬浮气泡的 tools 状态；RN 侧轮询这一位）。 */
+  fun toolsBusy(): Boolean = (busyHandler?.inFlight?.get() ?: 0) > 0
 
   /** 无障碍服务连上时调用：系统重启进程后由它把 loopback 服务器带起来。 */
   fun ensureServerForA11y(context: Context) {
@@ -109,14 +121,16 @@ object PhoneRuntime {
       val stored = settings(context)
       val token = stored.mcpToken ?: newToken().also { stored.mcpToken = it }
       val handler = PhoneTools(context)
+      val tracked = BusyTrackingHandler(handler)
       val created = McpHttpServer(
         token = token,
-        handler = handler,
+        handler = tracked,
         instructions = { instructions(context) },
         preferredPort = PREFERRED_PORT,
       )
       created.start()
       tools = handler
+      busyHandler = tracked
       server = created
       generation += 1
       created
@@ -160,6 +174,22 @@ object PhoneRuntime {
       append("长页面分页：页尾 cursor 原样传给 screen 继续读同一份快照，编号不变。")
       append("支付/银行/系统设置页面只读；密码与验证码字段不可填写；安全页面不可截屏。")
       append("所有操作都会经过宿主审批。")
+    }
+  }
+}
+
+/** 给工具执行套一层在途计数：调用同步、退出必减（异常也减），供 toolsBusy() 读。 */
+private class BusyTrackingHandler(
+  private val origin: PhoneToolHandler,
+) : PhoneToolHandler {
+  val inFlight = AtomicInteger(0)
+
+  override fun call(name: String, args: JSONObject): ToolResult {
+    inFlight.incrementAndGet()
+    try {
+      return origin.call(name, args)
+    } finally {
+      inFlight.decrementAndGet()
     }
   }
 }

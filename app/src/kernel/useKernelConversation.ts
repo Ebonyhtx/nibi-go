@@ -24,7 +24,12 @@ import {
   type TurnState,
 } from "@nibi-go/kernel-session";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, PermissionsAndroid, Platform } from "react-native";
+import {
+  AppState,
+  PermissionsAndroid,
+  Platform,
+  type AppStateStatus,
+} from "react-native";
 
 import {
   kernelHostAvailable,
@@ -56,6 +61,12 @@ import {
   refreshPhoneMcpAttachment,
   subscribePhoneToolsChanged,
 } from "../phone/status";
+import {
+  canShowBubble,
+  phoneToolsActive,
+  setBubbleState,
+  type PhoneBubbleState,
+} from "../phone/bubble";
 import { loadPluginMcpServers } from "../plugins/store";
 
 /**
@@ -256,6 +267,17 @@ export interface KernelConversation {
   skills: readonly KernelSkillReference[];
   /** 插件主动推的槽数据（serverName → slotId → data）；live-only，切会话即清空。 */
   pluginSlotData: PluginSlotData;
+}
+
+/** 工具行是否在执行/等审批（气泡 tools 状态的判定口径，对齐会话行卡的 running 口径）。 */
+function isActiveToolStatus(status: string): boolean {
+  return status === "running" || status === "inputStreaming" || status === "pendingApproval";
+}
+
+function hasActiveToolRow(row: ChatRow): boolean {
+  if (row.kind === "tool") return isActiveToolStatus(row.status);
+  if (row.kind === "toolGroup") return row.tools.some((tool) => isActiveToolStatus(tool.status));
+  return false;
 }
 
 export function useKernelConversation(): KernelConversation {
@@ -570,6 +592,83 @@ export function useKernelConversation(): KernelConversation {
     });
     return () => subscription.remove();
   }, []);
+
+  // ── 全局悬浮状态气泡 ─────────────────────────────────────────────
+  // 运营者需求：后台/别的应用里也能看到 NIBI-GO 正在跑、在等审批、或手机被操控；
+  // 单击气泡切回应用。状态只由这里驱动，原生不做状态机；无悬浮窗权限时全部静默。
+  const bubbleAppStateRef = useRef<AppStateStatus>("active");
+  const bubbleToolsBusyRef = useRef(false);
+  // 回合完成（running→idle）后的绿点窗口；原生侧停留 2s 自动收起。
+  const bubbleDoneUntilRef = useRef(0);
+  const bubbleLastRef = useRef<PhoneBubbleState>("hidden");
+  const bubblePrevTurnRef = useRef<TurnState>("idle");
+  const bubbleInputRef = useRef<{ turn: TurnState; rows: readonly ChatRow[] }>({ turn, rows });
+
+  /** 汇总当前应显示的气泡状态；与上次相同就不打原生（流式期间 rows 高频变化）。 */
+  const applyBubbleState = useCallback(() => {
+    const current = bubbleInputRef.current;
+    let next: PhoneBubbleState = "hidden";
+    if (canShowBubble()) {
+      if (bubbleToolsBusyRef.current) {
+        // 手机操控进行中：无论前后台都亮（工具信号来自 1s 轮询）。
+        next = "tools";
+      } else if (bubbleAppStateRef.current !== "active") {
+        if (current.turn === "running") {
+          // 审批/提问最高；其次执行中的工具行；纯流式是 running。
+          if (current.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
+            next = "waiting";
+          } else if (current.rows.some(hasActiveToolRow)) {
+            next = "tools";
+          } else {
+            next = "running";
+          }
+        } else if (Date.now() < bubbleDoneUntilRef.current) {
+          next = "done";
+        }
+      }
+    }
+    if (next === bubbleLastRef.current) return;
+    bubbleLastRef.current = next;
+    setBubbleState(next);
+  }, []);
+
+  useEffect(() => {
+    bubbleInputRef.current = { turn, rows };
+    // turn running→idle：回合完成，后台时给 2s 绿点（回前台会直接 hidden）。
+    if (bubblePrevTurnRef.current === "running" && turn === "idle") {
+      bubbleDoneUntilRef.current = Date.now() + 2_000;
+    }
+    bubblePrevTurnRef.current = turn;
+    applyBubbleState();
+  }, [turn, rows, applyBubbleState]);
+
+  // 回前台立即收起（手机工具在途时保留 tools）。
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      bubbleAppStateRef.current = state;
+      applyBubbleState();
+    });
+    return () => subscription.remove();
+  }, [applyBubbleState]);
+
+  // 手机工具在途没有事件通道：回合进行中用 1s 轮询查原生 toolsBusy。
+  // 工具只在回合内执行，turn 离开 running 就停轮询。
+  useEffect(() => {
+    if (turn !== "running") {
+      // 回合已结束：清掉在途标记并对账一次，避免气泡停在 tools。
+      if (bubbleToolsBusyRef.current) {
+        bubbleToolsBusyRef.current = false;
+        applyBubbleState();
+      }
+      return;
+    }
+    if (!canShowBubble()) return;
+    const timer = setInterval(() => {
+      bubbleToolsBusyRef.current = phoneToolsActive();
+      applyBubbleState();
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [turn, applyBubbleState]);
 
   useEffect(() => {
     if (!ready || turn !== "idle" || !activeSessionId) return;

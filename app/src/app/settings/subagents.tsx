@@ -1,9 +1,10 @@
-// 子智能体（用户级自定义 agent）：`HOME/.nibi/agents/*.md`，frontmatter 写元信息
-// （name/description 必需，model 空=继承主模型，tools 可选），正文是系统提示词。
-// 内核的解析在 kernel/crates/agents/src/custom.rs + frontmatter.rs：缺 name 或
-// description 的文件会被整个跳过——列表里用「格式有误」徽标把这件事说出来。
+// 子智能体：`HOME/.nibi/agents/*.md`（用户级）与 `<项目 workspace>/.nibi/agents/*.md`
+// （项目级，作用域切换），frontmatter 写元信息（name/description 必需，model 空=继承
+// 主模型，tools 可选），正文是系统提示词。内核的解析在 kernel/crates/agents/src/custom.rs
+// + frontmatter.rs：缺 name 或 description 的文件会被整个跳过——列表用「格式有误」徽标
+// 把这件事说出来；内核只扫目录根的 *.md，所以「停用」= 把文件移进 disabled/ 子目录。
 // GO 的 HOME = filesDir = expo-file-system 的 Paths.document，App 直接读写同一批文件；
-// 项目级 agents 本轮不做。保存后对新开的会话生效（内核冷加载会话时才读）。
+// 保存后对新开的会话生效（内核冷加载会话时才读）。
 import { Directory, File, Paths } from "expo-file-system";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -15,6 +16,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -23,13 +25,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Row } from "../../components/ui/Row";
 import { SectionCard } from "../../components/ui/SectionCard";
+import { Divider } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { PillButton } from "../../components/ui/PillButton";
 import { AppearIn, staggerDelay } from "../../motion/appear";
+import { PressableScale } from "../../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
+
+import { useProviderCatalog } from "../../kernel/useProviderCatalog";
+import { useProjects } from "../../kernel/projects";
+import { documentRootOf, fileUriOf, projectWorkspacePath } from "../../kernel/workspace";
 
 const DOT_DIR = ".nibi";
 const AGENTS_DIR = "agents";
+const DISABLED_DIR = "disabled";
 /** 新建时的预填模板（与桌面端同一份格式约定）。 */
 const TEMPLATE = `---
 name: my-agent
@@ -43,6 +52,8 @@ tools: [Read, Glob, Grep]
 
 /** 一个 agent 文件的展示信息；raw 留作编辑器初值。 */
 interface AgentEntry {
+  /** 相对 agents 根的路径：根目录 = 启用；disabled/ 下 = 停用。 */
+  relPath: string;
   fileName: string;
   name: string | null;
   description: string | null;
@@ -53,9 +64,10 @@ interface AgentEntry {
   raw: string;
 }
 
-/** 页内编辑器状态：fileName 为 null 表示新建。 */
+/** 页内编辑器状态：relPath 为 null 表示新建。 */
 interface EditorState {
-  fileName: string | null;
+  scope: Scope;
+  relPath: string | null;
   /** 进入编辑器时的原文，脏检查基准。 */
   initial: string;
   draft: string;
@@ -156,10 +168,11 @@ function frontText(values: FrontValues, key: string): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function parseEntry(fileName: string, raw: string): AgentEntry {
+function parseEntry(relPath: string, raw: string): AgentEntry {
+  const fileName = relPath.split("/").pop() ?? relPath;
   const values = splitFrontmatter(raw);
   if (!values) {
-    return { fileName, name: null, description: null, model: null, tools: null, invalid: "缺 frontmatter", raw };
+    return { relPath, fileName, name: null, description: null, model: null, tools: null, invalid: "缺 frontmatter", raw };
   }
   const name = frontText(values, "name");
   const description = frontText(values, "description");
@@ -169,6 +182,7 @@ function parseEntry(fileName: string, raw: string): AgentEntry {
   const model = frontText(values, "model");
   const tools = Array.isArray(values.tools) && values.tools.length > 0 ? values.tools : null;
   return {
+    relPath,
     fileName,
     name,
     description: description?.replace(/\\n/gu, " ") ?? null,
@@ -192,40 +206,67 @@ function agentTitle(entry: AgentEntry): string {
   return entry.name ?? fileStem(entry.fileName);
 }
 
+type Scope = "user" | "project";
+
 export default function SubagentsScreen() {
   const th = useNibiTheme();
   const insets = useSafeAreaInsets();
+  const { projects, activeProjectId } = useProjects();
+  const providerCatalog = useProviderCatalog();
+  const activeProject = projects.find((project) => project.id === activeProjectId);
+  // 作用域：用户级 agents/ 或当前项目的 workspace/.nibi/agents（没有当前项目时不可选）。
+  const [scope, setScope] = useState<Scope>("user");
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // 编辑器里的模型下拉展开态（providerCatalog 的模型列表 + 继承主模型）。
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+
+  /** 作用域的 agents 根（裸路径）。 */
+  const agentsRoot = (target: Scope): string => {
+    const filesRoot = documentRootOf(Paths.document.uri);
+    if (target === "project" && activeProject) {
+      return `${projectWorkspacePath(filesRoot, activeProject.id)}/${DOT_DIR}/${AGENTS_DIR}`;
+    }
+    return `${filesRoot}/${DOT_DIR}/${AGENTS_DIR}`;
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const dir = new Directory(Paths.document, DOT_DIR, AGENTS_DIR);
-      dir.create({ intermediates: true, idempotent: true });
-      const files = dir
-        .list()
-        .filter((entry): entry is File => entry instanceof File && entry.name.endsWith(".md"))
-        .sort((left, right) => left.name.localeCompare(right.name));
+      const root = agentsRoot(scope);
+      new Directory(fileUriOf(root)).create({ intermediates: true, idempotent: true });
       const next: AgentEntry[] = [];
-      for (const file of files) {
-        try {
-          next.push(parseEntry(file.name, await file.text()));
-        } catch {
-          next.push({
-            fileName: file.name,
-            name: null,
-            description: null,
-            model: null,
-            tools: null,
-            invalid: "读取失败",
-            raw: "",
-          });
+      // 根目录 *.md = 启用；disabled/ 子目录 *.md = 停用（内核只扫目录根）。
+      const collect = async (relPrefix: string): Promise<void> => {
+        const dir = new Directory(fileUriOf(relPrefix ? `${root}/${relPrefix}` : root));
+        if (!dir.exists) return;
+        const files = dir
+          .list()
+          .filter((entry): entry is File => entry instanceof File && entry.name.endsWith(".md"))
+          .sort((left, right) => left.name.localeCompare(right.name));
+        for (const file of files) {
+          const relPath = relPrefix ? `${relPrefix}/${file.name}` : file.name;
+          try {
+            next.push(parseEntry(relPath, await file.text()));
+          } catch {
+            next.push({
+              relPath,
+              fileName: file.name,
+              name: null,
+              description: null,
+              model: null,
+              tools: null,
+              invalid: "读取失败",
+              raw: "",
+            });
+          }
         }
-      }
+      };
+      await collect("");
+      await collect(DISABLED_DIR);
       setEntries(next);
     } catch (error) {
       setEntries([]);
@@ -233,7 +274,7 @@ export default function SubagentsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope, activeProject?.id]);
 
   useEffect(() => {
     void load();
@@ -243,12 +284,14 @@ export default function SubagentsScreen() {
 
   function openNew() {
     setMessage(null);
-    setEditor({ fileName: null, initial: TEMPLATE, draft: TEMPLATE });
+    setModelPickerOpen(false);
+    setEditor({ scope, relPath: null, initial: TEMPLATE, draft: TEMPLATE });
   }
 
   function openEdit(entry: AgentEntry) {
     setMessage(null);
-    setEditor({ fileName: entry.fileName, initial: entry.raw, draft: entry.raw });
+    setModelPickerOpen(false);
+    setEditor({ scope, relPath: entry.relPath, initial: entry.raw, draft: entry.raw });
   }
 
   async function save() {
@@ -256,26 +299,27 @@ export default function SubagentsScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      new Directory(Paths.document, DOT_DIR, AGENTS_DIR).create({ intermediates: true, idempotent: true });
+      const root = agentsRoot(editor.scope);
+      new Directory(fileUriOf(root)).create({ intermediates: true, idempotent: true });
       const name = sanitizeFileName(frontText(splitFrontmatter(editor.draft) ?? {}, "name") ?? "");
       let target: string;
       if (name) {
         target = `${name}.md`;
-      } else if (editor.fileName) {
+      } else if (editor.relPath) {
         // 没写 name 的老文件保留原文件名（内核仍会跳过，但原文不丢）。
-        target = editor.fileName;
+        target = editor.relPath;
       } else {
         setMessage("缺 name：在 frontmatter 补上再保存");
         return;
       }
-      if (editor.fileName !== target && entries.some((entry) => entry.fileName === target)) {
+      if (editor.relPath !== target && entries.some((entry) => entry.relPath === target)) {
         setMessage(`${target} 已存在：换个 name 再保存`);
         return;
       }
-      await new File(Paths.document, DOT_DIR, AGENTS_DIR, target).write(editor.draft);
-      // 改名时删旧文件：写在成功之后再删，失败也不会丢内容。
-      if (editor.fileName && editor.fileName !== target) {
-        const previous = new File(Paths.document, DOT_DIR, AGENTS_DIR, editor.fileName);
+      await new File(fileUriOf(`${root}/${target}`)).write(editor.draft);
+      // 改名/换作用域时删旧文件：写在成功之后再删，失败也不会丢内容。
+      if (editor.relPath && editor.relPath !== target) {
+        const previous = new File(fileUriOf(`${agentsRoot(editor.scope)}/${editor.relPath}`));
         if (previous.exists) previous.delete();
       }
       setEditor(null);
@@ -290,27 +334,38 @@ export default function SubagentsScreen() {
 
   function confirmDelete() {
     const current = editor;
-    if (!current?.fileName) return;
-    const fileName = current.fileName;
-    const title = agentTitle(entries.find((entry) => entry.fileName === fileName) ?? { fileName, name: null, description: null, model: null, tools: null, invalid: null, raw: "" });
+    if (!current?.relPath) return;
+    const relPath = current.relPath;
+    const title = agentTitle(
+      entries.find((entry) => entry.relPath === relPath) ?? {
+        relPath,
+        fileName: relPath.split("/").pop() ?? relPath,
+        name: null,
+        description: null,
+        model: null,
+        tools: null,
+        invalid: null,
+        raw: "",
+      },
+    );
     Alert.alert(`删除「${title}」？`, "删除后不可恢复。", [
       { text: "取消", style: "cancel" },
       {
         text: "删除",
         style: "destructive",
         onPress: () => {
-          void remove(fileName);
+          void remove(relPath);
         },
       },
     ]);
   }
 
-  async function remove(fileName: string) {
-    if (!fileName) return;
+  async function remove(relPath: string) {
+    if (!relPath) return;
     setBusy(true);
     setMessage(null);
     try {
-      const file = new File(Paths.document, DOT_DIR, AGENTS_DIR, fileName);
+      const file = new File(fileUriOf(`${agentsRoot(editor?.scope ?? scope)}/${relPath}`));
       if (file.exists) file.delete();
       setEditor(null);
       await load();
@@ -320,6 +375,69 @@ export default function SubagentsScreen() {
       setBusy(false);
     }
   }
+
+  /** 启用/停用 = 根目录 ↔ disabled/ 子目录之间移动文件（内核只扫目录根）。 */
+  function toggleEnabled(entry: AgentEntry) {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    void (async () => {
+      try {
+        const root = agentsRoot(scope);
+        const from = fileUriOf(`${root}/${entry.relPath}`);
+        const toRel =
+          entry.relPath.startsWith(`${DISABLED_DIR}/`)
+            ? entry.relPath.slice(DISABLED_DIR.length + 1)
+            : `${DISABLED_DIR}/${entry.relPath}`;
+        const to = fileUriOf(`${root}/${toRel}`);
+        const file = new File(from);
+        if (!file.exists) return;
+        new Directory(fileUriOf(`${root}/${DISABLED_DIR}`)).create({
+          intermediates: true,
+          idempotent: true,
+        });
+        const content = await file.text();
+        new File(to).write(content);
+        file.delete();
+        await load();
+      } catch (error) {
+        setMessage(`切换失败：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  /** 把选中的模型写回原文 frontmatter 的 `model:` 行（没有就在首行 `---` 后插）。 */
+  function applyModel(modelId: string): void {
+    if (!editor) return;
+    const line = `model: ${modelId || '""'}`;
+    const lines = editor.draft.split("\n");
+    const first = lines[0]?.replace(/^\u{feff}/u, "") ?? "";
+    if (first.startsWith("---")) {
+      let replaced = false;
+      for (let i = 1; i < lines.length && lines[i].replace(/\r$/u, "") !== "---"; i++) {
+        if (/^\s*model\s*:/u.test(lines[i])) {
+          lines[i] = line;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) lines.splice(1, 0, line);
+    }
+    setEditor({ ...editor, draft: lines.join("\n") });
+  }
+
+  /** 编辑器的可选模型：继承主模型 + 各供应商模型 id。 */
+  const modelChoices: readonly { value: string; label: string }[] = [
+    { value: "", label: "继承主模型" },
+    ...providerCatalog.state.providers.flatMap((provider) =>
+      provider.models.map((modelId) => ({
+        value: modelId,
+        label: `${provider.name} · ${modelId}`,
+      })),
+    ),
+  ];
 
   const messageCard = message ? (
     <AppearIn>
@@ -346,16 +464,83 @@ export default function SubagentsScreen() {
         <ScrollView
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
         >
+          {/* 作用域切换：用户级 / 当前项目（建了项目才可选）；与桌面端 User/Project 作用域同语义。 */}
           <AppearIn>
-            <Text style={[styles.intro, { color: th.inkSub }]}>
-              每个子智能体一个 md 文件：frontmatter 写元信息，正文是系统提示词。
-            </Text>
+            <View style={styles.scopeChips}>
+              <PressableScale
+                scaleTo={0.94}
+                onPress={() => setScope("user")}
+                accessibilityRole="button"
+                accessibilityLabel="用户级子智能体"
+                accessibilityState={{ selected: scope === "user" }}
+                style={[
+                  styles.scopeChip,
+                  {
+                    backgroundColor: scope === "user" ? th.brandSoft : th.surfaceSoft,
+                    borderColor: scope === "user" ? th.brand : th.hairline,
+                  },
+                ]}
+              >
+                <Text style={[styles.scopeChipText, { color: scope === "user" ? th.brand : th.inkSub }]}>
+                  用户级
+                </Text>
+              </PressableScale>
+              {activeProject ? (
+                <PressableScale
+                  scaleTo={0.94}
+                  onPress={() => setScope("project")}
+                  accessibilityRole="button"
+                  accessibilityLabel={`当前项目的子智能体（${activeProject.name}）`}
+                  accessibilityState={{ selected: scope === "project" }}
+                  style={[
+                    styles.scopeChip,
+                    {
+                      backgroundColor: scope === "project" ? th.brandSoft : th.surfaceSoft,
+                      borderColor: scope === "project" ? th.brand : th.hairline,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.scopeChipText, { color: scope === "project" ? th.brand : th.inkSub }]}
+                    numberOfLines={1}
+                  >
+                    项目：{activeProject.name}
+                  </Text>
+                </PressableScale>
+              ) : null}
+            </View>
           </AppearIn>
 
           {editor ? (
-            // 编辑器：直接编辑 md 原文（不做结构化表单，保存即覆写文件）。
+            // 编辑器：直接编辑 md 原文；模型字段给下拉快捷写入（其余键走原文）。
             <AppearIn>
-              <SectionCard label={editor.fileName ?? "新建子智能体"}>
+              <SectionCard label={editor.relPath?.split("/").pop() ?? "新建子智能体"}>
+                <Row
+                  icon="sparkles"
+                  tone="steel"
+                  title={
+                    modelChoices.find((choice) => {
+                      const values = splitFrontmatter(editor.draft);
+                      return choice.value === (frontText(values ?? {}, "model") ?? "");
+                    })?.label ?? "模型"
+                  }
+                  detail="frontmatter 的 model 字段"
+                  onPress={() => setModelPickerOpen((value) => !value)}
+                />
+                {modelPickerOpen
+                  ? modelChoices.map((choice) => (
+                      <Row
+                        key={choice.value || "inherit"}
+                        tone="plain"
+                        title={choice.label}
+                        onPress={() => {
+                          applyModel(choice.value);
+                          setModelPickerOpen(false);
+                        }}
+                      />
+                    ))
+                  : null}
+                <Divider />
                 <TextInput
                   value={editor.draft}
                   onChangeText={(draft) => setEditor({ ...editor, draft })}
@@ -377,7 +562,7 @@ export default function SubagentsScreen() {
           {editor ? (
             <View style={styles.actions}>
               <PillButton label="取消" variant="secondary" disabled={busy} onPress={() => setEditor(null)} />
-              {editor.fileName ? (
+              {editor.relPath ? (
                 <PillButton label="删除" variant="danger" disabled={busy} onPress={confirmDelete} />
               ) : null}
               <PillButton
@@ -421,7 +606,20 @@ export default function SubagentsScreen() {
                             <View style={[styles.badge, { backgroundColor: th.amberSoft }]}>
                               <Text style={[styles.badgeText, { color: th.amber }]}>格式有误</Text>
                             </View>
-                          ) : null}
+                          ) : (
+                            <Switch
+                              value={!entry.relPath.startsWith(`${DISABLED_DIR}/`)}
+                              disabled={busy}
+                              onValueChange={() => toggleEnabled(entry)}
+                              trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
+                              thumbColor={
+                                entry.relPath.startsWith(`${DISABLED_DIR}/`)
+                                  ? th.inkFaint
+                                  : th.brand
+                              }
+                              ios_backgroundColor={th.surfaceSoft}
+                            />
+                          )}
                           <PillButton
                             label="编辑"
                             variant="secondary"
@@ -478,6 +676,21 @@ const styles = StyleSheet.create({
     minHeight: 240,
     ...text("body"),
   },
+  scopeChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space(1.5),
+  },
+  scopeChip: {
+    maxWidth: 200,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+  },
+  scopeChipText: { ...text("micro"), fontWeight: "600" },
   metaRow: {
     flexDirection: "row",
     justifyContent: "flex-end",

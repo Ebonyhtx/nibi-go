@@ -11,12 +11,18 @@ import expo.modules.nibiphone.shell.ShizukuShell
 /** Expo 模块 `NibiPhone`：状态、两个开关、系统设置引导、悬浮审批与 loopback MCP 配置。 */
 class PhoneModule : Module() {
   private var approvalOverlay: PhoneApprovalOverlay? = null
+  private var statusBubble: StatusBubble? = null
 
   private fun context(): Context? = appContext.reactContext?.applicationContext
 
   private fun overlay(): PhoneApprovalOverlay? {
     val ctx = context() ?: return null
     return approvalOverlay ?: PhoneApprovalOverlay(ctx).also { approvalOverlay = it }
+  }
+
+  private fun bubble(): StatusBubble? {
+    val ctx = context() ?: return null
+    return statusBubble ?: StatusBubble(ctx).also { statusBubble = it }
   }
 
   private fun unavailable(): Map<String, Any> = mapOf(
@@ -141,8 +147,23 @@ class PhoneModule : Module() {
       }
     }
 
+    /** 悬浮状态气泡：与审批悬浮卡同一条「显示在其他应用上层」权限。 */
+    Function("canShowBubble") { bubble()?.canDraw() == true }
+
+    /**
+     * 气泡状态由 RN 驱动（hidden/running/tools/waiting/done）；
+     * 原生只换肤/启停动效，不做自动状态机。
+     */
+    AsyncFunction("setBubbleState") { state: String ->
+      bubble()?.setState(state)
+    }
+
+    /** 原生侧当前是否有手机工具在执行（气泡的 tools 信号；RN 轮询这一位）。 */
+    Function("toolsBusy") { PhoneRuntime.toolsBusy() }
+
     OnDestroy {
       approvalOverlay?.hide()
+      statusBubble?.hide()
       // 不关闭 loopback 服务器：dev reload 只销毁 Expo 模块，原生进程还在。
       // 服务器存活、配置不变，内核里正在跑的回合不会因为 resume 拿到 “MCP is shut down”。
       // 进程真正退出时 socket 由系统释放；token/端口都是稳定的。

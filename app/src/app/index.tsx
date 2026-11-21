@@ -294,6 +294,9 @@ export default function GoHomeScreen() {
     items: PluginSheetItem[];
   } | null>(null);
   const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
+  // 新建对话的项目选择菜单（FAB anchor）：有项目时点 FAB 先选归属。
+  const fabRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
+  const [newChatMenu, setNewChatMenu] = useState<PopupAnchor | null>(null);
   // 离屏导航前要 blur 输入框：只收键盘不移焦点，Android 会在新页面转场时把输入法再弹一下。
   const composerInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
@@ -1064,10 +1067,17 @@ export default function GoHomeScreen() {
                     { backgroundColor: th.glass, borderColor: th.glassBorder },
                     th.elevation.card,
                   ]}
+                  ref={fabRef}
                   accessibilityLabel="新建对话"
                   onPress={() => {
-                    setDraft("");
-                    void conversation.newSession(activeProjectId ?? undefined);
+                    if (projects.projects.length === 0) {
+                      setDraft("");
+                      void conversation.newSession();
+                      return;
+                    }
+                    fabRef.current?.measureInWindow((x, y, width, height) => {
+                      setNewChatMenu({ x, y, width, height });
+                    });
                   }}
                 >
                   <Icon name="pen" size={17} color={th.ink} />
@@ -1484,6 +1494,93 @@ export default function GoHomeScreen() {
           setPermissionMode("yolo");
         }}
       />
+
+      {/* 新建对话的项目归属：独立会话 / 各项目（当前项目高亮）/ 管理入口。 */}
+      <PluginPopup
+        visible={newChatMenu !== null}
+        anchor={newChatMenu}
+        onClose={() => setNewChatMenu(null)}
+        width={260}
+      >
+        <Text style={[styles.popupTitle, { color: th.ink }]}>新建到…</Text>
+        <Pressable
+          onPress={() => {
+            setNewChatMenu(null);
+            setDraft("");
+            void conversation.newSession();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="新建独立会话"
+          style={({ pressed }) => [
+            styles.menuRow,
+            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
+            <Icon name="pen" size={15} color={th.inkSub} />
+          </View>
+          <View style={styles.menuText}>
+            <Text style={[styles.menuLabel, { color: th.ink }]}>独立会话</Text>
+          </View>
+        </Pressable>
+        {projects.projects.map((project) => {
+          const active = project.id === projects.activeProjectId;
+          return (
+            <Pressable
+              key={project.id}
+              onPress={() => {
+                setNewChatMenu(null);
+                setDraft("");
+                void conversation.newSession(project.id);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`新建到项目 ${project.name}`}
+              style={({ pressed }) => [
+                styles.menuRow,
+                { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <View
+                style={[
+                  styles.toolIconSmall,
+                  { backgroundColor: active ? th.brandSoft : th.panel },
+                ]}
+              >
+                <Icon name="doc" size={15} color={active ? th.brand : th.inkSub} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
+                  {project.name}
+                </Text>
+              </View>
+              {active ? <Icon name="check" size={13} color={th.brand} /> : null}
+            </Pressable>
+          );
+        })}
+        <Pressable
+          onPress={() => {
+            setNewChatMenu(null);
+            leaveComposerForNavigation({
+              blur: () => composerInputRef.current?.blur(),
+              dismiss: Keyboard.dismiss,
+              navigate: () => router.push("/settings/projects"),
+            });
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="管理项目"
+          style={({ pressed }) => [
+            styles.menuRow,
+            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
+            <Icon name="sliders" size={15} color={th.inkSub} />
+          </View>
+          <View style={styles.menuText}>
+            <Text style={[styles.menuLabel, { color: th.ink }]}>管理项目…</Text>
+          </View>
+        </Pressable>
+      </PluginPopup>
 
       <PluginPopup
         visible={permissionMenu !== null}
