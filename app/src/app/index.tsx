@@ -44,7 +44,9 @@ import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
-import { SideStatus } from "../components/SideStatus";
+import { SideStatus, type SessionTodoState } from "../components/SideStatus";
+import type { AgentFaceStatus } from "../components/AgentFace";
+import type { ChatRow } from "@nibi-go/kernel-session";
 import { PET_STATE } from "../components/petStates";
 import { PressableScale } from "../motion/PressableScale";
 import { AppearIn } from "../motion/appear";
@@ -867,6 +869,79 @@ export default function GoHomeScreen() {
     setPreviewState(ids[(i + 1) % ids.length]!);
   };
 
+  // 悬浮工具卡的会话状态面：子代理（subagent 行 + Agent 工具行归并）与最新待办进度。
+  // 递归收 toolGroup/process 里的嵌套行；同名运行中条目去重（subagent 行优先，它带子会话）。
+  const sessionTools = useMemo(() => {
+    type Face = {
+      key: string;
+      name: string;
+      status: AgentFaceStatus;
+      fromRow: boolean;
+    };
+    const faces: Face[] = [];
+    let todos: SessionTodoState | undefined;
+    const faceStatus = (raw: string): AgentFaceStatus =>
+      raw === "failed" || raw === "error"
+        ? "failed"
+        : raw === "cancelled"
+          ? "cancelled"
+          : raw === "running" || raw === "inputStreaming" || raw === "pendingApproval"
+            ? "running"
+            : "completed";
+    const visit = (rows: readonly ChatRow[]) => {
+      for (const row of rows) {
+        if (row.kind === "subagent") {
+          faces.push({ key: row.key, name: row.subagentType, status: faceStatus(row.status), fromRow: true });
+        } else if (row.kind === "tool") {
+          if (row.name === "Agent") {
+            const name =
+              row.detail
+                ? /"subagent_type"\s*:\s*"([^"]+)"/u.exec(row.detail)?.[1] ?? "Agent"
+                : "Agent";
+            faces.push({ key: row.key, name, status: faceStatus(row.status), fromRow: false });
+          }
+          if (row.name === "TodoWrite" && row.todos) {
+            const done = row.todos.filter((item) => item.status === "completed").length;
+            const active = row.todos.find((item) => item.status === "in_progress");
+            todos = {
+              done,
+              total: row.todos.length,
+              ...(active ? { active: active.activeForm ?? active.content } : {}),
+            };
+          }
+        } else if (row.kind === "toolGroup") {
+          visit(row.tools);
+        } else if (row.kind === "process") {
+          visit(row.rows);
+        }
+      }
+    };
+    visit(conversation.rows);
+    // 时间倒序后运行中排前；同一名字的运行中条目只留 subagent 行那份。
+    const latestFirst = [...faces].reverse();
+    const deduped = latestFirst.filter(
+      (face, index) =>
+        !(
+          !face.fromRow &&
+          face.status === "running" &&
+          latestFirst.some(
+            (other) =>
+              other !== face && other.fromRow && other.name === face.name && other.status === "running",
+          )
+        ) &&
+        // 同一工具行可能既在 toolGroup 又在顶层重放：按 key 去重。
+        latestFirst.findIndex((other) => other.key === face.key) === index,
+    );
+    const ordered = [
+      ...deduped.filter((face) => face.status === "running"),
+      ...deduped.filter((face) => face.status !== "running"),
+    ];
+    return {
+      subagents: ordered.slice(0, 5),
+      ...(todos ? { todos } : {}),
+    };
+  }, [conversation.rows]);
+
   // 宠物目标尺寸（dp）；PetView 内部再按设备像素取整数倍微调（像素不糊）。
   // 手机 88 / 横屏 72（省高度）/ 平板 104。
   const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
@@ -1077,11 +1152,8 @@ export default function GoHomeScreen() {
                   ref={fabRef}
                   accessibilityLabel="新建对话"
                   onPress={() => {
-                    if (projects.projects.length === 0) {
-                      setDraft("");
-                      void conversation.newSession();
-                      return;
-                    }
+                    // 始终弹归属菜单（独立会话/项目/就地新建）——静默新建正是
+                    // 运营者抱怨的「点了没反应」形态。
                     fabRef.current?.measureInWindow((x, y, width, height) => {
                       setNewChatMenu({ x, y, width, height });
                     });
@@ -1397,6 +1469,7 @@ export default function GoHomeScreen() {
         plugins={plugins.enabled}
         usage={conversation.contextUsage}
         slotData={conversation.pluginSlotData}
+        session={sessionTools}
         bottom={statusBottom}
       />
 

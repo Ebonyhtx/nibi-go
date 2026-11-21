@@ -687,7 +687,7 @@ export function ConversationList({
                 : row.status === "cancelled"
                   ? th.inkFaint
                   : th.ok;
-          // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）。
+          // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）；徽标补一眼可辨的完成/失败。
           const faceStatus =
             row.status === "failed"
               ? "failed"
@@ -712,7 +712,7 @@ export function ConversationList({
               style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
             >
               <View style={styles.subagentHead}>
-                <AgentFace name={row.subagentType} status={faceStatus} size={22} />
+                <AgentFace name={row.subagentType} status={faceStatus} size={22} badge />
                 <View style={styles.subagentTitleCol}>
                   <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
                     子智能体 · {row.subagentType}
@@ -890,7 +890,7 @@ function ToolRowView({
       ? /"subagent_type"\s*:\s*"([^"]+)"/u.exec(row.detail)?.[1] ?? "Agent"
       : row.name;
   const faceStatus =
-    row.status === "failed"
+    row.status === "failed" || row.status === "error"
       ? "failed"
       : row.status === "cancelled"
         ? "cancelled"
@@ -902,7 +902,7 @@ function ToolRowView({
       <Disclosure
         icon={
           isAgentTool ? (
-            <AgentFace name={faceName} status={faceStatus} size={16} />
+            <AgentFace name={faceName} status={faceStatus} size={18} badge />
           ) : (
             <Icon name="sliders" size={12} color={toolTone(th, row.status)} />
           )

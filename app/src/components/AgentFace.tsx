@@ -6,7 +6,14 @@
 // 桌面是 SVG；这里用 Skia 画近似几何（20 格网格，眼在 cx 7/13，宽 4），
 // 表情用直线折线近似（视觉读感一致，避免椭圆弧的平台差异）。
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, Circle, Group, Path, RoundedRect, Skia } from "@shopify/react-native-skia";
+import {
+  Canvas,
+  Circle,
+  Group,
+  Path,
+  RoundedRect,
+  Skia,
+} from "@shopify/react-native-skia";
 
 /** 九色机身（桌面 FACE_COLORS 原样）。 */
 export const FACE_COLORS = [
@@ -124,18 +131,79 @@ function Eye({ cx, closed, expression, eye }: EyeProps) {
   return <Path path={builder.close().build()} color={eye} style="fill" />;
 }
 
+/** 状态徽标的填充色（语义色，与悬浮气泡 done/failed 同源）。 */
+const BADGE_COLORS = {
+  running: "#f19d38",
+  completed: "#34c26b",
+  failed: "#ea4045",
+  cancelled: "#8a8f98",
+  waiting: "#f19d38",
+} as const;
+
+/** 白色小记号（✓ / ✕ / 一）的笔画路径；运行中不画记号只有一个点。 */
+function badgeGlyph(cx: number, cy: number, r: number, status: AgentFaceStatus) {
+  const builder = Skia.PathBuilder.Make();
+  if (status === "completed") {
+    builder.moveTo(cx - r * 0.42, cy + r * 0.05).lineTo(cx - r * 0.08, cy + r * 0.42).lineTo(cx + r * 0.5, cy - r * 0.38);
+  } else if (status === "failed") {
+    builder.moveTo(cx - r * 0.4, cy - r * 0.4).lineTo(cx + r * 0.4, cy + r * 0.4);
+    builder.moveTo(cx + r * 0.4, cy - r * 0.4).lineTo(cx - r * 0.4, cy + r * 0.4);
+  } else {
+    builder.moveTo(cx - r * 0.42, cy).lineTo(cx + r * 0.42, cy);
+  }
+  return builder.build();
+}
+
+/**
+ * 右下角状态徽标：完成后打绿勾、失败打红叉、取消打灰杠、运行中是琥珀点
+ * （带脉动）。白描边把徽标从任何机身色/卡片底上剥出来。
+ */
+function StatusBadge({
+  status,
+  size,
+  pulse,
+}: {
+  status: AgentFaceStatus;
+  size: number;
+  pulse: number;
+}) {
+  const cx = size * 0.8;
+  const cy = size * 0.8;
+  const r = size * 0.21;
+  const dot = status === "running" || status === "waiting";
+  const glyph = dot ? undefined : badgeGlyph(cx, cy, r, status);
+  return (
+    <Group
+      transform={
+        dot && pulse > 1 ? [{ translate: [cx, cy] }, { scale: pulse }, { translate: [-cx, -cy] }] : undefined
+      }
+    >
+      <Circle cx={cx} cy={cy} r={r + size * 0.045} color="#ffffff" opacity={0.92} />
+      <Circle cx={cx} cy={cy} r={r} color={BADGE_COLORS[status]} />
+      {glyph ? (
+        <Path path={glyph} color="#ffffff" style="stroke" strokeWidth={r * 0.34} strokeCap="round" strokeJoin="round" />
+      ) : null}
+    </Group>
+  );
+}
+
 /**
  * 瓦片脸：size 是显示像素（脸本体 20 格按比例缩放）。running 时眨眼
  * （180ms 闭 / 1.4s 开循环）并轻微呼吸（三档缩放循环）；其余状态睁眼。
+ * badge=true 时右下角画状态徽标（完成勾/失败叉/运行脉动点）——小尺寸下
+ * 只靠眼型读不出完成与否，徽标让状态一眼可辨。
  */
 export function AgentFace({
   name,
   status,
   size = 20,
+  badge = false,
 }: {
   name: string;
   status: AgentFaceStatus;
   size?: number;
+  /** 右下角状态徽标（子代理卡与 Agent 工具行开；悬浮球等纯脸场景不开）。 */
+  badge?: boolean;
 }) {
   const body = useMemo(() => avatarColor(name), [name]);
   const expression = expressionOf(status);
@@ -162,6 +230,8 @@ export function AgentFace({
   const closed = blink || expression === "sleepy";
   const eye = "#ffffff";
   const scale = running ? [1, 1.03, 1.06, 1.03][breath] ?? 1 : 1;
+  // 运行中徽标跟呼吸错拍脉动（幅度更大，远处也读得到「还在跑」）。
+  const pulse = running ? [1, 1.16, 1.3, 1.16][breath] ?? 1 : 1;
   return (
     <Canvas style={{ width: size, height: size }}>
       <Group transform={[{ scale: (size / 20) * scale }, { translate: [10 * (1 - scale), 10 * (1 - scale)] }]}>
@@ -169,6 +239,7 @@ export function AgentFace({
         <Eye cx={7} closed={closed} expression={expression} eye={eye} />
         <Eye cx={13} closed={closed} expression={expression} eye={eye} />
       </Group>
+      {badge ? <StatusBadge status={status} size={size} pulse={pulse} /> : null}
     </Canvas>
   );
 }

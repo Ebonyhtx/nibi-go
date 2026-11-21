@@ -1,33 +1,35 @@
 package expo.modules.nibiphone
 
-import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
-import android.widget.TextView
 
 /**
- * 全局悬浮状态气泡：44dp 圆形悬浮球，固定在屏幕右侧竖直居中（拖动留待后续）。
+ * 全局悬浮状态气泡：NIBI 瓦片鸟脸（与消息流 AgentFace 同一形象——圆角方块机身 +
+ * 两只眼），44dp 瓦片悬浮在屏幕右侧竖直居中，外面一圈 60dp 的活动区给运行轨道点。
  * 与审批悬浮卡同一条权限路（TYPE_APPLICATION_OVERLAY + canDrawOverlays），不抢焦点。
- * 状态由 RN 调 setState 驱动，原生不做自动状态机；每次 setState 换背景并启停对应动效：
- * - running：墨蓝底 + 旋转（1.2s 一圈，LinearInterpolator）；
- * - tools：橙底 + 同款旋转（正在执行手机工具/操控）；
- * - waiting：金底 + 脉冲缩放（等待审批/提问）；
- * - done：绿底对勾，停留 2 秒后自动收起（回合完成）；
+ *
+ * 状态由 RN 调 setState 驱动，每个状态换机身色与眼型并启停对应动效：
+ * - running：墨蓝机身，专注眼，眨眼 + 呼吸 + 白点绕瓦片公转（1.2s 一圈）；
+ * - tools：橙机身，同 running 的动效（正在执行手机工具/操控）；
+ * - waiting：奶油金机身，短「困惑」眼 + 脉冲缩放（等待审批/提问）；
+ * - done：绿机身 + 白色对勾，弹性放大一次，停 2 秒自动收起（回合完成）；
  * - hidden：移除悬浮球。
  * 单击气泡把 NIBI-GO 主任务切回前台；ColorOS 的「后台弹出界面」未授权时静默失败。
  */
@@ -37,8 +39,6 @@ class StatusBubble(private val context: Context) {
     context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
   private var view: View? = null
-  private var label: TextView? = null
-  private var animator: ValueAnimator? = null
   private var autoHide: Runnable? = null
 
   companion object {
@@ -69,14 +69,12 @@ class StatusBubble(private val context: Context) {
   private fun apply(state: String) {
     cancelAutoHide()
     when (state) {
-      "running" -> showBall(BG_RUNNING, "N", Color.WHITE).also { startRotate() }
-      "tools" -> showBall(BG_TOOLS, "N", Color.WHITE).also { startRotate() }
-      "waiting" -> {
-        // 金底上白字对比不够，字母用墨蓝。
-        showBall(BG_WAITING, "N", Color.parseColor(BG_RUNNING)).also { startPulse() }
-      }
+      "running" -> showFace(FaceConfig(BG_RUNNING, FaceMode.WORK, eyesDark = false))
+      "tools" -> showFace(FaceConfig(BG_TOOLS, FaceMode.WORK, eyesDark = false))
+      // 金底上白眼对比不够，眼用墨蓝。
+      "waiting" -> showFace(FaceConfig(BG_WAITING, FaceMode.WAIT, eyesDark = true))
       "done" -> {
-        showBall(BG_DONE, "✓", Color.WHITE)
+        showFace(FaceConfig(BG_DONE, FaceMode.DONE, eyesDark = false))
         autoHide = Runnable { removeInternal() }.also {
           handler.postDelayed(it, DONE_STAY_MS)
         }
@@ -85,88 +83,233 @@ class StatusBubble(private val context: Context) {
     }
   }
 
+  private enum class FaceMode {
+    /** 运行态：专注眼 + 眨眼呼吸 + 轨道点公转。 */
+    WORK,
+    /** 等待态：短眼 + 脉冲。 */
+    WAIT,
+    /** 完成态：白色对勾 + 弹性放大。 */
+    DONE,
+  }
+
+  private data class FaceConfig(val bodyHex: String, val mode: FaceMode, val eyesDark: Boolean)
+
   /** 已挂上去就只换肤（避免 remove/add 闪一下）；没挂上去就加进去。 */
-  private fun showBall(bgHex: String, text: String, textColor: Int) {
+  private fun showFace(config: FaceConfig) {
     if (!canDraw()) return
     val current = view
     if (current == null) {
-      val ball = buildBall()
+      val root = FrameLayout(context)
+      val face = TileFaceView(context)
+      root.addView(
+        face,
+        FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER),
+      )
+      root.isClickable = true
+      root.isFocusable = false
+      root.elevation = dp(6).toFloat()
+      root.contentDescription = "NIBI-GO 运行状态，点按回到应用"
+      root.setOnClickListener { openMain() }
       try {
-        windowManager.addView(ball, params())
-        view = ball
+        windowManager.addView(root, params())
+        view = root
       } catch (_: Throwable) {
         // 权限刚被收回等情况下 addView 会抛；保持无球状态。
         view = null
-        label = null
         return
       }
     }
-    val ball = view ?: return
-    ball.background = rounded(Color.parseColor(bgHex))
-    label?.let {
-      it.text = text
-      it.setTextColor(textColor)
-    }
+    (((view as? ViewGroup)?.getChildAt(0)) as? TileFaceView)?.applyConfig(config)
   }
 
-  private fun buildBall(): View {
-    val ball = FrameLayout(context).apply {
-      isClickable = true
-      isFocusable = false
-      elevation = dp(6).toFloat()
-      contentDescription = "NIBI-GO 运行状态，点按回到应用"
-      setOnClickListener { openMain() }
+  /**
+   * 瓦片鸟脸本体：60dp 画布中央画 44dp 圆角方块机身 + 眼（或对勾），
+   * 运行态再画一枚绕瓦片公转的白点。动画全走 ValueAnimator + invalidate。
+   */
+  private class TileFaceView(context: Context) : View(context) {
+    private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val orbitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      style = Paint.Style.FILL
+      color = Color.WHITE
     }
-    val text = TextView(context).apply {
-      text = "N"
-      setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
-      setTextColor(Color.WHITE)
-      typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-      gravity = Gravity.CENTER
+    private val orbitRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      style = Paint.Style.STROKE
+      // 浅色壁纸上白点会隐形：加一圈半透明墨蓝描边。
+      color = Color.parseColor("#551c2f4e")
+      strokeWidth = dp(1.2f)
     }
-    // 44dp 固定尺寸由这一层决定；窗口 WRAP_CONTENT 会跟着它走。
-    text.layoutParams = FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER)
-    label = text
-    ball.addView(text)
-    return ball
-  }
+    private val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      style = Paint.Style.STROKE
+      color = Color.WHITE
+      strokeCap = Paint.Cap.ROUND
+      strokeJoin = Paint.Join.ROUND
+    }
+    private val tileRect = RectF()
 
-  /** 旋转动效：0→360、1.2s 循环、LinearInterpolator（running/tools）。 */
-  private fun startRotate() {
-    stopAnimator()
-    val current = view ?: return
-    animator = ObjectAnimator.ofFloat(current, "rotation", 0f, 360f).apply {
-      duration = 1_200
-      repeatCount = ValueAnimator.INFINITE
-      interpolator = LinearInterpolator()
-      start()
-    }
-  }
+    private var mode = FaceMode.WORK
+    private var eyesDark = false
+    private var bodyHex = BG_RUNNING
 
-  /** 脉冲动效：scaleX/scaleY 1→1.15 往复循环（waiting）。 */
-  private fun startPulse() {
-    stopAnimator()
-    val current = view ?: return
-    animator = ValueAnimator.ofFloat(1f, 1.15f).apply {
-      duration = 600
-      repeatMode = ValueAnimator.REVERSE
-      repeatCount = ValueAnimator.INFINITE
-      addUpdateListener { animation ->
-        val scale = animation.animatedValue as Float
-        current.scaleX = scale
-        current.scaleY = scale
+    // 动画量：呼吸/脉冲共用 scale；orbit 角度；blink 由 handler 打拍。
+    private var scale = 1f
+    private var orbitAngle = 0f
+    private var blink = false
+
+    private var scaleAnim: ValueAnimator? = null
+    private var orbitAnim: ValueAnimator? = null
+    private val blinkTicker = object : Runnable {
+      override fun run() {
+        blink = true
+        invalidate()
+        handler.postDelayed({
+          blink = false
+          invalidate()
+        }, 180)
+        handler.postDelayed(this, 1_400)
       }
-      start()
     }
-  }
+    private val handler = Handler(Looper.getMainLooper())
 
-  private fun stopAnimator() {
-    animator?.cancel()
-    animator = null
-    // 回到基准外观：旋转归零、缩放归一。
-    view?.rotation = 0f
-    view?.scaleX = 1f
-    view?.scaleY = 1f
+    fun applyConfig(config: FaceConfig) {
+      mode = config.mode
+      eyesDark = config.eyesDark
+      bodyHex = config.bodyHex
+      stopAnimations()
+      when (mode) {
+        FaceMode.WORK -> {
+          startBreath()
+          startOrbit()
+          handler.postDelayed(blinkTicker, 1_400)
+        }
+        FaceMode.WAIT -> startPulse()
+        FaceMode.DONE -> startPop()
+      }
+      invalidate()
+    }
+
+    private fun stopAnimations() {
+      scaleAnim?.cancel()
+      scaleAnim = null
+      orbitAnim?.cancel()
+      orbitAnim = null
+      handler.removeCallbacks(blinkTicker)
+      blink = false
+      scale = 1f
+      orbitAngle = 0f
+    }
+
+    private fun startBreath() {
+      scaleAnim = ValueAnimator.ofFloat(1f, 1.06f).apply {
+        duration = 700
+        repeatMode = ValueAnimator.REVERSE
+        repeatCount = ValueAnimator.INFINITE
+        addUpdateListener { animation ->
+          scale = animation.animatedValue as Float
+          invalidate()
+        }
+        start()
+      }
+    }
+
+    private fun startPulse() {
+      scaleAnim = ValueAnimator.ofFloat(1f, 1.12f).apply {
+        duration = 600
+        repeatMode = ValueAnimator.REVERSE
+        repeatCount = ValueAnimator.INFINITE
+        addUpdateListener { animation ->
+          scale = animation.animatedValue as Float
+          invalidate()
+        }
+        start()
+      }
+    }
+
+    /** 完成态：0.6→1 弹性放大一次（Overshoot 回弹）。 */
+    private fun startPop() {
+      scaleAnim = ValueAnimator.ofFloat(0.6f, 1f).apply {
+        duration = 320
+        interpolator = OvershootInterpolator(2f)
+        addUpdateListener { animation ->
+          scale = animation.animatedValue as Float
+          invalidate()
+        }
+        start()
+      }
+    }
+
+    private fun startOrbit() {
+      orbitAnim = ValueAnimator.ofFloat(0f, 360f).apply {
+        duration = 1_200
+        repeatCount = ValueAnimator.INFINITE
+        interpolator = LinearInterpolator()
+        addUpdateListener { animation ->
+          orbitAngle = animation.animatedValue as Float
+          invalidate()
+        }
+        start()
+      }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+      val cx = width / 2f
+      val cy = height / 2f
+      val half = dp(22f)
+      canvas.save()
+      canvas.translate(cx, cy)
+      canvas.scale(scale, scale)
+      bodyPaint.color = Color.parseColor(bodyHex)
+      tileRect.set(-half, -half, half, half)
+      canvas.drawRoundRect(tileRect, dp(10f), dp(10f), bodyPaint)
+
+      when (mode) {
+        FaceMode.DONE -> {
+          // 大白勾：从左中起笔、中点下压、右上收笔。
+          checkPaint.strokeWidth = dp(4f)
+          val check = android.graphics.Path()
+          check.moveTo(-dp(9f), dp(1f))
+          check.lineTo(-dp(2f), dp(8f))
+          check.lineTo(dp(10f), -dp(8f))
+          canvas.drawPath(check, checkPaint)
+        }
+        else -> drawEyes(canvas)
+      }
+      canvas.restore()
+
+      // 轨道点画在瓦片外（不在 scale 里，公转半径固定）。
+      if (mode == FaceMode.WORK) {
+        val radius = dp(27f)
+        val rad = Math.toRadians(orbitAngle.toDouble()) - Math.PI / 2
+        val x = cx + radius * Math.cos(rad).toFloat()
+        val y = cy + radius * Math.sin(rad).toFloat()
+        canvas.drawCircle(x, y, dp(2.6f), orbitPaint)
+        canvas.drawCircle(x, y, dp(2.6f), orbitRingPaint)
+      }
+    }
+
+    /** 两只眼：20 格几何按 44dp 瓦片缩放（与 RN AgentFace 同一比例）。 */
+    private fun drawEyes(canvas: Canvas) {
+      val unit = dp(44f) / 20f
+      eyePaint.color = if (eyesDark) Color.parseColor(BG_RUNNING) else Color.WHITE
+      for (left in intArrayOf(7, 13)) {
+        val x = (left - 10) * unit
+        if (blink) {
+          val lid = RectF(x, -2f * unit - unit * 0.4f, x + 4f * unit, -2f * unit + unit * 0.4f)
+          canvas.drawRoundRect(lid, unit * 0.4f, unit * 0.4f, eyePaint)
+        } else {
+          // 专注眼：4×6 格圆角竖矩形，中心在 (cx±3, -2) 格。
+          val eye = RectF(x, -2f * unit - 3f * unit, x + 4f * unit, -2f * unit + 3f * unit)
+          canvas.drawRoundRect(eye, unit * 2f, unit * 2f, eyePaint)
+        }
+      }
+    }
+
+    override fun onDetachedFromWindow() {
+      stopAnimations()
+      super.onDetachedFromWindow()
+    }
+
+    private fun dp(value: Float): Float = value * resources.displayMetrics.density
   }
 
   private fun cancelAutoHide() {
@@ -176,10 +319,8 @@ class StatusBubble(private val context: Context) {
 
   private fun removeInternal() {
     cancelAutoHide()
-    stopAnimator()
     val current = view ?: return
     view = null
-    label = null
     try {
       windowManager.removeViewImmediate(current)
     } catch (_: Throwable) {
@@ -217,13 +358,8 @@ class StatusBubble(private val context: Context) {
     ).apply {
       // 右侧竖直居中，贴边留一点缝。
       gravity = Gravity.END or Gravity.CENTER_VERTICAL
-      x = dp(6)
+      x = dp(4)
     }
-  }
-
-  private fun rounded(fill: Int): GradientDrawable = GradientDrawable().apply {
-    setColor(fill)
-    cornerRadius = dp(22).toFloat()
   }
 
   private fun dp(value: Int): Int =

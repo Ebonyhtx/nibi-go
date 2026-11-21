@@ -46,6 +46,13 @@ export interface ChatToolDisplay {
   ui?: ChatToolDisplayUi;
 }
 
+/** TodoWrite 单条待办（内核工具输入 `todos[]` 的展示面）。 */
+export interface ChatTodoItem {
+  content: string;
+  status?: string;
+  activeForm?: string;
+}
+
 export interface ChatToolRow {
   kind: "tool";
   key: string;
@@ -57,6 +64,29 @@ export interface ChatToolRow {
   output?: string;
   error?: string;
   display?: ChatToolDisplay;
+  /** TodoWrite 的最新待办清单（其余工具不解析；悬浮工具卡用）。 */
+  todos?: readonly ChatTodoItem[];
+}
+
+/** TodoWrite 输入 → 待办数组；解析失败返回 undefined（不吞掉行本身）。 */
+function parseTodos(inputText: string | undefined): readonly ChatTodoItem[] | undefined {
+  if (typeof inputText !== "string" || inputText.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(inputText) as { todos?: unknown };
+    if (!Array.isArray(parsed.todos)) return undefined;
+    const todos = parsed.todos
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => ({
+        ...(typeof item.content === "string" ? { content: item.content } : { content: "" }),
+        ...(typeof item.status === "string" ? { status: item.status } : {}),
+        ...(typeof item.activeForm === "string" ? { activeForm: item.activeForm } : {}),
+      }))
+      .filter((item) => item.content.length > 0)
+      .slice(0, 50);
+    return todos.length > 0 ? todos : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface PendingPrompt {
@@ -261,6 +291,9 @@ function toolRow(row: ProtocolToolCall): ChatToolRow {
       ? row.output.text.trim().slice(0, 600)
       : undefined;
   const display = toolDisplay(row.display);
+  // TodoWrite 的清单从完整输入解析（detail 只截 120 字不够）；其余工具不解析。
+  const todos =
+    row.toolName === "TodoWrite" ? parseTodos(typeof row.inputText === "string" ? row.inputText : undefined) : undefined;
   return {
     kind: "tool",
     key: `t${row.toolCallId}`,
@@ -270,6 +303,7 @@ function toolRow(row: ProtocolToolCall): ChatToolRow {
     ...(output ? { output } : {}),
     ...(row.error ? { error: row.error.message } : {}),
     ...(display ? { display } : {}),
+    ...(todos ? { todos } : {}),
   };
 }
 

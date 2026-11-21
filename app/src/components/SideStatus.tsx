@@ -1,12 +1,14 @@
-// 会话上下文状态：贴屏幕右侧的圆形占用环。
+// 会话工具悬浮卡：贴屏幕右侧的圆形占用环 + 展开的会话状态面板。
 //
-// 收起时是带呼吸动效的上下文占用环；点一下向左展开当前窗口用量与缓存命中率。
-// 整条状态可以上下拖动；插件状态作为次要行保留。
+// 收起时是带呼吸动效的上下文占用环；子代理在跑时环上方多一枚会眨眼的瓦片脸。
+// 点一下向左展开当前会话状态：子智能体（瓦片脸+状态）、待办进度、上下文窗口
+// 用量与缓存命中率。整条状态可以上下拖动；插件状态作为次要行保留。
 
 import { useMemoryPreferences } from "../memory/useMemoryPreferences";
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { resolveText, type ViewTone } from "@nibi-go/plugin-contract";
+import { AgentFace, type AgentFaceStatus } from "./AgentFace";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -29,6 +31,43 @@ export interface ContextUsage {
   cacheHitRate: number | null;
   /** 内核 /context 分析器的分项（source + chars）；回答“上下文由什么组成”。 */
   breakdown?: readonly { source: string; chars: number }[];
+}
+
+/** 本会话的一个子代理（subagent 行 + Agent 工具行归并，运行中排前）。 */
+export interface SessionSubagentState {
+  key: string;
+  name: string;
+  status: AgentFaceStatus;
+}
+
+/** 最新一次 TodoWrite 的进度快照。 */
+export interface SessionTodoState {
+  done: number;
+  total: number;
+  /** in_progress 那条的 activeForm/正文（没有则缺）。 */
+  active?: string;
+}
+
+/** 会话工具卡的状态面（index.tsx 从会话行派生）。 */
+export interface SessionToolState {
+  subagents: readonly SessionSubagentState[];
+  todos?: SessionTodoState;
+}
+
+/** 子代理状态 → 词与色由调用方按主题取；这里给词。 */
+export function subagentStatusLabel(status: AgentFaceStatus): string {
+  switch (status) {
+    case "running":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已停止";
+    case "waiting":
+      return "等待中";
+  }
 }
 
 /** 内核分项来源 → 面板里的短名。未知来源不吞掉，按原字符串显示。 */
@@ -146,12 +185,15 @@ export function SideStatus({
   usage,
   bottom,
   slotData,
+  session,
 }: {
   plugins: readonly LoadedPlugin[];
   usage: ContextUsage | null;
   bottom: number;
   /** 插件主动推的槽数据：serverName → slotId → data（槽里绑定 `data.push.*`）。 */
   slotData?: Record<string, Record<string, unknown>>;
+  /** 会话工具卡的状态面（子代理/待办）；缺省时只显示上下文。 */
+  session?: SessionToolState;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -280,6 +322,26 @@ export function SideStatus({
       ).trim()
     : "";
   const actualBottom = draggedBottom ?? bottom;
+  const runningSubagent = session?.subagents.find((sub) => sub.status === "running");
+  const runningCount = session?.subagents.filter((sub) => sub.status === "running").length ?? 0;
+  const todoPercent =
+    session?.todos && session.todos.total > 0
+      ? Math.round((session.todos.done / session.todos.total) * 100)
+      : 0;
+
+  const subagentStateColor = (status: AgentFaceStatus): string => {
+    switch (status) {
+      case "running":
+      case "waiting":
+        return t.amber;
+      case "failed":
+        return t.red;
+      case "cancelled":
+        return t.inkFaint;
+      default:
+        return t.ok;
+    }
+  };
 
   return (
     <View
@@ -308,6 +370,60 @@ export function SideStatus({
           accessibilityLabel="收起上下文用量"
           style={styles.pillBody}
         >
+          {session && session.subagents.length > 0 ? (
+            <View style={styles.sessionBlockFirst}>
+              <View style={styles.pillFoot}>
+                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>子智能体</Text>
+                <Text style={[styles.pillMeta, { color: runningCount > 0 ? t.amber : t.inkFaint }]}>
+                  {runningCount > 0 ? `${runningCount} 个运行中` : `共 ${session.subagents.length} 个`}
+                </Text>
+              </View>
+              {session.subagents.map((sub) => (
+                <View key={sub.key} style={styles.subagentRow}>
+                  <AgentFace name={sub.name} status={sub.status} size={18} badge />
+                  <Text style={[styles.subagentName, { color: t.ink }]} numberOfLines={1}>
+                    {sub.name}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.subagentState,
+                      { color: subagentStateColor(sub.status) },
+                    ]}
+                  >
+                    {subagentStatusLabel(sub.status)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {session?.todos ? (
+            <View
+              style={[
+                styles.sessionBlock,
+                session.subagents.length === 0 ? styles.sessionBlockFirst : null,
+              ]}
+            >
+              <View style={styles.pillFoot}>
+                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>待办</Text>
+                <Text style={[styles.cacheValue, { color: t.inkSub }]}>
+                  {session.todos.done}/{session.todos.total}
+                </Text>
+              </View>
+              <View style={[styles.bar, { backgroundColor: t.hairline }]}>
+                <View
+                  style={[
+                    styles.barFill,
+                    { width: `${todoPercent}%`, backgroundColor: t.brand },
+                  ]}
+                />
+              </View>
+              {session.todos.active ? (
+                <Text style={[styles.todoActive, { color: t.inkSub }]} numberOfLines={1}>
+                  {session.todos.active}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           <View style={styles.pillHead}>
             <View style={styles.pillTitleRow}>
               <View style={[styles.statusDot, { backgroundColor: meterColor }]} />
@@ -375,36 +491,50 @@ export function SideStatus({
         </Pressable>
       </Animated.View>
 
-      <Pressable
-        onPress={() => setExpanded((value) => !value)}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel={
-          expanded
-            ? "收起上下文用量，可上下拖动"
-            : `上下文已用 ${Math.round(ratio * 100)}%，点击查看缓存命中率，可上下拖动`
-        }
-        style={styles.dotButton}
-      >
-        <Animated.View
-          style={[
-            styles.dot,
-            {
-              backgroundColor: t.card,
-              borderColor: t.hairline,
-              opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.74, 1] }),
-              transform: [
-                { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.06] }) },
-              ],
-            },
-          ]}
+      <View style={styles.dockCol}>
+        {/* 子代理在跑时环上方亮一枚会眨眼的瓦片脸——不展开也能看到「有代理在干活」。 */}
+        {runningSubagent ? (
+          <Pressable
+            onPress={() => setExpanded(true)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`子智能体 ${runningSubagent.name} 运行中，点按查看会话状态`}
+            style={styles.faceButton}
+          >
+            <AgentFace name={runningSubagent.name} status="running" size={24} badge />
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => setExpanded((value) => !value)}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded
+              ? "收起会话状态，可上下拖动"
+              : `上下文已用 ${Math.round(ratio * 100)}%，${runningSubagent ? "有子智能体运行中，" : ""}点按查看会话状态，可上下拖动`
+          }
+          style={styles.dotButton}
         >
-          <ContextRing ratio={ratio} color={meterColor} track={t.hairline} />
-          <Text style={[styles.percent, { color: t.inkSub }]}>
-            {usage ? `${Math.round(ratio * 100)}` : "—"}
-          </Text>
-        </Animated.View>
-      </Pressable>
+          <Animated.View
+            style={[
+              styles.dot,
+              {
+                backgroundColor: t.card,
+                borderColor: t.hairline,
+                opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.74, 1] }),
+                transform: [
+                  { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.06] }) },
+                ],
+              },
+            ]}
+          >
+            <ContextRing ratio={ratio} color={meterColor} track={t.hairline} />
+            <Text style={[styles.percent, { color: t.inkSub }]}>
+              {usage ? `${Math.round(ratio * 100)}` : "—"}
+            </Text>
+          </Animated.View>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -418,6 +548,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space(1),
   },
+  dockCol: { alignItems: "center", gap: space(1) },
+  faceButton: { padding: 2 },
+  sessionBlock: {
+    gap: space(1),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.05)",
+    paddingBottom: space(0.5),
+  },
+  sessionBlockFirst: {
+    gap: space(1),
+    paddingBottom: space(0.5),
+  },
+  subagentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  subagentName: { fontSize: 10.5, fontWeight: "600", flexShrink: 1 },
+  subagentState: { fontSize: 10, fontWeight: "600" },
+  todoActive: { fontSize: 10 },
   dotButton: { width: 30, height: 46, alignItems: "center", justifyContent: "center" },
   dot: {
     width: 30,
