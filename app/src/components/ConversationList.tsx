@@ -41,6 +41,12 @@ import {
   PluginToolCard,
   type PluginActionHandler,
 } from "./PluginView";
+import {
+  ArtifactCard,
+  MessageMarkdown,
+  hasMarkdownSyntax,
+  splitVisualArtifacts,
+} from "./MessageMarkdown";
 import type { PopupAnchor } from "./PluginPopup";
 
 /** 消息正文：按 `` `行内代码` `` 切段，代码段给等宽字 + 井底色——
@@ -843,7 +849,81 @@ export function ConversationList({
                 />
               </View>
             ) : null}
-            {hasText ? (
+            {hasText && row.streaming ? (
+              <Pressable
+                onLongPress={
+                  onMessageLongPress
+                    ? (event) =>
+                        onMessageLongPress(
+                          row.key,
+                          row.text,
+                          {
+                            x: event.nativeEvent.pageX,
+                            y: event.nativeEvent.pageY,
+                            width: 1,
+                            height: 1,
+                          },
+                          "assistant",
+                        )
+                    : undefined
+                }
+                delayLongPress={350}
+                accessibilityRole="button"
+                accessibilityLabel="助手消息，长按打开动作"
+                style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
+              >
+                {row.model && modelChangeKeys.has(row.key) ? (
+                  <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
+                ) : null}
+                {/* 流式中用纯文本（每帧全量重排 markdown 太重），落定后升级富排版。 */}
+                <BodyText text={row.text} color={th.ink} />
+                <StreamingCursor />
+              </Pressable>
+            ) : hasText && hasMarkdownSyntax(row.text) ? (
+              // 落定的富排版：平铺（桌面客户端消息流同款），按围栏切片——工件卡
+              // 渲染在长按 Pressable 之外（嵌套 Pressable 会被外层吞掉触摸）。
+              <View style={styles.bubbleFlat}>
+                {row.model && modelChangeKeys.has(row.key) ? (
+                  <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
+                ) : null}
+                {(() => {
+                  const split = splitVisualArtifacts(row.text);
+                  return split.segments.map((segment, index) =>
+                    segment.kind === "artifact" ? (
+                      <ArtifactCard
+                        key={`a${segment.value}`}
+                        artifact={split.artifacts[Number(segment.value)]!}
+                      />
+                    ) : (
+                      <Pressable
+                        key={`m${index}`}
+                        onLongPress={
+                          onMessageLongPress
+                            ? (event) =>
+                                onMessageLongPress(
+                                  row.key,
+                                  row.text,
+                                  {
+                                    x: event.nativeEvent.pageX,
+                                    y: event.nativeEvent.pageY,
+                                    width: 1,
+                                    height: 1,
+                                  },
+                                  "assistant",
+                                )
+                            : undefined
+                        }
+                        delayLongPress={350}
+                        accessibilityRole="button"
+                        accessibilityLabel="助手消息，长按打开动作"
+                      >
+                        <MessageMarkdown text={segment.value} />
+                      </Pressable>
+                    ),
+                  );
+                })()}
+              </View>
+            ) : hasText ? (
               <Pressable
                 onLongPress={
                   onMessageLongPress
@@ -870,7 +950,6 @@ export function ConversationList({
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
                 ) : null}
                 <BodyText text={row.text} color={th.ink} />
-                {row.streaming ? <StreamingCursor /> : null}
               </Pressable>
             ) : row.streaming ? (
               // 只有思考、还没出正文：气泡不渲染，光标单独跟着思考块。
@@ -1419,6 +1498,9 @@ const styles = StyleSheet.create({
     paddingVertical: space(2),
     gap: 4,
   },
+  // 富排版消息的平铺容器：与思考块同列宽（assistantRow 已对齐），不套卡。
+  // 必须 stretch——自动宽容器里 flex:1 的子列会塌成 0（工件卡标题消失的根因）。
+  bubbleFlat: { alignSelf: "stretch", paddingVertical: space(1), gap: space(1.5) },
   // 带注释卡片的用户气泡必须给足宽度：卡片的内容是 flex:1，收缩宽度会把正文挤成 0。
   bubbleWide: { width: "86%" },
   model: { ...text("micro") },
