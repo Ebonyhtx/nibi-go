@@ -35,6 +35,11 @@ import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
 import { syncNotificationChannel } from "../../relay/notifications";
 import {
+  checkForUpdate,
+  downloadUpdate,
+  installUpdate,
+} from "../../relay/updater";
+import {
   updateDevicePreferences,
   useDevicePreferences,
 } from "../../settings/devicePreferences";
@@ -60,6 +65,9 @@ export default function SettingsHomeScreen() {
   const device = useDevicePreferences();
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  // 应用内更新（GitHub Releases + 摘要校验的全链路已在 relay/updater，这里只差接线）。
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入设置先明确收起。
   useFocusEffect(
@@ -100,6 +108,49 @@ export default function SettingsHomeScreen() {
         },
       },
     ]);
+  }
+
+  async function checkUpdate() {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    setUpdateMessage("正在检查…");
+    try {
+      const info = await checkForUpdate();
+      if (!info) {
+        setUpdateMessage(`已是最新版本（${version}）`);
+        return;
+      }
+      const sizeLabel = info.size ? `，${Math.round(info.size / 1024 / 1024)} MB` : "";
+      setUpdateMessage(null);
+      Alert.alert(
+        `发现新版本 ${info.version}`,
+        `当前 ${version} → 新版 ${info.version}${sizeLabel}。下载完成后会校验摘要并调起安装。`,
+        [
+          { text: "取消", style: "cancel", onPress: () => setUpdateBusy(false) },
+          {
+            text: "下载并安装",
+            onPress: () => {
+              setUpdateMessage(`正在下载 ${info.version}…`);
+              void downloadUpdate(info)
+                .then(({ apkPath }) => {
+                  setUpdateMessage(null);
+                  return installUpdate(apkPath).then((launched) => {
+                    if (!launched) setUpdateMessage("无法调起安装器，请手动安装");
+                  });
+                })
+                .catch((error: unknown) => {
+                  setUpdateMessage(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                })
+                .finally(() => setUpdateBusy(false));
+            },
+          },
+        ],
+      );
+    } finally {
+      setUpdateBusy(false);
+    }
   }
 
   return (
@@ -209,6 +260,13 @@ export default function SettingsHomeScreen() {
 
         <AppearIn delay={staggerDelay(5, 32, 240)}>
           <SectionCard label="Agent">
+            <Row
+              icon="pen"
+              title="个性化指令"
+              detail="写给所有会话的全局指令"
+              onPress={() => router.push("/settings/personalization")}
+            />
+            <Divider />
             <ToggleRow
               icon="clock"
               tone="plain"
@@ -221,7 +279,7 @@ export default function SettingsHomeScreen() {
             <Row
               icon="sparkles"
               title="记忆"
-              detail="自动记忆"
+              detail="按项目分开保存"
               onPress={() => router.push("/settings/memory")}
             />
             <Divider />
@@ -316,8 +374,16 @@ export default function SettingsHomeScreen() {
 
         <AppearIn delay={staggerDelay(9, 32, 240)}>
           <SectionCard label="关于">
-            {/* 走 Row 的图标槽：标题左缘与其它卡对齐（2.0.1 审查）。 */}
             <Row icon="info" tone="plain" title="NIBI-GO" detail={`版本 ${version}`} />
+            <Divider />
+            <Row
+              icon="download"
+              tone="steel"
+              title="检查更新"
+              detail={updateMessage ?? "从 GitHub Releases 检查新版本"}
+              onPress={() => void checkUpdate()}
+              right={updateBusy ? <ActivityIndicator color={th.brand} size="small" /> : undefined}
+            />
           </SectionCard>
         </AppearIn>
       </ScrollView>
