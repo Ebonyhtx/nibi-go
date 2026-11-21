@@ -1,8 +1,10 @@
 import { Stack, router } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { loadAppearancePreferences } from "../appearance/preferences";
+import { useNibiScheme } from "../theme";
 import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/notifications";
 
 // 根导航（A0 骨架）：首屏 = GO 主体（D2 修订）；WORK 是抽屉里的目的地。
@@ -11,6 +13,7 @@ import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/noti
 // 读盘失败回落「跟随系统」，不阻塞界面（finally 里放行）。
 export default function RootLayout() {
   const [appearanceReady, setAppearanceReady] = useState(false);
+  const scheme = useNibiScheme();
 
   useEffect(() => {
     void ensureNotificationSetup();
@@ -29,6 +32,8 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       <Stack screenOptions={{ headerShown: false }} />
     </SafeAreaProvider>
   );

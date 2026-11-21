@@ -789,7 +789,9 @@ export default function GoHomeScreen() {
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const livePetState = useMemo<PetStateId>(() => {
-    if (conversation.statusKind === "error") return PET_STATE.error;
+    // 配置缺失（未配 Provider / 没默认模型）是设置问题，不是链路故障——别让宠物一直报红。
+    const setupIssue = conversation.status.includes("没有可用的默认模型");
+    if (conversation.statusKind === "error" && !setupIssue) return PET_STATE.error;
     if (conversation.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
       return PET_STATE.waiting;
     }
@@ -806,7 +808,14 @@ export default function GoHomeScreen() {
     if (celebrating) return PET_STATE.done;
     if (!conversation.ready) return PET_STATE.sleeping;
     return PET_STATE.idle;
-  }, [conversation.statusKind, conversation.rows, conversation.turn, conversation.ready, celebrating]);
+  }, [
+    conversation.status,
+    conversation.statusKind,
+    conversation.rows,
+    conversation.turn,
+    conversation.ready,
+    celebrating,
+  ]);
   // 回合完成 → 播一次 done（只在「从 running 变 idle 且最后一轮 completed」时触发）。
   const lastTurnState = useMemo(() => {
     for (let i = conversation.rows.length - 1; i >= 0; i--) {
