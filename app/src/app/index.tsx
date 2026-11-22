@@ -38,18 +38,24 @@ import { PillButton } from "../components/ui/PillButton";
 import { ModelPickerSheet, type ModelChoice } from "../components/ModelPickerSheet";
 import { thinkingLevelLabel } from "../components/ThinkingRail";
 import { ComposerTokens } from "../components/ComposerTokens";
-import { GoDrawer, GoRail, GoSidebar, type GoDrawerHandle } from "../components/GoDrawer";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { BlurTargetView } from "expo-blur";
+import Reanimated, {
+  Easing as REasing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
+import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus, type SessionTodoState } from "../components/SideStatus";
-import {
-  WorkspacePanel,
-  type WorkspacePanelHandle,
-  type WorkspaceSubagent,
-} from "../components/WorkspacePanel";
+import { WorkspacePanel, type WorkspaceSubagent } from "../components/WorkspacePanel";
 import { NewChatSheet } from "../components/NewChatSheet";
 import type { AgentFaceStatus } from "../components/AgentFace";
 import type { ChatRow } from "@nibi-go/kernel-session";
@@ -888,53 +894,111 @@ export default function GoHomeScreen() {
     );
     return session?.workspace?.workspacePath ?? null;
   }, [conversation.sessions, conversation.activeSessionId]);
-  // 中部横向手势：任意位置起滑（运营者 2026-11-22 要求，对齐豆包的手感）——
-  // 往右拖出左抽屉、往左拖出右侧工作区面板，面板跟手；纵向滑动让位给列表滚动。
-  // 用 capture 阶段抢水平手势，ScrollView 纵向不受影响。
-  const sideGestureRef = useRef<"drawer" | "panel" | null>(null);
-  const sidePan = useMemo(
+  // 侧栏进度（Reanimated 共享值，UI 线程驱动）：+1 = 左抽屉完全展开，
+  // -1 = 右侧面板完全展开，0 = 都收起。中部任意位置横滑跟手（对齐豆包手感），
+  // 展开后反向滑回即可关闭；纵向滚动不受影响（failOffsetY 让位）。
+  const side = useSharedValue(0);
+  // 当前展开侧（0 收起 / 1 抽屉 / -1 面板）：手势方向判定用，工作线程可读。
+  const sideMode = useSharedValue(0);
+  const drawerW = useSharedValue(300);
+  const panelW = useSharedValue(360);
+  const { width: windowWidth } = useWindowDimensions();
+  useEffect(() => {
+    drawerW.value = Math.min(300, Math.round(windowWidth * 0.8));
+    panelW.value = Math.min(360, Math.round(windowWidth * 0.88));
+  }, [windowWidth, drawerW, panelW]);
+  useEffect(() => {
+    sideMode.value = drawerOpen ? 1 : workspacePanelOpen ? -1 : 0;
+  }, [drawerOpen, workspacePanelOpen, sideMode]);
+  // 玻璃模糊目标：被侧栏遮住的主内容。expo-blur 的 Android 实现必须把内容包进
+  // BlurTargetView 并传给 BlurView，否则 blurMethod 静默为 none（真机实测无模糊）。
+  const blurTargetRef = useRef<ComponentRef<typeof View> | null>(null);
+  const SIDE_TIMING = { duration: 300, easing: REasing.out(REasing.cubic) };
+  const openDrawerSide = () => {
+    blurComposer();
+    dismissKeyboardOnce(Keyboard.dismiss);
+    setDrawerOpen(true);
+    side.value = withTiming(1, SIDE_TIMING);
+  };
+  const closeDrawerSide = () => {
+    setDrawerOpen(false);
+    side.value = withTiming(0, SIDE_TIMING);
+  };
+  const openPanelSide = () => {
+    blurComposer();
+    dismissKeyboardOnce(Keyboard.dismiss);
+    setWorkspacePanelOpen(true);
+    side.value = withTiming(-1, SIDE_TIMING);
+  };
+  const closePanelSide = () => {
+    setWorkspacePanelOpen(false);
+    side.value = withTiming(0, SIDE_TIMING);
+  };
+  const sideGesture = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_event, gesture) => {
-          if (Math.abs(gesture.dx) < 16) return false;
-          if (Math.abs(gesture.dx) < Math.abs(gesture.dy) * 1.6) return false;
-          if (gesture.dx > 0 && !drawerOpen) {
-            sideGestureRef.current = "drawer";
-            return true;
+      Gesture.Pan()
+        .activeOffsetX([-14, 14])
+        .failOffsetY([-16, 16])
+        .onUpdate((event) => {
+          "worklet";
+          const mode = sideMode.value;
+          if (mode === 0) {
+            side.value =
+              event.translationX > 0
+                ? Math.min(1, event.translationX / drawerW.value)
+                : Math.max(-1, event.translationX / panelW.value);
+          } else if (mode === 1) {
+            // 抽屉已开：往左滑按比例收起（往右到顶不回弹过界）。
+            side.value = Math.min(1, Math.max(0, 1 + event.translationX / drawerW.value));
+          } else {
+            // 面板已开：往右滑按比例收起。
+            side.value = Math.min(0, Math.max(-1, -1 + event.translationX / panelW.value));
           }
-          if (gesture.dx < 0 && !workspacePanelOpen) {
-            sideGestureRef.current = "panel";
-            return true;
+        })
+        .onEnd((event) => {
+          "worklet";
+          const mode = sideMode.value;
+          const progress = side.value;
+          const fast = Math.abs(event.velocityX) > 600;
+          if (mode === 0) {
+            if (progress > 0.35 || (fast && event.velocityX > 0)) {
+              side.value = withTiming(1, { duration: 220, easing: REasing.out(REasing.cubic) });
+              runOnJS(openDrawerSide)();
+            } else if (progress < -0.35 || (fast && event.velocityX < 0)) {
+              side.value = withTiming(-1, { duration: 220, easing: REasing.out(REasing.cubic) });
+              runOnJS(openPanelSide)();
+            } else {
+              side.value = withTiming(0, { duration: 180, easing: REasing.out(REasing.cubic) });
+            }
+          } else if (mode === 1) {
+            if (progress < 0.65 || (fast && event.velocityX < 0)) runOnJS(closeDrawerSide)();
+            else side.value = withTiming(1, { duration: 180, easing: REasing.out(REasing.cubic) });
+          } else if (progress > -0.65 || (fast && event.velocityX > 0)) {
+            runOnJS(closePanelSide)();
+          } else {
+            side.value = withTiming(-1, { duration: 180, easing: REasing.out(REasing.cubic) });
           }
-          return false;
-        },
-        onPanResponderGrant: () => {
-          if (sideGestureRef.current === "drawer") drawerRef.current?.beginDrag();
-          else panelRef.current?.beginDrag();
-        },
-        onPanResponderMove: (_event, gesture) => {
-          if (sideGestureRef.current === "drawer") drawerRef.current?.moveDrag(gesture.dx);
-          else if (sideGestureRef.current === "panel") panelRef.current?.moveDrag(gesture.dx);
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          if (sideGestureRef.current === "drawer") drawerRef.current?.endDrag(gesture.vx);
-          else if (sideGestureRef.current === "panel") panelRef.current?.endDrag(gesture.vx);
-          sideGestureRef.current = null;
-        },
-        onPanResponderTerminate: () => {
-          if (sideGestureRef.current === "drawer") drawerRef.current?.endDrag(0);
-          else if (sideGestureRef.current === "panel") panelRef.current?.endDrag(0);
-          sideGestureRef.current = null;
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [drawerOpen, workspacePanelOpen],
+        }),
+    // 回调都是稳定的 setter；闭包捕获的 setState 引用不会随渲染失效。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
-  // 两个侧栏的句柄（跟手拖动）+ 「回到底部」浮钮状态。
-  const drawerRef = useRef<GoDrawerHandle | null>(null);
-  const panelRef = useRef<WorkspacePanelHandle | null>(null);
-  const [atBottom, setAtBottom] = useState(true);
+  const stageGestureStyle = useAnimatedStyle(() => ({
+    // 拖动时舞台轻微反向视差（层次感；纯 transform，不触发重排）。
+    transform: [{ translateX: side.value === 0 ? 0 : side.value * 6 }],
+  }));  const [atBottom, setAtBottom] = useState(true);
   const [jumpSignal, setJumpSignal] = useState(0);
+  // 键盘取证：侧栏开着时如果 IME 还是弹出来，把调用栈打进 logcat（排查复发用）。
+  const sideOpenRef = useRef({ drawer: false, panel: false });
+  sideOpenRef.current = { drawer: drawerOpen, panel: workspacePanelOpen };
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardDidShow", () => {
+      if (sideOpenRef.current.drawer || sideOpenRef.current.panel) {
+        console.warn("[nibi] keyboard shown while side panel open", new Error().stack);
+      }
+    });
+    return () => shown.remove();
+  }, []);
 
   // 悬浮工具卡的会话状态面：子代理（subagent 行 + Agent 工具行归并）与最新待办进度。
   // 递归收 toolGroup/process 里的嵌套行；Agent 工具行本身 success ≠ 子代理完成——
@@ -1050,11 +1114,7 @@ export default function GoHomeScreen() {
       setSidebarOpen(true);
     } else {
       // 开抽屉前就 blur：抽屉本身会收键盘，但焦点还在输入框，点设置时输入法会闪。
-      leaveComposerForNavigation({
-        blur: blurComposer,
-        dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
-        navigate: () => setDrawerOpen(true),
-      });
+      openDrawerSide();
     }
   };
 
@@ -1101,7 +1161,7 @@ export default function GoHomeScreen() {
         pointerEvents="none"
       />
 
-      <View style={styles.shell}>
+      <BlurTargetView ref={blurTargetRef} style={styles.shell}>
         {hasSidebar ? (
           <GoSidebar
             workspaceRoot={workspaceRoot()}
@@ -1239,7 +1299,7 @@ export default function GoHomeScreen() {
                     th.elevation.card,
                   ]}
                   accessibilityLabel="打开工作区面板"
-                  onPress={() => setWorkspacePanelOpen(true)}
+                  onPress={openPanelSide}
                 >
                   <Icon name="folder" size={17} color={th.ink} />
                 </PressableScale>
@@ -1298,13 +1358,14 @@ export default function GoHomeScreen() {
             ) : null}
 
             {/* 正文区：有消息就是会话流；没有消息才是空态说明（会话即首页）。 */}
-            <View
+            <GestureDetector gesture={sideGesture}>
+            <Reanimated.View
               style={[
                 styles.stage,
                 conversation.rows.length > 0 && styles.stageList,
                 layout.landscapeCompact && styles.stageLandscape,
+                stageGestureStyle,
               ]}
-              {...sidePan.panHandlers}
             >
               {conversation.rows.length > 0 ? (
                 <ConversationList
@@ -1411,7 +1472,8 @@ export default function GoHomeScreen() {
                 </View>
               </View>
               ) : null}
-            </View>
+            </Reanimated.View>
+            </GestureDetector>
 
             {hint ? (
               <View
@@ -1487,7 +1549,9 @@ export default function GoHomeScreen() {
                 placeholderTextColor={th.inkFaint}
                 style={[styles.composerInput, { color: th.ink }]}
                 returnKeyType="send"
-                editable={conversation.ready && !composerLocked}
+                editable={
+                  conversation.ready && !composerLocked && !drawerOpen && !workspacePanelOpen
+                }
                 onFocus={() => {
                   composerFocusedRef.current = true;
                 }}
@@ -1532,21 +1596,15 @@ export default function GoHomeScreen() {
             </Animated.View>
           </View>
         </View>
-      </View>
+      </BlurTargetView>
 
       {!inShell ? (
         <GoDrawer
-          ref={drawerRef}
+          blurTarget={blurTargetRef}
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          onSwipeOpen={() => {
-            // 中部手势开抽屉也要先收输入框/键盘：键盘浮层会压在抽屉上层，
-            // 一直可见到导航时才缩回——看起来就是「键盘闪一下」（运营者反馈）。
-            blurComposer();
-            dismissKeyboardOnce(Keyboard.dismiss);
-            setDrawerOpen(true);
-          }}
+          progress={side}
+          onClose={closeDrawerSide}
           petState={petState}
           sessions={conversation.sessions}
           archivedSessions={conversation.archivedSessions}
@@ -1567,9 +1625,10 @@ export default function GoHomeScreen() {
       ) : null}
 
       <WorkspacePanel
-        ref={panelRef}
+        blurTarget={blurTargetRef}
         visible={workspacePanelOpen}
-        onClose={() => setWorkspacePanelOpen(false)}
+        progress={side}
+        onClose={closePanelSide}
         workspacePath={activeWorkspacePath}
         subagents={sessionTools.subagents.map(
           (entry): WorkspaceSubagent => ({
@@ -1580,11 +1639,6 @@ export default function GoHomeScreen() {
             ...(entry.childSessionId ? { childSessionId: entry.childSessionId } : {}),
           }),
         )}
-        onSwipeOpen={() => {
-          blurComposer();
-          dismissKeyboardOnce(Keyboard.dismiss);
-          setWorkspacePanelOpen(true);
-        }}
       />
 
       {/* 「回到底部」浮钮：渲染在这层（晚于正文的渐变遮罩），离开底部时出现。 */}

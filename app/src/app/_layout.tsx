@@ -1,4 +1,5 @@
 import { Stack, router } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -33,10 +34,12 @@ export default function RootLayout() {
   if (!appearanceReady) return null;
 
   return (
-    <SafeAreaProvider>
-      {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
-      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false }} />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <Stack screenOptions={{ headerShown: false }} />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

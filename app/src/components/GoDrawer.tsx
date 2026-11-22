@@ -8,19 +8,19 @@
 //   2. 搜索井：surfaceSoft 内嵌面，聚焦时发丝线加深
 //   3. 会话列表：按日期分组；抽屉展开时分组头/行 stagger 入场；长按行菜单（归档）
 //   4. 底部工具条：本机状态点 + WORK / 插件 / 设置圆键（玻璃底 + 发丝线）
-import {
-  forwardRef,
-  Fragment,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentRef,
-} from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
+import { BlurView } from "expo-blur";
 import {
   Alert,
-  Animated,
   Image,
   Keyboard,
   Pressable,
@@ -28,6 +28,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   useWindowDimensions,
   View,
   type AlertButton,
@@ -734,12 +735,33 @@ export interface GoDrawerHandle {
   endDrag: (velocityX: number) => void;
 }
 
-/** compact：滑出抽屉。 */
-export const GoDrawer = forwardRef<GoDrawerHandle, {
+/** compact：滑出抽屉（进度由父级共享值驱动：+1 完全展开、0 收起）。 */
+export function GoDrawer({
+  open,
+  onClose,
+  progress,
+  blurTarget,
+  petState,
+  onlineDevices,
+  sessions,
+  archivedSessions,
+  activeSessionId,
+  workspaceRoot,
+  onOpenSession,
+  onNewSession,
+  onArchiveSession,
+  onUnarchiveSession,
+  onDeleteSession,
+  onDeleteAllArchived,
+  onSessionActions,
+  onBeforeNavigate,
+}: {
   open: boolean;
   onClose: () => void;
-  /** 中部手势拖出后的停靠回调（父级把 open 置 true）。 */
-  onSwipeOpen?: () => void;
+  /** 侧栏进度（父级 index 的共享值，中部手势在 UI 线程直接写它）。 */
+  progress: SharedValue<number>;
+  /** 玻璃模糊目标（主内容包在 BlurTargetView 里）。 */
+  blurTarget?: React.RefObject<ComponentRef<typeof View> | null>;
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
@@ -762,120 +784,72 @@ export const GoDrawer = forwardRef<GoDrawerHandle, {
   onSessionActions?: (sessionId: string) => void;
   /** 离屏导航前的清理（blur 首页输入框）。 */
   onBeforeNavigate?: () => void;
-}>(function GoDrawer(
-  {
-    open,
-    onClose,
-    onSwipeOpen,
-    petState,
-    onlineDevices,
-    sessions,
-    archivedSessions,
-    activeSessionId,
-    workspaceRoot,
-    onOpenSession,
-    onNewSession,
-    onArchiveSession,
-    onUnarchiveSession,
-    onDeleteSession,
-    onDeleteAllArchived,
-    onSessionActions,
-    onBeforeNavigate,
-  },
-  ref,
-) {
+}) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(300, Math.round(width * 0.8));
+  const panelWidthSV = useSharedValue(panelWidth);
+  const colorScheme = useColorScheme();
+  const themeScheme = colorScheme === "dark" ? "dark" : "light";
+  panelWidthSV.value = panelWidth;
 
-  const slide = useRef(new Animated.Value(0)).current;
-  const dim = useRef(new Animated.Value(0)).current;
-  // 面板内容的轻视差：展开时内容再从 -8px 滑到位（晚 40ms 起步），与面板滑动错开一点层次。
-  // 收起不复位（面板已在滑出，看不见）；下次展开前 setValue(0) 重新起跑。
-  const content = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    // 面板是「大件」，走 slow 320 + standard 曲线（动效契约）；遮罩更快一档，跟手不拖沓。
-    Animated.timing(slide, {
-      toValue: open ? 1 : 0,
-      duration: motion.duration.slow,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-    Animated.timing(dim, {
-      toValue: open ? 1 : 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-    if (open) {
-      content.setValue(0);
-      Animated.timing(content, {
-        toValue: 1,
-        delay: 40,
-        duration: motion.duration.base,
-        easing: easingStandard,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [open, slide, dim, content]);
+  // 进度 → 位移/遮罩/视差（全部在 UI 线程按共享值插值，跟手零桥接）。
+  const panelStyle = useAnimatedStyle(() => {
+    const p = Math.min(1, Math.max(0, progress.value));
+    return { transform: [{ translateX: -panelWidthSV.value * (1 - p) }] };
+  });
+  const contentStyle = useAnimatedStyle(() => {
+    const p = Math.min(1, Math.max(0, progress.value));
+    return { transform: [{ translateX: -10 * (1 - p) }] };
+  });
+  const dimStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(1, Math.max(0, progress.value)),
+  }));
 
-  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-panelWidth, 0] });
-  const contentX = content.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] });
-
-  // 跟手拖动 API：主界面中部横向手势（任意位置起滑）经 ref 驱动这里——
-  // 面板跟着手指出来，松手过阈值（位移 35% 或速度 0.5）停靠打开，否则弹回。
-  const dragProgress = useRef(0);
-  const panelWidthRef = useRef(panelWidth);
-  panelWidthRef.current = panelWidth;
-  const settleClosed = () => {
-    dragProgress.current = 0;
-    Animated.timing(slide, {
-      toValue: 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-    Animated.timing(dim, {
-      toValue: 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-  };
-  useImperativeHandle(
-    ref,
-    () => ({
-      beginDrag: () => {
-        slide.stopAnimation();
-        dim.stopAnimation();
-        slide.setValue(0);
-        dim.setValue(0);
-        dragProgress.current = 0;
-      },
-      moveDrag: (dx: number) => {
-        const progress = Math.min(1, Math.max(0, dx / panelWidthRef.current));
-        dragProgress.current = progress;
-        slide.setValue(progress);
-        dim.setValue(progress);
-      },
-      endDrag: (velocityX: number) => {
-        const shouldOpen = dragProgress.current > 0.35 || velocityX > 0.5;
-        if (shouldOpen) onSwipeOpen?.();
-        else settleClosed();
-      },
-    }),
-    [slide, dim, onSwipeOpen],
+  // 展开后在面板上往左拖 = 跟手关闭；松手过 30% 或甩动方向对就收。
+  const closeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-16, 16])
+        .onUpdate((event) => {
+          "worklet";
+          progress.value = Math.min(
+            1,
+            Math.max(0, 1 + event.translationX / panelWidthSV.value),
+          );
+        })
+        .onEnd((event) => {
+          "worklet";
+          const p = progress.value;
+          if (p < 0.7 || (Math.abs(event.velocityX) > 600 && event.velocityX < 0)) {
+            runOnJS(onClose)();
+          } else {
+            progress.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.cubic) });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
+
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Animated.View
-        style={[styles.dim, { opacity: dim, backgroundColor: t.backdrop }]}
-        pointerEvents={open ? "auto" : "none"}
-      >
+      {/* 玻璃模糊 + 渐暗：豆包式层次（模糊层常驻，透明度跟进度走）。 */}
+      <Animated.View style={[styles.dim, dimStyle]} pointerEvents={open ? "auto" : "none"}>
+        <BlurView
+          blurTarget={blurTarget}
+          intensity={26}
+          tint={themeScheme === "dark" ? "dark" : "light"}
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.backdrop, opacity: 0.35 }]} pointerEvents="none" />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭抽屉" />
       </Animated.View>
+      <GestureDetector gesture={closeGesture}>
       <Animated.View
         pointerEvents={open ? "auto" : "none"}
         style={[
@@ -885,13 +859,13 @@ export const GoDrawer = forwardRef<GoDrawerHandle, {
             backgroundColor: t.card,
             borderRightColor: t.hairline,
             paddingTop: insets.top,
-            transform: [{ translateX }],
             // 弹层投影（elevation.menu）：压在正文上要有「浮起来」的一档。
             ...t.elevation.menu,
           },
+          panelStyle,
         ]}
       >
-        <Animated.View style={[styles.panelContent, { transform: [{ translateX: contentX }] }]}>
+        <Animated.View style={[styles.panelContent, contentStyle]}>
           <GoNavContent
             petState={petState}
             insetTop={0}
@@ -914,9 +888,10 @@ export const GoDrawer = forwardRef<GoDrawerHandle, {
           />
         </Animated.View>
       </Animated.View>
+      </GestureDetector>
     </View>
   );
-});
+}
 
 /** expanded：常驻侧栏（内容同一份，宽度按 sidebarWidth 固定）。 */
 export function GoSidebar({

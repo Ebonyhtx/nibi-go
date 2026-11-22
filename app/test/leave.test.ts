@@ -137,7 +137,7 @@ describe("入口接线（防回归）", () => {
     expect(home).toContain("composerFocusedRef");
     // 离屏导航窗口期锁死 composer（editable=false 让 IME 失去 served view）。
     expect(home).toContain("composerLocked");
-    expect(home).toContain("editable={conversation.ready && !composerLocked}");
+    expect(home).toMatch(/editable=\{\s*conversation\.ready && !composerLocked && !drawerOpen && !workspacePanelOpen/);
   });
 
   it("设置页 focus 时仍明确收键盘", () => {

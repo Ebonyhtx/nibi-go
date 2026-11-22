@@ -5,20 +5,19 @@
 //      （只读订阅子会话 topic，不占主会话订阅槽；运营者明确要求在面板里看）。
 // 动效与结构对齐 GoDrawer（slide/dim 两段 timing + 轻视差），方向从右、宽一档；
 // 暴露 WorkspacePanelHandle 供主界面中部横向手势跟手拖动。
-import {
-  Fragment,
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentRef,
-  type ReactNode,
-} from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
+import { BlurView } from "expo-blur";
 import {
   Alert,
-  Animated,
   Image,
   Keyboard,
   Pressable,
@@ -26,6 +25,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -187,108 +187,84 @@ export interface WorkspacePanelHandle {
 /** 面板一级入口：胶囊卡片（对齐 NIBI 客户端右侧面板的语义——先选入口，再下钻）。 */
 type WorkspaceMode = "hub" | "files" | "agents";
 
-export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
+/** 右侧工作区面板（进度由父级共享值驱动：-1 完全展开、0 收起）。 */
+export function WorkspacePanel({
+  visible,
+  onClose,
+  progress,
+  blurTarget,
+  workspacePath,
+  subagents,
+}: {
   visible: boolean;
   onClose: () => void;
+  /** 侧栏进度（index 的共享值：+1 左抽屉 / -1 右面板 / 0 收起）。 */
+  progress: SharedValue<number>;
+  /** 玻璃模糊目标（主内容包在 BlurTargetView 里）。 */
+  blurTarget?: React.RefObject<ComponentRef<typeof View> | null>;
   /** 当前项目的绝对目录；null 时整块内容显示空态。 */
   workspacePath: string | null;
   subagents: readonly WorkspaceSubagent[];
-  /** 中部手势拖出后的停靠回调（父级把 visible 置 true）——缺了它面板会卡在半开。 */
-  onSwipeOpen?: () => void;
-}>(function WorkspacePanel({ visible, onClose, workspacePath, subagents, onSwipeOpen }, ref) {
+}) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(360, Math.round(width * 0.88));
+  const panelWidthSV = useSharedValue(panelWidth);
+  panelWidthSV.value = panelWidth;
+  const colorScheme = useColorScheme();
   // 一级入口；打开面板回到 hub（每次进来先选入口）。
   const [mode, setMode] = useState<WorkspaceMode>("hub");
   // 面板内正在查看的子智能体（有子会话的行点进来直接看消息流）。
   const [transcriptAgent, setTranscriptAgent] = useState<WorkspaceSubagent | null>(null);
-
-  const slide = useRef(new Animated.Value(0)).current;
-  const dim = useRef(new Animated.Value(0)).current;
-  // 内容轻视差：展开时从 +8px 滑到位（右侧抽屉，方向与 GoDrawer 相反）。
-  const content = useRef(new Animated.Value(1)).current;
-  // 搜索框 ref：收起时 blur 用（见上面的动效 effect）。
   const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
-  // 手势拖动进度 & 面板宽度引用（中部横滑跟手用）。
-  const dragProgress = useRef(0);
-  const dragWidthRef = useRef(panelWidth);
-  dragWidthRef.current = panelWidth;
-  const settleClosed = () => {
-    dragProgress.current = 0;
-    Animated.timing(slide, {
-      toValue: 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-    Animated.timing(dim, {
-      toValue: 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-  };
-  useImperativeHandle(
-    ref,
-    () => ({
-      beginDrag: () => {
-        slide.stopAnimation();
-        dim.stopAnimation();
-        slide.setValue(0);
-        dim.setValue(0);
-        dragProgress.current = 0;
-      },
-      moveDrag: (dx: number) => {
-        // dx < 0：往左滑动拉出面板（右侧抽屉），进度 0..1。
-        const progress = Math.min(1, Math.max(0, -dx / dragWidthRef.current));
-        dragProgress.current = progress;
-        slide.setValue(progress);
-        dim.setValue(progress);
-      },
-      endDrag: (velocityX: number) => {
-        const open = dragProgress.current > 0.35 || velocityX < -0.5;
-        if (open) onSwipeOpen?.();
-        else settleClosed();
-      },
-    }),
-    [slide, dim, onSwipeOpen],
+
+  // 负进度 → 位移动画（面板在右，展开时 translateX=0）。
+  const panelStyle = useAnimatedStyle(() => {
+    const p = Math.min(1, Math.max(0, -progress.value));
+    return { transform: [{ translateX: panelWidthSV.value * (1 - p) }] };
+  });
+  const contentStyle = useAnimatedStyle(() => {
+    const p = Math.min(1, Math.max(0, -progress.value));
+    return { transform: [{ translateX: 10 * (1 - p) }] };
+  });
+  const dimStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(1, Math.max(0, -progress.value)),
+  }));
+
+  // 展开后在面板上往右拖 = 跟手关闭。
+  const closeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-16, 16])
+        .onUpdate((event) => {
+          "worklet";
+          progress.value = Math.min(0, Math.max(-1, -1 + event.translationX / panelWidthSV.value));
+        })
+        .onEnd((event) => {
+          "worklet";
+          const p = progress.value;
+          if (p > -0.7 || (Math.abs(event.velocityX) > 600 && event.velocityX > 0)) {
+            runOnJS(onClose)();
+          } else {
+            progress.value = withTiming(-1, { duration: 180, easing: Easing.out(Easing.cubic) });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
+
+  // 打开时复位现场；收起时清掉搜索焦点。
   useEffect(() => {
-    // 面板是「大件」，走 slow 320 + standard 曲线（动效契约）；遮罩快一档跟手。
-    Animated.timing(slide, {
-      toValue: visible ? 1 : 0,
-      duration: motion.duration.slow,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
-    Animated.timing(dim, {
-      toValue: visible ? 1 : 0,
-      duration: motion.duration.base,
-      easing: easingStandard,
-      useNativeDriver: true,
-    }).start();
     if (visible) {
       setMode("hub");
       setTranscriptAgent(null);
-      content.setValue(0);
-      Animated.timing(content, {
-        toValue: 1,
-        delay: 40,
-        duration: motion.duration.base,
-        easing: easingStandard,
-        useNativeDriver: true,
-      }).start();
     } else {
-      // 收起时搜索框可能还是 IME 的 served view：不收键盘会一直压在主界面上。
       searchRef.current?.blur();
       Keyboard.dismiss();
     }
-  }, [visible, slide, dim, content]);
-
-  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [panelWidth, 0] });
-  const contentX = content.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
+  }, [visible]);
 
   // ── 文件树状态 ──────────────────────────────────────────────────────────
   const [rootNodes, setRootNodes] = useState<FileNode[] | null>(null);
@@ -576,11 +552,22 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
   const query = search.trim();
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents={visible ? "auto" : "none"}>
-      <Animated.View style={[styles.dim, { opacity: dim, backgroundColor: t.backdrop }]}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <Animated.View style={[styles.dim, dimStyle]} pointerEvents={visible ? "auto" : "none"}>
+        <BlurView
+          blurTarget={blurTarget}
+          intensity={26}
+          tint={colorScheme === "dark" ? "dark" : "light"}
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.backdrop, opacity: 0.35 }]} pointerEvents="none" />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭工作区" />
       </Animated.View>
+      <GestureDetector gesture={closeGesture}>
       <Animated.View
+        pointerEvents={visible ? "auto" : "none"}
         style={[
           styles.panel,
           {
@@ -589,13 +576,13 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
             borderLeftColor: t.hairline,
             paddingTop: insets.top,
             paddingBottom: insets.bottom,
-            transform: [{ translateX }],
             // 弹层投影（elevation.menu）：压在正文上要有「浮起来」的一档。
             ...t.elevation.menu,
           },
+          panelStyle,
         ]}
       >
-        <Animated.View style={[styles.panelContent, { transform: [{ translateX: contentX }] }]}>
+        <Animated.View style={[styles.panelContent, contentStyle]}>
           {/* 顶部标题行：hub 显示「工作区」，下钻后带返回 + 段名。 */}
           <View style={styles.head}>
             {mode === "hub" ? null : (
@@ -912,9 +899,10 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
           )}
         </Animated.View>
       </Animated.View>
+      </GestureDetector>
     </View>
   );
-});
+}
 
 /** 子会话消息流（只读）：独立 Topic 订阅，主会话的订阅/对账完全不受影响。 */
 function SubagentTranscript({
