@@ -1,18 +1,64 @@
 // 入场动效原语：新行淡入 + 轻微上移（消息流/会话列表/分组 stagger 共用）。
 // 只在「挂载时」播一次：列表行按 key 复用，滚动复用不会重播；新 key 才触发。
 // 尊重两类「关动效」：系统「减少动态效果」（AccessibilityInfo）与应用内「界面动效」
-// 开关（桌面同名设置的移植语义，设备偏好 motionEnabled）——任一开启就直出终态。
+// 开关（设备偏好 motionEnabled）——任一开启就直出终态。
 //
-// 事故教训（2026-11-21 真机）：native 驱动的 timing 会被静默取消（JS finish 回调都不来），
-// 空态标题永久冻在半透明（浅色实测 opacity≈0.31 / 深色≈0.57，重启也不恢复）。
-// 所以除了 finished=false 时回填终值，再加一个「动画窗口过后强制 setValue(1)」的兜底——
-// 动效可以失败，终态不许失败。
+// 性能优化：系统 reduceMotion 改为模块级单例订阅（只查一次原生桥，不再每挂载一行发一次
+// async IPC）。终态兜底仍保留（动效可以失败，终态不许失败）。
 import { Animated, AccessibilityInfo } from "react-native";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { getCachedDevicePreferences, subscribeDevicePreferences } from "../settings/devicePreferences";
 import { easingStandard } from "./easing";
 import { motion } from "../theme";
+
+let systemReduceMotion = false;
+let reduceMotionInitialized = false;
+const reduceMotionListeners = new Set<() => void>();
+
+function ensureReduceMotionSubscription(): void {
+  if (reduceMotionInitialized) return;
+  reduceMotionInitialized = true;
+  AccessibilityInfo.isReduceMotionEnabled?.()
+    .then((value) => {
+      const next = Boolean(value);
+      if (next !== systemReduceMotion) {
+        systemReduceMotion = next;
+        for (const listener of reduceMotionListeners) listener();
+      }
+    })
+    .catch(() => undefined);
+  AccessibilityInfo.addEventListener?.("reduceMotionChanged", (value) => {
+    const next = Boolean(value);
+    if (next !== systemReduceMotion) {
+      systemReduceMotion = next;
+      for (const listener of reduceMotionListeners) listener();
+    }
+  });
+}
+
+function subscribeReduceMotion(listener: () => void): () => void {
+  ensureReduceMotionSubscription();
+  reduceMotionListeners.add(listener);
+  return () => {
+    reduceMotionListeners.delete(listener);
+  };
+}
+
+/** 当前是否应跳过/直出动效（系统减少动画 || 应用内关闭动效）。 */
+export function useReducedMotion(): boolean {
+  const sysReduced = useSyncExternalStore(
+    subscribeReduceMotion,
+    () => systemReduceMotion,
+    () => false,
+  );
+  const motionEnabled = useSyncExternalStore(
+    subscribeDevicePreferences,
+    () => getCachedDevicePreferences().motionEnabled,
+    () => true,
+  );
+  return sysReduced || !motionEnabled;
+}
 
 /** 挂载时 opacity 0→1 + translateY(distance→0)。关动效时直出。 */
 export function AppearIn({
@@ -31,24 +77,7 @@ export function AppearIn({
   style?: object;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
-  const [systemReduced, setSystemReduced] = useState(false);
-  // 应用内动效开关：用外部 store 订阅（设置里切开关即时生效，本组件不重挂）。
-  const motionEnabled = useSyncExternalStore(
-    subscribeDevicePreferences,
-    () => getCachedDevicePreferences().motionEnabled,
-  );
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled?.()
-      .then((value) => {
-        if (alive) setSystemReduced(Boolean(value));
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-  const reduced = systemReduced || !motionEnabled;
+  const reduced = useReducedMotion();
   // 入场参数只认挂载时的第一份：父级每次渲染都会重新算 delay（stagger 序号），
   // 若把 delay 放进依赖，任何一次父级重渲染都会把入场动画从头重播——列表看着
   // 就是一闪一闪。动画只跟「是否关动效」走。
@@ -98,11 +127,9 @@ export function AppearIn({
 }
 
 /**
- * 列表 stagger：第 index 个元素的入场延迟 = index * stepMs（封顶，避免长列表最后项等太久）。
- * 与 AppearIn 配合：delay={staggerDelay(index)}。
+ * 列表逐项交错延时（ms）：单步 24ms、全局封顶 96ms。
+ * 之前 36ms × 8 = 288ms，叠上 220ms 动画超过半秒，native push 播完后屏幕还在淡入。
  */
-export function staggerDelay(index: number, stepMs = 32, capMs = 320): number {
-  // 全局硬上限：无论调用方给多大的 cap，整串 stagger 都必须在 96ms 内排完，
-  // 保证最后一个元素在页面转场（~300ms）结束前落定。列表/路由页共用。
-  return Math.min(index * stepMs, capMs, 96);
+export function staggerDelay(index: number, stepMs = 24, maxMs = 96): number {
+  return Math.min(index * stepMs, maxMs);
 }

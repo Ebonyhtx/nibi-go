@@ -39,7 +39,8 @@ export function usePhoneApprovalOverlay(
 
   const pending = useMemo(() => rows.find(isPhoneApproval) ?? null, [rows]);
   const pendingId = pending?.interactionId ?? null;
-  const canOverlay = canShowPhoneApproval();
+  // 只有真的存在手机审批行时才查原生悬浮窗权限，避免流式期间每帧打 JNI。
+  const canOverlay = pending ? canShowPhoneApproval() : false;
 
   // 悬浮卡上的选择回到内核；先收起卡片，应答失败时应用内卡片会重新出现。
   useEffect(

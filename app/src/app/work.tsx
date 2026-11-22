@@ -280,6 +280,7 @@ export default function WorkScreen() {
               <View style={styles.errActions}>
                 <PressableScale
                   scaleTo={0.95}
+                  containerStyle={styles.errBtnWrap}
                   style={[styles.errBtn, { backgroundColor: th.brand }]}
                   onPress={retry}
                 >
@@ -287,6 +288,7 @@ export default function WorkScreen() {
                 </PressableScale>
                 <PressableScale
                   scaleTo={0.95}
+                  containerStyle={styles.errBtnWrap}
                   style={[styles.errBtn, { backgroundColor: th.panel }]}
                   onPress={() => router.back()}
                 >
@@ -340,6 +342,7 @@ const styles = StyleSheet.create({
   errBody: { fontSize: t.small, lineHeight: 19 },
   errUrl: { fontSize: 10.5 },
   errActions: { flexDirection: "row", gap: space(2), marginTop: space(1) },
-  errBtn: { flex: 1, alignItems: "center", paddingVertical: 11, borderRadius: radius.control },
+  errBtnWrap: { flex: 1 },
+  errBtn: { alignItems: "center", paddingVertical: 11, borderRadius: radius.control },
   errBtnText: { fontSize: 14, fontWeight: "700" },
 });

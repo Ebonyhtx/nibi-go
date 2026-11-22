@@ -265,7 +265,7 @@ export function ModelConfigSheet({
   };
 
   return (
-    <Sheet visible={visible} onClose={onClose} maxHeightRatio={0.92}>
+    <Sheet visible={visible} onClose={onClose} maxHeightRatio={0.92} avoidKeyboard>
       <View style={styles.sheet}>
         <View style={styles.head}>
           <View>

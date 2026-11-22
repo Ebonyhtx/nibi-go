@@ -16,6 +16,8 @@ export interface DevicePreferences {
   keepAwakeWhileRunning: boolean;
   /** 界面动效（关闭后入场/按压动画直出终态；系统「减少动画」优先于本开关）。 */
   motionEnabled: boolean;
+  /** 触感反馈（发送、开关、抽屉越阈、长按菜单等线性马达微震；服从系统触感总开关）。 */
+  hapticsEnabled: boolean;
   /** 后台状态气泡：后台会话/手机操控时悬浮提醒（需悬浮窗权限）。 */
   statusBubble: boolean;
 }
@@ -26,6 +28,7 @@ export const DEVICE_DEFAULTS: DevicePreferences = {
   notificationSound: true,
   keepAwakeWhileRunning: false,
   motionEnabled: true,
+  hapticsEnabled: true,
   statusBubble: true,
 };
 
@@ -52,6 +55,7 @@ function normalize(raw: unknown): DevicePreferences {
     notificationSound: bool("notificationSound", DEVICE_DEFAULTS.notificationSound),
     keepAwakeWhileRunning: bool("keepAwakeWhileRunning", DEVICE_DEFAULTS.keepAwakeWhileRunning),
     motionEnabled: bool("motionEnabled", DEVICE_DEFAULTS.motionEnabled),
+    hapticsEnabled: bool("hapticsEnabled", DEVICE_DEFAULTS.hapticsEnabled),
     statusBubble: bool("statusBubble", DEVICE_DEFAULTS.statusBubble),
   };
 }

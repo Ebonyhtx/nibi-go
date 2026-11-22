@@ -4,26 +4,16 @@
 // 变色，用户能直接看到引用的是原文哪一部分。
 //
 // 发送时只把选中的片段 + 评论/指令放进 conversationQuotes，不复制整条消息。
-// 2.0：视觉全部换成 theme token；键盘处理刻意保持原状（见下方 Modal 注释）。
+// 2.0：视觉全部换成 theme token；底座统一到 ui/Sheet（avoidKeyboard UI 线程上抬 + 下拉关闭）。
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Icon } from "./Icon";
 import { PillButton } from "./ui/PillButton";
+import { Sheet } from "./ui/Sheet";
 import { PressableScale } from "../motion/PressableScale";
+import { haptic } from "../motion/haptics";
 import { radius, size, space, text, useNibiTheme } from "../theme";
 
 export interface AnnotationDraft {
@@ -92,11 +82,9 @@ export function AnnotationComposer({
   onSubmit: (draft: AnnotationDraft) => void;
 }) {
   const t = useNibiTheme();
-  const insets = useSafeAreaInsets();
   const [comment, setComment] = useState(initialComment ?? "");
   const [excerpt, setExcerpt] = useState(initialExcerpt ?? fullText);
   const [selection, setSelection] = useState({ start: 0, end: fullText.length });
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [commentFocused, setCommentFocused] = useState(false);
 
   useEffect(() => {
@@ -112,51 +100,18 @@ export function AnnotationComposer({
     );
   }, [fullText, initialComment, initialExcerpt, visible]);
 
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", (event) =>
-      setKeyboardHeight(event.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
   const segments = useMemo(() => segmentsOf(fullText), [fullText]);
   const selected = excerpt.trim();
   const length = selected.length;
   const selectSegment = (segment: Segment) => {
+    haptic("tick");
     setExcerpt(segment.text);
     setSelection({ start: segment.start, end: segment.end });
   };
 
   return (
-    // 键盘态刻意保留原生 Modal + KeyboardAvoidingView，而不是换成 ui/Sheet：
-    // Sheet 的内容是 absolute bottom 定位，无法把 Android 的键盘高度加到它的容器上
-    // （edge-to-edge 下 adjustResize 不可靠），结果会是评论输入框被键盘遮住。
-    // 打字正确性优先于弹层底座统一，这里只对齐颜色/字阶/圆角等视觉 token。
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.root}
-      >
-        <Pressable
-          style={[styles.backdrop, { backgroundColor: t.backdrop }]}
-          onPress={onCancel}
-          accessibilityLabel="取消注释"
-        />
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: t.card,
-              borderColor: t.hairline,
-              paddingBottom: keyboardHeight > 0 ? space(3) : insets.bottom + space(3),
-              marginBottom: Platform.OS === "android" ? keyboardHeight : 0,
-            },
-          ]}
-        >
+    <Sheet visible={visible} onClose={onCancel} maxHeightRatio={0.9} avoidKeyboard>
+      <View style={styles.sheet}>
           <View style={styles.head}>
             <View style={[styles.badge, { backgroundColor: t.brandSoft }]}>
               <Icon name="quote" size={13} color={t.brand} />
@@ -317,36 +272,26 @@ export function AnnotationComposer({
               <PillButton variant="secondary" label="取消" onPress={onCancel} />
               <PillButton
                 label={editing ? "保存" : "添加注释"}
-                onPress={() =>
-                  onSubmit({ excerpt: selected || fullText.trim(), comment: comment.trim() })
-                }
+                onPress={() => {
+                  haptic("confirm");
+                  onSubmit({ excerpt: selected || fullText.trim(), comment: comment.trim() });
+                }}
                 disabled={!selected && !fullText.trim()}
                 accessibilityLabel={editing ? "保存注释" : "添加注释"}
               />
             </View>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      </View>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: "flex-end" },
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  card: {
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: space(4),
+  sheet: {
+    paddingHorizontal: space(4),
+    paddingBottom: space(3),
+    paddingTop: space(1),
     gap: space(2),
-    maxHeight: "90%",
   },
   head: { flexDirection: "row", alignItems: "center", gap: space(2) },
   badge: {

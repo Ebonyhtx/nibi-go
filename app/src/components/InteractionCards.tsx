@@ -8,6 +8,7 @@ import type { ChatRow } from "@nibi-go/kernel-session";
 import { type ReactNode, useMemo, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 
+import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
@@ -187,6 +188,7 @@ export function ApprovalCard({
 
   const respond = async (optionId: string) => {
     if (busy) return;
+    haptic(optionId === "deny" ? "reject" : "confirm");
     setBusy(optionId);
     setError(null);
     try {
@@ -465,7 +467,10 @@ export function QuestionCard({
             kind="secondary"
             busy={false}
             disabled={busy}
-            onPress={() => void decline()}
+            onPress={() => {
+              haptic("reject");
+              void decline();
+            }}
           />
         </View>
         <View style={styles.actionCell}>
@@ -474,7 +479,10 @@ export function QuestionCard({
             kind="primary"
             busy={busy}
             disabled={!complete || busy}
-            onPress={() => void submit()}
+            onPress={() => {
+              haptic("confirm");
+              void submit();
+            }}
           />
         </View>
       </View>

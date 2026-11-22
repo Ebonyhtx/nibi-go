@@ -25,12 +25,11 @@ import {
   useAppearanceMode,
   type AppearanceMode,
 } from "../../appearance/preferences";
-import { Icon, type IconName } from "../../components/Icon";
-import { Row, ToggleRow, type RowTone } from "../../components/ui/Row";
+import { Row, ToggleRow } from "../../components/ui/Row";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
+import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
 import { dismissKeyboardOnFocus } from "../../composer/leave";
-import { PressableScale } from "../../motion/PressableScale";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
 import { syncNotificationChannel } from "../../relay/notifications";
@@ -46,14 +45,10 @@ import {
 import { radius, space, text, useNibiTheme } from "../../theme";
 
 /** 主题三选。分段控件里的短标签；详情不需要——图标+名称已自明。 */
-const APPEARANCE_MODES: readonly {
-  mode: AppearanceMode;
-  icon: IconName;
-  label: string;
-}[] = [
-  { mode: "system", icon: "monitor", label: "跟随系统" },
-  { mode: "light", icon: "sun", label: "浅色" },
-  { mode: "dark", icon: "moon", label: "墨夜" },
+const APPEARANCE_MODES: readonly SegmentedOption<AppearanceMode>[] = [
+  { value: "system", icon: "monitor", label: "跟随系统" },
+  { value: "light", icon: "sun", label: "浅色" },
+  { value: "dark", icon: "moon", label: "墨夜" },
 ];
 
 export default function SettingsHomeScreen() {
@@ -114,6 +109,7 @@ export default function SettingsHomeScreen() {
     if (updateBusy) return;
     setUpdateBusy(true);
     setUpdateMessage("正在检查…");
+    let handedToDialog = false;
     try {
       const info = await checkForUpdate();
       if (!info) {
@@ -122,6 +118,7 @@ export default function SettingsHomeScreen() {
       }
       const sizeLabel = info.size ? `，${Math.round(info.size / 1024 / 1024)} MB` : "";
       setUpdateMessage(null);
+      handedToDialog = true;
       Alert.alert(
         `发现新版本 ${info.version}`,
         `当前 ${version} → 新版 ${info.version}${sizeLabel}。下载完成后会校验摘要并调起安装。`,
@@ -147,9 +144,12 @@ export default function SettingsHomeScreen() {
             },
           },
         ],
+        { cancelable: true, onDismiss: () => setUpdateBusy(false) },
       );
+    } catch (error: unknown) {
+      setUpdateMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setUpdateBusy(false);
+      if (!handedToDialog) setUpdateBusy(false);
     }
   }
 
@@ -329,50 +329,15 @@ export default function SettingsHomeScreen() {
           </SectionCard>
         </AppearIn>
 
-        {/* 外观：单卡三段分段控件——三行大卡表一个单选太重（2.0.1 审查）。
-            选中段给卡底+发丝线+轻投影，所选项无需说明文案。 */}
-        <AppearIn delay={staggerDelay(5, 32, 240)}>
+        {/* 外观：弹簧滑块分段控件 + 动效与触感反馈开关。 */}
+        <AppearIn delay={staggerDelay(7, 32, 240)}>
           <SectionCard label="外观">
-            <View style={[styles.segTrack, { backgroundColor: th.surfaceSoft }]}>
-              {APPEARANCE_MODES.map((item) => {
-                const active = appearanceMode === item.mode;
-                return (
-                  <PressableScale
-                    key={item.mode}
-                    scaleTo={0.96}
-                    onPress={() =>
-                      void saveAppearancePreferences({ version: 1, mode: item.mode })
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel={`外观：${item.label}`}
-                    accessibilityState={{ selected: active }}
-                    style={styles.segCellOuter}
-                  >
-                    <View
-                      style={[
-                        styles.segCell,
-                        {
-                          backgroundColor: active ? th.card : "transparent",
-                          borderColor: active ? th.hairline : "transparent",
-                        },
-                        ...(active ? [th.elevation.card] : []),
-                      ]}
-                    >
-                      <Icon
-                        name={item.icon}
-                        size={14}
-                        color={active ? th.brand : th.inkSub}
-                      />
-                      <Text
-                        style={[styles.segLabel, { color: active ? th.ink : th.inkSub }]}
-                        numberOfLines={1}
-                      >
-                        {item.label}
-                      </Text>
-                    </View>
-                  </PressableScale>
-                );
-              })}
+            <View style={styles.segWrap}>
+              <SegmentedControl
+                options={APPEARANCE_MODES}
+                value={appearanceMode}
+                onChange={(mode) => void saveAppearancePreferences({ version: 1, mode })}
+              />
             </View>
             {/* 界面动效（桌面「外观」同名项）：关掉后入场/按压动画直出终态；系统「减少动画」优先。 */}
             <Divider />
@@ -383,6 +348,15 @@ export default function SettingsHomeScreen() {
               detail="关闭后动画直出终态"
               value={device.motionEnabled}
               onChange={(value) => void updateDevicePreferences({ motionEnabled: value })}
+            />
+            <Divider />
+            <ToggleRow
+              icon="phone"
+              tone="plain"
+              title="触感反馈"
+              detail="按键、开关与侧栏过阈震动"
+              value={device.hapticsEnabled}
+              onChange={(value) => void updateDevicePreferences({ hapticsEnabled: value })}
             />
           </SectionCard>
         </AppearIn>
@@ -439,21 +413,5 @@ const styles = StyleSheet.create({
     padding: space(3),
   },
   accountMessageText: { flex: 1, ...text("small") },
-  segTrack: {
-    flexDirection: "row",
-    gap: space(1),
-    padding: space(1),
-    borderRadius: radius.control,
-  },
-  segCellOuter: { flex: 1 },
-  segCell: {
-    height: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: space(1.5),
-    borderRadius: radius.control,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  segLabel: { ...text("small"), fontWeight: "600" },
+  segWrap: { padding: space(2) },
 });

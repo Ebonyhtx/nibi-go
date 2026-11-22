@@ -32,6 +32,8 @@ export interface PhoneApprovalDecision {
   optionId: string;
 }
 
+export type PhoneHapticKind = "tick" | "tap" | "threshold" | "confirm" | "reject" | "longPress";
+
 interface NativePhoneModule {
   status(): PhoneStatus;
   setA11yEnabled(enabled: boolean): PhoneStatus;
@@ -49,6 +51,7 @@ interface NativePhoneModule {
   canShowBubble(): boolean;
   setBubbleState(state: string): Promise<void>;
   toolsBusy(): boolean;
+  haptic(kind: PhoneHapticKind): boolean;
   addListener(
     event: "onPhoneApproval",
     listener: (event: PhoneApprovalDecision) => void,
@@ -206,6 +209,16 @@ export function setPhoneBubbleState(state: string): void {
 /** 原生侧当前是否有手机工具在执行（气泡 tools 状态的信号源）。 */
 export function phoneToolsBusy(): boolean {
   return call((module) => module.toolsBusy(), false);
+}
+
+/** 触发一次 Android 原生线性马达触觉（模块不可用时静默降级）。 */
+export function triggerPhoneHaptic(kind: PhoneHapticKind): void {
+  if (!native) return;
+  try {
+    native.haptic(kind);
+  } catch {
+    // 触觉是非关键体验层，不打断交互。
+  }
 }
 
 export function onPhoneApproval(

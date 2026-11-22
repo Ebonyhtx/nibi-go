@@ -3,7 +3,9 @@ package expo.modules.nibiphone
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.nibiphone.shell.ShizukuShell
@@ -160,6 +162,41 @@ class PhoneModule : Module() {
 
     /** 原生侧当前是否有手机工具在执行（气泡的 tools 信号；RN 轮询这一位）。 */
     Function("toolsBusy") { PhoneRuntime.toolsBusy() }
+
+    /** 原生线性马达触觉（服从系统触感总开关，不用 FLAG_IGNORE_GLOBAL_SETTING）。 */
+    Function("haptic") { kind: String ->
+      val activity = appContext.currentActivity ?: return@Function false
+      val view = activity.window?.decorView ?: return@Function false
+      val code = when (kind) {
+        "tick" -> HapticFeedbackConstants.CLOCK_TICK
+        "tap" -> HapticFeedbackConstants.CONTEXT_CLICK
+        "threshold" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          HapticFeedbackConstants.GESTURE_START
+        } else {
+          HapticFeedbackConstants.CLOCK_TICK
+        }
+        "confirm" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          HapticFeedbackConstants.CONFIRM
+        } else {
+          HapticFeedbackConstants.CONTEXT_CLICK
+        }
+        "reject" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          HapticFeedbackConstants.REJECT
+        } else {
+          HapticFeedbackConstants.LONG_PRESS
+        }
+        "longPress" -> HapticFeedbackConstants.LONG_PRESS
+        else -> HapticFeedbackConstants.CLOCK_TICK
+      }
+      activity.runOnUiThread {
+        try {
+          view.performHapticFeedback(code)
+        } catch (_: Throwable) {
+          // 某些 ROM 在窗口切换期可能抛异常，静默忽略。
+        }
+      }
+      true
+    }
 
     OnDestroy {
       approvalOverlay?.hide()

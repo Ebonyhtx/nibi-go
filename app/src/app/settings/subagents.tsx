@@ -109,6 +109,8 @@ interface EditorState {
   raw: string;
   /** 进入编辑器时的表单快照（脏检查基准）。 */
   initialSnapshot: string;
+  /** 进入编辑器时的原始全文（raw 模式脏检查基准）。 */
+  initialRaw: string;
 }
 
 /** 表单脏检查：与进入时的快照逐字段比。 */
@@ -367,7 +369,7 @@ export default function SubagentsScreen() {
   const dirty =
     editor !== null &&
     (editor.mode === "raw"
-      ? editor.raw !== editor.initialSnapshot
+      ? editor.raw !== editor.initialRaw
       : formSnapshot(editor) !== editor.initialSnapshot);
 
   /** 原文 → 表单字段；frontmatter 里表单之外的键收集进 extraEntries（保存时原样保留）。 */
@@ -397,6 +399,7 @@ export default function SubagentsScreen() {
       extraEntries,
       raw,
       initialSnapshot: formSnapshot(fields),
+      initialRaw: raw,
     };
   }
 
@@ -644,11 +647,52 @@ export default function SubagentsScreen() {
           </AppearIn>
 
           {editor ? (
-            // 编辑器（表单）：每个字段独立控件——照桌面 SubagentsSection 的形态；
-            // 「编辑原始文件」折叠给需要 effort/maxTurns 等高级键的场景。
+            // 编辑器（表单 / 原文）：每个字段独立控件——照桌面 SubagentsSection 的形态；
+            // 「编辑原始文件」切到 Markdown 原文框，供需要 effort/maxTurns 等高级键的场景。
             <AppearIn>
               <SectionCard label={editor.relPath?.split("/").pop() ?? "新建子智能体"}>
                 <View style={styles.formBody}>
+                  {editor.mode === "raw" ? (
+                    <>
+                      <Text style={[styles.formLabel, { color: th.inkSub }]}>原始 Markdown（含 frontmatter）</Text>
+                      <TextInput
+                        value={editor.raw}
+                        onChangeText={(raw) => setEditor({ ...editor, raw })}
+                        multiline
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        textAlignVertical="top"
+                        style={[
+                          styles.editor,
+                          {
+                            color: th.ink,
+                            borderColor: th.hairline,
+                            backgroundColor: th.surfaceSoft,
+                          },
+                        ]}
+                      />
+                      <View style={styles.rawToggleRow}>
+                        {dirty ? <Text style={[styles.meta, { color: th.amber }]}>未保存</Text> : null}
+                        <PressableScale
+                          scaleTo={0.98}
+                          onPress={() => {
+                            const parsed = formStateOf(editor.scope, editor.relPath, editor.raw);
+                            setEditor({
+                              ...parsed,
+                              initialSnapshot: editor.initialSnapshot,
+                              initialRaw: editor.initialRaw,
+                            });
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="返回表单编辑"
+                          style={styles.rawToggle}
+                        >
+                          <Text style={[styles.rawToggleText, { color: th.steel }]}>返回表单编辑</Text>
+                        </PressableScale>
+                      </View>
+                    </>
+                  ) : (
+                    <>
                   <Text style={[styles.formLabel, { color: th.inkSub }]}>名称</Text>
                   <TextInput
                     value={editor.name}
@@ -774,6 +818,8 @@ export default function SubagentsScreen() {
                       <Text style={[styles.rawToggleText, { color: th.steel }]}>编辑原始文件…</Text>
                     </PressableScale>
                   </View>
+                    </>
+                  )}
                 </View>
               </SectionCard>
             </AppearIn>

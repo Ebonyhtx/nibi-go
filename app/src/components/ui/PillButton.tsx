@@ -23,6 +23,7 @@ export function PillButton({
   /** 可选：label 前的 14px 图标 */
   icon,
   style,
+  containerStyle,
   accessibilityLabel,
 }: {
   label: string;
@@ -32,6 +33,7 @@ export function PillButton({
   disabled?: boolean;
   icon?: IconName;
   style?: object;
+  containerStyle?: object;
   accessibilityLabel?: string;
 }) {
   const th = useNibiTheme();
@@ -53,6 +55,7 @@ export function PillButton({
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      containerStyle={containerStyle}
       style={[
         styles.base,
         {

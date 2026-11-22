@@ -1,10 +1,11 @@
 // 可折叠摘要行（思考块 / 工具行 / 工具组共用）：
-//   头部一行 = 图标 + 标题 + 副标题 + 折角，点整行切换；
-//   展开体可选左侧细线（rail），用来把详情挂在摘要行下面。
-// title/subtitle 传字符串时按内置字号渲染；传节点时由调用方控制排版。
-import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+//   头部一行 = 图标 + 标题 + 副标题 + 旋转折角，点整行切换；
+//   展开体可选左侧细线（rail），展开时微淡入，流式期间不对高度做动画以免每帧重排抖动。
+import { memo, useEffect, useRef, type ReactNode } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { haptic } from "../motion/haptics";
+import { useDevicePreferences } from "../settings/devicePreferences";
 import { space, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
 
@@ -19,7 +20,7 @@ export interface DisclosureProps {
   rail?: boolean;
 }
 
-export function Disclosure({
+function DisclosureImpl({
   icon,
   title,
   subtitle,
@@ -29,10 +30,50 @@ export function Disclosure({
   rail = false,
 }: DisclosureProps) {
   const th = useNibiTheme();
+  const { motionEnabled } = useDevicePreferences();
+  const chevron = useRef(new Animated.Value(open ? 1 : 0)).current;
+  const bodyFade = useRef(new Animated.Value(open ? 1 : 0)).current;
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      chevron.setValue(open ? 1 : 0);
+      bodyFade.setValue(open ? 1 : 0);
+      return;
+    }
+    if (!motionEnabled) {
+      chevron.setValue(open ? 1 : 0);
+      bodyFade.setValue(open ? 1 : 0);
+      return;
+    }
+    Animated.timing(chevron, {
+      toValue: open ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+    if (open) {
+      bodyFade.setValue(0);
+      Animated.timing(bodyFade, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [bodyFade, chevron, motionEnabled, open]);
+
+  const rotate = chevron.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "90deg"],
+  });
+
   return (
     <View>
       <Pressable
-        onPress={onToggle}
+        onPress={() => {
+          haptic("tick");
+          onToggle();
+        }}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         hitSlop={6}
@@ -59,14 +100,15 @@ export function Disclosure({
             )}
           </View>
         ) : null}
-        <View style={styles.chevron}>
-          <Icon name={open ? "chevron-down" : "chevron-right"} size={13} color={th.inkFaint} />
-        </View>
+        <Animated.View style={[styles.chevron, { transform: [{ rotate }] }]}>
+          <Icon name="chevron-right" size={13} color={th.inkFaint} />
+        </Animated.View>
       </Pressable>
       {open && children ? (
-        <View
+        <Animated.View
           style={[
             styles.body,
+            { opacity: bodyFade },
             rail
               ? {
                   borderLeftWidth: 2,
@@ -77,11 +119,13 @@ export function Disclosure({
           ]}
         >
           {children}
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );
 }
+
+export const Disclosure = memo(DisclosureImpl);
 
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: space(1.5), minHeight: 30 },

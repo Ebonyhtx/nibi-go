@@ -26,6 +26,7 @@ import {
 
 import { AppearIn } from "../motion/appear";
 import { easingStandard } from "../motion/easing";
+import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
 import { hostSlotData, toolSlotData } from "../plugins/data";
 import { collectTurnPushes } from "../plugins/push";
@@ -45,14 +46,16 @@ import {
 import {
   ArtifactCard,
   MessageMarkdown,
+  PendingArtifactCard,
   hasMarkdownSyntax,
+  splitPendingArtifact,
   splitVisualArtifacts,
 } from "./MessageMarkdown";
 import type { PopupAnchor } from "./PluginPopup";
 
 /** 消息正文：按 `` `行内代码` `` 切段，代码段给等宽字 + 井底色——
- * 之前反引号原样露在正文里（2.0.1 审查 P0）。不引 markdown 库，只处理这一种最常见的标记。 */
-function BodyText({ text, color }: { text: string; color: string }) {
+ * 之前反引号原样露在正文里（2.0.1 审查 P0）。memo：历史气泡 text 不变时跳过 split。 */
+const BodyText = memo(function BodyText({ text, color }: { text: string; color: string }) {
   const th = useNibiTheme();
   const parts = text.split(/(`[^`\n]+`)/g);
   if (parts.length === 1) {
@@ -71,7 +74,7 @@ function BodyText({ text, color }: { text: string; color: string }) {
       )}
     </Text>
   );
-}
+});
 
 /** 流式光标：▍按 motion.base 节奏呼吸（1→0.15→1），色取品牌橙——直播态专属的 ≤5% 强调。
  * 体量极小且只在流式/发送中挂载，约定不做 reduced-motion 分支（桌面同款也是常动）。
@@ -380,9 +383,14 @@ function ConversationListImpl({
   const enterKeysRef = useRef<Set<string>>(new Set());
   const enterKeys = useMemo(() => {
     const keys = new Set<string>();
-    // pending 与流式中的助手行是本地直播事件，无条件入场（历史恢复里不存在这两种行）。
+    // pending、流式助手、实时审批/提问卡都是直播事件，无条件优雅入场。
     for (const row of rows) {
-      if (row.kind === "pending" || (row.kind === "assistant" && row.streaming)) {
+      if (
+        row.kind === "pending" ||
+        row.kind === "approval" ||
+        row.kind === "question" ||
+        (row.kind === "assistant" && row.streaming)
+      ) {
         keys.add(row.key);
       }
     }
@@ -466,10 +474,27 @@ function ConversationListImpl({
     );
   };
 
-  // 「回到底部」按钮：离开底部翻历史时出现，点击跳到最新消息后消失。
-  // stickToBottom 本来就有（贴底跟随用）；按钮本体渲染在父级（index）——
-  // 放在这里的浮钮会被底部的渐变压住（运营者 2026-11-22 反馈）。
+  // 「回到底部」状态机：带滞回（离开 >80px、回到 <24px）与 ref 守卫，
+  // 避免临界抖动和每帧重复 setState；并且只在流式/新行到达时自动贴底，
+  // 手动点开思考或工具详情不再把列表强拽回底部。
   const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
+  const isUserDraggingRef = useRef(false);
+  const hasStreamingRef = useRef(false);
+  const prevRowCountRef = useRef(rows.length);
+  const pendingAutoScrollRef = useRef(false);
+  hasStreamingRef.current = rows.some(
+    (row) => row.kind === "pending" || (row.kind === "assistant" && row.streaming),
+  );
+  if (rows.length !== prevRowCountRef.current) {
+    if (rows.length > prevRowCountRef.current) pendingAutoScrollRef.current = true;
+    prevRowCountRef.current = rows.length;
+  }
+  const updateAtBottom = (next: boolean) => {
+    if (next === atBottomRef.current) return;
+    atBottomRef.current = next;
+    setAtBottom(next);
+  };
   useEffect(() => {
     onAtBottomChange?.(atBottom);
   }, [atBottom, onAtBottomChange]);
@@ -479,7 +504,7 @@ function ConversationListImpl({
     if (jumpSignal === jumpSignalRef.current) return;
     jumpSignalRef.current = jumpSignal;
     stickToBottom.current = true;
-    setAtBottom(true);
+    updateAtBottom(true);
     ref.current?.scrollToEnd({ animated: true });
   }, [jumpSignal]);
 
@@ -494,20 +519,44 @@ function ConversationListImpl({
         ]}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
+        onScrollBeginDrag={() => {
+          isUserDraggingRef.current = true;
+        }}
+        onScrollEndDrag={() => {
+          isUserDraggingRef.current = false;
+        }}
+        onMomentumScrollEnd={() => {
+          isUserDraggingRef.current = false;
+        }}
         onScroll={(event) => {
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-          const bottom =
-            contentOffset.y + layoutMeasurement.height >= contentSize.height - 32;
-          stickToBottom.current = bottom;
-          setAtBottom(bottom);
+          const distanceFromBottom =
+            contentSize.height - (contentOffset.y + layoutMeasurement.height);
+          const next = atBottomRef.current
+            ? distanceFromBottom <= 80
+            : distanceFromBottom <= 24;
+          // 仅在用户主动滑动或接近底部时更新 stickToBottom，防止展开折叠块误断贴底。
+          if (isUserDraggingRef.current || next) {
+            stickToBottom.current = next;
+            updateAtBottom(next);
+          }
         }}
         scrollEventThrottle={16}
         onContentSizeChange={() => {
-          if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
+          if (
+            stickToBottom.current &&
+            !isUserDraggingRef.current &&
+            (hasStreamingRef.current || pendingAutoScrollRef.current)
+          ) {
+            pendingAutoScrollRef.current = false;
+            ref.current?.scrollToEnd({ animated: false });
+          }
         }}
         onLayout={() => {
           // 键盘/旋转改变可视高度时也贴底，避免最后一条被输入栏或宠物切一半。
-          if (stickToBottom.current) ref.current?.scrollToEnd({ animated: false });
+          if (stickToBottom.current && !isUserDraggingRef.current) {
+            ref.current?.scrollToEnd({ animated: false });
+          }
         }}
       >
       {rows.map((row) => {
@@ -559,7 +608,8 @@ function ConversationListImpl({
               <Pressable
                 onLongPress={
                   onMessageLongPress
-                    ? (event) =>
+                    ? (event) => {
+                        haptic("longPress");
                         onMessageLongPress(
                           row.key,
                           displayText || row.text,
@@ -570,7 +620,8 @@ function ConversationListImpl({
                             height: 1,
                           },
                           "user",
-                        )
+                        );
+                      }
                     : undefined
                 }
                 delayLongPress={350}
@@ -882,39 +933,59 @@ function ConversationListImpl({
               </View>
             ) : null}
             {hasText && row.streaming ? (
-              <Pressable
-                onLongPress={
-                  onMessageLongPress
-                    ? (event) =>
-                        onMessageLongPress(
-                          row.key,
-                          row.text,
-                          {
-                            x: event.nativeEvent.pageX,
-                            y: event.nativeEvent.pageY,
-                            width: 1,
-                            height: 1,
-                          },
-                          "assistant",
-                        )
-                    : undefined
-                }
-                delayLongPress={350}
-                accessibilityRole="button"
-                accessibilityLabel="助手消息，长按打开动作"
-                style={({ pressed }) => [
-                  styles.bubble,
-                  { backgroundColor: th.card, borderColor: th.hairline },
-                  pressed ? { opacity: 0.88 } : null,
-                ]}
-              >
-                {row.model && modelChangeKeys.has(row.key) ? (
-                  <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
-                ) : null}
-                {/* 流式中用纯文本（每帧全量重排 markdown 太重），落定后升级富排版。 */}
-                <BodyText text={row.text} color={th.ink} />
-                <StreamingCursor />
-              </Pressable>
+              (() => {
+                // 流式中若已出现 markdown 结构或 html/svg 围栏，提前用平铺宽容器（bubbleFlat）
+                // 承接，落定后宽度与字号完全连续，不再从 86% 白卡突然跳成 100% 平铺；
+                // 未闭合的 html/svg 围栏先收成占位卡，不再摊出几百行源码再瞬间塌缩。
+                const streamingMd = hasMarkdownSyntax(row.text);
+                const pendingArt = streamingMd ? splitPendingArtifact(row.text) : null;
+                const visibleText = pendingArt ? pendingArt.prefix : row.text;
+                return (
+                  <View style={streamingMd ? styles.bubbleFlat : undefined}>
+                    <Pressable
+                      onLongPress={
+                        onMessageLongPress
+                          ? (event) => {
+                              haptic("longPress");
+                              onMessageLongPress(
+                                row.key,
+                                row.text,
+                                {
+                                  x: event.nativeEvent.pageX,
+                                  y: event.nativeEvent.pageY,
+                                  width: 1,
+                                  height: 1,
+                                },
+                                "assistant",
+                              );
+                            }
+                          : undefined
+                      }
+                      delayLongPress={350}
+                      accessibilityRole="button"
+                      accessibilityLabel="助手消息，长按打开动作"
+                      style={({ pressed }) => [
+                        streamingMd
+                          ? null
+                          : [styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }],
+                        pressed ? { opacity: 0.88 } : null,
+                      ]}
+                    >
+                      {row.model && modelChangeKeys.has(row.key) ? (
+                        <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
+                      ) : null}
+                      {visibleText.length > 0 ? <BodyText text={visibleText} color={th.ink} /> : null}
+                      {!pendingArt?.pendingLang ? <StreamingCursor /> : null}
+                    </Pressable>
+                    {pendingArt?.pendingLang ? (
+                      <PendingArtifactCard
+                        lang={pendingArt.pendingLang}
+                        lines={pendingArt.pendingLines}
+                      />
+                    ) : null}
+                  </View>
+                );
+              })()
             ) : hasText && hasMarkdownSyntax(row.text) ? (
               // 落定的富排版：平铺（桌面客户端消息流同款），按围栏切片——工件卡
               // 渲染在长按 Pressable 之外（嵌套 Pressable 会被外层吞掉触摸）。
@@ -935,7 +1006,8 @@ function ConversationListImpl({
                         key={`m${index}`}
                         onLongPress={
                           onMessageLongPress
-                            ? (event) =>
+                            ? (event) => {
+                                haptic("longPress");
                                 onMessageLongPress(
                                   row.key,
                                   row.text,
@@ -946,7 +1018,8 @@ function ConversationListImpl({
                                     height: 1,
                                   },
                                   "assistant",
-                                )
+                                );
+                              }
                             : undefined
                         }
                         delayLongPress={350}
@@ -964,7 +1037,8 @@ function ConversationListImpl({
               <Pressable
                 onLongPress={
                   onMessageLongPress
-                    ? (event) =>
+                    ? (event) => {
+                        haptic("longPress");
                         onMessageLongPress(
                           row.key,
                           row.text,
@@ -975,7 +1049,8 @@ function ConversationListImpl({
                             height: 1,
                           },
                           "assistant",
-                        )
+                        );
+                      }
                     : undefined
                 }
                 delayLongPress={350}
@@ -1019,7 +1094,7 @@ function ConversationListImpl({
 export const ConversationList = memo(ConversationListImpl);
 
 /** 单个工具行：折叠只有一行（图标 + 名称 + 状态词 + 目标），展开才是原有详情。 */
-function ToolRowView({
+const ToolRowView = memo(function ToolRowView({
   row,
   open,
   onToggle,
@@ -1103,7 +1178,7 @@ function ToolRowView({
       </Disclosure>
     </View>
   );
-}
+});
 
 /** 已知工具的专属图标（Agent 走瓦片脸；其余落 wrench——通用工具语义）。 */
 const TOOL_ICONS: Partial<Record<string, IconName>> = {
@@ -1223,7 +1298,7 @@ function toolTarget(row: Extract<ChatRow, { kind: "tool" }>): string {
 }
 
 /** 思考块：折叠一行（标签 / 耗时 / 流式尾部预览），展开是纯文本滚动区。 */
-function ThinkingDisclosure({
+const ThinkingDisclosure = memo(function ThinkingDisclosure({
   reasoning,
   streaming,
   open,
@@ -1274,7 +1349,7 @@ function ThinkingDisclosure({
       <ThinkingBody text={reasoning} streaming={streaming} />
     </Disclosure>
   );
-}
+});
 
 /** 思考正文：引用轨样式（左侧竖线 + 弱色文字），限高内滚；流式时贴底。 */
 function ThinkingBody({ text, streaming }: { text: string; streaming: boolean }) {

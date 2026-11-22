@@ -24,15 +24,15 @@ import type {
 
 import { SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
+import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
 import { currentKernelClient } from "../../kernel/kernelRegistry";
 import { AppearIn, staggerDelay } from "../../motion/appear";
-import { PressableScale } from "../../motion/PressableScale";
 import { radius, space, text, useNibiTheme } from "../../theme";
 
-const RANGES: { key: KernelUsageRange; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "7d", label: "近 7 天" },
-  { key: "30d", label: "近 30 天" },
+const RANGES: readonly SegmentedOption<KernelUsageRange>[] = [
+  { value: "all", label: "全部" },
+  { value: "7d", label: "近 7 天" },
+  { value: "30d", label: "近 30 天" },
 ];
 
 /** >=1000 显示 12.3k（与 ConversationList 的 formatTokens 同一条口径）。 */
@@ -117,47 +117,17 @@ export default function UsageScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="使用统计" onBack={() => router.back()} />
+      <ScreenHeader
+        title="使用统计"
+        onBack={() => router.back()}
+        right={loading ? <ActivityIndicator color={th.brand} size="small" /> : undefined}
+      />
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        {/* 范围切换：分段控件外观照设置首页的外观三段（选中段卡底 + 发丝线 + 轻投影）。 */}
+        {/* 范围切换：复用弹簧滑块分段控件，加载指示挪进顶栏右槽避免列表跳动。 */}
         <AppearIn delay={staggerDelay(0, 32, 240)}>
-          <View style={[styles.segTrack, { backgroundColor: th.surfaceSoft }]}>
-            {RANGES.map((item) => {
-              const active = range === item.key;
-              return (
-                <PressableScale
-                  key={item.key}
-                  scaleTo={0.96}
-                  onPress={() => switchRange(item.key)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`范围：${item.label}`}
-                  accessibilityState={{ selected: active }}
-                  style={styles.segCellOuter}
-                >
-                  <View
-                    style={[
-                      styles.segCell,
-                      {
-                        backgroundColor: active ? th.card : "transparent",
-                        borderColor: active ? th.hairline : "transparent",
-                      },
-                      ...(active ? [th.elevation.card] : []),
-                    ]}
-                  >
-                    <Text style={[styles.segLabel, { color: active ? th.brand : th.inkSub }]}>
-                      {item.label}
-                    </Text>
-                  </View>
-                </PressableScale>
-              );
-            })}
-          </View>
+          <SegmentedControl options={RANGES} value={range} onChange={switchRange} />
         </AppearIn>
-
-        {loading ? (
-          <ActivityIndicator color={th.brand} size="small" style={styles.loading} />
-        ) : null}
 
         {error ? (
           <AppearIn delay={staggerDelay(1, 32, 240)}>
@@ -168,7 +138,7 @@ export default function UsageScreen() {
         ) : null}
 
         {stats ? (
-          <>
+          <View style={[styles.statsGroup, loading ? styles.statsDim : null]}>
             <AppearIn delay={staggerDelay(2, 32, 240)}>
               <SectionCard label="总览">
                 <View style={styles.cardBody}>
@@ -316,7 +286,7 @@ export default function UsageScreen() {
                 </View>
               </SectionCard>
             </AppearIn>
-          </>
+          </View>
         ) : null}
       </ScrollView>
     </View>
@@ -326,24 +296,8 @@ export default function UsageScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
-  segTrack: {
-    flexDirection: "row",
-    gap: space(1),
-    padding: space(1),
-    borderRadius: radius.control,
-  },
-  segCellOuter: { flex: 1 },
-  segCell: {
-    height: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: space(1.5),
-    borderRadius: radius.control,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  segLabel: { ...text("small"), fontWeight: "600" },
-  loading: { alignSelf: "center" },
+  statsGroup: { gap: space(3) },
+  statsDim: { opacity: 0.6 },
   banner: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,

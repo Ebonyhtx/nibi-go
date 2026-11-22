@@ -1,7 +1,5 @@
-// 二级页面统一头部：返回钮（40 玻璃圆 + PressableScale）+ 居中标题/副题 + 右槽。
-// 替换 market/plugins/island/panel/7 个 settings 各自复制的 root/head/back/title 三元组——
-// 那些实现的圆角（11/12/radius.chip）与底色（panel/glass）各写各的，是 2.0 之前最大的不一致源。
-// 自带安全区顶部内边距，页面根布局不再自己算 insets.top。
+// 二级页面统一头部：返回钮（不透明 card + PressableScale）+ 真正居中的标题/副题 + 右槽。
+// 标题使用独立绝对居中层：哪怕右侧放了宽胶囊按钮（如「插件市场」），标题依然视觉居中不偏左。
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ReactNode } from "react";
@@ -30,23 +28,26 @@ export function ScreenHeader({
   return (
     <View style={[styles.head, { paddingTop: insets.top + space(1.5) }]}>
       <View style={styles.headRow}>
-        <View style={styles.headSide}>
+        <View style={styles.headLeft}>
           {onBack ? (
             <PressableScale
               onPress={onBack}
               accessibilityRole="button"
               accessibilityLabel="返回"
               hitSlop={8}
-              style={[
+              style={({ pressed }) => [
                 styles.back,
-                { backgroundColor: th.glass, borderColor: th.glassBorder },
+                {
+                  backgroundColor: pressed ? th.hover : th.card,
+                  borderColor: th.hairline,
+                },
               ]}
             >
               <Icon name="chevron-left" size={18} color={th.ink} />
             </PressableScale>
           ) : null}
         </View>
-        <View style={styles.headCenter}>
+        <View pointerEvents="none" style={styles.headCenter}>
           <Text style={[styles.title, { color: th.ink }]} numberOfLines={1}>
             {title}
           </Text>
@@ -56,7 +57,7 @@ export function ScreenHeader({
             </Text>
           ) : null}
         </View>
-        <View style={styles.headSide}>{right}</View>
+        <View style={styles.headRight}>{right}</View>
       </View>
       {bottom}
     </View>
@@ -70,16 +71,28 @@ const styles = StyleSheet.create({
   headRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: space(3),
     minHeight: size.topbar,
   },
-  headSide: {
+  headLeft: {
     minWidth: size.button,
     alignItems: "flex-start",
+    zIndex: 1,
+  },
+  headRight: {
+    minWidth: size.button,
+    alignItems: "flex-end",
+    zIndex: 1,
   },
   headCenter: {
-    flex: 1,
+    position: "absolute",
+    left: 64,
+    right: 64,
+    top: 0,
+    bottom: 0,
     alignItems: "center",
+    justifyContent: "center",
     gap: 1,
   },
   back: {

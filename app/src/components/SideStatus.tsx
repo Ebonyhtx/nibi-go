@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Canvas, Circle, Path } from "@shopify/react-native-skia";
 
 import { Dot } from "./Icon";
+import { haptic } from "../motion/haptics";
 import { motion, radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
 export interface ContextUsage {
@@ -206,20 +207,21 @@ function SideStatusImpl({
   );
   const [expanded, setExpanded] = useState(false);
   const [index, setIndex] = useState(0);
-  // 拖动后的底部距离；null = 用父级给的基础位置。
-  const [draggedBottom, setDraggedBottom] = useState<number | null>(null);
+  // 垂直拖拽位移直接走 Animated.Value（translateY），拖动全程零 React 重渲染。
+  const dragOffsetY = useRef(new Animated.Value(0)).current;
+  const committedOffsetRef = useRef(0);
   const bottomRef = useRef(bottom);
   bottomRef.current = bottom;
-  const draggedRef = useRef<number | null>(null);
-  draggedRef.current = draggedBottom;
-  const dragStart = useRef(0);
+  const dragStartRef = useRef(0);
   const breathe = useRef(new Animated.Value(0)).current;
   const expand = useRef(new Animated.Value(0)).current;
 
-  const clampBottom = (value: number): number => {
-    const min = insets.bottom + 72;
-    const max = Math.max(min, screenHeight - insets.top - 96);
-    return Math.max(min, Math.min(max, value));
+  const clampOffset = (offset: number): number => {
+    const base = bottomRef.current;
+    const minBottom = insets.bottom + 72;
+    const maxBottom = Math.max(minBottom, screenHeight - insets.top - 96);
+    const targetBottom = Math.max(minBottom, Math.min(maxBottom, base - offset));
+    return base - targetBottom;
   };
 
   const pan = useMemo(
@@ -229,15 +231,24 @@ function SideStatusImpl({
         onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dy) > 3,
         onMoveShouldSetPanResponderCapture: (_event, gesture) => Math.abs(gesture.dy) > 3,
         onPanResponderGrant: () => {
-          dragStart.current = draggedRef.current ?? bottomRef.current;
+          dragStartRef.current = committedOffsetRef.current;
         },
         onPanResponderMove: (_event, gesture) => {
-          setDraggedBottom(clampBottom(dragStart.current - gesture.dy));
+          const next = clampOffset(dragStartRef.current + gesture.dy);
+          dragOffsetY.setValue(next);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const next = clampOffset(dragStartRef.current + gesture.dy);
+          committedOffsetRef.current = next;
+          dragOffsetY.setValue(next);
+        },
+        onPanResponderTerminate: () => {
+          dragOffsetY.setValue(committedOffsetRef.current);
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    // clampBottom 只依赖布局尺寸，随 screenHeight/insets 重建。
-    [screenHeight, insets.top, insets.bottom],
+    // clampOffset 只依赖布局尺寸，随 screenHeight/insets 重建。
+    [dragOffsetY, screenHeight, insets.top, insets.bottom],
   );
 
   useEffect(() => {
@@ -249,7 +260,7 @@ function SideStatusImpl({
       setIndex((value) => (value + 1) % strips.length);
     }, 5_000);
     return () => clearInterval(timer);
-  }, [strips.length]);
+  }, [paused, strips.length]);
 
   useEffect(() => {
     if (paused) {
@@ -329,7 +340,6 @@ function SideStatusImpl({
         }),
       ).trim()
     : "";
-  const actualBottom = draggedBottom ?? bottom;
   const runningSubagent = session?.subagents.find((sub) => sub.status === "running");
   const runningCount = session?.subagents.filter((sub) => sub.status === "running").length ?? 0;
   const todoPercent =
@@ -352,8 +362,8 @@ function SideStatusImpl({
   };
 
   return (
-    <View
-      style={[styles.dock, { bottom: actualBottom }]}
+    <Animated.View
+      style={[styles.dock, { bottom, transform: [{ translateY: dragOffsetY }] }]}
       pointerEvents="auto"
       {...pan.panHandlers}
     >
@@ -503,7 +513,10 @@ function SideStatusImpl({
         {/* 子代理在跑时环上方亮一枚会眨眼的瓦片脸——不展开也能看到「有代理在干活」。 */}
         {runningSubagent ? (
           <Pressable
-            onPress={() => setExpanded(true)}
+            onPress={() => {
+              haptic("tick");
+              setExpanded(true);
+            }}
             hitSlop={6}
             accessibilityRole="button"
             accessibilityLabel={`子智能体 ${runningSubagent.name} 运行中，点按查看会话状态`}
@@ -513,7 +526,10 @@ function SideStatusImpl({
           </Pressable>
         ) : null}
         <Pressable
-          onPress={() => setExpanded((value) => !value)}
+          onPress={() => {
+            haptic("tick");
+            setExpanded((value) => !value);
+          }}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel={
@@ -543,7 +559,7 @@ function SideStatusImpl({
           </Animated.View>
         </Pressable>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

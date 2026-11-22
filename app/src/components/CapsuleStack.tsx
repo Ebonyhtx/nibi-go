@@ -2,17 +2,19 @@
 //
 // 内容由设置页的 COMPOSE 配置决定；每一项是 catalog 里的命令/技能/模式，
 // 选中后只往 COMPOSE 里插入 token，不把提示词塞进输入框。
-// 2.0：胶囊层走 glass + elevation.card，按压交给 PressableScale；弹层列表换 ui/MenuRow。
+// 2.0：顶层用不透明 card（避免半透明叠层出现暗条纹）、底层对称居中、折角随开合旋转。
 
 import type { ComponentRef } from "react";
-import { useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon, type IconName } from "./Icon";
 import { MenuRow } from "./ui/MenuRow";
 import { PluginPopup, type PopupAnchor } from "./PluginPopup";
 import type { ComposerCatalogItem } from "../composer/catalog";
+import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
+import { useDevicePreferences } from "../settings/devicePreferences";
 import { radius, space, text, useNibiTheme } from "../theme";
 
 function itemIcon(item: ComposerCatalogItem): IconName {
@@ -27,21 +29,43 @@ export function CapsuleStack({
   onItem: (item: ComposerCatalogItem) => void;
 }) {
   const t = useNibiTheme();
+  const { motionEnabled } = useDevicePreferences();
   const buttonRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
   const [anchor, setAnchor] = useState<PopupAnchor | null>(null);
+  const chevron = useRef(new Animated.Value(0)).current;
+  const isOpen = anchor !== null;
+
+  useEffect(() => {
+    if (!motionEnabled) {
+      chevron.setValue(isOpen ? 1 : 0);
+      return;
+    }
+    Animated.timing(chevron, {
+      toValue: isOpen ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+  }, [chevron, isOpen, motionEnabled]);
+
   if (items.length === 0) return null;
 
   const open = () => {
+    haptic("tap");
     buttonRef.current?.measureInWindow((x, y, width, height) => {
       setAnchor({ x, y, width, height });
     });
   };
 
+  const rotate = chevron.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["180deg", "0deg"],
+  });
+
   return (
     <>
       <PressableScale
         ref={buttonRef}
-        scaleTo={0.96}
+        scaleTo={0.95}
         onPress={open}
         accessibilityRole="button"
         accessibilityLabel="快捷动作"
@@ -51,35 +75,37 @@ export function CapsuleStack({
           style={[
             styles.layer,
             styles.layerBack,
-            { backgroundColor: t.glass, borderColor: t.glassBorder },
+            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
           ]}
         />
         <View
           style={[
             styles.layer,
             styles.layerMid,
-            { backgroundColor: t.glass, borderColor: t.glassBorder },
+            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
           ]}
         />
         <View
           style={[
             styles.face,
             {
-              backgroundColor: t.glass,
-              borderColor: t.glassBorder,
-              // 投影只落在最上层，三层叠加时避免阴影重复发黑。
+              // 不透明 card：Android elevation + 半透明 glass 会透出底下叠层的边框与暗影。
+              backgroundColor: t.card,
+              borderColor: t.hairline,
               ...t.elevation.card,
             },
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
           <Text style={[styles.count, { color: t.inkSub }]}>快捷</Text>
-          <Icon name="chevron-down" size={11} color={t.inkFaint} />
+          <Animated.View style={{ transform: [{ rotate }] }}>
+            <Icon name="chevron-down" size={11} color={t.inkFaint} />
+          </Animated.View>
         </View>
       </PressableScale>
 
       <PluginPopup
-        visible={anchor !== null}
+        visible={isOpen}
         anchor={anchor}
         onClose={() => setAnchor(null)}
         width={280}
@@ -93,6 +119,7 @@ export function CapsuleStack({
               tone={item.source === "plugin" ? "steel" : "brand"}
               label={item.title}
               onPress={() => {
+                haptic("tick");
                 setAnchor(null);
                 onItem(item);
               }}
@@ -106,20 +133,19 @@ export function CapsuleStack({
 
 const styles = StyleSheet.create({
   stack: {
-    width: 104,
+    width: 100,
     height: 42,
     justifyContent: "flex-end",
   },
   layer: {
     position: "absolute",
-    left: 4,
-    right: 0,
-    height: 30,
+    height: 28,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  layerBack: { bottom: 10, left: 12, right: 8, opacity: 0.55 },
-  layerMid: { bottom: 5, left: 8, right: 4, opacity: 0.8 },
+  // 两张垫片左右对称收窄，消除早先偏右 4px 的歪斜感。
+  layerBack: { bottom: 9, left: 10, right: 10, opacity: 0.55 },
+  layerMid: { bottom: 5, left: 5, right: 5, opacity: 0.8 },
   face: {
     height: 32,
     flexDirection: "row",

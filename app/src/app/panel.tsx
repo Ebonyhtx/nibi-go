@@ -60,7 +60,10 @@ export default function PluginPanelScreen() {
         onPress={() => router.back()}
         accessibilityRole="button"
         accessibilityLabel="返回"
-        style={[styles.back, { backgroundColor: t.glass, borderColor: t.glassBorder }]}
+        style={({ pressed }) => [
+          styles.back,
+          { backgroundColor: pressed ? t.hover : t.card, borderColor: t.hairline },
+        ]}
       >
         <Icon name="chevron-left" size={17} color={t.ink} />
       </PressableScale>
@@ -100,7 +103,7 @@ export default function PluginPanelScreen() {
   const degraded = plugin.parsed.degraded.includes(`panels:${panel.id}`);
 
   return (
-    <View style={[styles.root, { backgroundColor: t.bg }]} key={tick}>
+    <View style={[styles.root, { backgroundColor: t.bg }]}>
       {header(panel.title, `${plugin.parsed.manifest.name} · v${plugin.parsed.manifest.version}`)}
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(6) }]}
@@ -120,6 +123,7 @@ export default function PluginPanelScreen() {
         ) : (
           <View style={[styles.surface, { backgroundColor: t.card, borderColor: t.hairline }]}>
             <PluginPanelView
+              key={tick}
               plugin={plugin}
               node={resolveView(panel.view, data)}
               actions={panel.actions}

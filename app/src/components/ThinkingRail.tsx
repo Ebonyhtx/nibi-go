@@ -4,18 +4,20 @@
 // 4px 白色停靠点、流光和浮叶；到最高档时填充铺满整条轨道。
 // 全部用 Animated 实现，不引 Reanimated；层数控制在小屏可接受的范围。
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  PanResponder,
-  Pressable,
   StyleSheet,
   Text,
   View,
   type LayoutChangeEvent,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 
+import { useReducedMotion } from "../motion/appear";
+import { haptic } from "../motion/haptics";
 import { radius, space, useNibiTheme } from "../theme";
 
 export interface ThinkingLevel {
@@ -126,6 +128,7 @@ export function ThinkingRail({
   onChange: (value: string) => void;
 }) {
   const t = useNibiTheme();
+  const reduced = useReducedMotion();
   const [width, setWidth] = useState(0);
   const sheen = useRef(new Animated.Value(0)).current;
   const currentIndex = Math.max(
@@ -136,6 +139,10 @@ export function ThinkingRail({
   const current = levels[currentIndex];
 
   useEffect(() => {
+    if (reduced) {
+      sheen.setValue(0);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(sheen, { toValue: 1, duration: 2200, useNativeDriver: true }),
@@ -144,30 +151,48 @@ export function ThinkingRail({
     );
     loop.start();
     return () => loop.stop();
-  }, [sheen]);
+  }, [reduced, sheen]);
 
-  const pick = (x: number) => {
-    if (levels.length < 2 || width <= 0) return;
-    const inner = Math.max(1, width - 24);
-    const index = Math.max(
-      0,
-      Math.min(levels.length - 1, Math.round(((x - 12) / inner) * (levels.length - 1))),
-    );
-    const next = levels[index];
-    if (next && next.value !== value) onChange(next.value);
-  };
+  const pick = useCallback(
+    (x: number) => {
+      if (levels.length < 2 || width <= 0) return;
+      const inner = Math.max(1, width - 24);
+      const index = Math.max(
+        0,
+        Math.min(levels.length - 1, Math.round(((x - 12) / inner) * (levels.length - 1))),
+      );
+      const next = levels[index];
+      if (next && next.value !== value) {
+        haptic("tick");
+        onChange(next.value);
+      }
+    },
+    [levels, onChange, value, width],
+  );
 
-  // pick closes over width/levels/value; keep the latest in a ref for the stable responder.
-  const pickRef = useRef<(x: number) => void>(() => undefined);
+  // 用 ref 给稳定的 RNGH 手势读取最新 pick，避免每次切换档位都重建手势识别器。
+  const pickRef = useRef(pick);
   pickRef.current = pick;
-  const responder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (event) => pickRef.current(event.nativeEvent.locationX),
-      onPanResponderMove: (event) => pickRef.current(event.nativeEvent.locationX),
-    }),
-  ).current;
+  const pickFromGesture = useCallback((x: number) => {
+    pickRef.current(x);
+  }, []);
+
+  // 横向滑动优先占手势，纵向 > 12px 立刻让给外层 Sheet 下拉关闭或 ScrollView，不抢手势。
+  const gesture = useMemo(() => {
+    const pan = Gesture.Pan()
+      .activeOffsetX([-6, 6])
+      .failOffsetY([-12, 12])
+      .onStart((e) => {
+        runOnJS(pickFromGesture)(e.x);
+      })
+      .onUpdate((e) => {
+        runOnJS(pickFromGesture)(e.x);
+      });
+    const tap = Gesture.Tap().onEnd((e) => {
+      runOnJS(pickFromGesture)(e.x);
+    });
+    return Gesture.Race(pan, tap);
+  }, [pickFromGesture]);
 
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
 
@@ -180,69 +205,69 @@ export function ThinkingRail({
           {current ? thinkingLevelLabel(current.value) : "—"}
         </Text>
       </View>
-      <View
-        style={[styles.track, { borderColor: t.hairline }]}
-        onLayout={onLayout}
-        {...responder.panHandlers}
-      >
-        <LinearGradient
-          colors={["rgba(117,109,243,0.05)", "rgba(236,130,56,0.04)", "rgba(104,160,113,0.04)"]}
-          locations={[0, 0.46, 1]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.trackTint}
-        />
-        <View style={styles.fillClip}>
+      <GestureDetector gesture={gesture}>
+        <View style={[styles.track, { borderColor: t.hairline }]} onLayout={onLayout}>
           <LinearGradient
-            colors={["rgba(88,123,168,0.68)", "rgba(117,109,243,0.54)", "rgba(236,130,56,0.56)"]}
-            locations={[0, 0.45, 1]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={[
-              styles.fill,
-              peak ? styles.fillPeak : null,
-              { width: peak ? "100%" : `${Math.max(2, ratio * 100)}%` },
-            ]}
+            colors={["rgba(117,109,243,0.05)", "rgba(236,130,56,0.04)", "rgba(104,160,113,0.04)"]}
+            locations={[0, 0.46, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.trackTint}
           />
-        </View>
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.sheen,
-            {
-              opacity: 0.42,
-              transform: [
+          <View style={styles.fillClip}>
+            <LinearGradient
+              colors={["rgba(88,123,168,0.68)", "rgba(117,109,243,0.54)", "rgba(236,130,56,0.56)"]}
+              locations={[0, 0.45, 1]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={[
+                styles.fill,
+                peak ? styles.fillPeak : null,
+                { width: peak ? "100%" : `${Math.max(2, ratio * 100)}%` },
+              ]}
+            />
+          </View>
+          {!reduced ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.sheen,
                 {
-                  translateX: sheen.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-32, Math.max(24, width * ratio)],
-                  }),
+                  opacity: 0.42,
+                  transform: [
+                    {
+                      translateX: sheen.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-32, Math.max(24, width * ratio)],
+                      }),
+                    },
+                  ],
                 },
-              ],
-            },
-          ]}
-        />
-        <View style={styles.stops} pointerEvents="none">
-          {levels.map((level, index) => {
-            const active = index <= currentIndex;
-            return (
-              <View
-                key={level.value}
-                style={[
-                  styles.stop,
-                  {
-                    opacity: index === currentIndex ? 1 : active ? 0.75 : 0.45,
-                    transform: [{ scale: index === currentIndex ? 1.55 : 1 }],
-                  },
-                ]}
-              />
-            );
-          })}
+              ]}
+            />
+          ) : null}
+          <View style={styles.stops} pointerEvents="none">
+            {levels.map((level, index) => {
+              const active = index <= currentIndex;
+              return (
+                <View
+                  key={level.value}
+                  style={[
+                    styles.stop,
+                    {
+                      opacity: index === currentIndex ? 1 : active ? 0.75 : 0.45,
+                      transform: [{ scale: index === currentIndex ? 1.55 : 1 }],
+                    },
+                  ]}
+                />
+              );
+            })}
+          </View>
+          {!reduced
+            ? Array.from({ length: 12 }, (_, index) => <Leaf key={index} index={index} />)
+            : null}
         </View>
-        {Array.from({ length: 20 }, (_, index) => (
-          <Leaf key={index} index={index} />
-        ))}
-      </View>
+      </GestureDetector>
     </View>
   );
 }

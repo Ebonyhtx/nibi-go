@@ -9,6 +9,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./Icon";
 import { Sheet } from "./ui/Sheet";
 import { PressableScale } from "../motion/PressableScale";
+import { haptic } from "../motion/haptics";
 import { radius, space, text, useNibiTheme } from "../theme";
 
 export interface AnnotationItem {
@@ -72,53 +73,61 @@ export function AnnotationManager({
         ) : (
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
             {annotations.map((annotation, index) => (
-              <PressableScale
+              <View
                 key={annotation.id}
-                scaleTo={0.985}
-                onPress={() => onEdit(annotation)}
-                accessibilityRole="button"
-                accessibilityLabel={`编辑注释 ${index + 1}`}
-                style={({ pressed }) => [
+                style={[
                   styles.card,
                   {
-                    backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                    backgroundColor: t.surfaceSoft,
                     borderColor: t.hairline,
                   },
                 ]}
               >
-                <View style={[styles.number, { backgroundColor: t.brandSoft }]}>
-                  <Text style={[styles.numberText, { color: t.brand }]}>{index + 1}</Text>
-                </View>
-                <View style={styles.cardBody}>
-                  <View style={styles.metaRow}>
-                    <Text style={[styles.meta, { color: t.inkGhost }]}>
-                      {annotation.messageRole === "assistant" ? "助手消息" : "用户消息"}
-                    </Text>
-                    {annotation.instruction ? (
-                      <View style={[styles.instruction, { backgroundColor: t.brandSoft }]}>
-                        <Text style={[styles.instructionText, { color: t.brand }]} numberOfLines={1}>
-                          {annotation.instruction}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={[styles.excerpt, { color: t.inkSub }]} numberOfLines={2}>
-                    {annotation.messageText.trim()}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.comment,
-                      { color: annotation.comment ? t.ink : t.inkFaint },
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {annotation.comment || "（无评论）"}
-                  </Text>
-                </View>
                 <PressableScale
-                  onPress={(event) => {
-                    // 内层删除按钮吃掉本次点击，避免同时触发外层的“编辑”。
-                    event.stopPropagation();
+                  scaleTo={0.985}
+                  containerStyle={styles.cardMainWrap}
+                  onPress={() => onEdit(annotation)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`编辑注释 ${index + 1}`}
+                  style={({ pressed }) => [
+                    styles.cardMain,
+                    pressed ? { backgroundColor: t.hover } : null,
+                  ]}
+                >
+                  <View style={[styles.number, { backgroundColor: t.brandSoft }]}>
+                    <Text style={[styles.numberText, { color: t.brand }]}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.metaRow}>
+                      <Text style={[styles.meta, { color: t.inkGhost }]}>
+                        {annotation.messageRole === "assistant" ? "助手消息" : "用户消息"}
+                      </Text>
+                      {annotation.instruction ? (
+                        <View style={[styles.instruction, { backgroundColor: t.brandSoft }]}>
+                          <Text style={[styles.instructionText, { color: t.brand }]} numberOfLines={1}>
+                            {annotation.instruction}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.excerpt, { color: t.inkSub }]} numberOfLines={2}>
+                      {annotation.messageText.trim()}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.comment,
+                        { color: annotation.comment ? t.ink : t.inkFaint },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {annotation.comment || "（无评论）"}
+                    </Text>
+                  </View>
+                </PressableScale>
+                <PressableScale
+                  scaleTo={0.9}
+                  onPress={() => {
+                    haptic("tick");
                     onDelete(annotation.id);
                   }}
                   hitSlop={8}
@@ -128,7 +137,7 @@ export function AnnotationManager({
                 >
                   <Icon name="trash" size={15} color={t.red} />
                 </PressableScale>
-              </PressableScale>
+              </View>
             ))}
           </ScrollView>
         )}
@@ -162,11 +171,18 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: space(2.5),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    padding: space(2.5),
+    overflow: "hidden",
     marginBottom: space(1.5),
+  },
+  cardMainWrap: { flex: 1 },
+  cardMain: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space(2.5),
+    padding: space(2.5),
+    borderRadius: radius.control,
   },
   number: {
     width: space(5.5),
@@ -188,6 +204,6 @@ const styles = StyleSheet.create({
   instructionText: { ...text("micro"), fontWeight: "700" },
   excerpt: { ...text("small") },
   comment: { ...text("small") },
-  delete: { paddingTop: space(0.5), paddingLeft: space(0.5) },
+  delete: { paddingTop: space(3), paddingRight: space(2.5), paddingLeft: space(1.5), paddingBottom: space(2) },
   footnote: { ...text("micro") },
 });

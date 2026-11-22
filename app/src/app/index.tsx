@@ -41,11 +41,13 @@ import { ComposerTokens } from "../components/ComposerTokens";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { BlurTargetView } from "expo-blur";
 import Reanimated, {
-  Easing as REasing,
   runOnJS,
+  useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
 } from "react-native-reanimated";
+import { haptic } from "../motion/haptics";
+import { rubberBandProgress, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { SideBackdrop } from "../components/SideBackdrop";
 import { Dot, Icon, type IconName } from "../components/Icon";
@@ -336,6 +338,12 @@ export default function GoHomeScreen() {
   useEffect(() => {
     if (conversation.turn === "running") setPendingSend(false);
   }, [conversation.turn]);
+  useEffect(() => {
+    if (!conversation.sending && conversation.statusKind === "error") setPendingSend(false);
+  }, [conversation.sending, conversation.statusKind]);
+  useEffect(() => {
+    setPendingSend(false);
+  }, [conversation.activeSessionId]);
   useEffect(
     () => () => {
       if (pendingSendTimer.current) clearTimeout(pendingSendTimer.current);
@@ -986,11 +994,14 @@ export default function GoHomeScreen() {
     return session?.workspace?.workspacePath ?? null;
   }, [conversation.sessions, conversation.activeSessionId]);
   // 侧栏进度（Reanimated 共享值，UI 线程驱动）：+1 = 左抽屉完全展开，
-  // -1 = 右侧面板完全展开，0 = 都收起。中部任意位置横滑跟手（对齐豆包手感），
-  // 展开后反向滑回即可关闭；纵向滚动不受影响（failOffsetY 让位）。
+  // -1 = 右侧面板完全展开，0 = 都收起。中部任意位置横滑跟手（临界阻尼弹簧，
+  // 保留甩动速度、边缘轻橡皮筋、过阈微触感）；纵向滚动不受影响（failOffsetY 让位）。
   const side = useSharedValue(0);
   // 当前展开侧（0 收起 / 1 抽屉 / -1 面板）：手势方向判定用，工作线程可读。
   const sideMode = useSharedValue(0);
+  // 手指正在拖动侧栏的标记（1=拖动中，0=松手）：拖动期绝不挂载 BlurView 掉帧。
+  const sideDragging = useSharedValue(0);
+  const sideCrossed = useSharedValue(0);
   const drawerW = useSharedValue(300);
   const panelW = useSharedValue(360);
   const { width: windowWidth } = useWindowDimensions();
@@ -1004,86 +1015,161 @@ export default function GoHomeScreen() {
   // 玻璃模糊目标：被侧栏遮住的主内容。expo-blur 的 Android 实现必须把内容包进
   // BlurTargetView 并传给 BlurView，否则 blurMethod 静默为 none（真机实测无模糊）。
   const blurTargetRef = useRef<ComponentRef<typeof View> | null>(null);
-  const SIDE_TIMING = { duration: 300, easing: REasing.out(REasing.cubic) };
-  const openDrawerSide = () => {
+  const openDrawerSide = (animate = true) => {
     // 只 blur（有焦点才会真的收键盘）；不再补一次 Keyboard.dismiss——百度输入法
     // 对「已经收起时的再次 dismiss」会反转成弹出，这是键盘闪现反复复发的根因。
     blurComposer();
     setDrawerOpen(true);
-    side.value = withTiming(1, SIDE_TIMING);
+    if (animate) {
+      haptic("tap");
+      side.value = withSpring(1, SIDE_SPRING_CONFIG);
+    }
   };
-  const closeDrawerSide = () => {
+  const closeDrawerSide = (animate = true) => {
     setDrawerOpen(false);
-    side.value = withTiming(0, SIDE_TIMING);
+    if (animate) side.value = withSpring(0, SIDE_SPRING_CONFIG);
   };
-  const openPanelSide = () => {
+  const openPanelSide = (animate = true) => {
     blurComposer();
     setWorkspacePanelOpen(true);
-    side.value = withTiming(-1, SIDE_TIMING);
+    if (animate) {
+      haptic("tap");
+      side.value = withSpring(-1, SIDE_SPRING_CONFIG);
+    }
   };
-  const closePanelSide = () => {
+  const closePanelSide = (animate = true) => {
     setWorkspacePanelOpen(false);
-    side.value = withTiming(0, SIDE_TIMING);
+    if (animate) side.value = withSpring(0, SIDE_SPRING_CONFIG);
   };
   const sideGesture = useMemo(
     () =>
       Gesture.Pan()
         .activeOffsetX([-14, 14])
         .failOffsetY([-16, 16])
+        .onBegin(() => {
+          "worklet";
+          sideDragging.value = 1;
+          sideCrossed.value = 0;
+        })
         .onUpdate((event) => {
           "worklet";
           const mode = sideMode.value;
           if (mode === 0) {
-            // 拖动期最多到 0.99：进度只要摸到 1，SideBackdrop 就会判定「停稳」并
-            // 挂上真模糊，手指还在动就会掉帧。松手后的 timing 才补到最后 1%。
-            side.value =
-              event.translationX > 0
-                ? Math.min(0.99, event.translationX / drawerW.value)
-                : Math.max(-0.99, event.translationX / panelW.value);
+            if (event.translationX > 0) {
+              const raw = event.translationX / drawerW.value;
+              side.value = raw > 1 ? 1 + rubberBandProgress(raw - 1) : raw;
+            } else {
+              const raw = event.translationX / panelW.value;
+              side.value = raw < -1 ? -1 - rubberBandProgress(-1 - raw) : raw;
+            }
+            const absP = Math.abs(side.value);
+            if (absP > 0.35 && sideCrossed.value === 0) {
+              sideCrossed.value = 1;
+              runOnJS(haptic)("threshold");
+            } else if (absP < 0.25 && sideCrossed.value === 1) {
+              sideCrossed.value = 0;
+            }
           } else if (mode === 1) {
-            // 抽屉已开：往左滑按比例收起（往右到顶不回弹过界）。
-            side.value = Math.min(1, Math.max(0, 1 + event.translationX / drawerW.value));
+            const raw = 1 + event.translationX / drawerW.value;
+            side.value = raw > 1 ? 1 + rubberBandProgress(raw - 1) : Math.max(0, raw);
+            if (side.value < 0.65 && sideCrossed.value === 0) {
+              sideCrossed.value = 1;
+              runOnJS(haptic)("threshold");
+            } else if (side.value > 0.75 && sideCrossed.value === 1) {
+              sideCrossed.value = 0;
+            }
           } else {
-            // 面板已开：往右滑按比例收起。
-            side.value = Math.min(0, Math.max(-1, -1 + event.translationX / panelW.value));
+            const raw = -1 + event.translationX / panelW.value;
+            side.value = raw < -1 ? -1 - rubberBandProgress(-1 - raw) : Math.min(0, raw);
+            if (side.value > -0.65 && sideCrossed.value === 0) {
+              sideCrossed.value = 1;
+              runOnJS(haptic)("threshold");
+            } else if (side.value < -0.75 && sideCrossed.value === 1) {
+              sideCrossed.value = 0;
+            }
           }
         })
         .onEnd((event) => {
           "worklet";
           const mode = sideMode.value;
           const progress = side.value;
-          const fast = Math.abs(event.velocityX) > 600;
+          const fast = Math.abs(event.velocityX) > 550;
           if (mode === 0) {
             if (progress > 0.35 || (fast && event.velocityX > 0)) {
-              side.value = withTiming(1, { duration: 220, easing: REasing.out(REasing.cubic) });
-              runOnJS(openDrawerSide)();
+              const v = event.velocityX / drawerW.value;
+              side.value = withSpring(1, { ...SIDE_SPRING_CONFIG, velocity: v });
+              runOnJS(openDrawerSide)(false);
             } else if (progress < -0.35 || (fast && event.velocityX < 0)) {
-              side.value = withTiming(-1, { duration: 220, easing: REasing.out(REasing.cubic) });
-              runOnJS(openPanelSide)();
+              const v = event.velocityX / panelW.value;
+              side.value = withSpring(-1, { ...SIDE_SPRING_CONFIG, velocity: v });
+              runOnJS(openPanelSide)(false);
             } else {
-              side.value = withTiming(0, { duration: 180, easing: REasing.out(REasing.cubic) });
+              const denom = progress >= 0 ? drawerW.value : panelW.value;
+              side.value = withSpring(0, { ...SIDE_SPRING_CONFIG, velocity: event.velocityX / denom });
             }
           } else if (mode === 1) {
-            if (progress < 0.65 || (fast && event.velocityX < 0)) runOnJS(closeDrawerSide)();
-            else side.value = withTiming(1, { duration: 180, easing: REasing.out(REasing.cubic) });
-          } else if (progress > -0.65 || (fast && event.velocityX > 0)) {
-            runOnJS(closePanelSide)();
+            const v = event.velocityX / drawerW.value;
+            if (progress < 0.65 || (fast && event.velocityX < 0)) {
+              side.value = withSpring(0, { ...SIDE_SPRING_CONFIG, velocity: v });
+              runOnJS(closeDrawerSide)(false);
+            } else {
+              side.value = withSpring(1, { ...SIDE_SPRING_CONFIG, velocity: v });
+            }
           } else {
-            side.value = withTiming(-1, { duration: 180, easing: REasing.out(REasing.cubic) });
+            const v = event.velocityX / panelW.value;
+            if (progress > -0.65 || (fast && event.velocityX > 0)) {
+              side.value = withSpring(0, { ...SIDE_SPRING_CONFIG, velocity: v });
+              runOnJS(closePanelSide)(false);
+            } else {
+              side.value = withSpring(-1, { ...SIDE_SPRING_CONFIG, velocity: v });
+            }
+          }
+        })
+        .onFinalize((_event, success) => {
+          "worklet";
+          sideDragging.value = 0;
+          if (!success) {
+            side.value = withSpring(sideMode.value, SIDE_SPRING_CONFIG);
           }
         }),
     // 回调都是稳定的 setter；闭包捕获的 setState 引用不会随渲染失效。
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  // 舞台不再做反向视差：它会每帧移动模糊目标，逼着 BlurView 每帧重算一张全屏
-  // 模糊。背景保持不动、只有侧栏浮在上面，既省帧也更接近豆包的层次。
+  // 舞台微景深（纯 GPU scale + 圆角，仅作用在 BlurTargetView 内部正文层；
+  // 拖动期 BlurView 未挂载、停稳后模糊已冻结，所以零额外模糊帧开销）。
+  const bodyDepthStyle = useAnimatedStyle(() => {
+    const p = Math.min(1, Math.abs(side.value));
+    return {
+      transform: [{ scale: 1 - 0.022 * p }],
+      borderRadius: p > 0.002 ? Math.round(18 * p) : 0,
+    };
+  });
   const closeSide = () => {
-    if (drawerOpen) closeDrawerSide();
-    else if (workspacePanelOpen) closePanelSide();
+    if (drawerOpen) closeDrawerSide(true);
+    else if (workspacePanelOpen) closePanelSide(true);
+  };
+  const closeSideFromSwipe = () => {
+    if (drawerOpen) closeDrawerSide(false);
+    else if (workspacePanelOpen) closePanelSide(false);
   };
   const [atBottom, setAtBottom] = useState(true);
   const [jumpSignal, setJumpSignal] = useState(0);
+  const showJump = !atBottom && conversation.rows.length > 0;
+  const jumpAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(jumpAnim, {
+      toValue: showJump ? 1 : 0,
+      useNativeDriver: true,
+      damping: 20,
+      stiffness: 280,
+      mass: 0.7,
+    }).start();
+  }, [jumpAnim, showJump]);
+  const keyboardLift = useMemo(
+    () => Animated.multiply(keyboard.offset, -1),
+    [keyboard.offset],
+  );
   // 键盘取证：侧栏开着时如果 IME 还是弹出来，把调用栈打进 logcat（排查复发用）。
   const sideOpenRef = useRef({ drawer: false, panel: false });
   sideOpenRef.current = { drawer: drawerOpen, panel: workspacePanelOpen };
@@ -1194,8 +1280,8 @@ export default function GoHomeScreen() {
   // 手机 88 / 横屏 72（省高度）/ 平板 104。
   const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
   // 状态点挂在整个屏幕的右缘（不在正文的 16dp 留白里），底部按 COMPOSE 高度让位。
-  const composerBottom =
-    keyboardHeight > 0 ? keyboardHeight + space(2) : insets.bottom + space(2);
+  // Android edgeToEdge 下 keyboardHeight 已扣除导航栏，需要加回 insets.bottom 才与输入栏对齐。
+  const composerBottom = insets.bottom + space(2) + keyboardHeight;
   const statusBottom = composerBottom + 52 + petTarget + space(8);
   const hasSidebar = layout.left === "sidebar";
   const hasRail = layout.left === "rail";
@@ -1307,13 +1393,14 @@ export default function GoHomeScreen() {
           />
         ) : null}
 
-        <View style={[styles.body, { paddingRight: insets.right }]}>
+        <Reanimated.View
+          style={[styles.body, { paddingRight: insets.right, overflow: "hidden" }, bodyDepthStyle]}
+        >
           <View style={[styles.bodyInner, { maxWidth: bodyMax }]}>
             {/*
               顶栏分两组，视觉重心居中：
-              左组（身份/导航）= ≡ + 会话 chip；右组（操作）= 模型 chip + 新建对话。
-              之前四件全挤在左边、右侧空一大片，重心偏左。
-              rail 模式由 rail 自带 ≡，左组只剩会话 chip。
+              左组（身份/导航）= ≡ + 会话 chip；右组（操作）= 模型 chip + 工作区面板。
+              顶栏用不透明 card：Android 上半透明 glass + elevation 会在圆键外圈打出浑浊灰框。
             */}
             <View style={[styles.topbar, { paddingTop: insets.top + space(1) }]}>
               <View style={styles.topLeft}>
@@ -1321,7 +1408,7 @@ export default function GoHomeScreen() {
                   <PressableScale
                     style={[
                       styles.fab,
-                      { backgroundColor: th.glass, borderColor: th.glassBorder },
+                      { backgroundColor: th.card, borderColor: th.hairline },
                       th.elevation.card,
                     ]}
                     onPress={onMenu}
@@ -1335,6 +1422,7 @@ export default function GoHomeScreen() {
                 <PressableScale
                   ref={sessionChipRef}
                   onPress={() => {
+                    haptic("tick");
                     sessionChipRef.current?.measureInWindow((x, y, width, height) => {
                       setPermissionMenu({ x, y, width, height });
                     });
@@ -1342,7 +1430,7 @@ export default function GoHomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`会话与权限模式：${permissionLabel}`}
                   containerStyle={styles.chipFlex}
-                  style={[styles.chip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                  style={[styles.chip, { backgroundColor: th.card, borderColor: th.hairline }]}
                 >
                   <View style={styles.chipBody}>
                     <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
@@ -1366,13 +1454,14 @@ export default function GoHomeScreen() {
               <View style={styles.topRight}>
                 <PressableScale
                   onPress={() => {
+                    haptic("tick");
                     setModelPickerOpen(true);
                     void providerCatalog.reload();
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
                   containerStyle={styles.modelChipFlex}
-                  style={[styles.modelChip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+                  style={[styles.modelChip, { backgroundColor: th.card, borderColor: th.hairline }]}
                 >
                   <View style={[styles.effortMeter, { backgroundColor: th.hairline }]}>
                     <View
@@ -1391,11 +1480,11 @@ export default function GoHomeScreen() {
                 <PressableScale
                   style={[
                     styles.fab,
-                    { backgroundColor: th.glass, borderColor: th.glassBorder },
+                    { backgroundColor: th.card, borderColor: th.hairline },
                     th.elevation.card,
                   ]}
                   accessibilityLabel="打开工作区面板"
-                  onPress={openPanelSide}
+                  onPress={() => openPanelSide(true)}
                 >
                   <Icon name="folder" size={17} color={th.ink} />
                 </PressableScale>
@@ -1470,7 +1559,7 @@ export default function GoHomeScreen() {
                   onOpenSession={stableOpenSession}
                   plugins={plugins.enabled}
                   onPluginAction={stablePluginAction}
-                  bottomInset={petTarget + (annotations.length > 0 ? space(10) : 0)}
+                  bottomInset={petTarget + (annotations.length > 0 ? space(10) : 0) + keyboardHeight}
                   onMessageLongPress={stableOpenMessagePopup}
                   annotationCountFor={stableAnnotationCountFor}
                   showReasoning={conversationPrefs.showReasoning}
@@ -1522,7 +1611,10 @@ export default function GoHomeScreen() {
               {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE。
                   空态时不渲染——中央已有品牌大鸟，同屏两只鸟抢主角（运营者 2026-11-21 指出）。 */}
               {conversation.rows.length > 0 ? (
-              <View style={styles.petOverlay} pointerEvents="box-none">
+              <Animated.View
+                style={[styles.petOverlay, { transform: [{ translateY: keyboardLift }] }]}
+                pointerEvents="box-none"
+              >
                 <View style={styles.actionsOverlay} pointerEvents="auto">
                   <CapsuleStack items={capsuleItems} onItem={applyCatalogItem} />
                 </View>
@@ -1582,24 +1674,38 @@ export default function GoHomeScreen() {
                     </Pressable>
                   </View>
                 </View>
-              </View>
+              </Animated.View>
               ) : null}
             </Reanimated.View>
             </GestureDetector>
 
             {hint ? (
-              <View
-                style={[styles.hint, { backgroundColor: th.panel, borderColor: th.hairline }]}
+              <Animated.View
+                style={[
+                  styles.hint,
+                  {
+                    backgroundColor: th.panel,
+                    borderColor: th.hairline,
+                    transform: [{ translateY: keyboardLift }],
+                  },
+                ]}
                 accessibilityRole="alert"
               >
                 <Text style={[styles.hintText, { color: th.inkSub }]}>{hint}</Text>
-              </View>
+              </Animated.View>
             ) : null}
 
             {/* 编辑重发条：草稿现在是「最后一条消息的改写文本」，发送即替换原文。 */}
             {editTarget ? (
-              <View
-                style={[styles.editStrip, { backgroundColor: th.glass, borderColor: th.glassBorder }]}
+              <Animated.View
+                style={[
+                  styles.editStrip,
+                  {
+                    backgroundColor: th.card,
+                    borderColor: th.hairline,
+                    transform: [{ translateY: keyboardLift }],
+                  },
+                ]}
               >
                 <Text style={[styles.editStripText, { color: th.brand }]} numberOfLines={1}>
                   正在编辑重发最后一条消息，发送后替换原文
@@ -1608,6 +1714,7 @@ export default function GoHomeScreen() {
                   accessibilityLabel="取消编辑"
                   hitSlop={10}
                   onPress={() => {
+                    haptic("tick");
                     setEditTarget(null);
                     setDraft("");
                   }}
@@ -1615,25 +1722,28 @@ export default function GoHomeScreen() {
                 >
                   <Icon name="x" size={13} color={th.inkSub} />
                 </Pressable>
-              </View>
+              </Animated.View>
             ) : null}
 
-            {/* 输入栏：原始单行 pill；插件/命令 token 与草稿同一行，点 × 只移除 token。
-                2.0：marginBottom 由键盘动画驱动（抬起时整条输入栏跟手上滑）。 */}
+            {/* 输入栏：纯 GPU translateY 随键盘上浮（marginBottom 保持静态，消除每帧 Yoga 重排）。 */}
             <Animated.View
               style={[
                 styles.composer,
                 {
-                  backgroundColor: th.glass,
-                  borderColor: th.glassBorder,
-                  marginBottom: Animated.add(keyboard.offset, insets.bottom + space(2)),
+                  backgroundColor: th.card,
+                  borderColor: th.hairline,
+                  marginBottom: insets.bottom + space(2),
+                  transform: [{ translateY: keyboardLift }],
                 },
                 th.elevation.float,
               ]}
             >
               <PressableScale
                 ref={plusRef}
-                onPress={openPlusMenu}
+                onPress={() => {
+                  haptic("tap");
+                  openPlusMenu();
+                }}
                 style={[styles.plus, { backgroundColor: th.panel }]}
                 accessibilityRole="button"
                 accessibilityLabel="选择插件"
@@ -1642,13 +1752,15 @@ export default function GoHomeScreen() {
               </PressableScale>
               <ComposerAttachments
                 attachments={attachments}
-                onRemove={(id) =>
-                  setAttachments((current) => current.filter((attachment) => attachment.id !== id))
-                }
+                onRemove={(id) => {
+                  haptic("tick");
+                  setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+                }}
               />
               <ComposerTokens
                 tokens={tokens}
                 onRemove={(id) => {
+                  haptic("tick");
                   const removed = tokens.find((token) => token.id === id);
                   if (removed?.kind === "mode") setPlanEnabled(false);
                   setTokens((current) => current.filter((token) => token.id !== id));
@@ -1683,10 +1795,12 @@ export default function GoHomeScreen() {
                 disabled={!stopping && !canSend}
                 onPress={() => {
                   if (stopping) {
+                    haptic("reject");
                     void conversation.stopTurn().then((error) => {
                       if (error) showHint(error);
                     });
                   } else {
+                    haptic("tap");
                     submitDraft();
                   }
                 }}
@@ -1759,14 +1873,19 @@ export default function GoHomeScreen() {
               />
             </Animated.View>
           </View>
-        </View>
+        </Reanimated.View>
       </BlurTargetView>
 
-      {/* 左右两栏共用的一层玻璃遮罩（模糊/压暗/关闭热区）。 */}
+      {/* 左右两栏共用的一层玻璃遮罩（模糊/压暗/点按与横滑关闭热区）。 */}
       <SideBackdrop
         progress={side}
+        dragging={sideDragging}
+        sideMode={sideMode}
+        drawerW={drawerW}
+        panelW={panelW}
         open={drawerOpen || workspacePanelOpen}
         onClose={closeSide}
+        onSwipeClose={closeSideFromSwipe}
         blurTarget={blurTargetRef}
       />
 
@@ -1775,7 +1894,9 @@ export default function GoHomeScreen() {
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           progress={side}
-          onClose={closeDrawerSide}
+          dragging={sideDragging}
+          onClose={() => closeDrawerSide(true)}
+          onSwipeClose={() => closeDrawerSide(false)}
           petState={petState}
           sessions={conversation.sessions}
           archivedSessions={conversation.archivedSessions}
@@ -1798,7 +1919,9 @@ export default function GoHomeScreen() {
       <WorkspacePanel
         visible={workspacePanelOpen}
         progress={side}
-        onClose={closePanelSide}
+        dragging={sideDragging}
+        onClose={() => closePanelSide(true)}
+        onSwipeClose={() => closePanelSide(false)}
         workspacePath={activeWorkspacePath}
         subagents={sessionTools.subagents.map(
           (entry): WorkspaceSubagent => ({
@@ -1811,37 +1934,57 @@ export default function GoHomeScreen() {
         )}
       />
 
-      {/* 「回到底部」浮钮：渲染在这层（晚于正文的渐变遮罩），离开底部时出现。 */}
-      {!atBottom && conversation.rows.length > 0 ? (
-        /* 底距用「无键盘位置 + 键盘动画位移」，和输入栏同一节奏上移；
-           原来直接读 keyboardHeight（didShow 才变），会比输入栏早跳一下。 */
+      {/* 「回到底部」浮钮：弹簧入场/退场 + GPU 随键盘上移 + 按压缩放与微触感。 */}
+      <Animated.View
+        pointerEvents={showJump ? "box-none" : "none"}
+        style={[
+          styles.jumpWrap,
+          {
+            bottom: insets.bottom + space(2) + 60,
+            transform: [{ translateY: keyboardLift }],
+          },
+        ]}
+      >
         <Animated.View
-          pointerEvents="box-none"
-          style={[
-            styles.jumpWrap,
-            {
-              bottom: insets.bottom + space(2) + 60,
-              transform: [{ translateY: Animated.multiply(keyboard.offset, -1) }],
-            },
-          ]}
+          style={{
+            opacity: jumpAnim,
+            transform: [
+              {
+                scale: jumpAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.78, 1],
+                }),
+              },
+              {
+                translateY: jumpAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [10, 0],
+                }),
+              },
+            ],
+          }}
         >
-          <Pressable
-            onPress={() => setJumpSignal((value) => value + 1)}
+          <PressableScale
+            scaleTo={0.92}
+            onPress={() => {
+              haptic("tick");
+              setJumpSignal((value) => value + 1);
+            }}
             accessibilityRole="button"
             accessibilityLabel="跳到最新消息"
-            style={({ pressed }) => [
+            style={[
               styles.jumpButton,
               {
-                backgroundColor: pressed ? th.hover : th.card,
+                backgroundColor: th.card,
                 borderColor: th.hairline,
                 ...th.elevation.card,
               },
             ]}
           >
             <Icon name="chevron-down" size={16} color={th.inkSub} />
-          </Pressable>
+          </PressableScale>
         </Animated.View>
-      ) : null}
+      </Animated.View>
 
       <SideStatus
         plugins={plugins.enabled}

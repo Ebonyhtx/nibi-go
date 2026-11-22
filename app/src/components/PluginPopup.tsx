@@ -108,7 +108,14 @@ export function PluginPopup({
   );
 
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+    <Modal
+      visible
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      animationType="none"
+      onRequestClose={onClose}
+    >
       <View style={styles.root}>
         <Animated.View
           style={[
@@ -128,6 +135,7 @@ export function PluginPopup({
           pointerEvents={interactive ? "auto" : "none"}
           style={[
             styles.card,
+            t.elevation.menu,
             {
               left,
               top,
@@ -182,11 +190,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
     padding: space(2),
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
   },
   arrow: {
     position: "absolute",

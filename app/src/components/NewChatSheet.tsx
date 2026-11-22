@@ -1,16 +1,14 @@
 // 新建对话归属：底部弹层，FAB 与抽屉「新对话」共用同一份交互。
 // 独立会话 / 各项目（当前项目高亮）/ 就地新建项目（名称自动 slug 可改）/ 管理项目入口。
-// 之前是 FAB 的锚点小弹窗，而抽屉「新对话」直接静默建会话——两条路两套语义
-// （运营者 2026-11-21：抽屉新对话竟然直接新建、新建交互差劲）。统一成一个
-// sheet：先选归属再开会话，就地建项目也不必去设置页。
-import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Icon } from "./Icon";
 import { Sheet } from "./ui/Sheet";
 import { PillButton } from "./ui/PillButton";
 import type { ProjectEntry } from "../kernel/projects";
 import { projectWorkspacePath } from "../kernel/workspace";
+import { PressableScale } from "../motion/PressableScale";
 import { radius, space, text, useNibiTheme } from "../theme";
 
 export function NewChatSheet({
@@ -47,6 +45,13 @@ export function NewChatSheet({
     setTouchedFolder(false);
   };
 
+  // 关闭时复位表单（延后等退场动画结束），防止下次打开还残留新建态并自动弹键盘。
+  useEffect(() => {
+    if (visible) return;
+    const timer = setTimeout(resetForm, 260);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
   const slugOf = (value: string) =>
     value
       .toLowerCase()
@@ -70,7 +75,11 @@ export function NewChatSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose} avoidKeyboard>
-      <View style={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.head}>
           <Text style={[styles.title, { color: th.ink }]}>新建对话</Text>
           <Text style={[styles.subtitle, { color: th.inkFaint }]}>
@@ -78,7 +87,8 @@ export function NewChatSheet({
           </Text>
         </View>
 
-        <Pressable
+        <PressableScale
+          scaleTo={0.98}
           onPress={() => {
             onClose();
             onPick(undefined);
@@ -100,13 +110,14 @@ export function NewChatSheet({
             </Text>
           </View>
           <Icon name="chevron-right" size={13} color={th.inkGhost} />
-        </Pressable>
+        </PressableScale>
 
         {projects.map((project) => {
           const active = project.id === activeProjectId;
           return (
-            <Pressable
+            <PressableScale
               key={project.id}
+              scaleTo={0.98}
               onPress={() => {
                 onClose();
                 onPick(project.id);
@@ -139,7 +150,7 @@ export function NewChatSheet({
                 </Text>
               </View>
               {active ? <Icon name="check" size={13} color={th.brand} /> : null}
-            </Pressable>
+            </PressableScale>
           );
         })}
 
@@ -154,7 +165,10 @@ export function NewChatSheet({
               placeholder="项目名称"
               placeholderTextColor={th.inkFaint}
               autoFocus
-              style={[styles.input, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+              style={[
+                styles.input,
+                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+              ]}
             />
             <TextInput
               value={folder}
@@ -166,7 +180,10 @@ export function NewChatSheet({
               placeholderTextColor={th.inkFaint}
               autoCapitalize="none"
               autoCorrect={false}
-              style={[styles.input, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
+              style={[
+                styles.input,
+                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+              ]}
             />
             <View style={styles.formActions}>
               <PillButton label="取消" variant="secondary" onPress={resetForm} />
@@ -179,7 +196,8 @@ export function NewChatSheet({
             </View>
           </View>
         ) : (
-          <Pressable
+          <PressableScale
+            scaleTo={0.98}
             onPress={() => setCreating(true)}
             accessibilityRole="button"
             accessibilityLabel="新建项目"
@@ -197,10 +215,13 @@ export function NewChatSheet({
                 建完立即在它里面开新会话
               </Text>
             </View>
-          </Pressable>
+          </PressableScale>
         )}
 
-        <Pressable
+        <View style={[styles.divider, { backgroundColor: th.hairline }]} />
+
+        <PressableScale
+          scaleTo={0.98}
           onPress={() => {
             onClose();
             onManage();
@@ -209,7 +230,6 @@ export function NewChatSheet({
           accessibilityLabel="管理项目"
           style={({ pressed }) => [
             styles.row,
-            styles.manageRow,
             { backgroundColor: pressed ? th.hover : "transparent" },
           ]}
         >
@@ -219,14 +239,14 @@ export function NewChatSheet({
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: th.ink }]}>管理项目…</Text>
           </View>
-        </Pressable>
-      </View>
+        </PressableScale>
+      </ScrollView>
     </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { paddingHorizontal: space(4), paddingTop: space(4), paddingBottom: space(2), gap: space(1) },
+  body: { paddingHorizontal: space(4), paddingTop: space(1.5), paddingBottom: space(3), gap: space(1) },
   head: { gap: space(1), paddingBottom: space(2) },
   title: { ...text("title"), fontWeight: "700" },
   subtitle: { ...text("small") },
@@ -238,7 +258,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(2.5),
     borderRadius: radius.control,
   },
-  manageRow: { marginTop: space(1), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "transparent" },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: space(1),
+    marginHorizontal: space(2.5),
+  },
   rowIcon: {
     width: 34,
     height: 34,

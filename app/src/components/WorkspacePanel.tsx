@@ -8,13 +8,16 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
+  FadeIn,
+  FadeInRight,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
   type SharedValue,
 } from "react-native-reanimated";
+import { haptic } from "../motion/haptics";
+import { rubberBandProgress, SIDE_BLEED, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import {
   Alert,
   Image,
@@ -188,14 +191,20 @@ type WorkspaceMode = "hub" | "files" | "agents";
 export function WorkspacePanel({
   visible,
   onClose,
+  onSwipeClose,
   progress,
+  dragging,
   workspacePath,
   subagents,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** 右滑松手已起速度弹簧时回调，只同步 JS 开关态，避免二次动画卡顿。 */
+  onSwipeClose?: () => void;
   /** 侧栏进度（index 的共享值：+1 左抽屉 / -1 右面板 / 0 收起）。 */
   progress: SharedValue<number>;
+  /** 手指拖动标记（1=拖动，0=松手）：拖动期不挂载真模糊。 */
+  dragging: SharedValue<number>;
   /** 当前项目的绝对目录；null 时整块内容显示空态。 */
   workspacePath: string | null;
   subagents: readonly WorkspaceSubagent[];
@@ -205,39 +214,63 @@ export function WorkspacePanel({
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(360, Math.round(width * 0.88));
   const panelWidthSV = useSharedValue(panelWidth);
-  panelWidthSV.value = panelWidth;
+  useEffect(() => {
+    panelWidthSV.value = panelWidth;
+  }, [panelWidth, panelWidthSV]);
   // 一级入口；打开面板回到 hub（每次进来先选入口）。
   const [mode, setMode] = useState<WorkspaceMode>("hub");
   // 面板内正在查看的子智能体（有子会话的行点进来直接看消息流）。
   const [transcriptAgent, setTranscriptAgent] = useState<WorkspaceSubagent | null>(null);
   const searchRef = useRef<ComponentRef<typeof TextInput> | null>(null);
 
-  // 负进度 → 位移动画（面板在右，展开时 translateX=0）。
+  // 负进度 → 位移动画（面板在右，展开时 translateX=0；右缘留 SIDE_BLEED 防超拉露缝）。
   const panelStyle = useAnimatedStyle(() => {
-    const p = Math.min(1, Math.max(0, -progress.value));
+    const p = Math.max(0, -progress.value);
     return { transform: [{ translateX: panelWidthSV.value * (1 - p) }] };
   });
   const contentStyle = useAnimatedStyle(() => {
     const p = Math.min(1, Math.max(0, -progress.value));
     return { transform: [{ translateX: 10 * (1 - p) }] };
   });
-  // 展开后在面板上往右拖 = 跟手关闭。
+  // 展开后在面板上往右拖 = 跟手关闭；保留松手初速、过阈轻触感、异常取消自动复位。
+  const crossed = useSharedValue(0);
   const closeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-16, 16])
+        .activeOffsetX([-14, 14])
         .failOffsetY([-16, 16])
+        .onBegin(() => {
+          "worklet";
+          dragging.value = 1;
+          crossed.value = 0;
+        })
         .onUpdate((event) => {
           "worklet";
-          progress.value = Math.min(0, Math.max(-1, -1 + event.translationX / panelWidthSV.value));
+          const raw = -1 + event.translationX / panelWidthSV.value;
+          progress.value = raw < -1 ? -1 - rubberBandProgress(-1 - raw) : Math.min(0, raw);
+          if (progress.value > -0.65 && crossed.value === 0) {
+            crossed.value = 1;
+            runOnJS(haptic)("threshold");
+          } else if (progress.value < -0.75 && crossed.value === 1) {
+            crossed.value = 0;
+          }
         })
         .onEnd((event) => {
           "worklet";
           const p = progress.value;
-          if (p > -0.7 || (Math.abs(event.velocityX) > 600 && event.velocityX > 0)) {
-            runOnJS(onClose)();
+          const v = event.velocityX / panelWidthSV.value;
+          if (p > -0.65 || event.velocityX > 550) {
+            progress.value = withSpring(0, { ...SIDE_SPRING_CONFIG, velocity: v });
+            runOnJS(onSwipeClose ?? onClose)();
           } else {
-            progress.value = withTiming(-1, { duration: 180, easing: Easing.out(Easing.cubic) });
+            progress.value = withSpring(-1, { ...SIDE_SPRING_CONFIG, velocity: v });
+          }
+        })
+        .onFinalize((_event, success) => {
+          "worklet";
+          dragging.value = 0;
+          if (!success) {
+            progress.value = withSpring(-1, SIDE_SPRING_CONFIG);
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -580,7 +613,9 @@ export function WorkspacePanel({
         style={[
           styles.panel,
           {
-            width: panelWidth,
+            right: -SIDE_BLEED,
+            width: panelWidth + SIDE_BLEED,
+            paddingRight: SIDE_BLEED,
             backgroundColor: t.card,
             borderLeftColor: t.hairline,
             paddingTop: insets.top,
@@ -772,9 +807,12 @@ export function WorkspacePanel({
                 )}
               </ScrollView>
 
-              {/* 2. 查看层：点文件后覆盖整个内容区（顶栏返回 + 文件名 + 按类型渲染）。 */}
+              {/* 2. 查看层：点文件后覆盖整个内容区（水平轻滑入 + 顶栏返回 + 文件名 + 按类型渲染）。 */}
               {viewer ? (
-                <View style={[styles.viewerLayer, { backgroundColor: t.card }]}>
+                <Animated.View
+                  entering={FadeInRight.duration(180)}
+                  style={[styles.viewerLayer, { backgroundColor: t.card }]}
+                >
                   <View style={[styles.viewerHead, { borderBottomColor: t.hairline }]}>
                     <PressableScale
                       scaleTo={0.94}
@@ -836,18 +874,21 @@ export function WorkspacePanel({
                       </ScrollView>
                     )}
                   </View>
-                </View>
+                </Animated.View>
               ) : null}
             </View>
             )
           ) : transcriptAgent ? (
             /* 子会话消息流：面板内只读订阅（独立 connectionId，不占主订阅槽）。 */
-            <SubagentTranscript
-              sessionId={transcriptAgent.childSessionId as string}
-              agentName={transcriptAgent.name}
-            />
+            <Animated.View entering={FadeInRight.duration(180)} style={styles.flex1}>
+              <SubagentTranscript
+                sessionId={transcriptAgent.childSessionId as string}
+                agentName={transcriptAgent.name}
+              />
+            </Animated.View>
           ) : (
             /* 子智能体：瓦片脸列表；有子会话的行点进来**在面板内**看消息流。 */
+            <Animated.View entering={FadeIn.duration(150)} style={styles.flex1}>
             <ScrollView
               style={styles.flex1}
               contentContainerStyle={styles.scroll}
@@ -905,6 +946,7 @@ export function WorkspacePanel({
                 })
               )}
             </ScrollView>
+            </Animated.View>
           )}
         </Animated.View>
       </Animated.View>

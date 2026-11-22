@@ -53,7 +53,10 @@ export default function WebIslandScreen() {
         onPress={() => router.back()}
         accessibilityRole="button"
         accessibilityLabel="返回"
-        style={[styles.back, { backgroundColor: t.glass, borderColor: t.glassBorder }]}
+        style={({ pressed }) => [
+          styles.back,
+          { backgroundColor: pressed ? t.hover : t.card, borderColor: t.hairline },
+        ]}
       >
         <Icon name="chevron-left" size={17} color={t.ink} />
       </PressableScale>
@@ -129,7 +132,7 @@ export default function WebIslandScreen() {
             </PressableScale>
           </View>
         ) : (
-          <View style={[styles.webContainer, { borderColor: t.hairline }]}>
+          <View style={[styles.webContainer, { borderColor: t.hairline, backgroundColor: t.card }]}>
             <WebView
               key={reloadKey}
               source={source}
@@ -197,7 +200,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
     overflow: "hidden",
-    backgroundColor: "#fffdf9",
   },
   web: { flex: 1, backgroundColor: "transparent" },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },

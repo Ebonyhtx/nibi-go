@@ -11,13 +11,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
   type SharedValue,
 } from "react-native-reanimated";
+import { haptic } from "../motion/haptics";
+import { rubberBandProgress, SIDE_BLEED, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import {
   Alert,
   Image,
@@ -566,7 +567,10 @@ export function GoNavContent({
                               onOpenSession?.(session.sessionId);
                               onNavigate?.();
                             }}
-                            onLongPress={() => openRowMenu(session)}
+                            onLongPress={() => {
+                              haptic("longPress");
+                              openRowMenu(session);
+                            }}
                             delayLongPress={400}
                             accessibilityRole="button"
                             accessibilityHint="长按归档这条会话"
@@ -746,7 +750,9 @@ export interface GoDrawerHandle {
 export function GoDrawer({
   open,
   onClose,
+  onSwipeClose,
   progress,
+  dragging,
   petState,
   onlineDevices,
   sessions,
@@ -764,8 +770,12 @@ export function GoDrawer({
 }: {
   open: boolean;
   onClose: () => void;
+  /** 左滑松手已起速度弹簧时回调，只同步 JS 开关态、不再覆写第二条动画。 */
+  onSwipeClose?: () => void;
   /** 侧栏进度（父级 index 的共享值，中部手势在 UI 线程直接写它）。 */
   progress: SharedValue<number>;
+  /** 手指拖动标记（1=拖动期，0=松手）：防止模糊层在拖动中误挂。 */
+  dragging: SharedValue<number>;
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
@@ -794,37 +804,58 @@ export function GoDrawer({
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(300, Math.round(width * 0.8));
   const panelWidthSV = useSharedValue(panelWidth);
-  panelWidthSV.value = panelWidth;
+  useEffect(() => {
+    panelWidthSV.value = panelWidth;
+  }, [panelWidth, panelWidthSV]);
 
-  // 进度 → 位移/遮罩/视差（全部在 UI 线程按共享值插值，跟手零桥接）。
+  // 进度 → 位移/视差（UI 线程驱动；支持过界橡皮筋，左缘有 SIDE_BLEED 余量防露缝）。
   const panelStyle = useAnimatedStyle(() => {
-    const p = Math.min(1, Math.max(0, progress.value));
+    const p = Math.max(0, progress.value);
     return { transform: [{ translateX: -panelWidthSV.value * (1 - p) }] };
   });
   const contentStyle = useAnimatedStyle(() => {
     const p = Math.min(1, Math.max(0, progress.value));
     return { transform: [{ translateX: -10 * (1 - p) }] };
   });
-  // 展开后在面板上往左拖 = 跟手关闭；松手过 30% 或甩动方向对就收。
+  // 展开后在面板上往左拖 = 跟手关闭；保留松手速度，带过阈微触感与异常取消兜底。
+  const crossed = useSharedValue(0);
   const closeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-16, 16])
+        .activeOffsetX([-14, 14])
         .failOffsetY([-16, 16])
+        .onBegin(() => {
+          "worklet";
+          dragging.value = 1;
+          crossed.value = 0;
+        })
         .onUpdate((event) => {
           "worklet";
-          progress.value = Math.min(
-            1,
-            Math.max(0, 1 + event.translationX / panelWidthSV.value),
-          );
+          const raw = 1 + event.translationX / panelWidthSV.value;
+          progress.value = raw > 1 ? 1 + rubberBandProgress(raw - 1) : Math.max(0, raw);
+          if (progress.value < 0.65 && crossed.value === 0) {
+            crossed.value = 1;
+            runOnJS(haptic)("threshold");
+          } else if (progress.value > 0.75 && crossed.value === 1) {
+            crossed.value = 0;
+          }
         })
         .onEnd((event) => {
           "worklet";
           const p = progress.value;
-          if (p < 0.7 || (Math.abs(event.velocityX) > 600 && event.velocityX < 0)) {
-            runOnJS(onClose)();
+          const v = event.velocityX / panelWidthSV.value;
+          if (p < 0.65 || event.velocityX < -550) {
+            progress.value = withSpring(0, { ...SIDE_SPRING_CONFIG, velocity: v });
+            runOnJS(onSwipeClose ?? onClose)();
           } else {
-            progress.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.cubic) });
+            progress.value = withSpring(1, { ...SIDE_SPRING_CONFIG, velocity: v });
+          }
+        })
+        .onFinalize((_event, success) => {
+          "worklet";
+          dragging.value = 0;
+          if (!success) {
+            progress.value = withSpring(1, SIDE_SPRING_CONFIG);
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -841,7 +872,9 @@ export function GoDrawer({
         style={[
           styles.panel,
           {
-            width: panelWidth,
+            left: -SIDE_BLEED,
+            width: panelWidth + SIDE_BLEED,
+            paddingLeft: SIDE_BLEED,
             backgroundColor: t.card,
             borderRightColor: t.hairline,
             paddingTop: insets.top,

@@ -5,6 +5,7 @@ import { StyleSheet, Switch, Text, View } from "react-native";
 import type { ReactNode } from "react";
 
 import { Icon, type IconName } from "../Icon";
+import { haptic } from "../../motion/haptics";
 import { PressableScale } from "../../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme, type NibiTheme } from "../../theme";
 
@@ -106,7 +107,7 @@ export function Row({
   return <View style={styles.row}>{body}</View>;
 }
 
-/** 带开关的行（三套重复 ToggleRow 的唯一实现）。 */
+/** 带开关的行（整行可点、禁用态置灰、带轻触感）。 */
 export function ToggleRow({
   icon,
   tone = "brand",
@@ -125,27 +126,36 @@ export function ToggleRow({
   disabled?: boolean;
 }) {
   const th = useNibiTheme();
+  const handleToggle = (next: boolean) => {
+    if (disabled) return;
+    haptic("tick");
+    onChange(next);
+  };
   return (
-    <Row
-      icon={icon}
-      tone={tone}
-      title={title}
-      detail={detail}
-      right={
-        <Switch
-          value={value}
-          onValueChange={onChange}
-          disabled={disabled}
-          trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
-          thumbColor={value ? th.brand : th.inkFaint}
-          ios_backgroundColor={th.surfaceSoft}
-        />
-      }
-    />
+    <View style={disabled ? styles.disabled : undefined}>
+      <Row
+        icon={icon}
+        tone={tone}
+        title={title}
+        detail={detail}
+        onPress={disabled ? undefined : () => handleToggle(!value)}
+        right={
+          <Switch
+            value={value}
+            onValueChange={handleToggle}
+            disabled={disabled}
+            trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
+            thumbColor={value ? th.brand : th.inkFaint}
+            ios_backgroundColor={th.surfaceSoft}
+          />
+        }
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  disabled: { opacity: 0.45 },
   row: {
     minHeight: size.row,
     flexDirection: "row",
