@@ -53,6 +53,7 @@ import { SideBackdrop } from "../components/SideBackdrop";
 import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
+import { MessageActionsSheet } from "../components/MessageActionsSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
 import type { PluginActionHandler } from "../components/PluginView";
 import { SideStatus, type SessionTodoState } from "../components/SideStatus";
@@ -92,6 +93,7 @@ import {
   type ComposerAttachment,
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
+import { pluginSourceLabel, splitMessageMenuItems } from "../composer/messageMenu";
 import { dismissKeyboardOnce, leaveComposerForNavigation } from "../composer/leave";
 import { createProject, setActiveProject, useProjects } from "../kernel/projects";
 import { usePlugins } from "../plugins/usePlugins";
@@ -258,6 +260,23 @@ export default function GoHomeScreen() {
       .map((id) => composerCatalog.find((item) => item.id === id))
       .filter((item): item is ComposerCatalogItem => Boolean(item));
   }, [composerCatalog, composerPreferences]);
+  const pluginNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const plugin of plugins.enabled) {
+      map.set(plugin.parsed.manifest.id, plugin.parsed.manifest.name);
+    }
+    return map;
+  }, [plugins.enabled]);
+  const messageMenuPartition = useMemo(
+    () => splitMessageMenuItems(messageMenuItems),
+    [messageMenuItems],
+  );
+  const [messageMoreTarget, setMessageMoreTarget] = useState<{
+    messageKey: string;
+    message: string;
+    messageRole: "user" | "assistant";
+    messageId?: string;
+  } | null>(null);
   const [popup, setPopup] = useState<
     | { kind: "plus"; anchor: PopupAnchor }
     | {
@@ -623,20 +642,25 @@ export default function GoHomeScreen() {
     });
   };
 
-  /** 长按消息菜单：先引用消息，再触发命令/技能（不是注释评论）。 */
-  const applyMessageCatalogItem = (item: ComposerCatalogItem) => {
-    if (popup?.kind !== "message") return;
+  /** 长按消息菜单：先引用消息，再触发命令/技能（不是注释评论）；同时支持浮层与「更多」抽屉。 */
+  const applyMessageCatalogItem = (
+    item: ComposerCatalogItem,
+    explicitTarget?: {
+      messageKey: string;
+      message: string;
+      messageRole: "user" | "assistant";
+    },
+  ) => {
+    const target = explicitTarget ?? (popup?.kind === "message" ? popup : null);
+    if (!target) return;
     setPopup(null);
+    setMessageMoreTarget(null);
     const token = item.token;
-    const pluginName = item.pluginId
-      ? (plugins.enabled.find(
-          (candidate) => candidate.parsed.manifest.id === item.pluginId,
-        )?.parsed.manifest.name ?? item.detail ?? "插件")
-      : "NIBI";
+    const pluginName = pluginSourceLabel(item, pluginNameMap);
     addMessageReference(
-      popup.messageKey,
-      popup.message,
-      popup.messageRole,
+      target.messageKey,
+      target.message,
+      target.messageRole,
       item.pluginId ?? "nibi",
       pluginName,
     );
@@ -2291,130 +2315,214 @@ export default function GoHomeScreen() {
         visible={popup?.kind === "message"}
         anchor={popup?.kind === "message" ? popup.anchor : null}
         onClose={() => setPopup(null)}
-        width={240}
+        width={264}
       >
-        <Text style={[styles.popupTitle, { color: th.ink }]}>消息动作</Text>
-        <Pressable
-          onPress={() => {
-            if (popup?.kind !== "message") return;
-            const text = popup.message;
-            setPopup(null);
-            void Clipboard.setStringAsync(text)
-              .then((saved) => showHint(saved ? "已复制" : "复制失败，请手动选择文本"))
-              .catch(() => showHint("复制失败，请手动选择文本"));
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="复制消息"
-          style={({ pressed }) => [
-            styles.menuRow,
-            { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
-          ]}
-        >
-          <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
-            <Icon name="copy" size={15} color={th.inkSub} />
-          </View>
-          {/* 菜单只留「图标+标题」：动作名称自解释，解释文让菜单高度翻倍（2.0.1 审查口径）。 */}
-          <View style={styles.menuText}>
-            <Text style={[styles.menuLabel, { color: th.ink }]}>复制</Text>
-          </View>
-        </Pressable>
-        {/* 编辑重发：只出现在内核判定可编辑（最新一条 realUser 输入）的用户消息上。 */}
-        {popup?.kind === "message" &&
-        popup.messageRole === "user" &&
-        lastEditableUserRow?.key === popup.messageKey ? (
+        {/* 顶部原生核心动作横向工具条：复制 / 注释 / 编辑重发永远常驻首排，不被插件数量挤掉。 */}
+        <View style={styles.msgCoreBar}>
           <Pressable
             onPress={() => {
               if (popup?.kind !== "message") return;
-              const row = lastEditableUserRow;
-              if (!row || typeof row.rowId !== "number" || !row.entityId) return;
+              const text = popup.message;
               setPopup(null);
-              if (
-                (row.conversationQuotes?.length ?? 0) > 0 ||
-                (row.attachments?.length ?? 0) > 0 ||
-                (row.pluginReferences?.length ?? 0) > 0
-              ) {
-                showHint("带附件或引用的消息暂不支持编辑重发");
-                return;
-              }
-              setEditTarget({ rowId: row.rowId, entityId: row.entityId });
-              setDraft(row.text);
+              void Clipboard.setStringAsync(text)
+                .then((saved) => showHint(saved ? "已复制" : "复制失败，请手动选择文本"))
+                .catch(() => showHint("复制失败，请手动选择文本"));
             }}
             accessibilityRole="button"
-            accessibilityLabel="编辑重发"
+            accessibilityLabel="复制消息"
             style={({ pressed }) => [
-              styles.menuRow,
-              { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
+              styles.msgCoreTile,
+              {
+                backgroundColor: pressed ? th.hover : th.surfaceSoft,
+                borderColor: th.hairline,
+              },
             ]}
           >
-            <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
-              <Icon name="pen" size={15} color={th.inkSub} />
-            </View>
-            <View style={styles.menuText}>
-              <Text style={[styles.menuLabel, { color: th.ink }]}>编辑重发</Text>
-              <Text style={[styles.menuDetail, { color: th.inkFaint }]}>改写后替换这条输入</Text>
-            </View>
+            <Icon name="copy" size={16} color={th.inkSub} />
+            <Text style={[styles.msgCoreLabel, { color: th.ink }]}>复制</Text>
           </Pressable>
-        ) : null}
-        <Pressable
-          onPress={() => {
-            if (popup?.kind !== "message") return;
-            setPopup(null);
-            setAnnotationEditor({
-              messageKey: popup.messageKey,
-              ...(popup.messageId ? { messageId: popup.messageId } : {}),
-              messageRole: popup.messageRole,
-              fullText: popup.message,
-              initialExcerpt: popup.message,
-              comment: "",
-            });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="添加注释"
-          style={({ pressed }) => [
-            styles.menuRow,
-            { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
-          ]}
-        >
-          <View style={[styles.toolIconSmall, { backgroundColor: th.brandSoft }]}>
-            <Icon name="quote" size={15} color={th.brand} />
-          </View>
-          <View style={styles.menuText}>
-            <Text style={[styles.menuLabel, { color: th.ink }]}>注释</Text>
-          </View>
-          <Icon name="chevron-right" size={13} color={th.inkFaint} />
-        </Pressable>
-        {messageMenuItems.length > 0 ? (
-          <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
-        ) : null}
-        {messageMenuItems.map((item) => (
+
           <Pressable
-            key={item.id}
-            onPress={() => applyMessageCatalogItem(item)}
+            onPress={() => {
+              if (popup?.kind !== "message") return;
+              setPopup(null);
+              setAnnotationEditor({
+                messageKey: popup.messageKey,
+                ...(popup.messageId ? { messageId: popup.messageId } : {}),
+                messageRole: popup.messageRole,
+                fullText: popup.message,
+                initialExcerpt: popup.message,
+                comment: "",
+              });
+            }}
             accessibilityRole="button"
-            accessibilityLabel={item.title}
+            accessibilityLabel="添加注释"
             style={({ pressed }) => [
-              styles.menuRow,
-              { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
+              styles.msgCoreTile,
+              {
+                backgroundColor: pressed ? th.hover : th.brandSoft,
+                borderColor: th.hairline,
+              },
             ]}
           >
-            <View
-              style={[
-                styles.toolIconSmall,
-                { backgroundColor: item.group === "skill" ? th.steelSoft : th.brandSoft },
+            <Icon name="quote" size={16} color={th.brand} />
+            <Text style={[styles.msgCoreLabel, { color: th.brand }]}>注释</Text>
+          </Pressable>
+
+          {/* 编辑重发：只出现在内核判定可编辑（最新一条 realUser 输入）的用户消息上。 */}
+          {popup?.kind === "message" &&
+          popup.messageRole === "user" &&
+          lastEditableUserRow?.key === popup.messageKey ? (
+            <Pressable
+              onPress={() => {
+                if (popup?.kind !== "message") return;
+                const row = lastEditableUserRow;
+                if (!row || typeof row.rowId !== "number" || !row.entityId) return;
+                setPopup(null);
+                if (
+                  (row.conversationQuotes?.length ?? 0) > 0 ||
+                  (row.attachments?.length ?? 0) > 0 ||
+                  (row.pluginReferences?.length ?? 0) > 0
+                ) {
+                  showHint("带附件或引用的消息暂不支持编辑重发");
+                  return;
+                }
+                setEditTarget({ rowId: row.rowId, entityId: row.entityId });
+                setDraft(row.text);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="编辑重发"
+              style={({ pressed }) => [
+                styles.msgCoreTile,
+                {
+                  backgroundColor: pressed ? th.hover : th.surfaceSoft,
+                  borderColor: th.hairline,
+                },
               ]}
             >
-              <Icon
-                name={(item.icon ?? "sparkles") as IconName}
-                size={15}
-                color={item.group === "skill" ? th.steel : th.brand}
-              />
-            </View>
-            <View style={styles.menuText}>
-              <Text style={[styles.menuLabel, { color: th.ink }]}>{item.title}</Text>
-            </View>
-          </Pressable>
-        ))}
+              <Icon name="pen" size={16} color={th.inkSub} />
+              <Text style={[styles.msgCoreLabel, { color: th.ink }]}>编辑重发</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {messageMenuItems.length > 0 ? (
+          <>
+            <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
+            <ScrollView
+              style={styles.msgPluginScroll}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {messageMenuPartition.direct.map((item) => {
+                const sourceName = pluginSourceLabel(item, pluginNameMap);
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => applyMessageCatalogItem(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.title}（${sourceName}）`}
+                    style={({ pressed }) => [
+                      styles.menuRow,
+                      {
+                        borderColor: th.hairline,
+                        backgroundColor: pressed ? th.hover : "transparent",
+                        opacity: pressed ? 0.92 : 1,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.toolIconSmall,
+                        { backgroundColor: item.group === "skill" ? th.steelSoft : th.brandSoft },
+                      ]}
+                    >
+                      <Icon
+                        name={(item.icon ?? "sparkles") as IconName}
+                        size={15}
+                        color={item.group === "skill" ? th.steel : th.brand}
+                      />
+                    </View>
+                    <View style={styles.menuText}>
+                      <Text style={[styles.menuLabel, { color: th.ink }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[styles.msgSourceLabel, { color: th.inkFaint }]}
+                      numberOfLines={1}
+                    >
+                      {sourceName}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+
+              {messageMenuPartition.hasOverflow ? (
+                <>
+                  <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
+                  <Pressable
+                    onPress={() => {
+                      if (popup?.kind !== "message") return;
+                      const captured = {
+                        messageKey: popup.messageKey,
+                        message: popup.message,
+                        messageRole: popup.messageRole,
+                        ...(popup.messageId ? { messageId: popup.messageId } : {}),
+                      };
+                      setPopup(null);
+                      setMessageMoreTarget(captured);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`更多插件动作，共 ${messageMenuItems.length} 项`}
+                    style={({ pressed }) => [
+                      styles.menuRow,
+                      {
+                        borderColor: th.hairline,
+                        backgroundColor: pressed ? th.hover : "transparent",
+                        opacity: pressed ? 0.92 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={[styles.toolIconSmall, { backgroundColor: th.surfaceSoft }]}>
+                      <Icon name="puzzle" size={14} color={th.inkSub} />
+                    </View>
+                    <View style={styles.menuText}>
+                      <Text style={[styles.menuLabel, { color: th.ink }]}>更多插件动作</Text>
+                    </View>
+                    <View style={[styles.msgMoreBadge, { backgroundColor: th.surfaceSoft }]}>
+                      <Text style={[styles.msgMoreBadgeText, { color: th.inkSub }]}>
+                        共 {messageMenuItems.length} 项
+                      </Text>
+                    </View>
+                    <Icon name="chevron-right" size={13} color={th.inkFaint} />
+                  </Pressable>
+                </>
+              ) : null}
+            </ScrollView>
+          </>
+        ) : null}
       </PluginPopup>
+
+      <MessageActionsSheet
+        visible={messageMoreTarget !== null}
+        items={messageMenuItems}
+        pluginNames={pluginNameMap}
+        onPick={(item) => {
+          if (messageMoreTarget) applyMessageCatalogItem(item, messageMoreTarget);
+        }}
+        onManage={() => {
+          setMessageMoreTarget(null);
+          setComposerLocked(true);
+          setTimeout(() => setComposerLocked(false), 1500);
+          leaveComposerForNavigation({
+            blur: blurComposer,
+            dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
+            navigate: () => router.push("/settings/composer"),
+          });
+        }}
+        onClose={() => setMessageMoreTarget(null)}
+      />
 
       <AnnotationComposer
         visible={annotationEditor !== null}
@@ -2746,5 +2854,44 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
     justifyContent: "center",
+  },
+  msgCoreBar: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: space(1.5),
+    padding: space(0.5),
+  },
+  msgCoreTile: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space(1),
+    paddingVertical: space(1.5),
+    paddingHorizontal: space(1),
+  },
+  msgCoreLabel: {
+    ...text("micro"),
+    fontWeight: "700",
+  },
+  msgPluginScroll: {
+    maxHeight: 240,
+  },
+  msgSourceLabel: {
+    ...text("micro"),
+    maxWidth: 86,
+    textAlign: "right",
+  },
+  msgMoreBadge: {
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2),
+    paddingVertical: 2,
+  },
+  msgMoreBadgeText: {
+    ...text("micro"),
+    fontSize: 10.5,
+    fontWeight: "600",
   },
 });

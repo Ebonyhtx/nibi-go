@@ -162,6 +162,8 @@ describe("readPluginManifest", () => {
           "message.actions": [
             { id: "explain", title: "解释", effects: [{ kind: "insert", text: "解释一下" }] },
             { id: "shorten", title: "缩写", effects: [{ kind: "insert", text: "缩写" }] },
+            { id: "polish", title: "润色", effects: [{ kind: "insert", text: "润色" }] },
+            { id: "todos", title: "提炼待办", effects: [{ kind: "insert", text: "提炼待办" }] },
             { id: "extra", title: "多余", effects: [{ kind: "toast", text: "x" }] },
           ],
           "composer.tools": [
@@ -171,6 +173,10 @@ describe("readPluginManifest", () => {
               icon: "sparkles",
               effects: [{ kind: "insert", text: "模板" }],
             },
+            { id: "weekly", title: "周报", effects: [{ kind: "insert", text: "周报" }] },
+            { id: "rfc", title: "方案", effects: [{ kind: "insert", text: "方案" }] },
+            { id: "mail", title: "邮件", effects: [{ kind: "insert", text: "邮件" }] },
+            { id: "overflow", title: "超限工具", effects: [{ kind: "toast", text: "y" }] },
           ],
           "session.actions": [
             { id: "status", title: "看状态", effects: [{ kind: "open", panel: "status" }] },
@@ -185,6 +191,14 @@ describe("readPluginManifest", () => {
     expect(plugin.manifest.contributes.messageActions.map((action) => action.id)).toEqual([
       "explain",
       "shorten",
+      "polish",
+      "todos",
+    ]);
+    expect(plugin.manifest.contributes.composerTools.map((tool) => tool.id)).toEqual([
+      "template",
+      "weekly",
+      "rfc",
+      "mail",
     ]);
     expect(plugin.manifest.contributes.composerTools[0]).toMatchObject({
       id: "template",
@@ -193,7 +207,18 @@ describe("readPluginManifest", () => {
     expect(plugin.manifest.contributes.sessionActions).toHaveLength(1);
     expect(plugin.manifest.contributes.strips).toHaveLength(1);
     expect(plugin.manifest.contributes.turnNotes).toHaveLength(1);
-    expect(plugin.issues.some((issue) => issue.message.includes("最多 2 个"))).toBe(true);
+    expect(
+      plugin.issues.some(
+        (issue) =>
+          issue.path === "/contributes/message.actions" && issue.message.includes("最多 4 个"),
+      ),
+    ).toBe(true);
+    expect(
+      plugin.issues.some(
+        (issue) =>
+          issue.path === "/contributes/composer.tools" && issue.message.includes("最多 4 个"),
+      ),
+    ).toBe(true);
   });
 
   it("状态条/脚注文字超长或缺失时丢掉该条", () => {

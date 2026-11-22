@@ -34,6 +34,8 @@ export interface ComposerCatalogItem {
   icon?: IconName;
   accent?: string;
   pluginId?: string;
+  /** 所属插件的人类可读名称（用于长按菜单来源标注与按插件分组）。 */
+  pluginName?: string;
   /** 插件是否随包内置（用于“NIBI 插件”/“用户插件”分组）。 */
   bundled?: boolean;
   token: ComposerActionToken;
@@ -208,6 +210,7 @@ function messageActions(plugin: LoadedPlugin): ComposerCatalogItem[] {
         icon: "sparkles" as const,
         ...(manifest.accent ? { accent: manifest.accent } : {}),
         pluginId: manifest.id,
+        pluginName: manifest.name,
         bundled: plugin.bundled,
         token: { kind: "command" as const, value: action.command },
       },

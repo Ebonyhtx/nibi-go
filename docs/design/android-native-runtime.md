@@ -230,10 +230,10 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 |---|---|---|---|
 | 工具卡 | 对话记录 | 每工具一个 | `presentationMeta` + view |
 | `composer.actions` | COMPOSE 胶囊/加号目录 | 2 | 命令/技能 token，文字 ≤10 字 |
-| `message.actions` | 助手消息长按菜单 | 2 | 按插件分组 |
+| `message.actions` | 助手消息长按菜单 | 4 | 浮层直出前 3～4 条，超量按插件分组收进底部抽屉 |
 | `composer.strip` | 输入框上方状态条 | 1 | 多插件轮流 |
 | `panels` | 对话详情/全部功能/聊天页弹层 | 4 | 视图 + 数据 + 动作 |
-| `composer.tools` | 加号面板 | 2 | 命令 token，与附件磁贴同网格 |
+| `composer.tools` | 加号面板 | 4 | 命令 token，与附件磁贴同网格 |
 | `session.actions` | 右侧栏「信息」操作行 | 2 | 带 sessionId |
 | `turn.note` | 回合脚注末尾 | 1 | 只读文字 |
 | Web Island | 网页插件的面板 | 按预算 | WebView + 路由守卫 + 降级 |

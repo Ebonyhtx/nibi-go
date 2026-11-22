@@ -13,10 +13,12 @@ import { File } from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { strToU8, zipSync } from "fflate";
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -68,8 +70,11 @@ import {
 } from "../plugins/marketStore";
 import {
   npmPluginIdFor,
+  PUBLIC_BROWSE_CHANNELS,
   searchNpmPackages,
   type NpmSearchHit,
+  type PublicBrowseChannel,
+  type PublicBrowseChannelId,
 } from "../plugins/npmRegistry";
 import { BUNDLED_PLUGINS } from "../plugins/samples";
 import { usePlugins } from "../plugins/usePlugins";
@@ -277,11 +282,15 @@ interface FeaturedNpmMcp {
   packageName: string;
   name: string;
   publisher: string;
+  category: string;
+  envHint: string;
   description: string;
+  keywords: readonly string[];
+  homepage?: string;
 }
 
 /**
- * 精选纯 JS 开源 npm MCP（通过内置 Node/npm 实时从 npmmirror / npmjs 安装；
+ * 精选纯 JS 开源 npm MCP（均已验证无原生编译脚本、Android 随包 Node 可直接运行；
  * 若远端签名索引已收录同 id 条目，则自动去重、以签名索引为准）。
  */
 const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
@@ -289,24 +298,143 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("@modelcontextprotocol/server-sequential-thinking"),
     packageName: "@modelcontextprotocol/server-sequential-thinking",
     name: "顺序思考（Sequential Thinking）",
-    publisher: "Model Context Protocol · npm",
+    publisher: "Model Context Protocol",
+    category: "推理规划",
+    envHint: "免密钥 · 装完即用",
     description: "官方纯 JS 分步推理 MCP 服务器，辅助复杂问题的多步拆解、修订与分支验证。",
+    keywords: ["mcp", "thinking", "reasoning", "official"],
+    homepage: "https://github.com/modelcontextprotocol/servers",
   },
   {
     id: npmPluginIdFor("@modelcontextprotocol/server-memory"),
     packageName: "@modelcontextprotocol/server-memory",
     name: "知识图谱记忆（Memory）",
-    publisher: "Model Context Protocol · npm",
+    publisher: "Model Context Protocol",
+    category: "知识记忆",
+    envHint: "免密钥 · 装完即用",
     description: "官方纯 JS 实体与关系知识图谱 MCP，支持在本地持久记录与检索结构化记忆。",
+    keywords: ["mcp", "memory", "knowledge-graph", "official"],
+    homepage: "https://github.com/modelcontextprotocol/servers",
+  },
+  {
+    id: npmPluginIdFor("amap-mcp-server"),
+    packageName: "amap-mcp-server",
+    name: "高德地图 MCP",
+    publisher: "AMap 社区",
+    category: "地图出行",
+    envHint: "需配置 AMAP_KEY",
+    description: "提供路径规划、地理编码、POI 搜索、周边检索、实时天气与路线导航能力。",
+    keywords: ["mcp", "amap", "map", "weather", "navigation"],
+    homepage: "https://www.npmjs.com/package/amap-mcp-server",
+  },
+  {
+    id: npmPluginIdFor("bing-cn-mcp"),
+    packageName: "bing-cn-mcp",
+    name: "必应中文搜索",
+    publisher: "Open Community",
+    category: "联网搜索",
+    envHint: "免密钥 · 装完即用",
+    description: "必应中文实时网页搜索 MCP 服务器，支持快速检索中文资讯与网页摘要。",
+    keywords: ["mcp", "bing", "search", "web"],
+    homepage: "https://www.npmjs.com/package/bing-cn-mcp",
+  },
+  {
+    id: npmPluginIdFor("mcp-fetch-server"),
+    packageName: "mcp-fetch-server",
+    name: "网页抓取（Fetch）",
+    publisher: "Open Community",
+    category: "网页工具",
+    envHint: "免密钥 · 装完即用",
+    description: "将任意公开网页抓取并转换为干净的 Markdown / 纯文本，便于交给助手阅读总结。",
+    keywords: ["mcp", "fetch", "web", "markdown"],
+    homepage: "https://www.npmjs.com/package/mcp-fetch-server",
+  },
+  {
+    id: npmPluginIdFor("open-meteo-mcp-server"),
+    packageName: "open-meteo-mcp-server",
+    name: "全球天气预报（Open-Meteo）",
+    publisher: "Open Community",
+    category: "天气生活",
+    envHint: "免密钥 · 装完即用",
+    description: "基于 Open-Meteo 免费气象接口查询全球城市实时天气、逐小时预报与空气质量。",
+    keywords: ["mcp", "weather", "open-meteo", "forecast"],
+    homepage: "https://www.npmjs.com/package/open-meteo-mcp-server",
+  },
+  {
+    id: npmPluginIdFor("@upstash/context7-mcp"),
+    packageName: "@upstash/context7-mcp",
+    name: "Context7 开发文档",
+    publisher: "Upstash",
+    category: "开发文档",
+    envHint: "免密钥即可使用（支持可选 Key）",
+    description: "实时拉取最新版主流框架与开源库的官方文档及代码示例，减少模型过时 API 幻觉。",
+    keywords: ["mcp", "docs", "context7", "developer"],
+    homepage: "https://github.com/upstash/context7",
+  },
+  {
+    id: npmPluginIdFor("howtocook-mcp"),
+    packageName: "howtocook-mcp",
+    name: "今日吃什么 · 菜谱大全",
+    publisher: "Open Community",
+    category: "生活实用",
+    envHint: "免密钥 · 装完即用",
+    description: "内置丰富家常菜谱，支持按食材、口味或人数推荐三餐搭配并给出详细步骤。",
+    keywords: ["mcp", "recipe", "cooking", "life"],
+    homepage: "https://www.npmjs.com/package/howtocook-mcp",
   },
 ];
 
-const NPM_QUICK_QUERIES = [
-  { label: "MCP 工具", query: "mcp-server" },
-  { label: "顺序思考", query: "server-sequential-thinking" },
-  { label: "记忆图谱", query: "server-memory" },
-  { label: "高德地图", query: "amap-maps-mcp-server" },
-] as const;
+interface BrowseFeedState {
+  hits: NpmSearchHit[];
+  nextFrom: number;
+  total: number;
+  hasMore: boolean;
+  registry: string | null;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  loadedOnce: boolean;
+}
+
+const EMPTY_BROWSE_FEED: BrowseFeedState = {
+  hits: [],
+  nextFrom: 0,
+  total: 0,
+  hasMore: false,
+  registry: null,
+  loading: false,
+  loadingMore: false,
+  error: null,
+  loadedOnce: false,
+};
+
+type PublicDetailTarget =
+  | { kind: "market"; entry: MarketPluginEntry }
+  | { kind: "featured"; item: FeaturedNpmMcp }
+  | { kind: "npm"; hit: NpmSearchHit }
+  | { kind: "curated"; item: CuratedPublicPlugin };
+
+const BROWSE_PAGE_SIZE = 16;
+
+function safeExternalHttpsUrl(raw?: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/^git\+/iu, "").replace(/\.git$/iu, "");
+  return /^https:\/\/[^\s]+$/iu.test(trimmed) ? trimmed : null;
+}
+
+function mergeUniqueNpmHits(
+  existing: readonly NpmSearchHit[],
+  incoming: readonly NpmSearchHit[],
+): NpmSearchHit[] {
+  const seen = new Set(existing.map((item) => item.name));
+  const merged = [...existing];
+  for (const hit of incoming) {
+    if (seen.has(hit.name)) continue;
+    seen.add(hit.name);
+    merged.push(hit);
+  }
+  return merged;
+}
 
 function describeFailure(kind: string, detail: string): string {
   switch (kind) {
@@ -351,6 +479,7 @@ function MarketRow({
   onInstall,
   onUninstall,
   onCancel,
+  onPressDetail,
 }: {
   entry: MarketPluginEntry;
   installedVersion: string | null;
@@ -358,6 +487,7 @@ function MarketRow({
   onInstall: () => void;
   onUninstall: () => void;
   onCancel: () => void;
+  onPressDetail?: () => void;
 }) {
   const t = useNibiTheme();
   const hasUpdate =
@@ -373,8 +503,8 @@ function MarketRow({
     entry.package.format === "npm"
       ? `${entry.package.name} · v${entry.version}`
       : `v${entry.version}${entry.publisher ? ` · ${entry.publisher}` : ""}`;
-  return (
-    <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
+  const body = (
+    <>
       <View style={styles.cardHead}>
         <View style={styles.cardTitleWrap}>
           <View style={styles.titleBadgeRow}>
@@ -395,8 +525,26 @@ function MarketRow({
       </View>
 
       {entry.description ? (
-        <Text style={[styles.description, { color: t.inkSub }]}>{entry.description}</Text>
+        <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={3}>
+          {entry.description}
+        </Text>
       ) : null}
+    </>
+  );
+  return (
+    <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
+      {onPressDetail ? (
+        <Pressable
+          onPress={onPressDetail}
+          accessibilityRole="button"
+          accessibilityLabel={`查看 ${entry.name} 详情`}
+          style={({ pressed }) => [styles.cardBodyTap, pressed ? { opacity: 0.78 } : null]}
+        >
+          {body}
+        </Pressable>
+      ) : (
+        body
+      )}
 
       <View style={styles.actions}>
         <PillButton
@@ -465,10 +613,20 @@ export default function MarketScreen() {
   const [personalNpmRiskAccepted, setPersonalNpmRiskAccepted] = useState(false);
   const [addingNpm, setAddingNpm] = useState(false);
 
-  // 「公开」子页实时搜索 npm 公共源状态
+  // 「公开」子页：分类浏览 + 实时搜索 npm 公共源状态
+  const [browseChannel, setBrowseChannel] = useState<PublicBrowseChannelId>("featured");
+  const [browseFeeds, setBrowseFeeds] = useState<Record<string, BrowseFeedState>>({});
+  const browseFeedsRef = useRef<Record<string, BrowseFeedState>>({});
+  const browseReqSeqRef = useRef<Record<string, number>>({});
+  const [publicDetail, setPublicDetail] = useState<PublicDetailTarget | null>(null);
+
   const [npmQuery, setNpmQuery] = useState("");
   const [npmHits, setNpmHits] = useState<NpmSearchHit[]>([]);
+  const [npmNextFrom, setNpmNextFrom] = useState(0);
+  const [npmTotal, setNpmTotal] = useState(0);
+  const [npmHasMore, setNpmHasMore] = useState(false);
   const [npmSearching, setNpmSearching] = useState(false);
+  const [npmLoadingMore, setNpmLoadingMore] = useState(false);
   const [npmSearchRegistry, setNpmSearchRegistry] = useState<string | null>(null);
   const [npmSearchError, setNpmSearchError] = useState<string | null>(null);
   const [npmHasSearched, setNpmHasSearched] = useState(false);
@@ -700,6 +858,113 @@ export default function MarketScreen() {
     }
   }
 
+  const activeBrowseChannel: PublicBrowseChannel =
+    PUBLIC_BROWSE_CHANNELS.find((item) => item.id === browseChannel) ?? PUBLIC_BROWSE_CHANNELS[0]!;
+  const browseCacheKey = `${region}:${browseChannel}`;
+  const currentBrowseFeed = browseFeeds[browseCacheKey] ?? EMPTY_BROWSE_FEED;
+
+  const syncVersionsForHits = useCallback((hits: readonly NpmSearchHit[]) => {
+    if (hits.length === 0) return;
+    setVersions((current) => {
+      const next = { ...current };
+      for (const hit of hits) {
+        const id = npmPluginIdFor(hit.name);
+        next[id] = readInstalledManifest(id)?.version ?? null;
+      }
+      return next;
+    });
+  }, []);
+
+  const loadBrowseChannel = useCallback(
+    async (
+      channel: PublicBrowseChannel,
+      targetRegion: MarketRegion,
+      mode: "initial" | "refresh" | "more",
+    ) => {
+      if (!channel.query) return;
+      const key = `${targetRegion}:${channel.id}`;
+      const currentSnapshot = browseFeedsRef.current[key] ?? EMPTY_BROWSE_FEED;
+      let fromOffset = 0;
+      if (mode === "more") {
+        if (currentSnapshot.loading || currentSnapshot.loadingMore || !currentSnapshot.hasMore) {
+          return;
+        }
+        fromOffset = currentSnapshot.nextFrom;
+      } else if (mode === "initial" && (currentSnapshot.loading || currentSnapshot.loadedOnce)) {
+        return;
+      }
+
+      const patchFeed = (updater: (cur: BrowseFeedState) => BrowseFeedState) => {
+        setBrowseFeeds((prev) => {
+          const base = prev[key] ?? EMPTY_BROWSE_FEED;
+          const nextFeed = updater(base);
+          const nextMap = { ...prev, [key]: nextFeed };
+          browseFeedsRef.current = nextMap;
+          return nextMap;
+        });
+      };
+
+      patchFeed((cur) =>
+        mode === "more"
+          ? { ...cur, loadingMore: true, error: null }
+          : { ...cur, loading: true, error: null },
+      );
+
+      const seq = (browseReqSeqRef.current[key] ?? 0) + 1;
+      browseReqSeqRef.current[key] = seq;
+
+      const res = await searchNpmPackages(channel.query, targetRegion, {
+        size: BROWSE_PAGE_SIZE,
+        from: fromOffset,
+        filterLibraries: true,
+      });
+
+      if (browseReqSeqRef.current[key] !== seq) return;
+
+      if (!res.ok) {
+        patchFeed((cur) => ({
+          ...cur,
+          loading: false,
+          loadingMore: false,
+          error: res.reason,
+          loadedOnce: true,
+        }));
+        return;
+      }
+
+      syncVersionsForHits(res.hits);
+      patchFeed((cur) => ({
+        hits: mode === "more" ? mergeUniqueNpmHits(cur.hits, res.hits) : res.hits,
+        nextFrom: res.from + res.rawCount,
+        total: res.total,
+        hasMore: res.hasMore,
+        registry: res.registry,
+        loading: false,
+        loadingMore: false,
+        error: null,
+        loadedOnce: true,
+      }));
+    },
+    [syncVersionsForHits],
+  );
+
+  // 切换到「公开」子页、切换实时频道或切换国内/国外源时自动拉取首屏浏览流。
+  useEffect(() => {
+    if (tab !== "public") return;
+    if (npmHasSearched) return;
+    if (!activeBrowseChannel.query) return;
+    if (currentBrowseFeed.loadedOnce || currentBrowseFeed.loading) return;
+    void loadBrowseChannel(activeBrowseChannel, region, "initial");
+  }, [
+    tab,
+    npmHasSearched,
+    activeBrowseChannel,
+    region,
+    currentBrowseFeed.loadedOnce,
+    currentBrowseFeed.loading,
+    loadBrowseChannel,
+  ]);
+
   async function handleSearchNpm(overrideQuery?: string) {
     const q = (overrideQuery ?? npmQuery).trim();
     if (!q || npmSearching) return;
@@ -709,25 +974,58 @@ export default function MarketScreen() {
     setNpmSearchError(null);
     setNpmHasSearched(true);
     try {
-      const res = await searchNpmPackages(q, region, { size: 15 });
+      const res = await searchNpmPackages(q, region, { size: BROWSE_PAGE_SIZE, from: 0 });
       if (!res.ok) {
         setNpmSearchError(res.reason);
         setNpmHits([]);
+        setNpmHasMore(false);
+        setNpmNextFrom(0);
+        setNpmTotal(0);
         return;
       }
       setNpmHits(res.hits);
+      setNpmNextFrom(res.from + res.rawCount);
+      setNpmTotal(res.total);
+      setNpmHasMore(res.hasMore);
       setNpmSearchRegistry(res.registry);
-      setVersions((current) => {
-        const next = { ...current };
-        for (const hit of res.hits) {
-          const id = npmPluginIdFor(hit.name);
-          next[id] = readInstalledManifest(id)?.version ?? null;
-        }
-        return next;
-      });
+      syncVersionsForHits(res.hits);
     } finally {
       setNpmSearching(false);
     }
+  }
+
+  async function handleLoadMoreSearch() {
+    const q = npmQuery.trim();
+    if (!q || npmSearching || npmLoadingMore || !npmHasMore) return;
+    setNpmLoadingMore(true);
+    try {
+      const res = await searchNpmPackages(q, region, {
+        size: BROWSE_PAGE_SIZE,
+        from: npmNextFrom,
+      });
+      if (!res.ok) {
+        setNpmSearchError(res.reason);
+        return;
+      }
+      setNpmHits((prev) => mergeUniqueNpmHits(prev, res.hits));
+      setNpmNextFrom(res.from + res.rawCount);
+      setNpmTotal(res.total);
+      setNpmHasMore(res.hasMore);
+      setNpmSearchRegistry(res.registry);
+      syncVersionsForHits(res.hits);
+    } finally {
+      setNpmLoadingMore(false);
+    }
+  }
+
+  function clearNpmSearch() {
+    setNpmQuery("");
+    setNpmHits([]);
+    setNpmNextFrom(0);
+    setNpmTotal(0);
+    setNpmHasMore(false);
+    setNpmSearchError(null);
+    setNpmHasSearched(false);
   }
 
   async function executeNpmCommunityInstall(target: {
@@ -923,6 +1221,407 @@ export default function MarketScreen() {
     );
   }, [plugins.plugins, allRemoteEntries]);
 
+  const renderNpmHitCard = (hit: NpmSearchHit) => {
+    const pluginId = npmPluginIdFor(hit.name);
+    const installedVer =
+      versions[pluginId] ?? readInstalledManifest(pluginId)?.version ?? null;
+    const isBusy = busyId === pluginId;
+    const isDesktopOnly = hit.suitability === "desktop-only";
+    return (
+      <View
+        key={hit.name}
+        style={[
+          styles.card,
+          { backgroundColor: t.card, borderColor: t.hairline },
+        ]}
+      >
+        <Pressable
+          onPress={() => setPublicDetail({ kind: "npm", hit })}
+          accessibilityRole="button"
+          accessibilityLabel={`查看 ${hit.name} 详情`}
+          style={({ pressed }) => [styles.cardBodyTap, pressed ? { opacity: 0.78 } : null]}
+        >
+          <View style={styles.cardHead}>
+            <View style={styles.cardTitleWrap}>
+              <View style={styles.titleBadgeRow}>
+                <Text style={[styles.hitName, { color: t.ink }]} numberOfLines={1}>
+                  {hit.name}
+                </Text>
+                {hit.looksLikeMcp ? (
+                  <StatusPill bg={t.brandSoft} color={t.brand} label="MCP" />
+                ) : null}
+                {isDesktopOnly ? (
+                  <StatusPill bg={t.amberSoft} color={t.amber} label="需桌面环境" />
+                ) : null}
+              </View>
+              <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
+                v{hit.version} · {hit.author} · 社区未审
+              </Text>
+            </View>
+            {installedVer ? (
+              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+            ) : (
+              <Icon name="chevron-right" size={14} color={t.inkGhost} />
+            )}
+          </View>
+          {hit.description ? (
+            <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={2}>
+              {hit.description}
+            </Text>
+          ) : null}
+          {hit.mobileHint ? (
+            <Text style={[styles.mobileWarnText, { color: t.amber }]} numberOfLines={1}>
+              {hit.mobileHint}
+            </Text>
+          ) : null}
+        </Pressable>
+        <View style={styles.actions}>
+          <PillButton
+            label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+            variant="primary"
+            buttonSize="sm"
+            disabled={isBusy || busyId !== null}
+            onPress={() =>
+              setPendingNpmConfirm({
+                packageName: hit.name,
+                version: hit.version,
+                displayName: hit.name,
+                description: hit.description,
+                origin: "npm-search",
+              })
+            }
+          />
+          {installedVer !== null && !isBusy ? (
+            <PillButton
+              label="卸载"
+              variant="danger"
+              buttonSize="sm"
+              onPress={() => void uninstall(pluginId, hit.name)}
+            />
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
+  const renderPublicDetailBody = () => {
+    if (!publicDetail) return null;
+
+    if (publicDetail.kind === "npm") {
+      const { hit } = publicDetail;
+      const pluginId = npmPluginIdFor(hit.name);
+      const installedVer =
+        versions[pluginId] ?? readInstalledManifest(pluginId)?.version ?? null;
+      const isBusy = busyId === pluginId;
+      const linkUrl =
+        safeExternalHttpsUrl(hit.homepage) ??
+        safeExternalHttpsUrl(hit.repository) ??
+        `https://www.npmjs.com/package/${hit.name}`;
+      return (
+        <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
+          <View style={styles.titleBadgeRow}>
+            {hit.looksLikeMcp ? <StatusPill bg={t.brandSoft} color={t.brand} label="npm MCP" /> : null}
+            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={`v${hit.version}`} />
+            {hit.suitability === "desktop-only" ? (
+              <StatusPill bg={t.amberSoft} color={t.amber} label="需桌面环境" />
+            ) : null}
+            {installedVer ? (
+              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+            ) : null}
+          </View>
+          <Text style={[styles.meta, { color: t.inkFaint }]}>
+            包名：{hit.name} · 作者：{hit.author}
+          </Text>
+          <Text style={[styles.detailDesc, { color: t.ink }]}>
+            {hit.description || "该开源包未提供简介，可先查看项目主页再决定是否安装。"}
+          </Text>
+          <View
+            style={[
+              styles.detailNotice,
+              {
+                backgroundColor: hit.suitability === "desktop-only" ? t.amberSoft : t.surfaceSoft,
+                borderColor: t.hairline,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.hint,
+                { color: hit.suitability === "desktop-only" ? t.amber : t.inkSub },
+              ]}
+            >
+              {hit.mobileHint
+                ? `${hit.mobileHint}。该包来自 npm 公共社区，安装器会自动跳过脚本并拦截原生二进制。`
+                : "来自 npm 公共社区（未经官方审核），安装时强制 --ignore-scripts 拦截原生二进制，并自动探测所需 API Key / 环境变量。"}
+            </Text>
+          </View>
+          {hit.keywords.length > 0 ? (
+            <View style={styles.quickChipRow}>
+              {hit.keywords.map((kw) => (
+                <View
+                  key={kw}
+                  style={[
+                    styles.detailTag,
+                    { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                  ]}
+                >
+                  <Text style={[styles.detailTagText, { color: t.inkSub }]}>#{kw}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {linkUrl ? (
+            <PressableScale
+              onPress={() => void Linking.openURL(linkUrl)}
+              accessibilityRole="link"
+              accessibilityLabel={`打开 ${hit.name} 主页`}
+              style={[
+                styles.detailLinkRow,
+                { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+              ]}
+            >
+              <Icon name="globe" size={14} color={t.brand} />
+              <Text style={[styles.detailLinkText, { color: t.inkSub }]} numberOfLines={1}>
+                {linkUrl}
+              </Text>
+              <Icon name="chevron-right" size={13} color={t.inkGhost} />
+            </PressableScale>
+          ) : null}
+          <View style={styles.sheetActions}>
+            {installedVer ? (
+              <PillButton
+                label="插件中心配置"
+                variant="secondary"
+                onPress={() => {
+                  setPublicDetail(null);
+                  router.push("/plugins");
+                }}
+              />
+            ) : null}
+            <PillButton
+              label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+              variant="primary"
+              disabled={isBusy || busyId !== null}
+              onPress={() => {
+                setPublicDetail(null);
+                setPendingNpmConfirm({
+                  packageName: hit.name,
+                  version: hit.version,
+                  displayName: hit.name,
+                  description: hit.description,
+                  origin: "npm-search",
+                });
+              }}
+            />
+          </View>
+        </ScrollView>
+      );
+    }
+
+    if (publicDetail.kind === "featured") {
+      const { item } = publicDetail;
+      const installedVer = versions[item.id] ?? null;
+      const isBusy = busyId === item.id;
+      const linkUrl = safeExternalHttpsUrl(item.homepage);
+      const needsKey = item.envHint.includes("需配置");
+      return (
+        <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
+          <View style={styles.titleBadgeRow}>
+            <StatusPill bg={t.brandSoft} color={t.brand} label="精选 npm MCP" />
+            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={item.category} />
+            <StatusPill
+              bg={needsKey ? t.amberSoft : t.okSoft}
+              color={needsKey ? t.amber : t.ok}
+              label={item.envHint}
+            />
+            {installedVer ? (
+              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+            ) : null}
+          </View>
+          <Text style={[styles.meta, { color: t.inkFaint }]}>
+            包名：{item.packageName} · 提供方：{item.publisher}
+          </Text>
+          <Text style={[styles.detailDesc, { color: t.ink }]}>{item.description}</Text>
+          <View
+            style={[
+              styles.detailNotice,
+              { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+            ]}
+          >
+            <Text style={[styles.hint, { color: t.inkSub }]}>
+              {needsKey
+                ? "已验证纯 JS 手机可运行。安装后前往「插件中心」填入对应 API Key，新开会话即可使用。"
+                : "已验证纯 JS 手机可运行，免配置外部密钥；安装后新开会话即可由助手直接调用。"}
+            </Text>
+          </View>
+          {item.keywords.length > 0 ? (
+            <View style={styles.quickChipRow}>
+              {item.keywords.map((kw) => (
+                <View
+                  key={kw}
+                  style={[
+                    styles.detailTag,
+                    { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                  ]}
+                >
+                  <Text style={[styles.detailTagText, { color: t.inkSub }]}>#{kw}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {linkUrl ? (
+            <PressableScale
+              onPress={() => void Linking.openURL(linkUrl)}
+              accessibilityRole="link"
+              accessibilityLabel={`打开 ${item.name} 主页`}
+              style={[
+                styles.detailLinkRow,
+                { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+              ]}
+            >
+              <Icon name="globe" size={14} color={t.brand} />
+              <Text style={[styles.detailLinkText, { color: t.inkSub }]} numberOfLines={1}>
+                {linkUrl}
+              </Text>
+              <Icon name="chevron-right" size={13} color={t.inkGhost} />
+            </PressableScale>
+          ) : null}
+          <View style={styles.sheetActions}>
+            {installedVer ? (
+              <PillButton
+                label="插件中心配置"
+                variant="secondary"
+                onPress={() => {
+                  setPublicDetail(null);
+                  router.push("/plugins");
+                }}
+              />
+            ) : null}
+            <PillButton
+              label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+              variant="primary"
+              disabled={isBusy || busyId !== null}
+              onPress={() => {
+                setPublicDetail(null);
+                void executeNpmCommunityInstall({
+                  packageName: item.packageName,
+                  displayName: item.name,
+                  description: item.description,
+                  origin: "npm-search",
+                });
+              }}
+            />
+          </View>
+        </ScrollView>
+      );
+    }
+
+    if (publicDetail.kind === "curated") {
+      const { item } = publicDetail;
+      const installedVer = versions[item.id] ?? null;
+      const isBusy = busyId === item.id;
+      return (
+        <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
+          <View style={styles.titleBadgeRow}>
+            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="开源技能包" />
+            <StatusPill bg={t.okSoft} color={t.ok} label="离线可用 · 免密钥" />
+            {installedVer ? (
+              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+            ) : null}
+          </View>
+          <Text style={[styles.meta, { color: t.inkFaint }]}>
+            v{item.version} · {item.publisher}
+          </Text>
+          <Text style={[styles.detailDesc, { color: t.ink }]}>{item.description}</Text>
+          <View style={styles.sheetActions}>
+            {installedVer ? (
+              <PillButton
+                label="卸载"
+                variant="danger"
+                onPress={() => {
+                  setPublicDetail(null);
+                  void uninstall(item.id, item.name);
+                }}
+              />
+            ) : null}
+            <PillButton
+              label={installedVer === null ? "安装" : "重新安装"}
+              variant="primary"
+              disabled={isBusy || busyId !== null}
+              onPress={() => {
+                setPublicDetail(null);
+                void installCuratedPublic(item);
+              }}
+            />
+          </View>
+        </ScrollView>
+      );
+    }
+
+    const { entry } = publicDetail;
+    const installedVer = versions[entry.id] ?? null;
+    const isBusy = busyId === entry.id;
+    return (
+      <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
+        <View style={styles.titleBadgeRow}>
+          <StatusPill bg={t.brandSoft} color={t.brand} label="nibi-go-market 验签" />
+          <StatusPill
+            bg={t.surfaceSoft}
+            color={t.inkSub}
+            label={
+              entry.package.format === "npm"
+                ? "npm MCP"
+                : entry.kind === "skill"
+                  ? "技能包"
+                  : "标准 ZIP"
+            }
+          />
+          {installedVer ? (
+            <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+          ) : null}
+        </View>
+        <Text style={[styles.meta, { color: t.inkFaint }]}>
+          v{entry.version}
+          {entry.publisher ? ` · ${entry.publisher}` : ""}
+          {entry.license ? ` · ${entry.license}` : ""}
+        </Text>
+        <Text style={[styles.detailDesc, { color: t.ink }]}>
+          {entry.description || "已通过 nibi-go-market 签名校验的公开插件。"}
+        </Text>
+        <View style={styles.sheetActions}>
+          {installedVer ? (
+            <PillButton
+              label="卸载"
+              variant="danger"
+              onPress={() => {
+                setPublicDetail(null);
+                void uninstall(entry.id, entry.name);
+              }}
+            />
+          ) : null}
+          <PillButton
+            label={installedVer === null ? "安装" : "重新安装"}
+            variant="primary"
+            disabled={isBusy || busyId !== null}
+            onPress={() => {
+              setPublicDetail(null);
+              void handleInstallPress(entry);
+            }}
+          />
+        </View>
+      </ScrollView>
+    );
+  };
+
+  const publicDetailTitle =
+    publicDetail === null
+      ? ""
+      : publicDetail.kind === "npm"
+        ? publicDetail.hit.name
+        : publicDetail.kind === "market"
+          ? publicDetail.entry.name
+          : publicDetail.item.name;
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -1104,22 +1803,14 @@ export default function MarketScreen() {
 
         {tab === "public" ? (
           <>
-            {/* 实时搜索 npm 公共源（按当前国内/国外源走 npmmirror 或 npmjs） */}
+            {/* 顶部搜索栏 + 横向分类浏览频道（可搜也可直接逛） */}
             <AppearIn delay={staggerDelay(2, 28, 200)}>
-              <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
-                <View style={styles.cardHead}>
-                  <View style={styles.cardTitleWrap}>
-                    <Text style={[styles.name, { color: t.ink }]}>实时搜索 npm 公共源</Text>
-                    <Text style={[styles.meta, { color: t.inkFaint }]}>
-                      直接检索 {region === "cn" ? "npmmirror" : "npmjs.org"} 上的开源纯 JS MCP 包（安装自动禁脚本并拦截原生二进制）
-                    </Text>
-                  </View>
-                </View>
+              <View style={styles.publicNavWrap}>
                 <View style={styles.searchRow}>
                   <View
                     style={[
                       styles.searchInputWrap,
-                      { borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+                      { borderColor: t.hairline, backgroundColor: t.card },
                     ]}
                   >
                     <Icon name="search" size={14} color={t.inkFaint} />
@@ -1127,7 +1818,7 @@ export default function MarketScreen() {
                       value={npmQuery}
                       onChangeText={setNpmQuery}
                       onSubmitEditing={() => void handleSearchNpm()}
-                      placeholder="搜 npm 包名或关键词（如 mcp-server）"
+                      placeholder={`搜 ${region === "cn" ? "npmmirror" : "npmjs"} MCP 包名或关键词`}
                       placeholderTextColor={t.inkGhost}
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -1136,12 +1827,7 @@ export default function MarketScreen() {
                     />
                     {npmQuery.length > 0 ? (
                       <PressableScale
-                        onPress={() => {
-                          setNpmQuery("");
-                          setNpmHits([]);
-                          setNpmSearchError(null);
-                          setNpmHasSearched(false);
-                        }}
+                        onPress={clearNpmSearch}
                         hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="清空搜索词"
@@ -1159,187 +1845,295 @@ export default function MarketScreen() {
                   />
                 </View>
 
-                <View style={styles.quickChipRow}>
-                  {NPM_QUICK_QUERIES.map((chip) => (
-                    <PressableScale
-                      key={chip.query}
-                      onPress={() => void handleSearchNpm(chip.query)}
-                      style={[
-                        styles.quickChip,
-                        { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel={`搜索 ${chip.label}`}
+                {!npmHasSearched ? (
+                  <>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.channelBar}
                     >
-                      <Text style={[styles.quickChipText, { color: t.inkSub }]}>{chip.label}</Text>
-                    </PressableScale>
-                  ))}
-                </View>
-
-                {npmSearching ? (
-                  <View style={styles.searchStatusRow}>
-                    <ActivityIndicator color={t.brand} size="small" />
-                    <Text style={[styles.hint, { color: t.inkFaint }]}>
-                      正在检索 {region === "cn" ? "npmmirror" : "npmjs.org"}…
-                    </Text>
-                  </View>
-                ) : null}
-
-                {npmSearchError ? (
-                  <Text style={[styles.hint, { color: t.red }]}>{npmSearchError}</Text>
-                ) : null}
-
-                {npmHasSearched && !npmSearching && !npmSearchError && npmHits.length === 0 ? (
-                  <Text style={[styles.hint, { color: t.inkFaint }]}>
-                    未找到匹配的 npm 包，换个关键词或直接去「个人」页输入完整包名安装。
-                  </Text>
-                ) : null}
-
-                {npmHits.length > 0 ? (
-                  <View style={styles.searchResults}>
-                    <Text style={[styles.meta, { color: t.inkFaint }]}>
-                      共找到 {npmHits.length} 个结果（源：{npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"} · 社区包未经官方审核）
-                    </Text>
-                    {npmHits.map((hit) => {
-                      const pluginId = npmPluginIdFor(hit.name);
-                      const installedVer =
-                        versions[pluginId] ?? readInstalledManifest(pluginId)?.version ?? null;
-                      const isBusy = busyId === pluginId;
-                      return (
-                        <View
-                          key={hit.name}
-                          style={[
-                            styles.searchHitCard,
-                            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
-                          ]}
-                        >
-                          <View style={styles.cardHead}>
-                            <View style={styles.cardTitleWrap}>
-                              <View style={styles.titleBadgeRow}>
-                                <Text
-                                  style={[styles.hitName, { color: t.ink }]}
-                                  numberOfLines={1}
-                                >
-                                  {hit.name}
-                                </Text>
-                                {hit.looksLikeMcp ? (
-                                  <StatusPill bg={t.brandSoft} color={t.brand} label="MCP" />
-                                ) : null}
-                              </View>
-                              <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
-                                v{hit.version} · {hit.author} · 社区未审
-                              </Text>
-                            </View>
-                            {installedVer ? (
-                              <StatusPill
-                                bg={t.okSoft}
-                                color={t.ok}
-                                label={`已安装 v${installedVer}`}
-                              />
-                            ) : null}
-                          </View>
-                          {hit.description ? (
+                      {PUBLIC_BROWSE_CHANNELS.map((ch) => {
+                        const active = ch.id === browseChannel;
+                        return (
+                          <PressableScale
+                            key={ch.id}
+                            scaleTo={0.95}
+                            onPress={() => setBrowseChannel(ch.id)}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: active }}
+                            accessibilityLabel={`浏览频道 ${ch.label}`}
+                            style={[
+                              styles.channelChip,
+                              {
+                                backgroundColor: active ? t.brand : t.card,
+                                borderColor: active ? t.brand : t.hairline,
+                              },
+                            ]}
+                          >
                             <Text
-                              style={[styles.description, { color: t.inkSub }]}
-                              numberOfLines={2}
+                              style={[
+                                styles.channelChipText,
+                                { color: active ? "#FFFFFF" : t.inkSub },
+                              ]}
                             >
-                              {hit.description}
+                              {ch.label}
                             </Text>
-                          ) : null}
-                          <View style={styles.actions}>
-                            <PillButton
-                              label={
-                                isBusy
-                                  ? "安装中…"
-                                  : installedVer === null
-                                    ? "安装"
-                                    : "重新安装"
-                              }
-                              variant="primary"
-                              buttonSize="sm"
-                              disabled={isBusy || busyId !== null}
-                              onPress={() =>
-                                setPendingNpmConfirm({
-                                  packageName: hit.name,
-                                  version: hit.version,
-                                  displayName: hit.name,
-                                  description: hit.description,
-                                  origin: "npm-search",
-                                })
-                              }
-                            />
-                            {installedVer !== null && !isBusy ? (
-                              <PillButton
-                                label="卸载"
-                                variant="danger"
-                                buttonSize="sm"
-                                onPress={() => void uninstall(pluginId, hit.name)}
-                              />
-                            ) : null}
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
+                          </PressableScale>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <View style={styles.channelMetaRow}>
+                      <Text style={[styles.channelSub, { color: t.inkFaint }]} numberOfLines={1}>
+                        {activeBrowseChannel.subtitle}
+                        {activeBrowseChannel.query && currentBrowseFeed.total > 0
+                          ? ` · ${currentBrowseFeed.total.toLocaleString()} 个包`
+                          : ""}
+                      </Text>
+                      {activeBrowseChannel.query ? (
+                        <PressableScale
+                          onPress={() =>
+                            void loadBrowseChannel(activeBrowseChannel, region, "refresh")
+                          }
+                          disabled={currentBrowseFeed.loading}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`刷新${activeBrowseChannel.label}`}
+                          style={styles.channelRefreshBtn}
+                        >
+                          <Icon name="refresh" size={12} color={t.inkFaint} />
+                          <Text style={[styles.channelRefreshText, { color: t.inkFaint }]}>
+                            刷新
+                          </Text>
+                        </PressableScale>
+                      ) : null}
+                    </View>
+                  </>
                 ) : null}
               </View>
             </AppearIn>
 
-            {loading ? (
-              <View style={styles.loading}>
-                <ActivityIndicator color={t.brand} />
-                <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开市场目录…</Text>
-              </View>
-            ) : (
+            {npmHasSearched ? (
               <View style={styles.sectionStack}>
-                {publicRemoteEntries.length > 0 ? (
-                  <>
-                    <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                      已审核公开市场（nibi-go-market 验签收录）
-                    </Text>
-                    {publicRemoteEntries.map((entry, idx) => (
-                      <AppearIn key={entry.id} delay={staggerDelay(idx + 3, 28, 200)}>
-                        <MarketRow
-                          entry={entry}
-                          installedVersion={versions[entry.id] ?? null}
-                          busy={busyId === entry.id}
-                          onInstall={() => void handleInstallPress(entry)}
-                          onUninstall={() => void uninstall(entry.id, entry.name)}
-                          onCancel={cancelInstall}
-                        />
-                      </AppearIn>
-                    ))}
-                  </>
-                ) : null}
+                <View style={styles.channelMetaRow}>
+                  <Text style={[styles.sectionHeading, { color: t.inkFaint, flex: 1 }]} numberOfLines={1}>
+                    搜索「{npmQuery.trim()}」
+                    {npmHits.length > 0
+                      ? ` · 已展示 ${npmHits.length}${npmTotal > npmHits.length ? ` / ${npmTotal}` : ""}（${npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"}）`
+                      : ""}
+                  </Text>
+                  <PressableScale
+                    onPress={clearNpmSearch}
+                    accessibilityRole="button"
+                    accessibilityLabel="返回频道浏览"
+                    style={[
+                      styles.backBrowseChip,
+                      { backgroundColor: t.card, borderColor: t.hairline },
+                    ]}
+                  >
+                    <Text style={[styles.backBrowseText, { color: t.inkSub }]}>返回浏览</Text>
+                  </PressableScale>
+                </View>
 
-                {visibleFeaturedNpmMcps.length > 0 ? (
-                  <>
-                    <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                      推荐纯 JS 开源 MCP（从 npm 实时安装）
+                {npmSearching ? (
+                  <View style={styles.loading}>
+                    <ActivityIndicator color={t.brand} />
+                    <Text style={[styles.hint, { color: t.inkFaint }]}>
+                      正在检索 {region === "cn" ? "npmmirror" : "npmjs.org"}…
                     </Text>
-                    {visibleFeaturedNpmMcps.map((item, idx) => {
-                      const installedVer = versions[item.id] ?? null;
-                      const isBusy = busyId === item.id;
-                      return (
-                        <AppearIn key={item.id} delay={staggerDelay(idx + 3, 28, 200)}>
-                          <View
-                            style={[
-                              styles.card,
-                              { backgroundColor: t.card, borderColor: t.hairline },
+                  </View>
+                ) : npmSearchError ? (
+                  <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
+                    <Text style={[styles.hint, { color: t.red }]}>{npmSearchError}</Text>
+                    <View style={styles.actions}>
+                      <PillButton
+                        label="重试"
+                        variant="secondary"
+                        buttonSize="sm"
+                        onPress={() => void handleSearchNpm()}
+                      />
+                    </View>
+                  </View>
+                ) : npmHits.length === 0 ? (
+                  <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>未找到匹配的 npm 包</Text>
+                    <Text style={[styles.hint, { color: t.inkFaint }]}>
+                      可以换个英文关键词，点「返回浏览」按分类逛，或去「个人」页直接输入完整包名安装。
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {npmHits.map(renderNpmHitCard)}
+                    {npmHasMore ? (
+                      <View style={styles.loadMoreWrap}>
+                        <PillButton
+                          label={npmLoadingMore ? "加载中…" : "加载更多结果"}
+                          variant="secondary"
+                          disabled={npmLoadingMore}
+                          onPress={() => void handleLoadMoreSearch()}
+                        />
+                      </View>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ) : browseChannel === "featured" ? (
+              loading ? (
+                <View style={styles.loading}>
+                  <ActivityIndicator color={t.brand} />
+                  <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开市场目录…</Text>
+                </View>
+              ) : (
+                <View style={styles.sectionStack}>
+                  {publicRemoteEntries.length > 0 ? (
+                    <>
+                      <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                        已审核公开市场（nibi-go-market 验签收录）
+                      </Text>
+                      {publicRemoteEntries.map((entry, idx) => (
+                        <AppearIn key={entry.id} delay={staggerDelay(idx + 3, 28, 200)}>
+                          <MarketRow
+                            entry={entry}
+                            installedVersion={versions[entry.id] ?? null}
+                            busy={busyId === entry.id}
+                            onInstall={() => void handleInstallPress(entry)}
+                            onUninstall={() => void uninstall(entry.id, entry.name)}
+                            onCancel={cancelInstall}
+                            onPressDetail={() => setPublicDetail({ kind: "market", entry })}
+                          />
+                        </AppearIn>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {visibleFeaturedNpmMcps.length > 0 ? (
+                    <>
+                      <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                        手机实测精选 MCP（纯 JS · 点击卡片看详情）
+                      </Text>
+                      {visibleFeaturedNpmMcps.map((item, idx) => {
+                        const installedVer = versions[item.id] ?? null;
+                        const isBusy = busyId === item.id;
+                        const needsKey = item.envHint.includes("需配置");
+                        return (
+                          <AppearIn key={item.id} delay={staggerDelay(idx + 3, 24, 180)}>
+                            <View
+                              style={[
+                                styles.card,
+                                { backgroundColor: t.card, borderColor: t.hairline },
+                              ]}
+                            >
+                              <Pressable
+                                onPress={() => setPublicDetail({ kind: "featured", item })}
+                                accessibilityRole="button"
+                                accessibilityLabel={`查看 ${item.name} 详情`}
+                                style={({ pressed }) => [
+                                  styles.cardBodyTap,
+                                  pressed ? { opacity: 0.78 } : null,
+                                ]}
+                              >
+                                <View style={styles.cardHead}>
+                                  <View style={styles.cardTitleWrap}>
+                                    <View style={styles.titleBadgeRow}>
+                                      <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
+                                      <StatusPill bg={t.brandSoft} color={t.brand} label={item.category} />
+                                      <StatusPill
+                                        bg={needsKey ? t.amberSoft : t.okSoft}
+                                        color={needsKey ? t.amber : t.ok}
+                                        label={item.envHint}
+                                      />
+                                    </View>
+                                    <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
+                                      {item.packageName} · {item.publisher}
+                                    </Text>
+                                  </View>
+                                  {installedVer === null ? (
+                                    <Icon name="chevron-right" size={14} color={t.inkGhost} />
+                                  ) : (
+                                    <StatusPill
+                                      bg={t.okSoft}
+                                      color={t.ok}
+                                      label={`已安装 v${installedVer}`}
+                                    />
+                                  )}
+                                </View>
+                                <Text
+                                  style={[styles.description, { color: t.inkSub }]}
+                                  numberOfLines={2}
+                                >
+                                  {item.description}
+                                </Text>
+                              </Pressable>
+                              <View style={styles.actions}>
+                                <PillButton
+                                  label={
+                                    isBusy
+                                      ? "安装中…"
+                                      : installedVer === null
+                                        ? "安装"
+                                        : "重新安装"
+                                  }
+                                  variant="primary"
+                                  buttonSize="sm"
+                                  disabled={isBusy || busyId !== null}
+                                  onPress={() =>
+                                    void executeNpmCommunityInstall({
+                                      packageName: item.packageName,
+                                      displayName: item.name,
+                                      description: item.description,
+                                      origin: "npm-search",
+                                    })
+                                  }
+                                  style={styles.primaryButton}
+                                />
+                                {installedVer !== null && !isBusy ? (
+                                  <PillButton
+                                    label="卸载"
+                                    variant="danger"
+                                    buttonSize="sm"
+                                    onPress={() => void uninstall(item.id, item.name)}
+                                  />
+                                ) : null}
+                              </View>
+                            </View>
+                          </AppearIn>
+                        );
+                      })}
+                    </>
+                  ) : null}
+
+                  <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                    精选开源技能包（离线可用）
+                  </Text>
+                  {CURATED_PUBLIC_PLUGINS.map((item, idx) => {
+                    const installedVer = versions[item.id] ?? null;
+                    const isBusy = busyId === item.id;
+                    return (
+                      <AppearIn key={item.id} delay={staggerDelay(idx + 5, 24, 180)}>
+                        <View
+                          style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
+                        >
+                          <Pressable
+                            onPress={() => setPublicDetail({ kind: "curated", item })}
+                            accessibilityRole="button"
+                            accessibilityLabel={`查看 ${item.name} 详情`}
+                            style={({ pressed }) => [
+                              styles.cardBodyTap,
+                              pressed ? { opacity: 0.78 } : null,
                             ]}
                           >
                             <View style={styles.cardHead}>
                               <View style={styles.cardTitleWrap}>
                                 <View style={styles.titleBadgeRow}>
                                   <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
-                                  <StatusPill bg={t.brandSoft} color={t.brand} label="npm MCP" />
+                                  <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="技能包" />
                                 </View>
-                                <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
-                                  {item.packageName} · {item.publisher}
+                                <Text style={[styles.meta, { color: t.inkFaint }]}>
+                                  v{item.version} · {item.publisher}
                                 </Text>
                               </View>
                               {installedVer === null ? (
-                                <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
+                                <Icon name="chevron-right" size={14} color={t.inkGhost} />
                               ) : (
                                 <StatusPill
                                   bg={t.okSoft}
@@ -1348,55 +2142,88 @@ export default function MarketScreen() {
                                 />
                               )}
                             </View>
-                            <Text style={[styles.description, { color: t.inkSub }]}>
+                            <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={2}>
                               {item.description}
                             </Text>
-                            <View style={styles.actions}>
+                          </Pressable>
+                          <View style={styles.actions}>
+                            <PillButton
+                              label={installedVer === null ? "安装" : "重新安装"}
+                              variant="primary"
+                              buttonSize="sm"
+                              disabled={isBusy || busyId !== null}
+                              onPress={() => void installCuratedPublic(item)}
+                              style={styles.primaryButton}
+                            />
+                            {installedVer !== null && !isBusy ? (
                               <PillButton
-                                label={
-                                  isBusy
-                                    ? "安装中…"
-                                    : installedVer === null
-                                      ? "安装"
-                                      : "重新安装"
-                                }
-                                variant="primary"
-                                disabled={isBusy || busyId !== null}
-                                onPress={() =>
-                                  void executeNpmCommunityInstall({
-                                    packageName: item.packageName,
-                                    displayName: item.name,
-                                    description: item.description,
-                                    origin: "npm-search",
-                                  })
-                                }
-                                style={styles.primaryButton}
+                                label="卸载"
+                                variant="danger"
+                                buttonSize="sm"
+                                onPress={() => void uninstall(item.id, item.name)}
                               />
-                              {installedVer !== null && !isBusy ? (
-                                <PillButton
-                                  label="卸载"
-                                  variant="danger"
-                                  onPress={() => void uninstall(item.id, item.name)}
-                                />
-                              ) : null}
-                            </View>
+                            ) : null}
                           </View>
-                        </AppearIn>
-                      );
-                    })}
-                  </>
-                ) : null}
+                        </View>
+                      </AppearIn>
+                    );
+                  })}
 
-                <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                  精选开源技能包（离线可用）
-                </Text>
-                {CURATED_PUBLIC_PLUGINS.map((item, idx) => {
+                  <View
+                    style={[
+                      styles.exploreBanner,
+                      { backgroundColor: t.card, borderColor: t.hairline },
+                    ]}
+                  >
+                    <View style={styles.mirrorBannerTextWrap}>
+                      <Text style={[styles.mirrorBannerTitle, { color: t.ink }]}>
+                        逛逛实时开源 MCP 生态
+                      </Text>
+                      <Text style={[styles.mirrorBannerSub, { color: t.inkFaint }]}>
+                        切换「热门 MCP / 搜索抓取 / 地图出行 / 开发数据」频道，支持无限翻页探索
+                      </Text>
+                    </View>
+                    <PillButton
+                      label="去逛热门"
+                      variant="secondary"
+                      buttonSize="sm"
+                      onPress={() => setBrowseChannel("popular")}
+                    />
+                  </View>
+                </View>
+              )
+            ) : browseChannel === "skills" ? (
+              <View style={styles.sectionStack}>
+                {publicRemoteEntries
+                  .filter((entry) => entry.kind === "skill")
+                  .map((entry) => (
+                    <MarketRow
+                      key={entry.id}
+                      entry={entry}
+                      installedVersion={versions[entry.id] ?? null}
+                      busy={busyId === entry.id}
+                      onInstall={() => void handleInstallPress(entry)}
+                      onUninstall={() => void uninstall(entry.id, entry.name)}
+                      onCancel={cancelInstall}
+                      onPressDetail={() => setPublicDetail({ kind: "market", entry })}
+                    />
+                  ))}
+                {CURATED_PUBLIC_PLUGINS.map((item) => {
                   const installedVer = versions[item.id] ?? null;
                   const isBusy = busyId === item.id;
                   return (
-                    <AppearIn key={item.id} delay={staggerDelay(idx + 5, 28, 200)}>
-                      <View
-                        style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
+                    <View
+                      key={item.id}
+                      style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
+                    >
+                      <Pressable
+                        onPress={() => setPublicDetail({ kind: "curated", item })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`查看 ${item.name} 详情`}
+                        style={({ pressed }) => [
+                          styles.cardBodyTap,
+                          pressed ? { opacity: 0.78 } : null,
+                        ]}
                       >
                         <View style={styles.cardHead}>
                           <View style={styles.cardTitleWrap}>
@@ -1409,7 +2236,7 @@ export default function MarketScreen() {
                             </Text>
                           </View>
                           {installedVer === null ? (
-                            <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
+                            <Icon name="chevron-right" size={14} color={t.inkGhost} />
                           ) : (
                             <StatusPill
                               bg={t.okSoft}
@@ -1418,29 +2245,92 @@ export default function MarketScreen() {
                             />
                           )}
                         </View>
-                        <Text style={[styles.description, { color: t.inkSub }]}>
+                        <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={2}>
                           {item.description}
                         </Text>
-                        <View style={styles.actions}>
+                      </Pressable>
+                      <View style={styles.actions}>
+                        <PillButton
+                          label={installedVer === null ? "安装" : "重新安装"}
+                          variant="primary"
+                          buttonSize="sm"
+                          disabled={isBusy || busyId !== null}
+                          onPress={() => void installCuratedPublic(item)}
+                          style={styles.primaryButton}
+                        />
+                        {installedVer !== null && !isBusy ? (
                           <PillButton
-                            label={installedVer === null ? "安装" : "重新安装"}
-                            variant="primary"
-                            disabled={isBusy || busyId !== null}
-                            onPress={() => void installCuratedPublic(item)}
-                            style={styles.primaryButton}
+                            label="卸载"
+                            variant="danger"
+                            buttonSize="sm"
+                            onPress={() => void uninstall(item.id, item.name)}
                           />
-                          {installedVer !== null && !isBusy ? (
-                            <PillButton
-                              label="卸载"
-                              variant="danger"
-                              onPress={() => void uninstall(item.id, item.name)}
-                            />
-                          ) : null}
-                        </View>
+                        ) : null}
                       </View>
-                    </AppearIn>
+                    </View>
                   );
                 })}
+              </View>
+            ) : (
+              /* 实时 npm 分类浏览频道（自动拉流 + 过滤纯 SDK + 分页加载更多） */
+              <View style={styles.sectionStack}>
+                {currentBrowseFeed.loading && currentBrowseFeed.hits.length === 0 ? (
+                  <View style={styles.loading}>
+                    <ActivityIndicator color={t.brand} />
+                    <Text style={[styles.hint, { color: t.inkFaint }]}>
+                      正在从 {region === "cn" ? "npmmirror" : "npmjs.org"} 拉取「{activeBrowseChannel.label}」…
+                    </Text>
+                  </View>
+                ) : currentBrowseFeed.error && currentBrowseFeed.hits.length === 0 ? (
+                  <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>加载频道失败</Text>
+                    <Text style={[styles.hint, { color: t.red }]}>{currentBrowseFeed.error}</Text>
+                    <View style={styles.actions}>
+                      <PillButton
+                        label="重新加载"
+                        variant="secondary"
+                        buttonSize="sm"
+                        onPress={() =>
+                          void loadBrowseChannel(activeBrowseChannel, region, "refresh")
+                        }
+                      />
+                    </View>
+                  </View>
+                ) : currentBrowseFeed.hits.length === 0 ? (
+                  <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>该频道暂无条目</Text>
+                    <Text style={[styles.hint, { color: t.inkFaint }]}>
+                      可以切换上方镜像源或直接在搜索框输入关键词查找。
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {currentBrowseFeed.hits.map(renderNpmHitCard)}
+                    {currentBrowseFeed.error ? (
+                      <Text style={[styles.hint, { color: t.red }]}>{currentBrowseFeed.error}</Text>
+                    ) : null}
+                    {currentBrowseFeed.hasMore ? (
+                      <View style={styles.loadMoreWrap}>
+                        <PillButton
+                          label={
+                            currentBrowseFeed.loadingMore
+                              ? "加载更多中…"
+                              : `加载更多（已显示 ${currentBrowseFeed.hits.length} 个）`
+                          }
+                          variant="secondary"
+                          disabled={currentBrowseFeed.loadingMore}
+                          onPress={() =>
+                            void loadBrowseChannel(activeBrowseChannel, region, "more")
+                          }
+                        />
+                      </View>
+                    ) : (
+                      <Text style={[styles.loadMoreEnd, { color: t.inkGhost }]}>
+                        已展示本频道全部可浏览条目（源：{currentBrowseFeed.registry?.replace(/^https:\/\//u, "") ?? "npm"}）
+                      </Text>
+                    )}
+                  </>
+                )}
               </View>
             )}
           </>
@@ -1630,6 +2520,15 @@ export default function MarketScreen() {
             />
           </View>
         </View>
+      </Sheet>
+
+      {/* 公开市场插件轻量详情 Sheet */}
+      <Sheet
+        visible={publicDetail !== null}
+        onClose={() => setPublicDetail(null)}
+        title={publicDetailTitle}
+      >
+        {renderPublicDetailBody()}
       </Sheet>
 
       {/* 社区实时搜索 npm 包安装前安全确认 */}
@@ -1913,5 +2812,117 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: space(2),
     marginTop: space(1),
+  },
+  publicNavWrap: {
+    gap: space(2),
+  },
+  channelBar: {
+    gap: space(1.5),
+    paddingVertical: space(0.5),
+  },
+  channelChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1.5),
+  },
+  channelChipText: {
+    ...text("small"),
+    fontWeight: "600",
+  },
+  channelMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space(2),
+    paddingHorizontal: space(0.5),
+  },
+  channelSub: {
+    ...text("micro"),
+    flex: 1,
+  },
+  channelRefreshBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
+  },
+  channelRefreshText: {
+    ...text("micro"),
+    fontWeight: "600",
+  },
+  backBrowseChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+  },
+  backBrowseText: {
+    ...text("micro"),
+    fontWeight: "600",
+  },
+  cardBodyTap: {
+    gap: space(1.5),
+  },
+  mobileWarnText: {
+    ...text("micro"),
+    fontWeight: "600",
+  },
+  loadMoreWrap: {
+    alignItems: "center",
+    paddingVertical: space(1.5),
+  },
+  loadMoreEnd: {
+    ...text("micro"),
+    textAlign: "center",
+    paddingVertical: space(1.5),
+  },
+  exploreBanner: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(3),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space(2.5),
+  },
+  detailScroll: {
+    maxHeight: 420,
+  },
+  detailBody: {
+    paddingHorizontal: space(4),
+    paddingBottom: space(3),
+    gap: space(2.5),
+  },
+  detailDesc: {
+    ...text("body"),
+  },
+  detailNotice: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    padding: space(2.5),
+  },
+  detailTag: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2),
+    paddingVertical: space(0.75),
+  },
+  detailTagText: {
+    ...text("micro"),
+    fontWeight: "600",
+  },
+  detailLinkRow: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+  },
+  detailLinkText: {
+    ...text("micro"),
+    flex: 1,
   },
 });

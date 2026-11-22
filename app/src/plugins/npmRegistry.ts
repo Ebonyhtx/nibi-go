@@ -118,6 +118,8 @@ export function mcpServerNameFor(packageName: string, override?: string): string
   return trimmed.length >= 2 ? trimmed : "mcp_pkg";
 }
 
+export type NpmMobileSuitability = "recommended" | "desktop-only" | "library";
+
 export interface NpmSearchHit {
   name: string;
   version: string;
@@ -128,6 +130,150 @@ export interface NpmSearchHit {
   homepage?: string;
   repository?: string;
   looksLikeMcp: boolean;
+  /** 手机端适配判定：library=纯 SDK/开发框架库、desktop-only=依赖桌面浏览器或系统。 */
+  suitability: NpmMobileSuitability;
+  /** 若 suitability === "desktop-only"，展示给用户的简短兼容提醒。 */
+  mobileHint?: string;
+}
+
+export type PublicBrowseChannelId =
+  | "featured"
+  | "popular"
+  | "official-mcp"
+  | "search"
+  | "map"
+  | "weather"
+  | "dev"
+  | "chart"
+  | "skills";
+
+export interface PublicBrowseChannel {
+  id: PublicBrowseChannelId;
+  label: string;
+  /** 实时 npm 浏览词（单主题词以同时兼容 npmmirror 与 npmjs）；null 表示本地精选/技能频道。 */
+  query: string | null;
+  /** 频道说明（展示在列表顶部）。 */
+  subtitle: string;
+}
+
+/** 公开市场「可逛」分类频道（全部采用国内 npmmirror 与国外 npmjs 均稳定出流的单主题查询）。 */
+export const PUBLIC_BROWSE_CHANNELS: readonly PublicBrowseChannel[] = [
+  {
+    id: "featured",
+    label: "精选",
+    query: null,
+    subtitle: "验签公开插件 + 手机实测可用的纯 JS MCP 与技能包",
+  },
+  {
+    id: "popular",
+    label: "热门 MCP",
+    query: "mcp-server",
+    subtitle: "按实时热度浏览 npm 开源 MCP 服务器",
+  },
+  {
+    id: "official-mcp",
+    label: "MCP 生态",
+    query: "modelcontextprotocol server",
+    subtitle: "Model Context Protocol 官方与主流社区服务器",
+  },
+  {
+    id: "search",
+    label: "搜索抓取",
+    query: "mcp search",
+    subtitle: "联网搜索、网页抓取与资讯检索 MCP",
+  },
+  {
+    id: "map",
+    label: "地图出行",
+    query: "mcp map",
+    subtitle: "地图导航、POI 检索与出行服务 MCP",
+  },
+  {
+    id: "weather",
+    label: "天气生活",
+    query: "mcp weather",
+    subtitle: "天气预报与日常实用工具 MCP",
+  },
+  {
+    id: "dev",
+    label: "开发数据",
+    query: "mcp database",
+    subtitle: "数据库、云服务与开发辅助 MCP",
+  },
+  {
+    id: "chart",
+    label: "图表文档",
+    query: "mcp chart",
+    subtitle: "数据可视化、思维导图与文档处理 MCP",
+  },
+  {
+    id: "skills",
+    label: "技能包",
+    query: null,
+    subtitle: "无需外部密钥、离线即装即用的开源提示词技能包",
+  },
+];
+
+const LIBRARY_EXACT_NAMES = new Set([
+  "mcp",
+  "mcp-server",
+  "mcp-proxy",
+  "fastmcp",
+  "mcp-framework",
+  "mcp-evals",
+  "ai",
+  "@modelcontextprotocol/sdk",
+  "@modelcontextprotocol/core",
+  "@modelcontextprotocol/client",
+  "@modelcontextprotocol/server",
+  "@modelcontextprotocol/node",
+  "@modelcontextprotocol/inspector",
+  "@modelcontextprotocol/inspector-server",
+  "@modelcontextprotocol/inspector-client",
+]);
+
+const LIBRARY_NAME_RE =
+  /(?:^|\/)(?:nestjs-mcp|mcp-sdk|mcp-client|mcp-framework|mcp-inspector|mcp-evals|create-mcp|ai-sdk)/iu;
+const LIBRARY_DESC_RE =
+  /\b(?:typescript\s+sdk|sdk\s+for\s+(?:the\s+)?model\s+context\s+protocol|framework\s+for\s+building\s+mcp|inspector\s+for\s+mcp)\b/iu;
+
+const DESKTOP_BROWSER_RE =
+  /\b(?:playwright|puppeteer|chrome-devtools|devtools-mcp|selenium|chromedriver|webdriver)\b/iu;
+const DESKTOP_OS_RE =
+  /\b(?:applescript|osascript|macos-mcp|mac-mcp|xcode-mcp|iterm-mcp|windows-mcp|win32-mcp|uiautomation|xdotool|desktop-commander|electron-mcp)\b/iu;
+
+/** 判断一条 npm 搜索结果在 Android 手机端 NIBI-GO 中的适配度。 */
+export function classifyNpmHit(pkg: {
+  name: string;
+  description?: string;
+  keywords?: readonly string[];
+}): { suitability: NpmMobileSuitability; mobileHint?: string } {
+  const nameLower = pkg.name.trim().toLowerCase();
+  const desc = (pkg.description ?? "").trim();
+  const haystack = `${nameLower} ${desc} ${(pkg.keywords ?? []).join(" ")}`.toLowerCase();
+
+  if (
+    LIBRARY_EXACT_NAMES.has(nameLower) ||
+    nameLower.startsWith("@ai-sdk/") ||
+    nameLower.startsWith("@assistant-ui/") ||
+    LIBRARY_NAME_RE.test(nameLower) ||
+    LIBRARY_DESC_RE.test(desc)
+  ) {
+    return { suitability: "library" };
+  }
+  if (DESKTOP_BROWSER_RE.test(haystack)) {
+    return {
+      suitability: "desktop-only",
+      mobileHint: "需桌面浏览器，手机端通常无法运行",
+    };
+  }
+  if (DESKTOP_OS_RE.test(haystack)) {
+    return {
+      suitability: "desktop-only",
+      mobileHint: "依赖桌面系统环境，手机端不适用",
+    };
+  }
+  return { suitability: "recommended" };
 }
 
 export interface NpmPackageVersionMeta {
@@ -155,6 +301,14 @@ export interface NpmPackageVersionMeta {
 export interface NpmSearchResult {
   ok: true;
   hits: NpmSearchHit[];
+  /** 源站返回的总匹配数。 */
+  total: number;
+  /** 本页起始偏移。 */
+  from: number;
+  /** 源站原始返回条数（用于翻页累加，不受客户端过滤影响）。 */
+  rawCount: number;
+  /** 是否还有下一页可加载。 */
+  hasMore: boolean;
   registry: string;
 }
 
@@ -195,20 +349,39 @@ async function fetchJsonWithTimeout(
   }
 }
 
-/** 实时搜索 npm 公共源（优先当前地区镜像，失败自动切换备用源）。 */
+const MAX_BROWSE_OFFSET = 200;
+
+/** 实时搜索或分页浏览 npm 公共源（优先当前地区镜像，失败自动切换备用源）。 */
 export async function searchNpmPackages(
   query: string,
   region: NpmMarketRegion,
-  options: { size?: number; signal?: AbortSignal } = {},
+  options: {
+    size?: number;
+    from?: number;
+    /** 浏览频道开启：过滤纯 SDK/开发框架库，并把需桌面环境的包排到本页末尾。 */
+    filterLibraries?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<NpmSearchResult | NpmErrorResult> {
   const trimmed = query.trim();
-  if (!trimmed) return { ok: true, hits: [], registry: npmRegistriesForRegion(region)[0]! };
+  const from = Math.max(0, Math.floor(options.from ?? 0));
+  if (!trimmed) {
+    return {
+      ok: true,
+      hits: [],
+      total: 0,
+      from,
+      rawCount: 0,
+      hasMore: false,
+      registry: npmRegistriesForRegion(region)[0]!,
+    };
+  }
   const size = Math.min(25, Math.max(1, options.size ?? 15));
   const registries = npmRegistriesForRegion(region);
   let lastError = "网络请求失败";
 
   for (const registry of registries) {
-    const url = `${registry}/-/v1/search?text=${encodeURIComponent(trimmed)}&size=${size}`;
+    const url = `${registry}/-/v1/search?text=${encodeURIComponent(trimmed)}&size=${size}&from=${from}`;
     try {
       const { status, json } = await fetchJsonWithTimeout(url, SEARCH_TIMEOUT_MS, options.signal);
       if (status < 200 || status >= 300 || typeof json !== "object" || json === null) {
@@ -218,7 +391,10 @@ export async function searchNpmPackages(
       const objects = Array.isArray((json as { objects?: unknown }).objects)
         ? ((json as { objects: unknown[] }).objects as Array<Record<string, unknown>>)
         : [];
-      const hits: NpmSearchHit[] = [];
+      const rawTotal = (json as { total?: unknown }).total;
+      const total = typeof rawTotal === "number" && Number.isFinite(rawTotal) ? rawTotal : objects.length;
+      const recommended: NpmSearchHit[] = [];
+      const secondary: NpmSearchHit[] = [];
       for (const item of objects) {
         const pkg =
           typeof item.package === "object" && item.package !== null
@@ -250,7 +426,13 @@ export async function searchNpmPackages(
           haystack.includes("mcp") ||
           haystack.includes("modelcontextprotocol") ||
           haystack.includes("model-context-protocol");
-        hits.push({
+        const { suitability, mobileHint } = classifyNpmHit({
+          name: pkg.name,
+          description,
+          keywords,
+        });
+        if (options.filterLibraries && suitability === "library") continue;
+        const hit: NpmSearchHit = {
           name: pkg.name,
           version: pkg.version,
           description,
@@ -260,9 +442,20 @@ export async function searchNpmPackages(
           ...(typeof links?.homepage === "string" ? { homepage: links.homepage } : {}),
           ...(typeof links?.repository === "string" ? { repository: links.repository } : {}),
           looksLikeMcp,
-        });
+          suitability,
+          ...(mobileHint ? { mobileHint } : {}),
+        };
+        if (options.filterLibraries && suitability === "desktop-only") {
+          secondary.push(hit);
+        } else {
+          recommended.push(hit);
+        }
       }
-      return { ok: true, hits, registry };
+      const hits = options.filterLibraries ? [...recommended, ...secondary] : recommended;
+      const rawCount = objects.length;
+      const nextFrom = from + rawCount;
+      const hasMore = rawCount > 0 && nextFrom < total && nextFrom < MAX_BROWSE_OFFSET;
+      return { ok: true, hits, total, from, rawCount, hasMore, registry };
     } catch (error) {
       if (options.signal?.aborted) return { ok: false, reason: "已取消" };
       lastError = error instanceof Error ? error.message : String(error);

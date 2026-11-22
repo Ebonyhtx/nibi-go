@@ -78,10 +78,10 @@ export const VIEW_BUDGETS: Record<ViewKind, ViewBudget> = {
 export const SLOT_LIMITS = {
   toolCards: Number.POSITIVE_INFINITY,
   "composer.actions": 2,
-  "message.actions": 2,
+  "message.actions": 4,
   "composer.strip": 1,
   panels: 4,
-  "composer.tools": 2,
+  "composer.tools": 4,
   "session.actions": 2,
   "turn.note": 1,
   webIslands: 2,

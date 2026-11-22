@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { APP_CAPABILITIES, readPluginManifest } from "@nibi-go/plugin-contract";
 
 import {
   buildNpmPluginManifest,
+  classifyNpmHit,
   detectNpmEnvSpecs,
   extractEnvVarsFromDotEnv,
   extractEnvVarsFromJs,
@@ -15,7 +16,9 @@ import {
   npmPluginIdFor,
   npmRegistriesForRegion,
   parseNpmSpec,
+  PUBLIC_BROWSE_CHANNELS,
   resolvePluginMcpEnv,
+  searchNpmPackages,
   validatePluginEnvName,
 } from "../src/plugins/npmRegistry";
 
@@ -280,5 +283,117 @@ describe("npm MCP 环境变量自动探测与注入", () => {
       inferNpmPackageFromEntry("node_modules/@amap/amap-maps-mcp-server/build/index.js"),
     ).toBe("@amap/amap-maps-mcp-server");
     expect(inferNpmPackageFromEntry("server.mjs")).toBeUndefined();
+  });
+});
+
+describe("公开页浏览频道、手机适配分级与分页搜索", () => {
+  it("区分手机可用 MCP、纯 SDK 库与桌面浏览器依赖包", () => {
+    expect(
+      classifyNpmHit({
+        name: "amap-mcp-server",
+        description: "高德地图 MCP Server",
+      }),
+    ).toEqual({ suitability: "recommended" });
+
+    expect(
+      classifyNpmHit({
+        name: "@modelcontextprotocol/sdk",
+        description: "TypeScript SDK for Model Context Protocol",
+      }),
+    ).toEqual({ suitability: "library" });
+
+    expect(
+      classifyNpmHit({
+        name: "@modelcontextprotocol/server-memory",
+        description: "Knowledge graph memory MCP server",
+      }),
+    ).toEqual({ suitability: "recommended" });
+
+    expect(
+      classifyNpmHit({
+        name: "@playwright/mcp",
+        description: "Playwright MCP server for browser automation",
+      }),
+    ).toMatchObject({
+      suitability: "desktop-only",
+      mobileHint: expect.stringContaining("桌面浏览器"),
+    });
+
+    expect(
+      classifyNpmHit({
+        name: "macos-mcp",
+        description: "Control macOS via AppleScript",
+      }),
+    ).toMatchObject({
+      suitability: "desktop-only",
+      mobileHint: expect.stringContaining("桌面系统"),
+    });
+  });
+
+  it("公开浏览频道不包含 npmmirror 失效的高级语法（keywords:/scope:）", () => {
+    expect(PUBLIC_BROWSE_CHANNELS.length).toBeGreaterThanOrEqual(7);
+    for (const ch of PUBLIC_BROWSE_CHANNELS) {
+      if (ch.query) {
+        expect(ch.query).not.toMatch(/keywords:|scope:/iu);
+      }
+    }
+  });
+
+  it("searchNpmPackages 支持 from 分页、过滤纯库并按 rawCount 正确计算 hasMore", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          total: 50,
+          objects: [
+            {
+              package: {
+                name: "@modelcontextprotocol/sdk",
+                version: "1.0.0",
+                description: "TypeScript SDK for MCP",
+              },
+            },
+            {
+              package: {
+                name: "chrome-devtools-mcp",
+                version: "1.2.0",
+                description: "Chrome DevTools MCP server",
+              },
+            },
+            {
+              package: {
+                name: "amap-mcp-server",
+                version: "1.2.1",
+                description: "AMap MCP server",
+                keywords: ["mcp", "map"],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    try {
+      const res = await searchNpmPackages("mcp-server", "cn", {
+        size: 3,
+        from: 10,
+        filterLibraries: true,
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("from=10"),
+        expect.anything(),
+      );
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        // 过滤掉了 sdk，且把手机可用的 amap-mcp-server 排在 desktop-only 之前
+        expect(res.hits.map((h) => h.name)).toEqual(["amap-mcp-server", "chrome-devtools-mcp"]);
+        expect(res.rawCount).toBe(3);
+        expect(res.from).toBe(10);
+        expect(res.total).toBe(50);
+        expect(res.hasMore).toBe(true);
+      }
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
