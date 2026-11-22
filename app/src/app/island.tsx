@@ -5,11 +5,12 @@
 
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
 import { Icon } from "../components/Icon";
+import { PressableScale } from "../motion/PressableScale";
 import { usePlugins } from "../plugins/usePlugins";
 import { radius, space, type as typeScale, useNibiTheme } from "../theme";
 
@@ -47,14 +48,15 @@ export default function WebIslandScreen() {
 
   const header = (title: string, subtitle?: string) => (
     <View style={[styles.header, { paddingTop: insets.top + space(1) }]}>
-      <Pressable
+      <PressableScale
+        scaleTo={0.95}
         onPress={() => router.back()}
         accessibilityRole="button"
         accessibilityLabel="返回"
         style={[styles.back, { backgroundColor: t.glass, borderColor: t.glassBorder }]}
       >
         <Icon name="chevron-left" size={17} color={t.ink} />
-      </Pressable>
+      </PressableScale>
       <View style={styles.headerText}>
         <Text style={[styles.title, { color: t.ink }]} numberOfLines={1}>
           {title}
@@ -113,7 +115,8 @@ export default function WebIslandScreen() {
             <Text style={[styles.fallbackText, { color: t.inkFaint }]}>
               WebView 没有在预期时间内完成；可以重试，或返回插件中心。
             </Text>
-            <Pressable
+            <PressableScale
+              scaleTo={0.95}
               onPress={retry}
               accessibilityRole="button"
               accessibilityLabel="重试"
@@ -123,7 +126,7 @@ export default function WebIslandScreen() {
               ]}
             >
               <Text style={[styles.retryText, { color: t.brandFg }]}>重试</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         ) : (
           <View style={[styles.webContainer, { borderColor: t.hairline }]}>

@@ -398,9 +398,13 @@ function ConversationListImpl({
       }
     }
     // 渲染期写 ref 是幂等的：同一输入两次渲染结果一致，判定只依赖 effect 提交后的 max。
+    // 用一次建好的 key 集合做 O(n) 清理（原来是每个 sticky key 都 rows.some → O(n²)，
+    // 长会话流式时会随历史长度平方增长）。
+    const rowKeys = new Set<string>();
+    for (const row of rows) rowKeys.add(row.key);
     const enter = new Set(keys);
     for (const key of [...enterKeysRef.current]) {
-      if (rows.some((row) => row.key === key)) enter.add(key);
+      if (rowKeys.has(key)) enter.add(key);
       else enterKeysRef.current.delete(key);
     }
     for (const key of enter) enterKeysRef.current.add(key);
@@ -898,7 +902,11 @@ function ConversationListImpl({
                 delayLongPress={350}
                 accessibilityRole="button"
                 accessibilityLabel="助手消息，长按打开动作"
-                style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
+                style={({ pressed }) => [
+                  styles.bubble,
+                  { backgroundColor: th.card, borderColor: th.hairline },
+                  pressed ? { opacity: 0.88 } : null,
+                ]}
               >
                 {row.model && modelChangeKeys.has(row.key) ? (
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
@@ -944,6 +952,7 @@ function ConversationListImpl({
                         delayLongPress={350}
                         accessibilityRole="button"
                         accessibilityLabel="助手消息，长按打开动作"
+                        style={({ pressed }) => (pressed ? { opacity: 0.88 } : null)}
                       >
                         <MessageMarkdown text={segment.value} />
                       </Pressable>
@@ -972,7 +981,11 @@ function ConversationListImpl({
                 delayLongPress={350}
                 accessibilityRole="button"
                 accessibilityLabel="助手消息，长按打开动作"
-                style={[styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }]}
+                style={({ pressed }) => [
+                  styles.bubble,
+                  { backgroundColor: th.card, borderColor: th.hairline },
+                  pressed ? { opacity: 0.88 } : null,
+                ]}
               >
                 {row.model && modelChangeKeys.has(row.key) ? (
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
@@ -1354,7 +1367,7 @@ function TurnProcessCard({
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityLabel={label}
-        style={styles.processHeader}
+        style={({ pressed }) => [styles.processHeader, pressed ? { opacity: 0.62 } : null]}
       >
         <Text style={[styles.processTitle, { color: th.inkSub }]}>{label}</Text>
         <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color={th.inkFaint} />

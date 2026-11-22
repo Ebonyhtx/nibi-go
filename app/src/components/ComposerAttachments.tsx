@@ -34,10 +34,10 @@ export function ComposerAttachments({
           </Text>
           <Pressable
             onPress={() => onRemove(attachment.id)}
-            hitSlop={6}
+            hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={`移除 ${attachment.name}`}
-            style={styles.remove}
+            style={({ pressed }) => [styles.remove, pressed ? { opacity: 0.5 } : null]}
           >
             <Icon name="x" size={9} color={t.steel} />
           </Pressable>

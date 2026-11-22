@@ -12,7 +12,7 @@
 // 现在留了明确的注入口注释，不提前伪造接口。
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -22,6 +22,7 @@ import {
 } from "react-native-webview";
 
 import { Icon } from "../components/Icon";
+import { PressableScale } from "../motion/PressableScale";
 import { ENDPOINT_ORIGIN } from "../relay/config";
 import { fetchWebviewTicket, gateBootstrapScript } from "../relay/webviewTicket";
 import { resolveWorkUrl } from "../relay/workUrl";
@@ -174,28 +175,30 @@ export default function WorkScreen() {
     <View style={[styles.root, { backgroundColor: th.bg }]}>
       {/* 薄顶栏：页面自己有完整 UI，这里只提供壳能力（返回 / 刷新 / 关闭） */}
       <View style={[styles.bar, { paddingTop: insets.top + space(1.5), borderBottomColor: th.hairline }]}>
-        <Pressable
+        <PressableScale
+          scaleTo={0.95}
           style={[styles.key, { backgroundColor: th.panel }]}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="返回"
         >
           <Icon name="chevron-left" size={16} color={th.inkSub} />
-        </Pressable>
+        </PressableScale>
         <View style={styles.barCenter}>
           <Text style={[styles.barTitle, { color: th.ink }]}>NIBI-WORK</Text>
           <Text style={[styles.barSub, { color: th.inkFaint }]} numberOfLines={1}>
             {phase === "failed" ? "加载失败" : phase === "loading" ? `加载中 ${Math.round(progress * 100)}%` : "桌面远控"}
           </Text>
         </View>
-        <Pressable
+        <PressableScale
+          scaleTo={0.95}
           style={[styles.key, { backgroundColor: th.panel }]}
           onPress={retry}
           accessibilityRole="button"
           accessibilityLabel="刷新"
         >
           <Icon name="refresh" size={16} color={th.inkSub} />
-        </Pressable>
+        </PressableScale>
       </View>
 
       <View style={styles.body}>
@@ -275,15 +278,20 @@ export default function WorkScreen() {
                 {WORK_URL}
               </Text>
               <View style={styles.errActions}>
-                <Pressable style={[styles.errBtn, { backgroundColor: th.brand }]} onPress={retry}>
+                <PressableScale
+                  scaleTo={0.95}
+                  style={[styles.errBtn, { backgroundColor: th.brand }]}
+                  onPress={retry}
+                >
                   <Text style={[styles.errBtnText, { color: th.brandFg }]}>重试</Text>
-                </Pressable>
-                <Pressable
+                </PressableScale>
+                <PressableScale
+                  scaleTo={0.95}
                   style={[styles.errBtn, { backgroundColor: th.panel }]}
                   onPress={() => router.back()}
                 >
                   <Text style={[styles.errBtnText, { color: th.inkSub }]}>返回</Text>
-                </Pressable>
+                </PressableScale>
               </View>
             </View>
           </View>

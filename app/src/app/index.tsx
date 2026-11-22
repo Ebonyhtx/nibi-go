@@ -307,6 +307,14 @@ export default function GoHomeScreen() {
     title: string;
     items: PluginSheetItem[];
   } | null>(null);
+  // Sheet 退场期间仍挂载子内容：关闭时不能把 payload 清成空，否则标题和动作行
+  // 会在滑出途中消失（「没有可用的插件动作」闪一下）。保留最后一次非空快照。
+  const sessionSheetRef = useRef<{
+    title: string;
+    items: PluginSheetItem[];
+  } | null>(null);
+  if (sessionSheet) sessionSheetRef.current = sessionSheet;
+  const sessionSheetShown = sessionSheet ?? sessionSheetRef.current;
   const plusRef = useRef<ComponentRef<typeof Pressable> | null>(null);
   // 新建对话归属弹层（底部 sheet）：FAB 与抽屉「新对话」共用——先选归属再开会话，
   // 也可以就地新建项目（名称 + 文件夹名），不必先去设置。
@@ -318,6 +326,36 @@ export default function GoHomeScreen() {
   // 输入框真实聚焦态：离屏导航只在有焦点时 blur。对未聚焦的 EditText 调 blur()
   // 在 Android 上会反向触发一次 IME 弹出（真机高频采样抓到的闪现来源）。
   const composerFocusedRef = useRef(false);
+  // 聚焦光环与发送/停止图标 morph：都是纯透明度/缩放，不触发重排。
+  const [composerFocused, setComposerFocused] = useState(false);
+  const stopping = conversation.turn === "running";
+  const [pendingSend, setPendingSend] = useState(false);
+  const pendingSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRing = useRef(new Animated.Value(0)).current;
+  const sendMorph = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (conversation.turn === "running") setPendingSend(false);
+  }, [conversation.turn]);
+  useEffect(
+    () => () => {
+      if (pendingSendTimer.current) clearTimeout(pendingSendTimer.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    Animated.timing(focusRing, {
+      toValue: composerFocused ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [composerFocused, focusRing]);
+  useEffect(() => {
+    Animated.timing(sendMorph, {
+      toValue: stopping ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start();
+  }, [sendMorph, stopping]);
   // 离屏导航窗口期锁死 composer：editable=false 会让 Android 清掉 IME 的 served view，
   // ColorOS/百度输入法在抽屉关闭动画期间再无机会把键盘弹出来（真机截图复现三次后
   // 用这一招正面压制）。推送完成后定时解锁。
@@ -846,6 +884,19 @@ export default function GoHomeScreen() {
     setAnnotationManagerOpen(false);
     setPopup(null);
   }, [conversation.activeSessionId]);
+  // 发送反馈：sendText 的 RPC 很快返回、turn 变 running 要再等一拍；这段空窗
+  // 里 canSend 已经是 false，按钮会先暗一下再变停止键。本地 pending 标记把这段
+  // 填上（4s 兜底，避免发送失败时一直亮着）。
+  const markPendingSend = () => {
+    setPendingSend(true);
+    if (pendingSendTimer.current) clearTimeout(pendingSendTimer.current);
+    pendingSendTimer.current = setTimeout(() => setPendingSend(false), 4_000);
+  };
+  const submitDraft = () => {
+    if (!canSend) return;
+    markPendingSend();
+    sendDraft();
+  };
   const permissionLabel =
     permissionMode === "yolo" ? "完全访问" : permissionMode === "guarded" ? "自主" : "变更前";
   const choosePermission = (id: "build" | "guarded" | "yolo") => {
@@ -1445,15 +1496,28 @@ export default function GoHomeScreen() {
                 </AppearIn>
               )}
 
-              {/* 底部渐隐：键盘抬起时舞台变矮，渐隐会变成明显色块，所以只在键盘收起时显示 */}
-              {keyboardHeight === 0 ? (
+              {/* 底部渐隐：键盘抬起时舞台变矮，渐隐会变成明显色块。用键盘动画的
+                  前 120px 把它淡掉（不再整块卸载，避免键盘开合时「啪」地消失）。 */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.bottomFade,
+                  {
+                    height: petTarget + space(2),
+                    opacity: keyboard.offset.interpolate({
+                      inputRange: [0, 120],
+                      outputRange: [1, 0],
+                      extrapolate: "clamp",
+                    }),
+                  },
+                ]}
+              >
                 <LinearGradient
                   colors={["transparent", th.bgGradient[1]]}
                   locations={[0, 0.88]}
-                  style={[styles.bottomFade, { height: petTarget + space(2) }]}
-                  pointerEvents="none"
+                  style={StyleSheet.absoluteFill}
                 />
-              ) : null}
+              </Animated.View>
 
               {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE。
                   空态时不渲染——中央已有品牌大鸟，同屏两只鸟抢主角（运营者 2026-11-21 指出）。 */}
@@ -1468,10 +1532,11 @@ export default function GoHomeScreen() {
                       onPress={() => setAnnotationManagerOpen(true)}
                       accessibilityRole="button"
                       accessibilityLabel={`注释 ${annotations.length}`}
-                      style={[
+                      style={({ pressed }) => [
                         styles.annotationBadge,
                         { backgroundColor: th.card, borderColor: th.hairline },
                         th.elevation.card,
+                        pressed ? { opacity: 0.8 } : null,
                       ]}
                     >
                       <Icon name="quote" size={12} color={th.brand} />
@@ -1498,11 +1563,12 @@ export default function GoHomeScreen() {
                     <Pressable
                       onPress={cyclePetState}
                       accessibilityLabel="桌宠"
-                      style={{
+                      style={({ pressed }) => ({
                         width: petTarget,
                         height: petTarget - space(2),
                         alignItems: "center",
-                      }}
+                        opacity: pressed ? 0.82 : 1,
+                      })}
                     >
                       <View pointerEvents="none">
                         <PetView
@@ -1540,11 +1606,12 @@ export default function GoHomeScreen() {
                 </Text>
                 <Pressable
                   accessibilityLabel="取消编辑"
-                  hitSlop={8}
+                  hitSlop={10}
                   onPress={() => {
                     setEditTarget(null);
                     setDraft("");
                   }}
+                  style={({ pressed }) => (pressed ? { opacity: 0.5 } : null)}
                 >
                   <Icon name="x" size={13} color={th.inkSub} />
                 </Pressable>
@@ -1600,45 +1667,96 @@ export default function GoHomeScreen() {
                 }
                 onFocus={() => {
                   composerFocusedRef.current = true;
+                  setComposerFocused(true);
                 }}
                 onBlur={() => {
                   composerFocusedRef.current = false;
+                  setComposerFocused(false);
                 }}
-                onSubmitEditing={() => {
-                  if (canSend) sendDraft();
-                }}
+                onSubmitEditing={submitDraft}
               />
-              {conversation.turn === "running" ? (
-                /* 流式期间发送键变停止键（内核 `stop` → Interrupt）；草稿保留，停止后可继续发。 */
-                <PressableScale
-                  accessibilityLabel="停止生成"
-                  onPress={() => {
+              {/* 发送 ↔ 停止是同一个按钮：图标交叉淡化/缩放，不做整颗按钮替换。
+                  发送 RPC 在途（turn 还没 running）时也不要把按钮先压暗——那是
+                  「点发送后按钮闪一下」的来源。 */}
+              <PressableScale
+                accessibilityLabel={stopping ? "停止生成" : "发送"}
+                disabled={!stopping && !canSend}
+                onPress={() => {
+                  if (stopping) {
                     void conversation.stopTurn().then((error) => {
                       if (error) showHint(error);
                     });
-                  }}
-                  style={[styles.send, { backgroundColor: th.brand }]}
-                >
-                  <Icon name="stop" size={15} color={th.brandFg} />
-                </PressableScale>
-              ) : (
-                <PressableScale
-                  accessibilityLabel="发送"
-                  disabled={!canSend}
-                  onPress={() => {
-                    if (canSend) sendDraft();
-                  }}
+                  } else {
+                    submitDraft();
+                  }
+                }}
+                style={[
+                  styles.send,
+                  {
+                    backgroundColor: th.brand,
+                    opacity: stopping || pendingSend || conversation.sending || canSend ? 1 : 0.4,
+                  },
+                ]}
+              >
+                <Animated.View
                   style={[
-                    styles.send,
+                    styles.sendIcon,
                     {
-                      backgroundColor: th.brand,
-                      opacity: canSend ? 1 : 0.4,
+                      opacity: sendMorph.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0],
+                      }),
+                      transform: [
+                        {
+                          scale: sendMorph.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 0.72],
+                          }),
+                        },
+                      ],
                     },
                   ]}
                 >
                   <Icon name="arrow-up" size={16} color={th.brandFg} />
-                </PressableScale>
-              )}
+                </Animated.View>
+                <Animated.View
+                  style={[
+                    styles.sendIcon,
+                    {
+                      opacity: sendMorph,
+                      transform: [
+                        {
+                          scale: sendMorph.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.72, 1],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <Icon name="stop" size={15} color={th.brandFg} />
+                </Animated.View>
+              </PressableScale>
+              {/* 聚焦光环：只做透明度/缩放，不引发布局（边框色切换会硬跳）。 */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.composerFocusRing,
+                  {
+                    borderColor: th.brand,
+                    opacity: focusRing,
+                    transform: [
+                      {
+                        scale: focusRing.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.985, 1],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
             </Animated.View>
           </View>
         </View>
@@ -1695,22 +1813,34 @@ export default function GoHomeScreen() {
 
       {/* 「回到底部」浮钮：渲染在这层（晚于正文的渐变遮罩），离开底部时出现。 */}
       {!atBottom && conversation.rows.length > 0 ? (
-        <Pressable
-          onPress={() => setJumpSignal((value) => value + 1)}
-          accessibilityRole="button"
-          accessibilityLabel="跳到最新消息"
-          style={({ pressed }) => [
-            styles.jumpButton,
+        /* 底距用「无键盘位置 + 键盘动画位移」，和输入栏同一节奏上移；
+           原来直接读 keyboardHeight（didShow 才变），会比输入栏早跳一下。 */
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.jumpWrap,
             {
-              backgroundColor: pressed ? th.hover : th.card,
-              borderColor: th.hairline,
-              bottom: composerBottom + 60,
-              ...th.elevation.card,
+              bottom: insets.bottom + space(2) + 60,
+              transform: [{ translateY: Animated.multiply(keyboard.offset, -1) }],
             },
           ]}
         >
-          <Icon name="chevron-down" size={16} color={th.inkSub} />
-        </Pressable>
+          <Pressable
+            onPress={() => setJumpSignal((value) => value + 1)}
+            accessibilityRole="button"
+            accessibilityLabel="跳到最新消息"
+            style={({ pressed }) => [
+              styles.jumpButton,
+              {
+                backgroundColor: pressed ? th.hover : th.card,
+                borderColor: th.hairline,
+                ...th.elevation.card,
+              },
+            ]}
+          >
+            <Icon name="chevron-down" size={16} color={th.inkSub} />
+          </Pressable>
+        </Animated.View>
       ) : null}
 
       <SideStatus
@@ -1748,7 +1878,7 @@ export default function GoHomeScreen() {
                 accessibilityLabel={item.title}
                 style={({ pressed }) => [
                   styles.menuRow,
-                  { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+                  { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
                 ]}
               >
                 <View
@@ -1866,7 +1996,7 @@ export default function GoHomeScreen() {
           accessibilityLabel={planEnabled ? "关闭计划模式" : "打开计划模式"}
           style={({ pressed }) => [
             styles.menuRow,
-            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
           ]}
         >
           <View
@@ -1898,7 +2028,7 @@ export default function GoHomeScreen() {
               accessibilityLabel={`${option.label}：${option.detail}`}
               style={({ pressed }) => [
                 styles.menuRow,
-                { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+                { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
               ]}
             >
               <View
@@ -1952,7 +2082,7 @@ export default function GoHomeScreen() {
           accessibilityLabel="复制消息"
           style={({ pressed }) => [
             styles.menuRow,
-            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
           ]}
         >
           <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
@@ -1988,7 +2118,7 @@ export default function GoHomeScreen() {
             accessibilityLabel="编辑重发"
             style={({ pressed }) => [
               styles.menuRow,
-              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+              { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
             ]}
           >
             <View style={[styles.toolIconSmall, { backgroundColor: th.panel }]}>
@@ -2017,7 +2147,7 @@ export default function GoHomeScreen() {
           accessibilityLabel="添加注释"
           style={({ pressed }) => [
             styles.menuRow,
-            { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+            { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
           ]}
         >
           <View style={[styles.toolIconSmall, { backgroundColor: th.brandSoft }]}>
@@ -2039,7 +2169,7 @@ export default function GoHomeScreen() {
             accessibilityLabel={item.title}
             style={({ pressed }) => [
               styles.menuRow,
-              { borderColor: th.hairline, opacity: pressed ? 0.6 : 1 },
+              { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
             ]}
           >
             <View
@@ -2083,8 +2213,8 @@ export default function GoHomeScreen() {
 
       <PluginActionSheet
         visible={sessionSheet !== null}
-        title={sessionSheet?.title ?? ""}
-        items={sessionSheet?.items ?? []}
+        title={sessionSheetShown?.title ?? ""}
+        items={sessionSheetShown?.items ?? []}
         onClose={() => setSessionSheet(null)}
       />
     </View>
@@ -2118,16 +2248,18 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   // 「回到底部」浮钮：在正文之上的独立层（不在滚动容器里，避免被底部渐变压住）。
-  jumpButton: {
+  jumpWrap: {
     position: "absolute",
     right: space(3),
+    zIndex: 6,
+  },
+  jumpButton: {
     width: 38,
     height: 38,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 6,
   },
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   // flex 约束必须落在按压原语的外层 Pressable 上（内层是视觉层，不参与父级 flex 分配）。
@@ -2318,5 +2450,23 @@ const styles = StyleSheet.create({
   },
   plus: { width: 32, height: 32, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
   composerInput: { ...text("body"), flex: 1, paddingVertical: space(1) },
+  composerFocusRing: {
+    position: "absolute",
+    left: -1,
+    right: -1,
+    top: -1,
+    bottom: -1,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+  },
   send: { width: 38, height: 38, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
+  sendIcon: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

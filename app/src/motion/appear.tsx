@@ -18,7 +18,9 @@ import { motion } from "../theme";
 export function AppearIn({
   distance = 8,
   delay = 0,
-  duration = motion.duration.base,
+  // 入口动效是「内容到达」的提示，不是表演：150ms 内收住，才不会让页面在
+  // native push 已经结束后还在继续淡入（运营者感知为「慢半拍」）。
+  duration = motion.duration.fast,
   children,
   style,
 }: {
@@ -100,5 +102,7 @@ export function AppearIn({
  * 与 AppearIn 配合：delay={staggerDelay(index)}。
  */
 export function staggerDelay(index: number, stepMs = 32, capMs = 320): number {
-  return Math.min(index * stepMs, capMs);
+  // 全局硬上限：无论调用方给多大的 cap，整串 stagger 都必须在 96ms 内排完，
+  // 保证最后一个元素在页面转场（~300ms）结束前落定。列表/路由页共用。
+  return Math.min(index * stepMs, capMs, 96);
 }

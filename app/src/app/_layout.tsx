@@ -38,7 +38,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
         <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-        <Stack screenOptions={{ headerShown: false }} />
+        {/* 转场语言统一：所有二级页都用同一套右侧滑入，不再依赖 OEM 默认
+            （有的机型是淡入、有的是上滑，混在一起就没有一致的「高级感」）。 */}
+        <Stack screenOptions={{ headerShown: false, animation: "slide_from_right", gestureEnabled: true }} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

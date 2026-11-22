@@ -65,10 +65,10 @@ export function ComposerTokens({
             </Text>
             <Pressable
               onPress={() => onRemove(token.id)}
-              hitSlop={6}
+              hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={`移除 ${token.label}`}
-              style={styles.remove}
+              style={({ pressed }) => [styles.remove, pressed ? { opacity: 0.5 } : null]}
             >
               <Icon name="x" size={9} color={color.fg} />
             </Pressable>

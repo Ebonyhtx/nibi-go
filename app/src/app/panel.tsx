@@ -6,11 +6,12 @@
 import { resolveView, type SlotData } from "@nibi-go/plugin-contract";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components/Icon";
 import { PluginPanelView } from "../components/PluginView";
+import { PressableScale } from "../motion/PressableScale";
 import { runPluginAction, toast } from "../plugins/actions";
 import { hostSlotData } from "../plugins/data";
 import { setPendingInsert } from "../plugins/pendingInsert";
@@ -54,14 +55,15 @@ export default function PluginPanelScreen() {
 
   const header = (title: string, subtitle?: string) => (
     <View style={[styles.header, { paddingTop: insets.top + space(1) }]}>
-      <Pressable
+      <PressableScale
+        scaleTo={0.95}
         onPress={() => router.back()}
         accessibilityRole="button"
         accessibilityLabel="返回"
         style={[styles.back, { backgroundColor: t.glass, borderColor: t.glassBorder }]}
       >
         <Icon name="chevron-left" size={17} color={t.ink} />
-      </Pressable>
+      </PressableScale>
       <View style={styles.headerText}>
         <Text style={[styles.title, { color: t.ink }]} numberOfLines={1}>
           {title}

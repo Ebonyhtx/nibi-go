@@ -16,12 +16,18 @@ export interface KeyboardFollow {
   height: number;
 }
 
-export function useKeyboardFollow(): KeyboardFollow {
+export function useKeyboardFollow(enabled = true): KeyboardFollow {
   const offset = useRef(new Animated.Value(0)).current;
   const [visible, setVisible] = useState(false);
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
+    if (!enabled) {
+      offset.setValue(0);
+      setVisible(false);
+      setHeight(0);
+      return;
+    }
     const apply = (event: KeyboardEvent) => {
       const end = event.endCoordinates.height;
       setHeight(end);
@@ -41,7 +47,7 @@ export function useKeyboardFollow(): KeyboardFollow {
       show.remove();
       hide.remove();
     };
-  }, [offset]);
+  }, [offset, enabled]);
 
   return { offset, visible, height };
 }

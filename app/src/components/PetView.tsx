@@ -165,6 +165,24 @@ function frameAt(anim: PetAnim, ms: number): number {
   return anim.frames[anim.frames.length - 1]!.i;
 }
 
+/**
+ * 距离下一帧边界还有多久（ms）；null = 动画已到尾且不循环，可以停表。
+ * 素材是 20fps 上下的变长帧；原来每个 vsync 都跑一次 RAF 只为判断帧号变没变
+ * （60 次/秒回调，其中 2/3 是白跑）。按下一帧边界定时，回调降到 ~20 次/秒。
+ */
+function nextFrameIn(anim: PetAnim, ms: number, loop: boolean): number | null {
+  let acc = 0;
+  for (const f of anim.frames) {
+    acc += f.ms;
+    if (ms < acc) {
+      const isLast = f === anim.frames[anim.frames.length - 1];
+      if (isLast && !loop) return null;
+      return Math.max(8, acc - ms + 1);
+    }
+  }
+  return loop ? Math.max(8, anim.totalMs - (ms % anim.totalMs) + 1) : null;
+}
+
 function sheetKeyOf(anim: PetAnim): SheetKey {
   return anim.sheet.replace(/^(sheets|sheets-dark)\//u, "").replace(/\.png$/u, "") as SheetKey;
 }
@@ -244,21 +262,21 @@ export const PetView = memo(function PetView({
   const anim = phase === "enter" && enterAnim ? enterAnim : loopAnim;
 
   const [frameIdx, setFrameIdx] = useState(0);
-  const startRef = useRef(-1);
   const frameRef = useRef(0);
   useEffect(() => {
     if (!anim) return;
     frameRef.current = 0;
     setFrameIdx(0);
 
-    // 降低动画：只画一帧，不启动 RAF（不持续重绘 = 不跟交互抢帧预算）
+    // 降低动画：只画一帧，不起定时器（不持续重绘 = 不跟交互抢帧预算）
     if (reduceMotion) return;
 
-    let raf = 0;
-    startRef.current = -1;
-    const tick = (t: number) => {
-      if (startRef.current < 0) startRef.current = t;
-      const elapsed = t - startRef.current;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const started = performance.now();
+    const tick = () => {
+      if (!alive) return;
+      const elapsed = performance.now() - started;
       if (phase === "enter" && enterAnim && elapsed >= enterAnim.totalMs) {
         setPhase("loop");
         return;
@@ -271,10 +289,17 @@ export const PetView = memo(function PetView({
         frameRef.current = next;
         setFrameIdx(next);
       }
-      raf = requestAnimationFrame(tick);
+      // enter 阶段即使素材本身不循环也要继续排到 totalMs：那一刻要切进 loop，
+      // 提前停表会把宠物冻在过渡的最后一帧。
+      const delay = nextFrameIn(anim_, ms, anim_.loop || phase === "enter");
+      if (delay === null) return;
+      timer = setTimeout(tick, delay);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [anim, phase, enterAnim, reduceMotion]);
 
   if (!anim) return null;

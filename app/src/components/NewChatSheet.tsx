@@ -69,7 +69,7 @@ export function NewChatSheet({
   };
 
   return (
-    <Sheet visible={visible} onClose={onClose}>
+    <Sheet visible={visible} onClose={onClose} avoidKeyboard>
       <View style={styles.body}>
         <View style={styles.head}>
           <Text style={[styles.title, { color: th.ink }]}>新建对话</Text>

@@ -61,6 +61,9 @@ export const PressableScale = forwardRef<PressableRef, PressableScaleProps>(
         useNativeDriver: true,
         ...motion.spring.snappy,
       }).start();
+    } else {
+      // 关掉「界面动效」不等于关掉按压反馈：直接落到按压态，仍然有按下去的手感。
+      scale.setValue(scaleTo);
     }
   };
   const pressOut = () => {
