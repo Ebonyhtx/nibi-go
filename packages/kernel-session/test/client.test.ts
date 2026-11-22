@@ -790,4 +790,73 @@ describe("@nibi-go/kernel-session", () => {
     await expect(pending).rejects.toThrow("已关闭");
     await expect(client.request("session/create", {})).rejects.toThrow("已关闭");
   });
+
+  it("subscribe/resync/unsubscribe/closeConnection 带齐 inbound.json 全部必填字段", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(transport);
+    let syncSubId: string | null = null;
+
+    const subPending = client.subscribeConversation("sess_1", {
+      onSubscriptionId: (id) => {
+        syncSubId = id;
+      },
+    });
+    expect(transport.lastFrame()).toEqual({
+      id: 1,
+      method: KERNEL_METHODS.conversationSubscribe,
+      params: {
+        topic: "conversation/sess_1",
+        connectionId: "nibi-go-main",
+        clientMode: "desktop-continuous",
+      },
+    });
+    transport.receive({
+      id: 1,
+      result: { ack: { subscriptionId: "sub_42", mode: "snapshot", logEpoch: "ep_1" } },
+    });
+    // onSubscriptionId 在 settle 同步触发（早于下一帧通知）
+    expect(syncSubId).toBe("sub_42");
+    expect(await subPending).toEqual({
+      topic: "conversation/sess_1",
+      connectionId: "nibi-go-main",
+      subscriptionId: "sub_42",
+    });
+
+    const resyncPending = client.resyncConversation(true);
+    expect(transport.lastFrame()).toEqual({
+      id: 2,
+      method: KERNEL_METHODS.conversationResync,
+      params: {
+        topic: "conversation/sess_1",
+        subscriptionId: "sub_42",
+        connectionId: "nibi-go-main",
+        base: null,
+        forceSnapshot: true,
+      },
+    });
+    transport.receive({ id: 2, result: { ack: { subscriptionId: "sub_42", mode: "snapshot", logEpoch: "ep_1" } } });
+    await resyncPending;
+
+    const unsubPending = client.unsubscribeConversation();
+    expect(transport.lastFrame()).toEqual({
+      id: 3,
+      method: KERNEL_METHODS.conversationUnsubscribe,
+      params: {
+        topic: "conversation/sess_1",
+        subscriptionId: "sub_42",
+        connectionId: "nibi-go-main",
+      },
+    });
+    transport.receive({ id: 3, result: {} });
+    await unsubPending;
+
+    const flowPending = client.closeConnection();
+    expect(transport.lastFrame()).toEqual({
+      id: 4,
+      method: KERNEL_METHODS.connectionFlow,
+      params: { connectionId: "nibi-go-main", state: "closed" },
+    });
+    transport.receive({ id: 4, result: {} });
+    await flowPending;
+  });
 });

@@ -21,6 +21,12 @@ export type TurnState = "idle" | "running";
 
 function snapshotRunning(snapshot: ConversationSnapshot | null): boolean {
   if (!snapshot) return false;
+  // 内核投影的 control.phase 是权威状态机（running / prewarming vs completedSuccess /
+  // completedInterrupted / error / draft）；优先认它，避免任何孤立行把停止键永久卡住。
+  const phase = snapshot.control?.phase;
+  if (typeof phase === "string") {
+    return phase === "running" || phase === "prewarming";
+  }
   return snapshot.rows.window.some((row) => {
     if (row.kind === "assistantText" || row.kind === "reasoning") {
       return row.state === "streaming";
@@ -34,6 +40,49 @@ function snapshotRunning(snapshot: ConversationSnapshot | null): boolean {
     }
     return false;
   });
+}
+
+/** 深比较小型纯 JSON 派生行：流式期间历史行未变时复用旧引用，避免整表 O(N) 重渲染。 */
+function sameRowValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (!sameRowValue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (typeof a === "object") {
+    if (Array.isArray(b)) return false;
+    const objA = a as Record<string, unknown>;
+    const objB = b as Record<string, unknown>;
+    const keysA = Object.keys(objA);
+    const keysB = Object.keys(objB);
+    if (keysA.length !== keysB.length) return false;
+    for (const key of keysA) {
+      if (!Object.prototype.hasOwnProperty.call(objB, key)) return false;
+      if (!sameRowValue(objA[key], objB[key])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function stabilizeRows(previous: readonly ChatRow[], next: ChatRow[]): ChatRow[] {
+  if (previous.length === 0 || next.length === 0) return next;
+  const byKey = new Map<string, ChatRow>();
+  for (const row of previous) byKey.set(row.key, row);
+  let reused = false;
+  const stabilized = next.map((row) => {
+    const prior = byKey.get(row.key);
+    if (prior && sameRowValue(prior, row)) {
+      reused = true;
+      return prior;
+    }
+    return row;
+  });
+  return reused ? stabilized : next;
 }
 
 export class ConversationController {
@@ -86,7 +135,7 @@ export class ConversationController {
 
   private recompute(): void {
     const snapshot = this.source.snapshot;
-    this.rowsValue = deriveRows(snapshot, this.pendingValue);
+    this.rowsValue = stabilizeRows(this.rowsValue, deriveRows(snapshot, this.pendingValue));
     this.turnValue = snapshotRunning(snapshot) ? "running" : "idle";
     for (const listener of this.listeners) listener();
   }

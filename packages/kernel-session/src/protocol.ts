@@ -198,6 +198,8 @@ export const KERNEL_METHODS = {
   conversationFrame: "v4/conversation/frame",
   /** 增量帧丢失/状态怀疑不一致时的对账：base 有效则续传，forceSnapshot 一律重发快照。 */
   conversationResync: "v4/conversation/resync",
+  /** 连接级流控：`closed` 清掉该 connectionId 残留的全部订阅（Activity 重建后防重复帧）。 */
+  connectionFlow: "v4/connection/flow",
   requestRuntimePreferences: "session/requestRuntimePreferences",
   /** 前向命令面：回答权限/提问等交互（`resolveInteraction`）。 */
   command: "v4/command",

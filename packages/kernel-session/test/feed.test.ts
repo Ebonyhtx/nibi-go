@@ -165,7 +165,7 @@ class FakeFeedClient implements ConversationFeedClient {
     return () => this.listeners.delete(listener);
   }
 
-  emit(payload: ConversationTopicFrame["payload"]): void {
+  emit(payload: ConversationTopicFrame["payload"], subscriptionId = "sub_1"): void {
     const ordinal = (this.ordinal += 1);
     const topic = "conversation/sess_1";
     const notification: KernelNotification = {
@@ -177,10 +177,10 @@ class FakeFeedClient implements ConversationFeedClient {
         logicalFrameId: `lf-${ordinal}`,
         logicalFrameOrdinal: ordinal,
         topic,
-        subscriptionId: "sub_1",
+        subscriptionId,
         frame: {
           topic,
-          subscriptionId: "sub_1",
+          subscriptionId,
           fromSeq: payload.kind === "snapshot" ? 0 : ordinal - 1,
           toSeq: ordinal,
           sentAt: 1000 + ordinal,
@@ -250,5 +250,75 @@ describe("ConversationFeed pluginSlots", () => {
     client.emit({ kind: "snapshot", snapshot: liveSnapshot("reopened", "complete") });
     expect(feed.pluginSlots).toEqual({});
     await feed.stop();
+  });
+
+  it("忽略同 topic 上旧 subscriptionId 的残留帧，不污染快照", async () => {
+    const client = new FakeFeedClient();
+    const feed = new ConversationFeed(client);
+    await feed.start("sess_1");
+
+    client.emit({ kind: "snapshot", snapshot: liveSnapshot("ok", "complete") }, "sub_1");
+    // 来自残留旧订阅的 streaming row.appended 必须被忽略
+    client.emit(
+      {
+        kind: "deltas",
+        deltas: [
+          {
+            op: "row.appended",
+            row: assistantTextRowSchema.parse({
+              ...base,
+              rowId: 8,
+              kind: "assistantText",
+              assistantResponseId: "resp_stale",
+              text: "stale",
+              state: "streaming",
+            }),
+          },
+        ],
+      },
+      "sub_old",
+    );
+
+    expect(feed.snapshot?.rows.window).toHaveLength(1);
+    expect(feed.snapshot?.rows.window[0]).toMatchObject({ rowId: 7, state: "complete" });
+    await feed.stop();
+  });
+
+  it("重复 rowId 的 row.appended 自动降级为覆盖，不产生双份 streaming 行", () => {
+    const current = snapshot("a", "streaming");
+    const duplicateAppend: ConversationDelta = {
+      op: "row.appended",
+      row: assistantTextRowSchema.parse({
+        ...base,
+        rowId: 7,
+        kind: "assistantText",
+        assistantResponseId: "resp_1",
+        text: "ab",
+        state: "streaming",
+      }),
+    };
+    const afterDup = applyConversationFrame(current, frame({ kind: "deltas", deltas: [duplicateAppend] }));
+    expect(afterDup?.rows.window).toHaveLength(1);
+    const settled = applyConversationFrame(
+      afterDup,
+      frame({
+        kind: "deltas",
+        deltas: [
+          {
+            op: "row.upserted",
+            row: assistantTextRowSchema.parse({
+              ...base,
+              rowId: 7,
+              kind: "assistantText",
+              assistantResponseId: "resp_1",
+              text: "ab",
+              state: "complete",
+            }),
+          },
+        ],
+      }),
+    );
+    expect(settled?.rows.window).toHaveLength(1);
+    expect(settled?.rows.window[0]).toMatchObject({ rowId: 7, state: "complete" });
   });
 });

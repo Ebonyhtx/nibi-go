@@ -120,6 +120,8 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** 收到响应时同步执行（在下一行通知进监听器前落地 subscriptionId，消掉首帧竞态）。 */
+  onResult?: (value: unknown) => void;
 }
 
 interface SessionMcpParam {
@@ -256,6 +258,8 @@ export interface KernelUsageStats {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** 主会话订阅的稳定连接 ID：Activity 重建后重订阅同一主题会自动顶掉旧订阅，不会残留重复帧。 */
+const MAIN_CONNECTION_ID = "nibi-go-main";
 
 /**
  * 进程内内核的会话客户端（纯 TS，Node 可测；不依赖 react-native）。
@@ -270,8 +274,11 @@ export class KernelSessionClient {
   private readonly clientId: string;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly listeners = new Set<(notification: KernelNotification) => void>();
-  /** 只读订阅表：topic → connectionId（面板子会话流；与主订阅槽隔离）。 */
-  private readonly readOnlySubscriptions = new Map<string, string>();
+  /** 只读订阅表：topic → { connectionId, subscriptionId }（面板子会话流；与主订阅槽隔离）。 */
+  private readonly readOnlySubscriptions = new Map<
+    string,
+    { connectionId: string; subscriptionId: string | null }
+  >();
   private readonly offLine: () => void;
   private nextId = 1;
   private sendSeq = 1;
@@ -308,7 +315,11 @@ export class KernelSessionClient {
   }
 
   /** 发一条请求并等对应 result；内核回 error 或超时会 reject。 */
-  request<T = unknown>(method: string, params: unknown): Promise<T> {
+  request<T = unknown>(
+    method: string,
+    params: unknown,
+    onResult?: (value: T) => void,
+  ): Promise<T> {
     if (this.closed) return Promise.reject(new Error("内核会话客户端已关闭"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
@@ -320,6 +331,7 @@ export class KernelSessionClient {
         resolve: resolve as (value: unknown) => void,
         reject,
         timer,
+        ...(onResult ? { onResult: onResult as (value: unknown) => void } : {}),
       });
       const sent = this.transport.sendLine(JSON.stringify({ id, method, params }));
       if (!sent) {
@@ -795,77 +807,119 @@ export class KernelSessionClient {
   /**
    * 订阅会话的 V4 变更流（`v4/conversation/subscribe`）。
    * 之后内核会推送 `v4/conversation/frame` 通知：首帧 `{kind:"snapshot"}`，之后 `{kind:"deltas"}`。
-   * ACK 里的 subscriptionId 要存下来：`resyncConversation` 按它对账。
+   * ACK 里的 subscriptionId 同步落盘：首帧紧随 ACK 到达时不会漏判，对账与退订也用它。
    */
   async subscribeConversation(
     sessionId: string,
-    options?: { connectionId?: string; clientMode?: string },
+    options?: {
+      connectionId?: string;
+      clientMode?: string;
+      onSubscriptionId?: (subscriptionId: string) => void;
+    },
   ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }> {
     const topic = `conversation/${sessionId}`;
-    const connectionId = options?.connectionId ?? `nibi-go-${Date.now()}`;
-    const ack = await this.request<{
+    const connectionId = options?.connectionId ?? MAIN_CONNECTION_ID;
+    let resolvedId: string | null = null;
+    await this.request<{
       ack?: { subscriptionId?: unknown; mode?: unknown; logEpoch?: unknown };
-    }>(KERNEL_METHODS.conversationSubscribe, {
-      topic,
-      connectionId,
-      clientMode: options?.clientMode ?? "desktop-continuous",
-    });
-    const subscriptionId =
-      typeof ack?.ack?.subscriptionId === "string" ? ack.ack.subscriptionId : null;
-    this.subscribed = { topic, connectionId, subscriptionId };
-    return { topic, connectionId, subscriptionId };
+    }>(
+      KERNEL_METHODS.conversationSubscribe,
+      {
+        topic,
+        connectionId,
+        clientMode: options?.clientMode ?? "desktop-continuous",
+      },
+      (ack) => {
+        resolvedId =
+          typeof ack?.ack?.subscriptionId === "string" ? ack.ack.subscriptionId : null;
+        this.subscribed = { topic, connectionId, subscriptionId: resolvedId };
+        if (resolvedId) options?.onSubscriptionId?.(resolvedId);
+      },
+    );
+    return { topic, connectionId, subscriptionId: resolvedId };
   }
 
   /**
    * 对账（`v4/conversation/resync`）：base 有效则续传缺失增量，`forceSnapshot` 一律重发快照。
-   * 帧丢失/CRC 校验失败后客户端的行状态会永久落后（之前没有恢复路径，表现为停止键卡死），
-   * 怀疑不一致时调它。
+   * inbound.json 要求 subscriptionId/base/topic/connectionId 全部到齐，缺任一项内核会回 -32602。
    */
   async resyncConversation(force = true): Promise<void> {
     const current = this.subscribed;
-    if (!current) return;
+    if (!current || !current.subscriptionId) return;
     await this.request(KERNEL_METHODS.conversationResync, {
       topic: current.topic,
       subscriptionId: current.subscriptionId,
+      connectionId: current.connectionId,
+      base: null,
       forceSnapshot: force,
     });
   }
 
   /**
    * 只读管道订阅（面板里看子会话消息流）：独立 connectionId，**不覆盖**
-   * `subscribed` 主订阅槽——主会话的对账/续订不受影响。帧按 topic 路由。
+   * `subscribed` 主订阅槽——主会话的对账/续订不受影响。帧按 topic + subscriptionId 路由。
    */
-  async subscribeReadOnly(sessionId: string): Promise<{ topic: string; connectionId: string }> {
+  async subscribeReadOnly(
+    sessionId: string,
+    options?: { onSubscriptionId?: (subscriptionId: string) => void },
+  ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }> {
     const topic = `conversation/${sessionId}`;
     const existing = this.readOnlySubscriptions.get(topic);
-    if (existing) return { topic, connectionId: existing };
+    if (existing) {
+      if (existing.subscriptionId) options?.onSubscriptionId?.(existing.subscriptionId);
+      return { topic, ...existing };
+    }
     const connectionId = `nibi-go-ro-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    await this.request(KERNEL_METHODS.conversationSubscribe, {
-      topic,
-      connectionId,
-      clientMode: "desktop-continuous",
-    });
-    this.readOnlySubscriptions.set(topic, connectionId);
-    return { topic, connectionId };
+    let subscriptionId: string | null = null;
+    await this.request<{ ack?: { subscriptionId?: unknown } }>(
+      KERNEL_METHODS.conversationSubscribe,
+      {
+        topic,
+        connectionId,
+        clientMode: "desktop-continuous",
+      },
+      (ack) => {
+        subscriptionId =
+          typeof ack?.ack?.subscriptionId === "string" ? ack.ack.subscriptionId : null;
+        this.readOnlySubscriptions.set(topic, { connectionId, subscriptionId });
+        if (subscriptionId) options?.onSubscriptionId?.(subscriptionId);
+      },
+    );
+    return { topic, connectionId, subscriptionId };
   }
 
   /** 取消某条只读订阅（按 topic 定向，不动主订阅）。 */
   async unsubscribeReadOnly(sessionId: string): Promise<void> {
     const topic = `conversation/${sessionId}`;
-    const connectionId = this.readOnlySubscriptions.get(topic);
-    if (!connectionId) return;
+    const entry = this.readOnlySubscriptions.get(topic);
+    if (!entry) return;
     this.readOnlySubscriptions.delete(topic);
-    await this.request(KERNEL_METHODS.conversationUnsubscribe, { topic, connectionId });
+    if (!entry.subscriptionId) return;
+    await this.request(KERNEL_METHODS.conversationUnsubscribe, {
+      topic,
+      subscriptionId: entry.subscriptionId,
+      connectionId: entry.connectionId,
+    });
   }
 
-  /** 取消订阅（同一 connectionId）。 */
+  /** 取消主订阅（补齐 inbound.json 必填的 subscriptionId，避免内核侧僵尸订阅泄漏）。 */
   async unsubscribeConversation(): Promise<void> {
     const current = this.subscribed;
     if (!current) return;
     this.subscribed = null;
+    if (!current.subscriptionId) return;
     await this.request(KERNEL_METHODS.conversationUnsubscribe, {
       topic: current.topic,
+      subscriptionId: current.subscriptionId,
       connectionId: current.connectionId,
+    });
+  }
+
+  /** 清空某条连接在内核侧残留的全部订阅（`:kernel` 常驻进程跨 Activity 重建时防重复帧）。 */
+  async closeConnection(connectionId = MAIN_CONNECTION_ID): Promise<void> {
+    await this.request(KERNEL_METHODS.connectionFlow, {
+      connectionId,
+      state: "closed",
     });
   }
 
@@ -928,6 +982,7 @@ export class KernelSessionClient {
       pending.reject(new KernelProtocolError(code, message));
       return;
     }
+    pending.onResult?.(frame.result);
     pending.resolve(frame.result);
   }
 

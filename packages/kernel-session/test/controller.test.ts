@@ -78,4 +78,64 @@ describe("ConversationController", () => {
     expect(controller.rows).toEqual([]);
     expect(controller.turn).toBe("idle");
   });
+
+  it("优先认权威 control.phase：回合已 completedSuccess 时不再被孤立 streaming 行卡在 running", () => {
+    const source = new FakeSource();
+    const controller = new ConversationController(source);
+    source.set({
+      ...streamingSnapshot(),
+      control: {
+        phase: "completedSuccess",
+        sessionEnded: true,
+        canStop: false,
+        stopState: "idle",
+        stopTargetKind: "unknown",
+        activeWorks: [],
+        lastError: null,
+        apiRetry: null,
+      },
+    } as unknown as ConversationSnapshot);
+    expect(controller.turn).toBe("idle");
+    controller.dispose();
+  });
+
+  it("流式增量期间未变化的历史行保持同一引用（结构共享）", () => {
+    const source = new FakeSource();
+    const controller = new ConversationController(source);
+    const makeSnap = (tailText: string) =>
+      ({
+        rows: {
+          window: [
+            {
+              rowId: 1,
+              turnId: "turn_1",
+              createdAt: 1,
+              createdAtSeq: 1,
+              kind: "userInput",
+              origin: "realUser",
+              text: "你好",
+            },
+            {
+              rowId: 2,
+              turnId: "turn_1",
+              createdAt: 2,
+              createdAtSeq: 2,
+              kind: "assistantText",
+              assistantResponseId: "resp_1",
+              text: tailText,
+              state: "streaming",
+            },
+          ],
+          totalCount: 2,
+          firstRowId: 1,
+        },
+      }) as unknown as ConversationSnapshot;
+
+    source.set(makeSnap("第"));
+    const firstUser = controller.rows[0];
+    source.set(makeSnap("第一句"));
+    expect(controller.rows[0]).toBe(firstUser);
+    expect(controller.rows[1]).toMatchObject({ kind: "assistant", text: "第一句" });
+    controller.dispose();
+  });
 });

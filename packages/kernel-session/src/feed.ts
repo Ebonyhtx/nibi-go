@@ -20,11 +20,18 @@ import { KERNEL_METHODS } from "./protocol";
 export interface ConversationFeedClient {
   subscribeConversation(
     sessionId: string,
-    options?: { connectionId?: string; clientMode?: string },
+    options?: {
+      connectionId?: string;
+      clientMode?: string;
+      onSubscriptionId?: (subscriptionId: string) => void;
+    },
   ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }>;
   unsubscribeConversation(): Promise<void>;
   /** 只读管道订阅（面板里看子会话消息流）：独立 connectionId，不占主订阅槽。 */
-  subscribeReadOnly?(sessionId: string): Promise<{ topic: string; connectionId: string }>;
+  subscribeReadOnly?(
+    sessionId: string,
+    options?: { onSubscriptionId?: (subscriptionId: string) => void },
+  ): Promise<{ topic: string; connectionId: string; subscriptionId?: string | null }>;
   unsubscribeReadOnly?(sessionId: string): Promise<void>;
   /** 对账：base 有效则续传缺失增量，force 一律重发快照（帧丢失后的恢复路径）。 */
   resyncConversation(force?: boolean): Promise<void>;
@@ -36,6 +43,8 @@ interface WireLike {
   kind?: unknown;
   /** 帧信封自带 topic（`conversation/<sessionId>`）：多订阅时按它路由。 */
   topic?: unknown;
+  /** 帧信封自带 subscriptionId：重订阅或残留订阅同 topic 时按它隔离，防重复 row.appended。 */
+  subscriptionId?: unknown;
 }
 
 /**
@@ -70,7 +79,14 @@ export function applyConversationFrame(
   if (!current) return null; // 还没快照，增量无处可落。
   let next: ConversationSnapshot = current;
   for (const delta of payload.deltas as ConversationDelta[]) {
-    next = applyConversationDelta(next, delta);
+    // 兜底防重：若已有同 rowId 的行，把迟到/重放的 row.appended 当成 upsert 覆盖，
+    // 防止 rows.window 出现双份 rowId 让后续 upsert 只更新第一条、第二条永卡 streaming。
+    const normalized =
+      delta.op === "row.appended" &&
+      next.rows.window.some((row) => row.rowId === delta.row.rowId)
+        ? ({ op: "row.upserted", row: delta.row } as ConversationDelta)
+        : delta;
+    next = applyConversationDelta(next, normalized);
   }
   return next;
 }
@@ -90,6 +106,8 @@ export class ConversationFeed {
   private pluginSlotsValue: PluginSlotData = {};
   private disposed = false;
   private sessionId: string | null = null;
+  /** 当前活跃订阅的 ID：同 topic 若残留旧订阅，按它精准隔离，防重复 row.appended。 */
+  private subscriptionId: string | null = null;
   /** 只读订阅模式（子会话消息流）：start 走 readOnly 通道、stop 定向取消。 */
   private readOnly = false;
   /** 最后一次成功 apply 的帧时间：运行中的看门狗用它判「流是否还在动」。 */
@@ -121,14 +139,20 @@ export class ConversationFeed {
    * readOnly：给面板里的子会话消息流用——独立 connectionId，不动主订阅槽。 */
   async start(sessionId: string, options?: { readOnly?: boolean }): Promise<void> {
     this.sessionId = sessionId;
+    this.subscriptionId = null;
     this.lastAppliedAt = null;
     this.readOnly = options?.readOnly === true;
+    const onSubscriptionId = (subscriptionId: string) => {
+      this.subscriptionId = subscriptionId;
+    };
     if (this.readOnly && this.client.subscribeReadOnly) {
-      await this.client.subscribeReadOnly(sessionId);
+      const result = await this.client.subscribeReadOnly(sessionId, { onSubscriptionId });
+      if (result.subscriptionId) this.subscriptionId = result.subscriptionId;
       return;
     }
     this.readOnly = false;
-    await this.client.subscribeConversation(sessionId);
+    const result = await this.client.subscribeConversation(sessionId, { onSubscriptionId });
+    if (result.subscriptionId) this.subscriptionId = result.subscriptionId;
   }
 
   async stop(): Promise<void> {
@@ -164,8 +188,8 @@ export class ConversationFeed {
     this.resyncing = true;
     try {
       await this.client.resyncConversation(force);
-    } catch {
-      // 对账失败不致命：下一帧或下一次看门狗再试。
+    } catch (error) {
+      console.warn("[nibigo] 会话对账失败", error);
     } finally {
       this.resyncing = false;
     }
@@ -175,12 +199,19 @@ export class ConversationFeed {
     if (this.disposed) return;
     if (notification.method !== KERNEL_METHODS.conversationFrame) return;
     const wire = notification.params as WireLike;
-    // 多订阅（主会话 + 面板里的只读子会话）时按 topic 路由：没有这层过滤，
-    // 子会话的帧会混进主会话的重组器把行状态污染掉。
+    // 多订阅（主会话 + 面板里的只读子会话）时按 topic + subscriptionId 路由：
+    // 既挡住子会话串帧，也挡住同 topic 上残留旧订阅的重放帧（防双份 row.appended 卡死停止键）。
     if (
       this.sessionId !== null &&
       typeof wire.topic === "string" &&
       wire.topic !== `conversation/${this.sessionId}`
+    ) {
+      return;
+    }
+    if (
+      this.subscriptionId !== null &&
+      typeof wire.subscriptionId === "string" &&
+      wire.subscriptionId !== this.subscriptionId
     ) {
       return;
     }

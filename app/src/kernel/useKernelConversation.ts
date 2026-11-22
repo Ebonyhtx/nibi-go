@@ -566,10 +566,10 @@ export function useKernelConversation(): KernelConversation {
     requestedChanges.current.clear();
     setTurnChanges({});
     setPluginSlotData({});
-    await feed.start(sessionId);
     setRows([]);
     setTurn("idle");
     setContextUsage(null);
+    await feed.start(sessionId);
     const workspace =
       sessionWorkspacesRef.current.get(sessionId) ?? legacyWorkspaceRef(workspaceRoot());
     void client
@@ -809,6 +809,8 @@ export function useKernelConversation(): KernelConversation {
         });
         clientRef.current = client;
         registerKernelClient(client);
+        // 清掉上一个 Activity 实例在常驻 `:kernel` 进程上残留的旧订阅（防重复增量帧）。
+        await client.closeConnection().catch(() => undefined);
         // Keystore 里的 Provider key 只进内核内存；失败不阻塞会话（设置页会再提示）。
         await pushProviderKeys(client).catch((error: unknown) => {
           console.warn("[nibigo] 下发 Provider key 失败", error);
@@ -911,6 +913,7 @@ export function useKernelConversation(): KernelConversation {
     });
     clientRef.current = client;
     registerKernelClient(client);
+    await client.closeConnection().catch(() => undefined);
     await pushProviderKeys(client).catch((error: unknown) => {
       console.warn("[nibigo] 重连后下发 Provider key 失败", error);
     });
