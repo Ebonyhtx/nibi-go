@@ -554,24 +554,43 @@ export function WorkspacePanel({
       return (
         <Fragment key={node.relPath}>
           <PressableScale
-            scaleTo={0.97}
+            scaleTo={0.98}
             onPress={() => (node.isDir ? toggleDir(node) : openFile(node))}
             accessibilityRole="button"
             accessibilityLabel={
               node.isDir ? `${isOpen ? "收起" : "展开"}目录 ${node.name}` : `打开文件 ${node.name}`
             }
-            style={[styles.row, { paddingLeft: space(1.5) + depth * space(3) }]}
+            style={({ pressed }) => [
+              styles.row,
+              {
+                paddingLeft: space(2) + depth * space(3),
+                backgroundColor: pressed ? t.hover : "transparent",
+              },
+            ]}
           >
             {node.isDir ? (
-              <Icon name={isOpen ? "chevron-down" : "chevron-right"} size={12} color={t.inkGhost} />
+              <Icon name={isOpen ? "chevron-down" : "chevron-right"} size={12} color={t.inkFaint} />
             ) : (
               /* 文件行用占位空档对齐目录行的箭头位。 */
               <View style={styles.rowStub} />
             )}
-            <Icon name={node.isDir ? "folder" : "doc"} size={14} color={node.isDir ? t.inkSub : t.inkFaint} />
-            <Text numberOfLines={1} style={[styles.rowText, { color: t.ink }]}>
+            <Icon
+              name={node.isDir ? "folder" : "doc"}
+              size={15}
+              color={node.isDir ? t.brand : t.inkSub}
+            />
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.rowText,
+                { color: t.ink, fontWeight: node.isDir ? "600" : "400" },
+              ]}
+            >
               {node.name}
             </Text>
+            {!node.isDir && typeof node.size === "number" ? (
+              <Text style={[styles.rowMeta, { color: t.inkGhost }]}>{formatSize(node.size)}</Text>
+            ) : null}
           </PressableScale>
           {node.isDir && isOpen ? (
             kids ? (
@@ -581,7 +600,7 @@ export function WorkspacePanel({
                 <Text
                   style={[
                     styles.rowHint,
-                    { color: t.inkFaint, paddingLeft: space(1.5) + (depth + 1) * space(3) },
+                    { color: t.inkFaint, paddingLeft: space(2) + (depth + 1) * space(3) },
                   ]}
                 >
                   空目录
@@ -591,7 +610,7 @@ export function WorkspacePanel({
               <Text
                 style={[
                   styles.rowHint,
-                  { color: t.inkFaint, paddingLeft: space(1.5) + (depth + 1) * space(3) },
+                  { color: t.inkFaint, paddingLeft: space(2) + (depth + 1) * space(3) },
                 ]}
               >
                 读取中…
@@ -643,9 +662,12 @@ export function WorkspacePanel({
                 accessibilityRole="button"
                 accessibilityLabel={transcriptAgent ? "返回子智能体列表" : "返回入口"}
                 hitSlop={6}
-                style={styles.headBack}
+                style={[
+                  styles.headBack,
+                  { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                ]}
               >
-                <Icon name="chevron-left" size={16} color={t.inkSub} />
+                <Icon name="chevron-left" size={16} color={t.ink} />
               </PressableScale>
             )}
             <Text style={[styles.headTitle, { color: t.ink }]} numberOfLines={1}>
@@ -663,7 +685,10 @@ export function WorkspacePanel({
               accessibilityRole="button"
               accessibilityLabel="关闭工作区"
               hitSlop={6}
-              style={[styles.headClose, { backgroundColor: t.surfaceSoft }]}
+              style={[
+                styles.headClose,
+                { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+              ]}
             >
               <Icon name="x" size={15} color={t.inkSub} />
             </PressableScale>
@@ -677,36 +702,50 @@ export function WorkspacePanel({
                 onPress={() => setMode("files")}
                 accessibilityRole="button"
                 accessibilityLabel="打开文件"
-                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+                style={[
+                  styles.capsule,
+                  {
+                    backgroundColor: t.card,
+                    borderColor: t.hairlineStrong,
+                    ...t.elevation.card,
+                  },
+                ]}
               >
                 <View style={[styles.capsuleIcon, { backgroundColor: t.brandSoft }]}>
-                  <Icon name="folder" size={18} color={t.brand} />
+                  <Icon name="folder" size={19} color={t.brand} />
                 </View>
                 <View style={styles.capsuleCol}>
                   <Text style={[styles.capsuleTitle, { color: t.ink }]}>文件</Text>
-                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
+                  <Text style={[styles.capsuleDetail, { color: t.inkSub }]}>
                     浏览工作区文件，点开即看内容
                   </Text>
                 </View>
-                <Icon name="chevron-right" size={14} color={t.inkGhost} />
+                <Icon name="chevron-right" size={14} color={t.inkFaint} />
               </PressableScale>
               <PressableScale
                 scaleTo={0.97}
                 onPress={() => setMode("agents")}
                 accessibilityRole="button"
                 accessibilityLabel="打开子智能体"
-                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
+                style={[
+                  styles.capsule,
+                  {
+                    backgroundColor: t.card,
+                    borderColor: t.hairlineStrong,
+                    ...t.elevation.card,
+                  },
+                ]}
               >
-                <View style={[styles.capsuleIcon, { backgroundColor: t.panel }]}>
-                  <Icon name="users" size={18} color={t.inkSub} />
+                <View style={[styles.capsuleIcon, { backgroundColor: t.brandSoft }]}>
+                  <Icon name="users" size={19} color={t.brand} />
                 </View>
                 <View style={styles.capsuleCol}>
                   <Text style={[styles.capsuleTitle, { color: t.ink }]}>子智能体</Text>
-                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
+                  <Text style={[styles.capsuleDetail, { color: t.inkSub }]}>
                     本会话派出的子智能体与消息流
                   </Text>
                 </View>
-                <Icon name="chevron-right" size={14} color={t.inkGhost} />
+                <Icon name="chevron-right" size={14} color={t.inkFaint} />
               </PressableScale>
             </View>
           ) : mode === "files" ? (
@@ -723,16 +762,33 @@ export function WorkspacePanel({
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-                {/* 文件：刷新 + 搜索井 + 懒展开目录树（段名已在标题行） */}
+                {/* 文件：路径面包屑 + 刷新 + 搜索井 + 懒展开目录树 */}
                 <View style={styles.sectionHead}>
-                  <Text style={[styles.sectionTitle, { color: t.inkFaint }]}>文件</Text>
+                  <View
+                    style={[
+                      styles.breadcrumbPill,
+                      { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                    ]}
+                  >
+                    <Icon name="folder" size={12} color={t.brand} />
+                    <Text
+                      numberOfLines={1}
+                      ellipsizeMode="head"
+                      style={[styles.sectionTitle, { color: t.inkSub }]}
+                    >
+                      {normalizeEntry(workspacePath) || "工作区根目录"}
+                    </Text>
+                  </View>
                   <PressableScale
                     scaleTo={0.94}
                     onPress={refreshTree}
                     accessibilityRole="button"
                     accessibilityLabel="刷新文件列表"
                     hitSlop={6}
-                    style={styles.sectionAction}
+                    style={[
+                      styles.sectionAction,
+                      { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                    ]}
                   >
                     <Icon name="refresh" size={13} color={t.inkSub} />
                   </PressableScale>
@@ -742,7 +798,7 @@ export function WorkspacePanel({
                     styles.search,
                     {
                       backgroundColor: t.surfaceSoft,
-                      borderColor: searchFocused ? t.hairlineStrong : t.hairline,
+                      borderColor: searchFocused ? t.brand : t.hairline,
                     },
                   ]}
                 >
@@ -779,13 +835,19 @@ export function WorkspacePanel({
                     searchResults.map((node) => (
                       <PressableScale
                         key={node.relPath}
-                        scaleTo={0.97}
+                        scaleTo={0.98}
                         onPress={() => openFile(node)}
                         accessibilityRole="button"
                         accessibilityLabel={`打开文件 ${node.name}`}
-                        style={styles.row}
+                        style={({ pressed }) => [
+                          styles.row,
+                          {
+                            paddingLeft: space(2),
+                            backgroundColor: pressed ? t.hover : "transparent",
+                          },
+                        ]}
                       >
-                        <Icon name="doc" size={14} color={t.inkFaint} />
+                        <Icon name="doc" size={15} color={t.inkSub} />
                         <Text
                           numberOfLines={1}
                           ellipsizeMode="middle"
@@ -793,6 +855,11 @@ export function WorkspacePanel({
                         >
                           {node.relPath}
                         </Text>
+                        {typeof node.size === "number" ? (
+                          <Text style={[styles.rowMeta, { color: t.inkGhost }]}>
+                            {formatSize(node.size)}
+                          </Text>
+                        ) : null}
                       </PressableScale>
                     ))
                   ) : (
@@ -903,43 +970,64 @@ export function WorkspacePanel({
                   const openable = Boolean(agent.childSessionId);
                   const row = (
                     <>
-                      <AgentFace name={agent.name} status={agent.status} size={22} badge />
+                      <AgentFace name={agent.name} status={agent.status} size={24} badge />
                       <View style={styles.agentCol}>
                         <View style={styles.agentTop}>
                           <Text numberOfLines={1} style={[styles.agentName, { color: t.ink }]}>
                             {agent.name}
                           </Text>
-                          <Text style={[styles.agentStatus, { color: statusColor(agent.status) }]}>
-                            {STATUS_TEXT[agent.status]}
-                          </Text>
+                          <View
+                            style={[
+                              styles.agentStatusBadge,
+                              { backgroundColor: t.card, borderColor: t.hairline },
+                            ]}
+                          >
+                            <Text
+                              style={[styles.agentStatus, { color: statusColor(agent.status) }]}
+                            >
+                              {STATUS_TEXT[agent.status]}
+                            </Text>
+                          </View>
                         </View>
                         {agent.summary ? (
                           <Text
                             numberOfLines={2}
-                            style={[styles.agentSummary, { color: t.inkFaint }]}
+                            style={[styles.agentSummary, { color: t.inkSub }]}
                           >
                             {agent.summary}
                           </Text>
                         ) : null}
                       </View>
                       {openable ? (
-                        <Icon name="chevron-right" size={13} color={t.inkGhost} />
+                        <Icon name="chevron-right" size={14} color={t.inkFaint} />
                       ) : null}
                     </>
                   );
                   return openable ? (
                     <PressableScale
                       key={agent.key}
-                      scaleTo={0.97}
+                      scaleTo={0.98}
                       onPress={() => setTranscriptAgent(agent)}
                       accessibilityRole="button"
                       accessibilityLabel={`查看 ${agent.name} 的消息流`}
-                      style={styles.agentRow}
+                      style={({ pressed }) => [
+                        styles.agentRow,
+                        {
+                          backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                          borderColor: t.hairline,
+                        },
+                      ]}
                     >
                       {row}
                     </PressableScale>
                   ) : (
-                    <View key={agent.key} style={styles.agentRow}>
+                    <View
+                      key={agent.key}
+                      style={[
+                        styles.agentRow,
+                        { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                      ]}
+                    >
                       {row}
                     </View>
                   );
@@ -1094,33 +1182,34 @@ const styles = StyleSheet.create({
   transcriptToolText: { flexShrink: 1, ...text("micro") },
   transcriptNote: { ...text("micro") },
   headBack: {
-    width: 28,
-    height: 28,
+    width: size.chipLg,
+    height: size.chipLg,
     borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: space(1),
+    marginRight: space(0.5),
   },
   // 一级胶囊入口（对齐 NIBI 客户端右侧面板的卡片语义）
-  hub: { paddingHorizontal: space(3.5), paddingTop: space(1), gap: space(2) },
+  hub: { paddingHorizontal: space(3.5), paddingTop: space(1.5), gap: space(2.5) },
   capsule: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2.5),
+    gap: space(3),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
-    paddingHorizontal: space(3),
-    paddingVertical: space(3),
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(3.5),
   },
   capsuleIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.control,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  capsuleCol: { flex: 1, minWidth: 0, gap: 2 },
-  capsuleTitle: { ...text("body"), fontWeight: "700" },
+  capsuleCol: { flex: 1, minWidth: 0, gap: 3 },
+  capsuleTitle: { ...text("bodyLg"), fontWeight: "700" },
   capsuleDetail: { ...text("micro") },
   // 右缘贴边的抽屉：左边一条发丝线（与 GoDrawer 的右缘线镜像）。
   panel: {
@@ -1144,7 +1233,8 @@ const styles = StyleSheet.create({
   headClose: {
     width: size.chipLg,
     height: size.chipLg,
-    borderRadius: radius.xs,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1153,48 +1243,62 @@ const styles = StyleSheet.create({
   sectionHead: {
     flexDirection: "row",
     alignItems: "center",
+    gap: space(2),
+    paddingTop: space(1.5),
+    paddingBottom: space(2),
+  },
+  breadcrumbPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: space(1.5),
-    paddingTop: space(2),
-    paddingBottom: space(1.5),
+    minHeight: size.chipLg,
+    paddingHorizontal: space(2.5),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   sectionTitle: {
     flex: 1,
     ...text("micro"),
     fontWeight: "600",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   sectionAction: {
-    width: size.chip,
-    height: size.chip,
-    borderRadius: radius.xs,
+    width: size.chipLg,
+    height: size.chipLg,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  // 搜索井：surfaceSoft 内嵌面，聚焦只把发丝线加深一档（同 GoDrawer）。
+  // 搜索井：surfaceSoft 内嵌面，聚焦把发丝线高亮。
   search: {
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
-    marginBottom: space(1.5),
+    marginBottom: space(2),
     paddingHorizontal: space(3),
-    paddingVertical: space(2),
+    paddingVertical: space(1.5),
     borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
   searchInput: { flex: 1, ...text("small"), padding: 0 },
-  // 紧凑行：32px 档（size.chipLg），压住树的高度。
+  // 紧凑文件行：38px 档，清晰可点。
   row: {
-    minHeight: size.chipLg,
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
-    gap: space(1.5),
-    paddingVertical: space(1),
-    paddingRight: space(1.5),
-    borderRadius: radius.xs,
+    gap: space(2),
+    paddingVertical: space(1.5),
+    paddingRight: space(2),
+    borderRadius: radius.control,
+    marginBottom: 2,
   },
   rowStub: { width: 12 },
   rowText: { flex: 1, ...text("small") },
-  rowHint: { ...text("micro"), paddingTop: space(0.5) },
+  rowMeta: { ...text("micro") },
+  rowHint: { ...text("micro"), paddingVertical: space(1) },
   emptyText: { ...text("small"), paddingVertical: space(1.5) },
   // 查看层：覆盖内容区（面板标题行保留），顶栏下一条发丝线。
   viewerLayer: {
@@ -1233,21 +1337,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: space(2),
   },
-  // 子智能体行：脸 22 + 名字/状态词一行 + 摘要两行。
+  // 子智能体卡片行：脸 24 + 名字/状态徽标一行 + 摘要两行。
   agentRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: space(2),
-    paddingVertical: space(1.5),
+    alignItems: "center",
+    gap: space(2.5),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: space(2),
   },
-  agentCol: { flex: 1, minWidth: 0 },
+  agentCol: { flex: 1, minWidth: 0, gap: 3 },
   agentTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(1.5),
-    minHeight: size.chipLg - space(3),
   },
-  agentName: { flex: 1, ...text("small"), fontWeight: "600" },
-  agentStatus: { ...text("micro"), fontWeight: "600" },
-  agentSummary: { ...text("micro"), marginTop: 2 },
+  agentName: { flex: 1, ...text("small"), fontWeight: "700" },
+  agentStatusBadge: {
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2),
+    paddingVertical: 1,
+  },
+  agentStatus: { ...text("micro"), fontWeight: "700" },
+  agentSummary: { ...text("micro") },
 });

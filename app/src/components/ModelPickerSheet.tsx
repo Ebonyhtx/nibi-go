@@ -81,9 +81,9 @@ export function ModelPickerSheet({
     <Sheet visible={visible} onClose={onClose} maxHeightRatio={0.84}>
       <View style={styles.sheet}>
         <View style={styles.head}>
-          <View>
+          <View style={styles.headTextCol}>
             <Text style={[styles.title, { color: t.ink }]}>选择模型</Text>
-            <Text style={[styles.sub, { color: t.inkFaint }]}>
+            <Text style={[styles.sub, { color: t.inkSub }]}>
               选择只作用于下一条消息
             </Text>
           </View>
@@ -92,9 +92,12 @@ export function ModelPickerSheet({
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="关闭"
-            style={styles.close}
+            style={[
+              styles.close,
+              { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+            ]}
           >
-            <Icon name="x" size={16} color={t.inkSub} />
+            <Icon name="x" size={15} color={t.inkSub} />
           </PressableScale>
         </View>
 
@@ -136,7 +139,11 @@ export function ModelPickerSheet({
                     style={({ pressed }) => [
                       styles.providerChip,
                       {
-                        backgroundColor: active ? t.brandSoft : pressed ? t.hover : t.panel,
+                        backgroundColor: active
+                          ? t.brandSoft
+                          : pressed
+                            ? t.hover
+                            : t.surfaceSoft,
                         borderColor: active ? t.brand : t.hairline,
                       },
                     ]}
@@ -145,7 +152,10 @@ export function ModelPickerSheet({
                     <Text
                       style={[
                         styles.providerText,
-                        { color: active ? t.brand : t.inkSub },
+                        {
+                          color: active ? t.brand : t.inkSub,
+                          fontWeight: active ? "700" : "600",
+                        },
                       ]}
                       numberOfLines={1}
                     >
@@ -156,7 +166,7 @@ export function ModelPickerSheet({
               })}
             </ScrollView>
 
-            <ScrollView style={styles.models} nestedScrollEnabled>
+            <ScrollView style={styles.models} nestedScrollEnabled showsVerticalScrollIndicator={false}>
               {provider?.models.length === 0 ? (
                 <Text style={[styles.emptyText, { color: t.inkFaint }]}>
                   这个服务还没有模型；在设置里添加模型 ID。
@@ -186,29 +196,58 @@ export function ModelPickerSheet({
                     style={({ pressed }) => [
                       styles.modelRow,
                       {
-                        backgroundColor: active ? t.brandSoft : pressed ? t.hover : "transparent",
-                        borderColor: t.hairline,
+                        backgroundColor: active
+                          ? t.brandSoft
+                          : pressed
+                            ? t.hover
+                            : t.surfaceSoft,
+                        borderColor: active ? t.brand : t.hairline,
                       },
                     ]}
                   >
                     <View style={styles.modelText}>
-                      <Text style={[styles.modelName, { color: t.ink }]} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.modelName,
+                          {
+                            color: t.ink,
+                            fontWeight: active ? "700" : "600",
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {modelId}
                       </Text>
-                      <View style={styles.modelMeta}>
-                        {context ? (
-                          <View style={[styles.metaChip, { backgroundColor: t.surfaceSoft }]}>
-                            <Text style={[styles.metaText, { color: t.inkSub }]}>{context}</Text>
-                          </View>
-                        ) : null}
-                        {supportsVision(config) ? (
-                          <View style={[styles.metaChip, { backgroundColor: t.surfaceSoft }]}>
-                            <Text style={[styles.metaText, { color: t.steel }]}>视觉</Text>
-                          </View>
-                        ) : null}
-                      </View>
+                      {context || supportsVision(config) ? (
+                        <View style={styles.modelMeta}>
+                          {context ? (
+                            <View
+                              style={[
+                                styles.metaChip,
+                                { backgroundColor: t.card, borderColor: t.hairline },
+                              ]}
+                            >
+                              <Text style={[styles.metaText, { color: t.inkSub }]}>{context}</Text>
+                            </View>
+                          ) : null}
+                          {supportsVision(config) ? (
+                            <View
+                              style={[
+                                styles.metaChip,
+                                { backgroundColor: t.card, borderColor: t.hairline },
+                              ]}
+                            >
+                              <Text style={[styles.metaText, { color: t.steel }]}>视觉</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
-                    {active ? <Icon name="check" size={14} color={t.brand} /> : null}
+                    {active ? (
+                      <View style={[styles.checkBadge, { backgroundColor: t.brand }]}>
+                        <Icon name="check" size={12} color={t.brandFg} />
+                      </View>
+                    ) : null}
                   </PressableScale>
                 );
               })}
@@ -241,16 +280,19 @@ const styles = StyleSheet.create({
   // Sheet 自身只负责定位/遮罩/安全区，内容内边距由这里补齐。
   sheet: {
     paddingHorizontal: space(4),
-    paddingTop: space(3),
+    paddingTop: space(1.5),
     paddingBottom: space(3),
-    gap: space(2),
+    gap: space(2.5),
   },
-  head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headTextCol: { flex: 1, gap: 2 },
   title: { ...text("heading"), fontWeight: "700" },
-  sub: { ...text("micro"), marginTop: 2 },
+  sub: { ...text("micro") },
   close: {
-    width: space(7),
-    height: space(7),
+    width: size.chipLg,
+    height: size.chipLg,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -261,33 +303,42 @@ const styles = StyleSheet.create({
     gap: space(1.5),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.chip,
-    paddingHorizontal: space(2.5),
-    height: size.chip,
-    maxWidth: 150,
+    paddingHorizontal: space(3),
+    height: size.chipLg,
+    maxWidth: 160,
   },
   providerText: { ...text("micro"), fontWeight: "600", flexShrink: 1 },
   models: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },
   modelRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2),
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: space(2.5),
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
-    minHeight: 48,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+    minHeight: 52,
+    marginBottom: space(1.5),
   },
-  modelText: { flex: 1, gap: 2 },
+  modelText: { flex: 1, gap: 4 },
   modelName: { ...text("body"), fontWeight: "600" },
   modelMeta: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
   metaChip: {
     borderRadius: radius.chip,
-    paddingHorizontal: space(1.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2),
     paddingVertical: 1,
   },
   metaText: { ...text("micro"), fontWeight: "600" },
-  effort: { paddingTop: space(1) },
-  foot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  checkBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  effort: { paddingTop: space(0.5) },
+  foot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: space(1) },
   empty: { gap: space(3), paddingVertical: space(4), alignItems: "center" },
   emptyText: { ...text("small"), textAlign: "center" },
 });

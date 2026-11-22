@@ -101,15 +101,35 @@ export const PendingArtifactCard = memo(function PendingArtifactCard({
 }) {
   const th = useNibiTheme();
   return (
-    <View style={[styles.artifact, { borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}>
+    <View
+      style={[
+        styles.artifact,
+        { borderColor: th.hairlineStrong, backgroundColor: th.surfaceSoft },
+      ]}
+    >
       <View style={styles.artifactRow}>
-        <View style={[styles.artifactIcon, { backgroundColor: th.brandSoft }]}>
-          <Icon name="globe" size={13} color={th.brand} />
+        <View
+          style={[
+            styles.artifactIcon,
+            { backgroundColor: th.brandSoft, borderColor: th.hairline },
+          ]}
+        >
+          <Icon name="globe" size={14} color={th.brand} />
         </View>
         <View style={styles.artifactCol}>
-          <Text style={[styles.artifactTitle, { color: th.ink }]}>
-            正在生成可视化 · {lang.toUpperCase()}
-          </Text>
+          <View style={styles.artifactTitleRow}>
+            <Text style={[styles.artifactTitle, { color: th.ink }]}>正在生成可视化</Text>
+            <View
+              style={[
+                styles.artifactTagPill,
+                { backgroundColor: th.brandSoft, borderColor: th.hairline },
+              ]}
+            >
+              <Text style={[styles.artifactTagText, { color: th.brand }]}>
+                {lang.toUpperCase()}
+              </Text>
+            </View>
+          </View>
           <Text style={[styles.artifactMeta, { color: th.inkFaint }]}>
             已接收 {lines} 行，完成后可全屏预览
           </Text>
@@ -119,7 +139,7 @@ export const PendingArtifactCard = memo(function PendingArtifactCard({
   );
 });
 
-/** 可视化工件卡：折叠一行（语言+行数），「预览」弹全高 WebView，右上角可切全屏。
+/** 可视化工件卡：折叠一行（语言标签胶囊+行数），「预览」弹全高 WebView，右上角可切全屏。
  * 必须放在消息的长按 Pressable 之外——嵌套 Pressable 会被外层吞掉触摸。
  * Sheet 懒挂载：从未点开过的历史工件不挂 Modal/WebView 树，省内存也省流式重渲开销。 */
 export const ArtifactCard = memo(function ArtifactCard({
@@ -133,18 +153,38 @@ export const ArtifactCard = memo(function ArtifactCard({
   const [mounted, setMounted] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const lines = artifact.code.trim().split("\n").length;
+  const tagLabel = artifact.lang.toUpperCase();
   return (
-    <View style={[styles.artifact, { borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}>
+    <View
+      style={[
+        styles.artifact,
+        { borderColor: th.hairlineStrong, backgroundColor: th.card },
+        th.elevation.card,
+      ]}
+    >
       <View style={styles.artifactRow}>
-        <View style={[styles.artifactIcon, { backgroundColor: th.brandSoft }]}>
-          <Icon name="globe" size={13} color={th.brand} />
+        <View
+          style={[
+            styles.artifactIcon,
+            { backgroundColor: th.brandSoft, borderColor: th.hairline },
+          ]}
+        >
+          <Icon name="globe" size={14} color={th.brand} />
         </View>
         <View style={styles.artifactCol}>
-          <Text style={[styles.artifactTitle, { color: th.ink }]}>
-            可视化 · {artifact.lang.toUpperCase()}
-          </Text>
+          <View style={styles.artifactTitleRow}>
+            <Text style={[styles.artifactTitle, { color: th.ink }]}>可视化工件</Text>
+            <View
+              style={[
+                styles.artifactTagPill,
+                { backgroundColor: th.brandSoft, borderColor: th.hairline },
+              ]}
+            >
+              <Text style={[styles.artifactTagText, { color: th.brand }]}>{tagLabel}</Text>
+            </View>
+          </View>
           <Text style={[styles.artifactMeta, { color: th.inkFaint }]}>
-            图表 / 网页 · {lines} 行
+            图表 / 网页 · {lines} 行源码
           </Text>
         </View>
         <PressableScale
@@ -158,7 +198,7 @@ export const ArtifactCard = memo(function ArtifactCard({
           accessibilityLabel={`预览 ${artifact.lang} 可视化`}
           style={[
             styles.artifactButton,
-            { backgroundColor: th.card, borderColor: th.hairline },
+            { backgroundColor: th.brandSoft, borderColor: th.brand },
           ]}
         >
           <Icon name="eye" size={12} color={th.brand} />
@@ -177,13 +217,26 @@ export const ArtifactCard = memo(function ArtifactCard({
           <View
             style={[
               maximized ? styles.artifactSheetFull : styles.artifactSheetHead,
-              maximized ? { borderBottomColor: th.hairline } : null,
+              { borderBottomColor: th.hairline },
             ]}
           >
-            <Icon name="globe" size={15} color={th.brand} />
-            <Text style={[styles.artifactSheetTitle, { color: th.ink }]}>
-              可视化 · {artifact.lang.toUpperCase()}
-            </Text>
+            <View
+              style={[
+                styles.artifactSheetIcon,
+                { backgroundColor: th.brandSoft, borderColor: th.hairline },
+              ]}
+            >
+              <Icon name="globe" size={14} color={th.brand} />
+            </View>
+            <Text style={[styles.artifactSheetTitle, { color: th.ink }]}>可视化预览</Text>
+            <View
+              style={[
+                styles.artifactTagPill,
+                { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+              ]}
+            >
+              <Text style={[styles.artifactTagText, { color: th.inkSub }]}>{tagLabel}</Text>
+            </View>
             <PressableScale
               scaleTo={0.92}
               onPress={() => {
@@ -193,9 +246,23 @@ export const ArtifactCard = memo(function ArtifactCard({
               accessibilityRole="button"
               accessibilityLabel={maximized ? "退出全屏" : "全屏查看"}
               hitSlop={8}
-              style={styles.artifactMaxButton}
+              style={[
+                styles.artifactMaxButton,
+                {
+                  backgroundColor: maximized ? th.brandSoft : th.surfaceSoft,
+                  borderColor: maximized ? th.brand : th.hairline,
+                },
+              ]}
             >
-              <Icon name="maximize" size={15} color={th.inkSub} />
+              <Icon name="maximize" size={14} color={maximized ? th.brand : th.inkSub} />
+              <Text
+                style={[
+                  styles.artifactMaxButtonText,
+                  { color: maximized ? th.brand : th.inkSub },
+                ]}
+              >
+                {maximized ? "还原" : "全屏"}
+              </Text>
             </PressableScale>
             <PressableScale
               scaleTo={0.92}
@@ -206,7 +273,10 @@ export const ArtifactCard = memo(function ArtifactCard({
               accessibilityRole="button"
               accessibilityLabel="关闭预览"
               hitSlop={8}
-              style={styles.artifactCloseButton}
+              style={[
+                styles.artifactCloseButton,
+                { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+              ]}
             >
               <Icon name="x" size={15} color={th.inkSub} />
             </PressableScale>
@@ -231,7 +301,7 @@ export const ArtifactCard = memo(function ArtifactCard({
 export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: string }) {
   const th = useNibiTheme();
   const scheme = useNibiScheme();
-  const style = useMemo(() => markdownStyle(th), [th]);
+  const style = useMemo(() => buildMarkdownStyles(th), [th]);
   return (
     <Markdown style={style} colorScheme={scheme} markdownit={SHARED_MARKDOWN_IT}>
       {text}
@@ -239,73 +309,115 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: s
   );
 });
 
-function markdownStyle(th: ReturnType<typeof useNibiTheme>): MarkdownStyleMap {
+export function buildMarkdownStyles(th: ReturnType<typeof useNibiTheme>): MarkdownStyleMap {
   return {
     // body 与 BodyText（text("body") + th.ink）完全对齐，深色可见、落定零字号跳变。
     body: { ...text("body"), color: th.ink },
-    heading1: { ...text("title"), color: th.ink, fontWeight: "700", marginTop: space(3), marginBottom: space(1.5) },
-    heading2: { ...text("bodyLg"), color: th.ink, fontWeight: "700", marginTop: space(3), marginBottom: space(1.5) },
-    heading3: { ...text("body"), color: th.ink, fontWeight: "700", marginTop: space(2.5), marginBottom: space(1) },
-    heading4: { ...text("body"), color: th.ink, fontWeight: "700", marginTop: space(2), marginBottom: space(1) },
-    heading5: { ...text("small"), color: th.ink, fontWeight: "700", marginTop: space(2), marginBottom: space(1) },
-    heading6: { ...text("small"), fontWeight: "700", color: th.inkSub, marginTop: space(2), marginBottom: space(1) },
-    paragraph: { marginTop: 0, marginBottom: space(2) },
+    heading1: {
+      ...text("title"),
+      color: th.ink,
+      fontWeight: "700",
+      marginTop: space(3.5),
+      marginBottom: space(1.5),
+    },
+    heading2: {
+      ...text("heading"),
+      color: th.ink,
+      fontWeight: "700",
+      marginTop: space(3),
+      marginBottom: space(1.5),
+    },
+    heading3: {
+      ...text("bodyLg"),
+      color: th.ink,
+      fontWeight: "700",
+      marginTop: space(2.5),
+      marginBottom: space(1),
+    },
+    heading4: {
+      ...text("body"),
+      color: th.ink,
+      fontWeight: "700",
+      marginTop: space(2),
+      marginBottom: space(1),
+    },
+    heading5: {
+      ...text("small"),
+      color: th.ink,
+      fontWeight: "700",
+      marginTop: space(2),
+      marginBottom: space(1),
+    },
+    heading6: {
+      ...text("small"),
+      fontWeight: "700",
+      color: th.inkSub,
+      marginTop: space(2),
+      marginBottom: space(1),
+    },
+    paragraph: { marginTop: 0, marginBottom: space(2.5) },
     strong: { fontWeight: "700" },
     em: { fontStyle: "italic" },
     link: { color: th.brand, textDecorationLine: "underline" },
     code_inline: {
       ...text("small"),
       fontFamily: "monospace",
-      backgroundColor: th.surfaceSoft,
+      backgroundColor: th.panel,
       color: th.ink,
       borderRadius: radius.xs,
-      borderWidth: 0,
-      padding: 0,
-      paddingHorizontal: space(1),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: th.hairline,
+      paddingVertical: 1,
+      paddingHorizontal: space(1.5),
     },
     fence: {
       ...text("small"),
+      lineHeight: 19,
       fontFamily: "monospace",
-      backgroundColor: th.surfaceSoft,
-      color: th.inkSub,
-      borderRadius: radius.xs,
+      backgroundColor: th.panel,
+      color: th.ink,
+      borderRadius: radius.control,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: th.hairline,
-      padding: space(2),
-      marginTop: 0,
-      marginBottom: space(2),
+      borderColor: th.hairlineStrong,
+      paddingHorizontal: space(3),
+      paddingVertical: space(2.5),
+      marginTop: space(0.5),
+      marginBottom: space(2.5),
     },
     code_block: {
       ...text("small"),
+      lineHeight: 19,
       fontFamily: "monospace",
-      backgroundColor: th.surfaceSoft,
-      color: th.inkSub,
-      borderRadius: radius.xs,
+      backgroundColor: th.panel,
+      color: th.ink,
+      borderRadius: radius.control,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: th.hairline,
-      padding: space(2),
-      marginTop: 0,
-      marginBottom: space(2),
+      borderColor: th.hairlineStrong,
+      paddingHorizontal: space(3),
+      paddingVertical: space(2.5),
+      marginTop: space(0.5),
+      marginBottom: space(2.5),
     },
     blockquote: {
       backgroundColor: th.surfaceSoft,
-      borderLeftWidth: 2,
-      borderLeftColor: th.brandSoft,
+      borderLeftWidth: 3,
+      borderLeftColor: th.brand,
       borderRadius: radius.xs,
-      paddingHorizontal: space(2.5),
-      paddingVertical: space(1),
-      marginVertical: space(1.5),
+      paddingHorizontal: space(3),
+      paddingVertical: space(1.5),
+      marginVertical: space(2),
     },
-    bullet_list: { marginBottom: space(2) },
-    ordered_list: { marginBottom: space(2) },
+    bullet_list: { marginBottom: space(2.5) },
+    ordered_list: { marginBottom: space(2.5) },
     list_item: { marginVertical: space(0.5) },
     bullet_list_icon: { color: th.brand, marginLeft: space(1), marginRight: space(1.5) },
     ordered_list_icon: { color: th.brand, marginLeft: space(1), marginRight: space(1.5) },
     table: {
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: th.hairline,
-      borderRadius: radius.xs,
-      marginVertical: space(1.5),
+      borderColor: th.hairlineStrong,
+      borderRadius: radius.control,
+      marginVertical: space(2),
+      overflow: "hidden",
     },
     tr: {
       borderBottomWidth: StyleSheet.hairlineWidth,
@@ -314,18 +426,20 @@ function markdownStyle(th: ReturnType<typeof useNibiTheme>): MarkdownStyleMap {
     th: {
       ...text("micro"),
       fontWeight: "700",
-      color: th.inkSub,
-      backgroundColor: th.surfaceSoft,
+      color: th.ink,
+      backgroundColor: th.panel,
       borderColor: th.hairline,
-      padding: space(1.5),
+      paddingHorizontal: space(2.5),
+      paddingVertical: space(2),
     },
     td: {
       ...text("small"),
       color: th.ink,
       borderColor: th.hairline,
-      padding: space(1.5),
+      paddingHorizontal: space(2.5),
+      paddingVertical: space(2),
     },
-    hr: { backgroundColor: th.hairline, marginVertical: space(2.5) },
+    hr: { backgroundColor: th.hairline, marginVertical: space(3) },
   };
 }
 
@@ -336,17 +450,36 @@ const styles = StyleSheet.create({
     marginVertical: space(1.5),
     overflow: "hidden",
   },
-  artifactRow: { flexDirection: "row", alignItems: "center", gap: space(2.5), padding: space(3) },
+  artifactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2.5),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+  },
   artifactIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  artifactCol: { flex: 1, minWidth: 0 },
+  artifactCol: { flex: 1, minWidth: 0, gap: 2 },
+  artifactTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+  },
   artifactTitle: { ...text("small"), fontWeight: "700" },
-  artifactMeta: { ...text("micro"), marginTop: 2 },
+  artifactTagPill: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(1.5),
+    paddingVertical: 1,
+  },
+  artifactTagText: { ...text("micro"), fontWeight: "700" },
+  artifactMeta: { ...text("micro") },
   artifactButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -363,6 +496,7 @@ const styles = StyleSheet.create({
     gap: space(2),
     paddingHorizontal: space(4),
     paddingVertical: space(2.5),
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   artifactSheetFull: {
     flexDirection: "row",
@@ -372,18 +506,30 @@ const styles = StyleSheet.create({
     paddingVertical: space(2.5),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  artifactMaxButton: {
-    marginLeft: "auto",
-    width: 32,
-    height: 32,
-    borderRadius: radius.control,
+  artifactSheetIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
+  artifactMaxButton: {
+    marginLeft: "auto",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
+    height: 30,
+    paddingHorizontal: space(2.5),
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  artifactMaxButtonText: { ...text("micro"), fontWeight: "600" },
   artifactCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.control,
+    width: 30,
+    height: 30,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },

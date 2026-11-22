@@ -1,5 +1,6 @@
 import { Stack, router } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -36,11 +37,17 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
-        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-        {/* 转场语言统一：所有二级页都用同一套右侧滑入，不再依赖 OEM 默认
-            （有的机型是淡入、有的是上滑，混在一起就没有一致的「高级感」）。 */}
-        <Stack screenOptions={{ headerShown: false, animation: "slide_from_right", gestureEnabled: true }} />
+        <KeyboardProvider
+          statusBarTranslucent
+          navigationBarTranslucent
+          preserveEdgeToEdge
+        >
+          {/* 状态栏图标颜色跟着应用主题走：墨夜用浅色图标，浅色主题用深色图标。 */}
+          <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+          {/* 转场语言统一：所有二级页都用同一套右侧滑入，不再依赖 OEM 默认
+              （有的机型是淡入、有的是上滑，混在一起就没有一致的「高级感」）。 */}
+          <Stack screenOptions={{ headerShown: false, animation: "slide_from_right", gestureEnabled: true }} />
+        </KeyboardProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

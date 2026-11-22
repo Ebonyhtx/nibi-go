@@ -40,6 +40,7 @@ export function ScreenHeader({
                 {
                   backgroundColor: pressed ? th.hover : th.card,
                   borderColor: th.hairline,
+                  ...th.elevation.card,
                 },
               ]}
             >

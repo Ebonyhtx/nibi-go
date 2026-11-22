@@ -75,14 +75,14 @@ export function CapsuleStack({
           style={[
             styles.layer,
             styles.layerBack,
-            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+            { backgroundColor: t.card, borderColor: t.hairline },
           ]}
         />
         <View
           style={[
             styles.layer,
             styles.layerMid,
-            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+            { backgroundColor: t.card, borderColor: t.hairlineStrong },
           ]}
         />
         <View
@@ -91,15 +91,15 @@ export function CapsuleStack({
             {
               // 不透明 card：Android elevation + 半透明 glass 会透出底下叠层的边框与暗影。
               backgroundColor: t.card,
-              borderColor: t.hairline,
+              borderColor: t.hairlineStrong,
               ...t.elevation.card,
             },
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
-          <Text style={[styles.count, { color: t.inkSub }]}>快捷</Text>
-          <Animated.View style={{ transform: [{ rotate }] }}>
-            <Icon name="chevron-down" size={11} color={t.inkFaint} />
+          <Text style={[styles.count, { color: t.ink }]}>快捷</Text>
+          <Animated.View style={[styles.chevronWrap, { transform: [{ rotate }] }]}>
+            <Icon name="chevron-down" size={11} color={t.inkSub} />
           </Animated.View>
         </View>
       </PressableScale>
@@ -151,9 +151,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: space(1),
+    gap: space(1.5),
+    paddingHorizontal: space(3),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  chevronWrap: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   count: { ...text("micro"), fontWeight: "700" },
   title: {

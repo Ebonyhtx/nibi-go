@@ -14,6 +14,8 @@ export interface NibiTheme {
   bg: string;
   /** 页面竖向渐变（顶 → 底） */
   bgGradient: [string, string];
+  /** 底部渐隐起点（与 bgGradient[1] 同色但 alpha=0，避免 Android transparent 黑灰过渡带） */
+  bgFadeStart: string;
   /** 顶部暖光（页面渐变顶端的极淡染色，直接作为 LinearGradient 首段） */
   glowTop: string;
   /** 次级面 */
@@ -76,27 +78,28 @@ export interface ShadowSpec {
 const LIGHT: NibiTheme = {
   bg: "#f9f2e4",
   bgGradient: ["#fef8ec", "#f3e8d3"],
+  bgFadeStart: "rgba(243,232,211,0)",
   glowTop: "#fdf6ea",
   panel: "#f3ead8",
   card: "#fffdf9",
-  surfaceSoft: "rgba(28,47,78,0.045)",
-  glass: "rgba(255,252,246,0.80)",
-  glassBorder: "rgba(255,255,255,0.65)",
-  hover: "rgba(28,47,78,0.05)",
+  surfaceSoft: "rgba(28,47,78,0.052)",
+  glass: "rgba(255,252,246,0.84)",
+  glassBorder: "rgba(255,255,255,0.72)",
+  hover: "rgba(28,47,78,0.055)",
   backdrop: "rgba(20,26,36,0.22)",
   backdropStrong: "rgba(20,26,36,0.34)",
 
   ink: "#1c2f4e",
-  inkSub: "rgba(28,47,78,0.62)",
-  inkFaint: "rgba(28,47,78,0.42)",
-  inkGhost: "rgba(28,47,78,0.25)",
+  inkSub: "rgba(28,47,78,0.65)",
+  inkFaint: "rgba(28,47,78,0.44)",
+  inkGhost: "rgba(28,47,78,0.26)",
 
-  hairline: "rgba(28,47,78,0.10)",
-  hairlineStrong: "rgba(28,47,78,0.18)",
+  hairline: "rgba(28,47,78,0.115)",
+  hairlineStrong: "rgba(28,47,78,0.20)",
 
   brand: "#e08a3e",
   brandFg: "#fff9ef",
-  brandSoft: "rgba(224,138,62,0.14)",
+  brandSoft: "rgba(224,138,62,0.15)",
   steel: "#4a79b8",
   steelSoft: "rgba(74,121,184,0.14)",
 
@@ -140,6 +143,7 @@ const LIGHT: NibiTheme = {
 const DARK: NibiTheme = {
   bg: "#1b1b1c",
   bgGradient: ["#1c1c1d", "#19191a"],
+  bgFadeStart: "rgba(25,25,26,0)",
   glowTop: "#1e1d1e",
   panel: "#101011",
   card: "#212224",

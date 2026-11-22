@@ -138,8 +138,8 @@ export default function GoHomeScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // edge-to-edge 下 adjustResize 不一定会缩小窗口：直接把输入栏抬到键盘上方。
-  // 2.0：高度走 Animated.Value（键盘抬起时输入栏跟手滑动，不再硬跳一下）。
-  const keyboard = useKeyboardFollow();
+  // 2.0：走 react-native-keyboard-controller WindowInsetsAnimation 逐帧原生驱动。
+  const keyboard = useKeyboardFollow(insets.bottom);
   const keyboardHeight = keyboard.height;
 
   const layout = resolveAdaptiveLayout({ width, height, sidebarOpen });
@@ -1402,13 +1402,13 @@ export default function GoHomeScreen() {
               左组（身份/导航）= ≡ + 会话 chip；右组（操作）= 模型 chip + 工作区面板。
               顶栏用不透明 card：Android 上半透明 glass + elevation 会在圆键外圈打出浑浊灰框。
             */}
-            <View style={[styles.topbar, { paddingTop: insets.top + space(1) }]}>
+            <View style={[styles.topbar, { paddingTop: insets.top + space(1.5) }]}>
               <View style={styles.topLeft}>
                 {!hasRail ? (
                   <PressableScale
                     style={[
                       styles.fab,
-                      { backgroundColor: th.card, borderColor: th.hairline },
+                      { backgroundColor: th.card, borderColor: th.hairlineStrong },
                       th.elevation.card,
                     ]}
                     onPress={onMenu}
@@ -1430,7 +1430,11 @@ export default function GoHomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`会话与权限模式：${permissionLabel}`}
                   containerStyle={styles.chipFlex}
-                  style={[styles.chip, { backgroundColor: th.card, borderColor: th.hairline }]}
+                  style={[
+                    styles.chip,
+                    { backgroundColor: th.card, borderColor: th.hairlineStrong },
+                    th.elevation.card,
+                  ]}
                 >
                   <View style={styles.chipBody}>
                     <Text style={[styles.chipTitle, { color: th.ink }]} numberOfLines={1}>
@@ -1442,7 +1446,7 @@ export default function GoHomeScreen() {
                         color={permissionMode === "yolo" ? th.amber : th.brand}
                         ring={permissionMode === "yolo" ? th.amber : th.brand}
                       />
-                      <Text style={[styles.chipSub, { color: th.inkFaint }]} numberOfLines={1}>
+                      <Text style={[styles.chipSub, { color: th.inkSub }]} numberOfLines={1}>
                         {permissionLabel}
                       </Text>
                     </View>
@@ -1461,9 +1465,13 @@ export default function GoHomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
                   containerStyle={styles.modelChipFlex}
-                  style={[styles.modelChip, { backgroundColor: th.card, borderColor: th.hairline }]}
+                  style={[
+                    styles.modelChip,
+                    { backgroundColor: th.card, borderColor: th.hairlineStrong },
+                    th.elevation.card,
+                  ]}
                 >
-                  <View style={[styles.effortMeter, { backgroundColor: th.hairline }]}>
+                  <View style={[styles.effortMeter, { backgroundColor: th.hairlineStrong }]}>
                     <View
                       style={[
                         styles.effortMeterFill,
@@ -1471,16 +1479,16 @@ export default function GoHomeScreen() {
                       ]}
                     />
                   </View>
-                  <Text style={[styles.modelText, { color: th.inkSub }]} numberOfLines={1}>
+                  <Text style={[styles.modelText, { color: th.ink }]} numberOfLines={1}>
                     {modelLabel}
                   </Text>
-                  <Icon name="chevron-down" size={12} color={th.inkGhost} />
+                  <Icon name="chevron-down" size={12} color={th.inkFaint} />
                 </PressableScale>
 
                 <PressableScale
                   style={[
                     styles.fab,
-                    { backgroundColor: th.card, borderColor: th.hairline },
+                    { backgroundColor: th.card, borderColor: th.hairlineStrong },
                     th.elevation.card,
                   ]}
                   accessibilityLabel="打开工作区面板"
@@ -1571,28 +1579,74 @@ export default function GoHomeScreen() {
                   jumpSignal={jumpSignal}
                 />
               ) : (
-                // 空态：品牌印记 + 标题，一句不多——输入框 placeholder 与横幅已承担引导。
-                // 2.0.1 减法：删说明段（「内核在本机运行…」是实现自白）与两枚状态徽章
-                //（「本机内核/可先连桌面」无可执行动作），同屏只留一只鸟。
+                // 空态：纸上鸟圆章 + 标题/副标 + 三枚起手式胶囊（点按即填入输入框）。
                 <AppearIn
                   distance={10}
                   style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}
                 >
-                  <View style={styles.emptyMark}>
-                    <PetView state={PET_STATE.idle} targetSize={64} animated={false} crop={0.8} />
+                  <View
+                    style={[
+                      styles.emptyMedallion,
+                      { backgroundColor: th.card, borderColor: th.hairlineStrong },
+                      th.elevation.card,
+                    ]}
+                  >
+                    <View style={[styles.emptyHalo, { backgroundColor: th.brandSoft }]} />
+                    <PetView
+                      state={PET_STATE.idle}
+                      targetSize={64}
+                      animated={!drawerOpen && !workspacePanelOpen}
+                      crop={0.8}
+                    />
                   </View>
                   <Text style={[styles.stageTitle, { color: th.ink }]}>开始一段对话</Text>
+                  <Text style={[styles.stageSubtitle, { color: th.inkSub }]}>
+                    随时提问、审阅代码或交办后台任务
+                  </Text>
+                  {!layout.landscapeCompact ? (
+                    <View style={styles.starterRow}>
+                      {[
+                        { icon: "folder" as IconName, label: "梳理项目结构", prompt: "帮我梳理一下当前项目的目录结构与核心模块。" },
+                        { icon: "wrench" as IconName, label: "排查问题与报错", prompt: "帮我检查并定位当前工作区里的异常或潜在问题。" },
+                        { icon: "checklist" as IconName, label: "制定实现计划", prompt: "先帮我拆解一份清晰的分步实现计划。" },
+                      ].map((starter) => (
+                        <PressableScale
+                          key={starter.label}
+                          scaleTo={0.96}
+                          onPress={() => {
+                            haptic("tick");
+                            setDraft(starter.prompt);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={starter.label}
+                          style={[
+                            styles.starterChip,
+                            { backgroundColor: th.card, borderColor: th.hairlineStrong },
+                            th.elevation.card,
+                          ]}
+                        >
+                          <View style={[styles.starterIconWrap, { backgroundColor: th.brandSoft }]}>
+                            <Icon name={starter.icon} size={12} color={th.brand} />
+                          </View>
+                          <Text style={[styles.starterChipText, { color: th.ink }]}>
+                            {starter.label}
+                          </Text>
+                        </PressableScale>
+                      ))}
+                    </View>
+                  ) : null}
                 </AppearIn>
               )}
 
-              {/* 底部渐隐：键盘抬起时舞台变矮，渐隐会变成明显色块。用键盘动画的
-                  前 120px 把它淡掉（不再整块卸载，避免键盘开合时「啪」地消失）。 */}
+              {/* 底部渐隐：使用与底色同 RGB 的零透明起点（bgFadeStart），消除 Android
+                  LinearGradient "transparent"(=rgba(0,0,0,0)) 带来的灰褐色断层带。 */}
               <Animated.View
                 pointerEvents="none"
                 style={[
                   styles.bottomFade,
                   {
                     height: petTarget + space(2),
+                    transform: [{ translateY: keyboardLift }],
                     opacity: keyboard.offset.interpolate({
                       inputRange: [0, 120],
                       outputRange: [1, 0],
@@ -1602,7 +1656,7 @@ export default function GoHomeScreen() {
                 ]}
               >
                 <LinearGradient
-                  colors={["transparent", th.bgGradient[1]]}
+                  colors={[th.bgFadeStart, th.bgGradient[1]]}
                   locations={[0, 0.88]}
                   style={StyleSheet.absoluteFill}
                 />
@@ -1725,13 +1779,27 @@ export default function GoHomeScreen() {
               </Animated.View>
             ) : null}
 
+            {/* 输入栏遮罩裙边：随键盘同步上移，封住圆角输入栏下方与键盘顶沿之间的 8dp 缝隙，
+                防止底层消息列表从输入栏圆角外侧或底缝漏出半截气泡。 */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.composerSkirt,
+                {
+                  height: insets.bottom + space(2) + 34,
+                  backgroundColor: th.bgGradient[1],
+                  transform: [{ translateY: keyboardLift }],
+                },
+              ]}
+            />
+
             {/* 输入栏：纯 GPU translateY 随键盘上浮（marginBottom 保持静态，消除每帧 Yoga 重排）。 */}
             <Animated.View
               style={[
                 styles.composer,
                 {
                   backgroundColor: th.card,
-                  borderColor: th.hairline,
+                  borderColor: th.hairlineStrong,
                   marginBottom: insets.bottom + space(2),
                   transform: [{ translateY: keyboardLift }],
                 },
@@ -1744,11 +1812,14 @@ export default function GoHomeScreen() {
                   haptic("tap");
                   openPlusMenu();
                 }}
-                style={[styles.plus, { backgroundColor: th.panel }]}
+                style={[
+                  styles.plus,
+                  { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel="选择插件"
               >
-                <Icon name="plus" size={13} color={th.inkSub} />
+                <Icon name="plus" size={15} color={th.ink} />
               </PressableScale>
               <ComposerAttachments
                 attachments={attachments}
@@ -1976,12 +2047,12 @@ export default function GoHomeScreen() {
               styles.jumpButton,
               {
                 backgroundColor: th.card,
-                borderColor: th.hairline,
-                ...th.elevation.card,
+                borderColor: th.hairlineStrong,
+                ...th.elevation.menu,
               },
             ]}
           >
-            <Icon name="chevron-down" size={16} color={th.inkSub} />
+            <Icon name="chevron-down" size={17} color={th.ink} />
           </PressableScale>
         </Animated.View>
       </Animated.View>
@@ -2365,18 +2436,18 @@ export default function GoHomeScreen() {
 }
 
 /** 顶栏控件统一高度（圆钮/会话 chip/模型 chip 同高）。 */
-const TOPBAR_H = 40;
+const TOPBAR_H = 42;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   shell: { flex: 1, flexDirection: "row" },
   body: { flex: 1, alignItems: "center" },
-  bodyInner: { flex: 1, width: "100%", paddingHorizontal: space(4) },
+  bodyInner: { flex: 1, width: "100%", paddingHorizontal: space(3.5) },
   topbar: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
-    paddingBottom: space(1.5),
+    paddingBottom: space(2),
   },
   topLeft: { flexDirection: "row", alignItems: "center", gap: space(2), flex: 1, minWidth: 0 },
   // 不要 marginLeft:"auto"：它会把剩余宽度全吃掉，左组的 flex:1 拿不到空间，
@@ -2393,12 +2464,12 @@ const styles = StyleSheet.create({
   // 「回到底部」浮钮：在正文之上的独立层（不在滚动容器里，避免被底部渐变压住）。
   jumpWrap: {
     position: "absolute",
-    right: space(3),
+    right: space(3.5),
     zIndex: 6,
   },
   jumpButton: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
@@ -2407,7 +2478,7 @@ const styles = StyleSheet.create({
   // 顶栏四件同一高度（TOPBAR_H），高度一致才像一排控件
   // flex 约束必须落在按压原语的外层 Pressable 上（内层是视觉层，不参与父级 flex 分配）。
   // 不许再给 minWidth：左组一旦超过分到的宽度就会压到模型 chip 上（两 chip 重叠）。
-  chipFlex: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  chipFlex: { flexGrow: 1, flexShrink: 1, minWidth: 96 },
   chip: {
     height: TOPBAR_H,
     flexDirection: "row",
@@ -2424,22 +2495,22 @@ const styles = StyleSheet.create({
   // 标题吃剩余宽度；权限名只有 3–4 字，不参与收缩（否则会变成「完全…」）。
   chipTitle: { ...text("small"), fontSize: 13, fontWeight: "700", flexShrink: 1 },
   chipStatus: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
-  chipSub: { ...text("micro"), fontSize: 10, flexShrink: 0 },
-  // 模型 chip 按内容定宽、不抢空间；剩余宽度全给会话 chip（标题可截，权限名不截）。
-  modelChipFlex: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
+  chipSub: { ...text("micro"), fontSize: 10.5, fontWeight: "600", flexShrink: 0 },
+  // 模型 chip 允许适度收缩并限制最大宽，保住左侧会话 chip 的「完全访问」永不被截断。
+  modelChipFlex: { flexGrow: 0, flexShrink: 1, maxWidth: 132, minWidth: 0 },
   modelChip: {
     height: TOPBAR_H,
     flexDirection: "row",
     alignItems: "center",
     minWidth: 0,
     gap: 5,
-    paddingHorizontal: space(3),
+    paddingHorizontal: space(2.5),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  modelText: { ...text("micro"), fontSize: 11.5, fontWeight: "600", flexShrink: 1 },
+  modelText: { ...text("micro"), fontSize: 12, fontWeight: "700", flexShrink: 1 },
   effortMeter: {
-    width: 3,
+    width: 3.5,
     height: 16,
     borderRadius: 2,
     overflow: "hidden",
@@ -2449,10 +2520,51 @@ const styles = StyleSheet.create({
   stage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space(4) },
   stageList: { alignItems: "stretch", justifyContent: "flex-start", paddingHorizontal: 0 },
   stageLandscape: { justifyContent: "flex-start", paddingTop: space(3) },
-  stageText: { alignItems: "center", gap: space(2) },
+  stageText: { alignItems: "center", gap: space(1.5) },
   emptyMark: { marginBottom: space(1), alignItems: "center" },
+  emptyMedallion: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: space(1.5),
+  },
+  emptyHalo: {
+    position: "absolute",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
   stageTextLandscape: { alignItems: "center", maxWidth: 460, gap: space(1) },
-  stageTitle: { ...text("title"), fontWeight: "700" },
+  stageTitle: { ...text("title"), fontWeight: "700", letterSpacing: 0.2 },
+  stageSubtitle: { ...text("small"), textAlign: "center", marginBottom: space(1.5) },
+  starterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: space(2),
+    maxWidth: 340,
+  },
+  starterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+    paddingLeft: space(2),
+    paddingRight: space(3),
+    paddingVertical: space(1.5),
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  starterIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  starterChipText: { ...text("small"), fontSize: 12, fontWeight: "600" },
   startCta: {
     marginTop: space(3),
     borderRadius: radius.control,
@@ -2580,18 +2692,30 @@ const styles = StyleSheet.create({
     marginBottom: space(1.5),
   },
   editStripText: { ...text("micro"), flex: 1, fontSize: 11.5 },
+  composerSkirt: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   composer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2.5),
-    paddingLeft: space(2),
-    paddingRight: space(1.5),
+    gap: space(2),
+    paddingHorizontal: space(2),
     paddingVertical: space(1.5),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
-    minHeight: 52,
+    minHeight: 54,
   },
-  plus: { width: 32, height: 32, borderRadius: radius.chip, alignItems: "center", justifyContent: "center" },
+  plus: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   composerInput: { ...text("body"), flex: 1, paddingVertical: space(1) },
   composerFocusRing: {
     position: "absolute",

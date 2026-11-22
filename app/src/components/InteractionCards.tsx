@@ -49,25 +49,45 @@ function CardShell({
   tone,
   icon,
   title,
+  badge,
   children,
 }: {
   tone: "attention" | "ask";
   icon: "shield" | "question";
   title: string;
+  badge?: string;
   children: ReactNode;
 }) {
   const th = useNibiTheme();
   const accent = tone === "attention" ? th.amber : th.steel;
   const soft = tone === "attention" ? th.amberSoft : th.steelSoft;
   return (
-    <View style={[styles.card, { backgroundColor: th.card, borderColor: th.hairline }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: th.card, borderColor: th.hairlineStrong },
+        th.elevation.card,
+      ]}
+    >
       <View style={[styles.accent, { backgroundColor: accent }]} />
       <View style={styles.cardBody}>
         <View style={styles.head}>
-          <View style={[styles.iconWrap, { backgroundColor: soft }]}>
+          <View style={[styles.iconWrap, { backgroundColor: soft, borderColor: th.hairline }]}>
             <Icon name={icon} size={15} color={accent} />
           </View>
           <Text style={[styles.title, { color: th.ink }]}>{title}</Text>
+          {badge ? (
+            <View
+              style={[
+                styles.headBadge,
+                { backgroundColor: soft, borderColor: th.hairline },
+              ]}
+            >
+              <Text style={[styles.headBadgeText, { color: accent }]} numberOfLines={1}>
+                {badge}
+              </Text>
+            </View>
+          ) : null}
         </View>
         {children}
       </View>
@@ -201,13 +221,23 @@ export function ApprovalCard({
   };
 
   return (
-    <CardShell tone="attention" icon="shield" title={approvalTitle(row.toolName)}>
+    <CardShell
+      tone="attention"
+      icon="shield"
+      title={approvalTitle(row.toolName)}
+      badge={row.toolName || undefined}
+    >
       {row.summary ? (
         <Text style={[styles.summary, { color: th.inkSub }]}>{row.summary}</Text>
       ) : null}
       {row.detail ? (
-        // 命令井：比卡片低一档的内嵌面（surfaceSoft）+ xs 圆角 + 等宽字，路径一眼可辨。
-        <View style={[styles.well, { backgroundColor: th.surfaceSoft, borderColor: th.hairline }]}>
+        // 命令井：比卡片更深一档的次级面（panel）+ control 圆角 + 等宽字，路径与命令一眼可辨。
+        <View
+          style={[
+            styles.well,
+            { backgroundColor: th.panel, borderColor: th.hairlineStrong },
+          ]}
+        >
           <Text style={[styles.wellText, { color: th.ink }]} numberOfLines={4}>
             {row.detail}
           </Text>
@@ -237,34 +267,38 @@ export function ApprovalCard({
           />
         </View>
       </View>
-      {allowAlways ? (
-        <ActionButton
-          label={allowAlways.label}
-          kind="text"
-          busy={busy === allowAlways.optionId}
-          disabled={busy !== null}
-          onPress={() => void respond(allowAlways.optionId)}
-        />
+      {allowAlways || row.fullAccess || extras.length > 0 ? (
+        <View style={[styles.extraActions, { borderTopColor: th.hairline }]}>
+          {allowAlways ? (
+            <ActionButton
+              label={allowAlways.label}
+              kind="text"
+              busy={busy === allowAlways.optionId}
+              disabled={busy !== null}
+              onPress={() => void respond(allowAlways.optionId)}
+            />
+          ) : null}
+          {row.fullAccess ? (
+            <ActionButton
+              label={row.fullAccess.label}
+              kind="text"
+              busy={busy === row.fullAccess.optionId}
+              disabled={busy !== null}
+              onPress={() => void respond(row.fullAccess!.optionId)}
+            />
+          ) : null}
+          {extras.map((option) => (
+            <ActionButton
+              key={option.optionId}
+              label={option.label}
+              kind="text"
+              busy={busy === option.optionId}
+              disabled={busy !== null}
+              onPress={() => void respond(option.optionId)}
+            />
+          ))}
+        </View>
       ) : null}
-      {row.fullAccess ? (
-        <ActionButton
-          label={row.fullAccess.label}
-          kind="text"
-          busy={busy === row.fullAccess.optionId}
-          disabled={busy !== null}
-          onPress={() => void respond(row.fullAccess!.optionId)}
-        />
-      ) : null}
-      {extras.map((option) => (
-        <ActionButton
-          key={option.optionId}
-          label={option.label}
-          kind="text"
-          busy={busy === option.optionId}
-          disabled={busy !== null}
-          onPress={() => void respond(option.optionId)}
-        />
-      ))}
       {error ? <Text style={[styles.error, { color: th.red }]}>{error}</Text> : null}
     </CardShell>
   );
@@ -358,12 +392,26 @@ export function QuestionCard({
   const title = questions.length > 1 ? `${questions.length} 个问题` : "需要你的回答";
 
   return (
-    <CardShell tone="ask" icon="question" title={title}>
+    <CardShell
+      tone="ask"
+      icon="question"
+      title={title}
+      badge={questions.length > 1 ? `${questions.length} 项` : undefined}
+    >
       {questions.length > 0 ? (
         questions.map((question, index) => (
           <View key={`${question.header}-${index}`} style={styles.questionBlock}>
             {question.header ? (
-              <Text style={[styles.questionHeader, { color: th.inkFaint }]}>{question.header}</Text>
+              <View
+                style={[
+                  styles.questionHeaderPill,
+                  { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+                ]}
+              >
+                <Text style={[styles.questionHeader, { color: th.inkSub }]}>
+                  {question.header}
+                </Text>
+              </View>
             ) : null}
             <Text style={[styles.questionText, { color: th.ink }]}>{question.question}</Text>
             {question.options.map((option, optionIndex) => {
@@ -379,7 +427,11 @@ export function QuestionCard({
                     styles.option,
                     {
                       borderColor: active ? th.steel : th.hairline,
-                      backgroundColor: active ? th.steelSoft : pressed ? th.hover : "transparent",
+                      backgroundColor: active
+                        ? th.steelSoft
+                        : pressed
+                          ? th.hover
+                          : th.surfaceSoft,
                     },
                   ]}
                 >
@@ -436,7 +488,11 @@ export function QuestionCard({
                   styles.option,
                   {
                     borderColor: active ? th.steel : th.hairline,
-                    backgroundColor: active ? th.steelSoft : pressed ? th.hover : "transparent",
+                    backgroundColor: active
+                      ? th.steelSoft
+                      : pressed
+                        ? th.hover
+                        : th.surfaceSoft,
                   },
                 ]}
               >
@@ -513,43 +569,80 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   accent: { width: 3 },
-  cardBody: { flex: 1, padding: space(3), gap: space(2) },
+  cardBody: {
+    flex: 1,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(3),
+    gap: space(2.5),
+  },
   head: { flexDirection: "row", alignItems: "center", gap: space(2) },
   iconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.control,
+    width: size.chip,
+    height: size.chip,
+    borderRadius: radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { ...text("heading"), fontWeight: "600", flexShrink: 1 },
+  title: { ...text("heading"), fontWeight: "700", flex: 1 },
+  headBadge: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2),
+    paddingVertical: 2,
+    maxWidth: 120,
+  },
+  headBadgeText: { ...text("micro"), fontWeight: "700" },
   summary: { ...text("small") },
-  // 命令井：内嵌面（surfaceSoft）+ xs 小圆角，和卡片面拉开一档「待执行内容」的层级。
+  // 命令井：次级面（panel）+ control 圆角，和卡片面拉开一档「待执行内容」的层级。
   well: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.xs,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
   },
-  wellText: { fontFamily: "monospace", ...text("small") },
+  wellText: { fontFamily: "monospace", ...text("small"), lineHeight: 19 },
   hint: { ...text("micro") },
-  actions: { flexDirection: "row", gap: space(3), marginTop: space(1) },
+  actions: { flexDirection: "row", gap: space(2.5), marginTop: space(1) },
   actionCell: { flex: 1 },
   // PillButton 铺满所在格：两键等宽；高度由 md 档（size.button）接管，不再写 minHeight 42。
   actionFill: { width: "100%" },
-  textButton: { minHeight: size.button, alignItems: "center", justifyContent: "center" },
+  extraActions: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space(1.5),
+    gap: space(0.5),
+  },
+  textButton: {
+    minHeight: size.chipLg,
+    borderRadius: radius.control,
+    paddingHorizontal: space(2.5),
+    alignItems: "center",
+    justifyContent: "center",
+  },
   textButtonLabel: { ...text("small"), fontWeight: "600" },
   questionBlock: { gap: space(2) },
-  questionHeader: { ...text("micro"), textTransform: "uppercase", letterSpacing: 0.4 },
-  questionText: { ...text("body") },
+  questionHeaderPill: {
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.xs,
+    paddingHorizontal: space(2),
+    paddingVertical: 2,
+  },
+  questionHeader: {
+    ...text("micro"),
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  questionText: { ...text("body"), fontWeight: "600" },
   option: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: space(2),
+    gap: space(2.5),
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
   },
   // 16px 圆圈：radius.xs(8) 正好是半宽。radio/checkbox 同一几何，语义靠内点/勾区分；
   // 描边 1.4 是 16px 件上 2px 网格笔画的光学等效（theme 还没有描边 token）。
@@ -560,19 +653,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 1,
+    marginTop: 2,
   },
   indicatorDot: { width: 8, height: 8, borderRadius: radius.xs },
   optionBody: { flex: 1, gap: 2 },
-  optionLabel: { ...text("body") },
+  optionLabel: { ...text("body"), fontWeight: "500" },
   optionHint: { ...text("micro") },
   input: {
     minHeight: size.buttonLg,
     maxHeight: 120,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(2),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
     ...text("body"),
     textAlignVertical: "top",
   },

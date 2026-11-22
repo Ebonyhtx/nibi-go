@@ -18,6 +18,8 @@ export interface DisclosureProps {
   children?: ReactNode;
   /** 展开体左侧竖线（思考正文 / 工具详情）。 */
   rail?: boolean;
+  /** 紧凑胶囊头（折角紧跟标题，不撑满行宽）。 */
+  compact?: boolean;
 }
 
 function DisclosureImpl({
@@ -28,6 +30,7 @@ function DisclosureImpl({
   onToggle,
   children,
   rail = false,
+  compact = false,
 }: DisclosureProps) {
   const th = useNibiTheme();
   const { motionEnabled } = useDevicePreferences();
@@ -80,7 +83,7 @@ function DisclosureImpl({
         style={({ pressed }) => [styles.header, pressed ? { opacity: 0.62 } : null]}
       >
         {icon ? <View style={styles.icon}>{icon}</View> : null}
-        <View style={styles.title}>
+        <View style={compact ? styles.titleCompact : styles.title}>
           {typeof title === "string" || typeof title === "number" ? (
             <Text style={[styles.titleText, { color: th.inkSub }]} numberOfLines={1}>
               {title}
@@ -100,7 +103,7 @@ function DisclosureImpl({
             )}
           </View>
         ) : null}
-        <Animated.View style={[styles.chevron, { transform: [{ rotate }] }]}>
+        <Animated.View style={[compact ? styles.chevronCompact : styles.chevron, { transform: [{ rotate }] }]}>
           <Icon name="chevron-right" size={13} color={th.inkFaint} />
         </Animated.View>
       </Pressable>
@@ -128,10 +131,11 @@ function DisclosureImpl({
 export const Disclosure = memo(DisclosureImpl);
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: space(1.5), minHeight: 30 },
+  header: { flexDirection: "row", alignItems: "center", gap: space(1.5), minHeight: 28 },
   icon: { alignItems: "center", justifyContent: "center" },
   // 标题不参与挤压；超长时由调用方的 Text 自行截断。
   title: { flexShrink: 0, maxWidth: "60%" },
+  titleCompact: { flexShrink: 0 },
   titleText: { fontSize: 12.5, fontWeight: "600" },
   // 副标题吃掉剩余宽度：流式预览靠 head 省略显示最新尾巴。
   // 用内容做基准（不写 flex:1），思考块这种宽度自适应的容器里也不会被压成 0。
@@ -139,5 +143,6 @@ const styles = StyleSheet.create({
   subtitleText: { fontSize: 11 },
   // 没有副标题时也把折角顶到行尾。
   chevron: { marginLeft: "auto" },
+  chevronCompact: { marginLeft: 2 },
   body: { paddingVertical: space(1), paddingLeft: space(1), gap: space(1.5) },
 });

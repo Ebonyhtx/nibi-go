@@ -20,7 +20,13 @@ export function SectionCard({
       {label ? (
         <Text style={[styles.label, { color: th.inkSub }]}>{label}</Text>
       ) : null}
-      <View style={[styles.card, { backgroundColor: th.card, borderColor: th.hairline }]}>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: th.card, borderColor: th.hairlineStrong },
+          th.elevation.card,
+        ]}
+      >
         {children}
       </View>
     </View>

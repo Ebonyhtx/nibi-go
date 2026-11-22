@@ -72,7 +72,15 @@ export function Row({
   const body = (
     <>
       {icon ? (
-        <View style={[styles.icon, { backgroundColor: iconBg }]}>
+        <View
+          style={[
+            styles.icon,
+            {
+              backgroundColor: iconBg,
+              borderColor: th.hairline,
+            },
+          ]}
+        >
           <Icon name={icon} size={15} color={iconColor} />
         </View>
       ) : null}
@@ -82,13 +90,15 @@ export function Row({
         </Text>
         {detail ? (
           // 副题限一行：行高密度回到上游设置的 72–80dp 档；文案一律 ≤18 字（审查口径）。
-          <Text style={[styles.detail, { color: th.inkFaint }]} numberOfLines={1}>
+          <Text style={[styles.detail, { color: th.inkSub }]} numberOfLines={1}>
             {detail}
           </Text>
         ) : null}
       </View>
-      {right ??
-        (onPress ? <Icon name="chevron-right" size={13} color={th.inkFaint} /> : null)}
+      <View style={styles.rightCol}>
+        {right ??
+          (onPress ? <Icon name="chevron-right" size={14} color={th.inkFaint} /> : null)}
+      </View>
     </>
   );
   if (onPress) {
@@ -157,7 +167,7 @@ export function ToggleRow({
 const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   row: {
-    minHeight: size.row,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     gap: space(3),
@@ -165,21 +175,28 @@ const styles = StyleSheet.create({
     paddingVertical: space(2.5),
   },
   icon: {
-    width: size.chipLg,
-    height: size.chipLg,
-    borderRadius: radius.control,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
   textCol: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
+  },
+  rightCol: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
   },
   title: {
     ...text("body"),
     fontWeight: "600",
   },
   detail: {
-    ...text("small"),
+    ...text("micro"),
   },
 });

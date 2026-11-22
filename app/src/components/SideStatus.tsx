@@ -372,7 +372,8 @@ function SideStatusImpl({
           styles.pill,
           {
             backgroundColor: t.card,
-            borderColor: t.hairline,
+            borderColor: t.hairlineStrong,
+            ...t.elevation.menu,
             opacity: expand,
             transform: [
               { translateX: expand.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) },
@@ -418,6 +419,7 @@ function SideStatusImpl({
             <View
               style={[
                 styles.sessionBlock,
+                { borderTopColor: t.hairline },
                 session.subagents.length === 0 ? styles.sessionBlockFirst : null,
               ]}
             >
@@ -427,7 +429,7 @@ function SideStatusImpl({
                   {session.todos.done}/{session.todos.total}
                 </Text>
               </View>
-              <View style={[styles.bar, { backgroundColor: t.hairline }]}>
+              <View style={[styles.bar, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}>
                 <View
                   style={[
                     styles.barFill,
@@ -451,7 +453,7 @@ function SideStatusImpl({
               {usage ? `${formatTokens(usage.usedTokens)} / ${formatTokens(usage.maxTokens)}` : "—"}
             </Text>
           </View>
-          <View style={[styles.bar, { backgroundColor: t.hairline }]}>
+          <View style={[styles.bar, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}>
             <View
               style={[
                 styles.barFill,
@@ -475,13 +477,13 @@ function SideStatusImpl({
             </Text>
           </View>
           {breakdown.length > 0 ? (
-            <View style={styles.breakdown}>
+            <View style={[styles.breakdown, { borderTopColor: t.hairline }]}>
               {breakdown.map((item) => (
                 <View key={item.source} style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: t.inkFaint }]} numberOfLines={1}>
                     {BREAKDOWN_LABELS[item.source] ?? item.source}
                   </Text>
-                  <View style={[styles.breakdownTrack, { backgroundColor: t.hairline }]}>
+                  <View style={[styles.breakdownTrack, { backgroundColor: t.surfaceSoft }]}>
                     <View
                       style={[
                         styles.breakdownFill,
@@ -499,7 +501,7 @@ function SideStatusImpl({
             </View>
           ) : null}
           {pluginText ? (
-            <View style={styles.pluginRow}>
+            <View style={[styles.pluginRow, { borderTopColor: t.hairline }]}>
               <Dot size={5} color={toneColor(t, current?.strip.tone)} />
               <Text style={[styles.pluginText, { color: t.inkFaint }]} numberOfLines={1}>
                 {pluginText}
@@ -544,7 +546,8 @@ function SideStatusImpl({
               styles.dot,
               {
                 backgroundColor: t.card,
-                borderColor: t.hairline,
+                borderColor: t.hairlineStrong,
+                ...t.elevation.card,
                 opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.74, 1] }),
                 transform: [
                   { scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.06] }) },
@@ -580,37 +583,34 @@ const styles = StyleSheet.create({
   sessionBlock: {
     gap: space(1),
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(0,0,0,0.05)",
+    paddingTop: space(1),
     paddingBottom: space(0.5),
   },
   sessionBlockFirst: {
     gap: space(1),
+    borderTopWidth: 0,
+    paddingTop: 0,
     paddingBottom: space(0.5),
   },
   subagentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   subagentName: { fontSize: 10.5, fontWeight: "600", flexShrink: 1 },
   subagentState: { fontSize: 10, fontWeight: "600" },
   todoActive: { fontSize: 10 },
-  dotButton: { width: 30, height: 46, alignItems: "center", justifyContent: "center" },
+  dotButton: { width: 32, height: 48, alignItems: "center", justifyContent: "center" },
   dot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
   },
   ring: { width: 20, height: 20 },
   percent: {
     position: "absolute",
     left: 0,
     right: 0,
-    top: 11,
+    top: 12,
     textAlign: "center",
     fontSize: 6.5,
     fontWeight: "700",
@@ -618,38 +618,37 @@ const styles = StyleSheet.create({
   },
   pill: {
     position: "absolute",
-    right: 30,
+    right: 34,
     top: -28,
-    width: 232,
+    width: 236,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
-    shadowColor: "#1c2f4e",
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
   },
-  pillBody: { padding: space(2.5), gap: space(1.5) },
+  pillBody: { padding: space(3), gap: space(1.5) },
   pillHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  pillTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  pillTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   pillTitle: { fontSize: 11.5, fontWeight: "700" },
   pillValue: { fontSize: 10.5, fontWeight: "600" },
-  bar: { height: 5, borderRadius: 3, overflow: "hidden" },
-  barFill: { height: "100%", borderRadius: 3 },
+  bar: {
+    height: 6,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  barFill: { height: "100%", borderRadius: radius.chip },
   pillFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pillMeta: { fontSize: 10 },
   cacheValue: { fontSize: 11, fontWeight: "700" },
   breakdown: {
-    gap: 3,
+    gap: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(0,0,0,0.05)",
-    paddingTop: space(1),
+    paddingTop: space(1.5),
   },
   breakdownRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   breakdownLabel: { fontSize: 9.5, width: 52 },
-  breakdownTrack: { flex: 1, height: 4, borderRadius: 2, overflow: "hidden" },
-  breakdownFill: { height: "100%", borderRadius: 2 },
+  breakdownTrack: { flex: 1, height: 5, borderRadius: radius.chip, overflow: "hidden" },
+  breakdownFill: { height: "100%", borderRadius: radius.chip },
   breakdownValue: { fontSize: 9.5, width: 26, textAlign: "right" },
   breakdownNote: { fontSize: 9, marginTop: 1 },
   pluginRow: {
@@ -657,7 +656,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(0,0,0,0.05)",
     paddingTop: space(1),
   },
   pluginText: { fontSize: 9.5, flexShrink: 1 },

@@ -358,25 +358,56 @@ export function GoNavContent({
       <View style={[styles.head, { paddingTop: insetTop + space(3) }]}>
         {/* 品牌砖：NIBI 品牌图（纸上鸟），与桌面 icon_512@2x 同源。
             之前用铅笔图标——看起来和「新对话」动作重复（运营者 2026-11-21 指出）。 */}
-        <Image
-          source={require("../../assets/icon.png")}
-          style={[styles.logo, { borderColor: t.hairline }]}
-        />
+        <View
+          style={[
+            styles.logoTile,
+            {
+              backgroundColor: t.card,
+              borderColor: t.hairlineStrong,
+              ...t.elevation.card,
+            },
+          ]}
+        >
+          <Image source={require("../../assets/icon.png")} style={styles.logo} />
+        </View>
         <View style={styles.brandCol}>
           <Text style={[styles.wordmark, { color: t.ink }]}>NIBI-GO</Text>
-          {/* 2.0.1：删「本机 AGENT」副标——应用名已说明身份，对用户无信息量。 */}
+          <View style={styles.brandSubRow}>
+            <Dot
+              size={6}
+              color={suspended ? t.inkGhost : t.ok}
+              ring={suspended ? t.inkGhost : undefined}
+            />
+            <Text
+              numberOfLines={1}
+              style={[styles.brandSubText, { color: suspended ? t.inkFaint : t.inkSub }]}
+            >
+              {suspended
+                ? "未连接"
+                : onlineDevices > 0
+                  ? `本机就绪 · ${onlineDevices} 台在线`
+                  : "本机就绪"}
+            </Text>
+          </View>
         </View>
         <PressableScale
           scaleTo={0.94}
-          style={({ pressed }) => [styles.newChat, { backgroundColor: pressed ? t.hover : t.panel }]}
+          style={[
+            styles.newChat,
+            {
+              backgroundColor: t.brand,
+              ...t.elevation.card,
+            },
+          ]}
           accessibilityRole="button"
+          accessibilityLabel="新对话"
           onPress={() => {
             onNewSession?.(projectFilter ?? undefined);
             onNavigate?.();
           }}
         >
-          <Icon name="plus" size={12} color={t.inkSub} />
-          <Text style={[styles.newChatText, { color: t.inkSub }]}>新对话</Text>
+          <Icon name="plus" size={12} color={t.brandFg} />
+          <Text style={[styles.newChatText, { color: t.brandFg }]}>新对话</Text>
         </PressableScale>
       </View>
 
@@ -543,12 +574,12 @@ export function GoNavContent({
                       <View style={styles.groupLabelRow}>
                         {group.project ? (
                           <Icon
-                            name="doc"
+                            name="folder"
                             size={11}
-                            color={t.inkFaint}
+                            color={t.inkSub}
                           />
                         ) : null}
-                        <Text style={[styles.groupLabel, { color: t.inkFaint }]}>
+                        <Text style={[styles.groupLabel, { color: t.inkSub }]}>
                           {group.label}
                         </Text>
                       </View>
@@ -578,28 +609,35 @@ export function GoNavContent({
                               styles.sessionRow,
                               {
                                 backgroundColor: rowActive
-                                  ? t.card
+                                  ? t.brandSoft
                                   : pressed
                                     ? t.hover
                                     : "transparent",
+                                borderColor: rowActive ? t.brand : "transparent",
                               },
-                              // 选中行：card 底 + card 级投影，从纸面上浮一档。
-                              rowActive ? { borderColor: t.hairline, ...t.elevation.card } : null,
                             ]}
                           >
                             {rowActive ? (
-                              <View style={[styles.activeRail, { backgroundColor: t.brandSoft }]} />
+                              <View style={[styles.activeRail, { backgroundColor: t.brand }]} />
                             ) : null}
                             <Text
                               numberOfLines={1}
                               style={[
                                 styles.sessionTitle,
-                                { color: rowActive ? t.ink : t.inkSub },
+                                {
+                                  color: rowActive ? t.ink : t.inkSub,
+                                  fontWeight: rowActive ? "700" : "600",
+                                },
                               ]}
                             >
                               {session.title || "新对话"}
                             </Text>
-                            <Text style={[styles.sessionTime, { color: t.inkGhost }]}>
+                            <Text
+                              style={[
+                                styles.sessionTime,
+                                { color: rowActive ? t.inkSub : t.inkGhost },
+                              ]}
+                            >
                               {sessionTime(session.updatedAt ?? session.createdAt)}
                             </Text>
                             <Pressable
@@ -608,7 +646,11 @@ export function GoNavContent({
                               accessibilityRole="button"
                               accessibilityLabel={`${session.title || "新对话"} 的会话操作`}
                             >
-                              <Icon name="ellipsis" size={14} color={t.inkFaint} />
+                              <Icon
+                                name="ellipsis"
+                                size={14}
+                                color={rowActive ? t.inkSub : t.inkFaint}
+                              />
                             </Pressable>
                           </PressableScale>
                         </AppearIn>
@@ -690,18 +732,24 @@ export function GoNavContent({
         )}
       </ScrollView>
 
-      {/* 底部工具条：本机状态 / WORK / 插件 / 设置（38px 玻璃圆键） */}
-      <View style={[styles.foot, { borderTopColor: t.hairline, paddingBottom: insetBottom + space(2) }]}>
-        <View style={styles.footStatus}>
-          <Dot size={6} color={suspended ? t.inkGhost : t.ok} ring={suspended ? t.inkGhost : undefined} />
-          <Text style={[styles.footStatusText, { color: suspended ? t.inkFaint : t.ok }]}>
-            {suspended ? "未连接" : "本机就绪"}
-          </Text>
-        </View>
-        <View style={styles.footActions}>
+      {/* 底部三键底座：远控 / 插件中心 / 设置（内嵌面卡片 + 圆底图标徽章） */}
+      <View style={[styles.footWrap, { paddingBottom: insetBottom + space(2.5) }]}>
+        <View
+          style={[
+            styles.footDock,
+            {
+              backgroundColor: t.surfaceSoft,
+              borderColor: t.hairline,
+            },
+          ]}
+        >
           <PressableScale
-            scaleTo={0.94}
-            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
+            scaleTo={0.95}
+            containerStyle={styles.flex1}
+            style={({ pressed }) => [
+              styles.footBtn,
+              { backgroundColor: pressed ? t.hover : "transparent" },
+            ]}
             onPress={() => {
               onNavigate?.();
               router.push("/work");
@@ -709,28 +757,64 @@ export function GoNavContent({
             accessibilityRole="button"
             accessibilityLabel="切换到桌面电脑"
           >
-            <Icon name="monitor" size={17} color={t.steel} />
-            {onlineDevices > 0 ? (
-              <View style={[styles.footBadge, { backgroundColor: t.ok }]}>
-                <Text style={[styles.footBadgeText, { color: t.card }]}>{onlineDevices}</Text>
-              </View>
-            ) : null}
+            <View
+              style={[
+                styles.footIconCircle,
+                { backgroundColor: t.card, borderColor: t.hairline },
+              ]}
+            >
+              <Icon name="monitor" size={15} color={t.steel} />
+              {onlineDevices > 0 ? (
+                <View style={[styles.footBadge, { backgroundColor: t.ok }]}>
+                  <Text style={[styles.footBadgeText, { color: t.card }]}>{onlineDevices}</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>远控</Text>
           </PressableScale>
+
           <PressableScale
-            scaleTo={0.94}
-            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
+            scaleTo={0.95}
+            containerStyle={styles.flex1}
+            style={({ pressed }) => [
+              styles.footBtn,
+              { backgroundColor: pressed ? t.hover : "transparent" },
+            ]}
+            accessibilityRole="button"
             accessibilityLabel="插件"
             onPress={() => leaveFor("/plugins")}
           >
-            <Icon name="plug" size={17} color={t.inkSub} />
+            <View
+              style={[
+                styles.footIconCircle,
+                { backgroundColor: t.card, borderColor: t.hairline },
+              ]}
+            >
+              <Icon name="plug" size={15} color={t.inkSub} />
+            </View>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>插件中心</Text>
           </PressableScale>
+
           <PressableScale
-            scaleTo={0.94}
-            style={[styles.footBtn, { backgroundColor: t.glass, borderColor: t.hairline }]}
+            scaleTo={0.95}
+            containerStyle={styles.flex1}
+            style={({ pressed }) => [
+              styles.footBtn,
+              { backgroundColor: pressed ? t.hover : "transparent" },
+            ]}
+            accessibilityRole="button"
             accessibilityLabel="设置"
             onPress={() => leaveFor("/settings")}
           >
-            <Icon name="gear" size={17} color={t.inkSub} />
+            <View
+              style={[
+                styles.footIconCircle,
+                { backgroundColor: t.card, borderColor: t.hairline },
+              ]}
+            >
+              <Icon name="gear" size={15} color={t.inkSub} />
+            </View>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>设置</Text>
           </PressableScale>
         </View>
       </View>
@@ -1061,36 +1145,45 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2),
+    gap: space(2.5),
     paddingHorizontal: space(3.5),
     paddingBottom: space(3),
   },
   // 品牌砖 40px：size 阶梯没有 40 这一档，用 space(10) 表达（space 允许做尺寸用）。
-  logo: {
+  logoTile: {
     width: space(10),
     height: space(10),
     borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
-  brandCol: { flex: 1 },
+  logo: {
+    width: "100%",
+    height: "100%",
+    borderRadius: radius.control,
+  },
+  brandCol: { flex: 1, minWidth: 0, gap: 2 },
   wordmark: { ...text("bodyLg"), fontWeight: "700", letterSpacing: 0.5 },
+  brandSubRow: { flexDirection: "row", alignItems: "center", gap: space(1) },
+  brandSubText: { ...text("micro"), fontWeight: "600" },
   newChat: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(1),
-    paddingHorizontal: space(2.5),
-    height: size.chip,
+    paddingHorizontal: space(3),
+    height: size.chipLg,
     borderRadius: radius.chip,
   },
   newChatText: { ...text("micro"), fontWeight: "700" },
   search: {
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
     marginHorizontal: space(3.5),
     marginBottom: space(2),
     paddingHorizontal: space(3),
-    paddingVertical: space(2),
+    paddingVertical: space(1.5),
     borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -1107,48 +1200,49 @@ const styles = StyleSheet.create({
     maxWidth: 120,
     flexDirection: "row",
     alignItems: "center",
+    gap: space(1),
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: space(2.5),
     paddingVertical: space(1),
   },
   projectChipText: { ...text("micro"), fontWeight: "600" },
-  scroll: { paddingHorizontal: space(3.5), paddingTop: space(2), paddingBottom: space(3), flexGrow: 1 },
+  scroll: { paddingHorizontal: space(3.5), paddingTop: space(1.5), paddingBottom: space(3), flexGrow: 1 },
   emptyText: { ...text("small"), paddingTop: space(2) },
   groupLabelRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(1),
+    gap: space(1.5),
     paddingHorizontal: space(2.5),
-    paddingTop: space(2),
+    paddingTop: space(3),
+    paddingBottom: space(1),
   },
   groupLabel: {
     ...text("micro"),
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    paddingBottom: space(0.5),
+    fontWeight: "700",
+    letterSpacing: 0.6,
   },
   sessionRow: {
     minHeight: size.row,
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
-    paddingHorizontal: space(2.5),
+    paddingHorizontal: space(3),
     paddingVertical: space(1.5),
     borderRadius: radius.control,
     // 透明边框占位：选中行只换边框色，不引起 1px 布局抖动。
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "transparent",
-    marginBottom: space(0.5),
+    marginBottom: space(1),
   },
   // 选中行的 3px 品牌导轨（规格定值；绝对定位，不占行内布局）。
   activeRail: {
     position: "absolute",
     left: 0,
-    top: 0,
-    bottom: 0,
+    top: space(2),
+    bottom: space(2),
     width: 3,
-    borderRadius: radius.xs,
+    borderRadius: radius.chip,
   },
   sessionTitle: { flex: 1, ...text("small"), fontWeight: "600" },
   sessionTime: { ...text("micro") },
@@ -1176,29 +1270,42 @@ const styles = StyleSheet.create({
   archiveDeleteAll: { ...text("micro"), fontWeight: "700" },
   archivedBody: { flex: 1, minWidth: 0 },
   restoreText: { ...text("micro"), fontWeight: "600" },
-  foot: {
+  footWrap: {
+    paddingHorizontal: space(3.5),
+    paddingTop: space(1.5),
+  },
+  footDock: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: space(3.5),
-    paddingTop: space(2.5),
-    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: space(1),
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: space(1.5),
   },
-  footStatus: { flex: 1, flexDirection: "row", alignItems: "center", gap: space(1) },
-  footStatusText: { ...text("micro"), fontWeight: "600" },
-  footActions: { flexDirection: "row", gap: space(2) },
   footBtn: {
-    width: size.button,
-    height: size.button,
-    borderRadius: radius.chip,
     alignItems: "center",
     justifyContent: "center",
+    gap: space(1),
+    paddingVertical: space(1),
+    borderRadius: radius.control,
+  },
+  footIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footBtnLabel: {
+    ...text("micro"),
+    fontWeight: "600",
   },
   // 在线数徽标放大到 18px：字阶最小是 micro(11)，8.5px 那种字面量不再出现。
   footBadge: {
     position: "absolute",
-    top: space(0.5),
-    right: space(0.5),
+    top: -4,
+    right: -6,
     minWidth: 18,
     height: 18,
     borderRadius: radius.chip,

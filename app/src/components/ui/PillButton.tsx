@@ -40,13 +40,33 @@ export function PillButton({
   const surface = (() => {
     switch (variant) {
       case "primary":
-        return { backgroundColor: th.brand, borderColor: "transparent", textColor: th.brandFg };
+        return {
+          backgroundColor: th.brand,
+          borderColor: th.brand,
+          textColor: th.brandFg,
+          elevated: true,
+        };
       case "secondary":
-        return { backgroundColor: th.panel, borderColor: th.hairline, textColor: th.ink };
+        return {
+          backgroundColor: th.surfaceSoft,
+          borderColor: th.hairlineStrong,
+          textColor: th.ink,
+          elevated: false,
+        };
       case "danger":
-        return { backgroundColor: th.redSoft, borderColor: "transparent", textColor: th.red };
+        return {
+          backgroundColor: th.redSoft,
+          borderColor: th.red,
+          textColor: th.red,
+          elevated: false,
+        };
       case "ghost":
-        return { backgroundColor: "transparent", borderColor: "transparent", textColor: th.brand };
+        return {
+          backgroundColor: "transparent",
+          borderColor: "transparent",
+          textColor: th.brand,
+          elevated: false,
+        };
     }
   })();
   return (
@@ -63,6 +83,7 @@ export function PillButton({
           backgroundColor: surface.backgroundColor,
           borderColor: surface.borderColor,
         },
+        surface.elevated && !disabled ? th.elevation.card : null,
         disabled ? styles.disabled : null,
         style,
       ]}

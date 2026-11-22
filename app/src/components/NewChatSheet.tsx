@@ -82,7 +82,7 @@ export function NewChatSheet({
       >
         <View style={styles.head}>
           <Text style={[styles.title, { color: th.ink }]}>新建对话</Text>
-          <Text style={[styles.subtitle, { color: th.inkFaint }]}>
+          <Text style={[styles.subtitle, { color: th.inkSub }]}>
             选择归属：项目是共享工作区，会话文件与记忆按项目分开
           </Text>
         </View>
@@ -97,10 +97,18 @@ export function NewChatSheet({
           accessibilityLabel="新建独立会话"
           style={({ pressed }) => [
             styles.row,
-            { backgroundColor: pressed ? th.hover : "transparent" },
+            {
+              backgroundColor: pressed ? th.hover : th.surfaceSoft,
+              borderColor: th.hairline,
+            },
           ]}
         >
-          <View style={[styles.rowIcon, { backgroundColor: th.panel }]}>
+          <View
+            style={[
+              styles.rowIcon,
+              { backgroundColor: th.card, borderColor: th.hairline },
+            ]}
+          >
             <Icon name="pen" size={15} color={th.inkSub} />
           </View>
           <View style={styles.rowText}>
@@ -109,7 +117,7 @@ export function NewChatSheet({
               不归属任何项目，文件放默认目录
             </Text>
           </View>
-          <Icon name="chevron-right" size={13} color={th.inkGhost} />
+          <Icon name="chevron-right" size={14} color={th.inkFaint} />
         </PressableScale>
 
         {projects.map((project) => {
@@ -126,21 +134,48 @@ export function NewChatSheet({
               accessibilityLabel={`新建到项目 ${project.name}`}
               style={({ pressed }) => [
                 styles.row,
-                { backgroundColor: pressed ? th.hover : "transparent" },
+                {
+                  backgroundColor: active
+                    ? th.brandSoft
+                    : pressed
+                      ? th.hover
+                      : th.surfaceSoft,
+                  borderColor: active ? th.brand : th.hairline,
+                },
               ]}
             >
               <View
-                style={[styles.rowIcon, { backgroundColor: active ? th.brandSoft : th.panel }]}
+                style={[
+                  styles.rowIcon,
+                  {
+                    backgroundColor: th.card,
+                    borderColor: active ? th.brand : th.hairline,
+                  },
+                ]}
               >
-                <Icon name="doc" size={15} color={active ? th.brand : th.inkSub} />
+                <Icon name="folder" size={15} color={active ? th.brand : th.inkSub} />
               </View>
               <View style={styles.rowText}>
                 <View style={styles.rowLabelRow}>
-                  <Text style={[styles.rowLabel, { color: th.ink }]} numberOfLines={1}>
+                  <Text
+                    style={[
+                      styles.rowLabel,
+                      {
+                        color: th.ink,
+                        fontWeight: active ? "700" : "600",
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
                     {project.name}
                   </Text>
                   {active ? (
-                    <View style={[styles.activeBadge, { backgroundColor: th.brandSoft }]}>
+                    <View
+                      style={[
+                        styles.activeBadge,
+                        { backgroundColor: th.card, borderColor: th.brand },
+                      ]}
+                    >
                       <Text style={[styles.activeBadgeText, { color: th.brand }]}>当前</Text>
                     </View>
                   ) : null}
@@ -149,13 +184,22 @@ export function NewChatSheet({
                   {projectWorkspacePath("<filesDir>", project.id).replace("<filesDir>", "…/files")}
                 </Text>
               </View>
-              {active ? <Icon name="check" size={13} color={th.brand} /> : null}
+              {active ? (
+                <Icon name="check" size={14} color={th.brand} />
+              ) : (
+                <Icon name="chevron-right" size={14} color={th.inkFaint} />
+              )}
             </PressableScale>
           );
         })}
 
         {creating ? (
-          <View style={styles.form}>
+          <View
+            style={[
+              styles.form,
+              { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+            ]}
+          >
             <TextInput
               value={name}
               onChangeText={(value) => {
@@ -167,7 +211,7 @@ export function NewChatSheet({
               autoFocus
               style={[
                 styles.input,
-                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+                { color: th.ink, borderColor: th.hairlineStrong, backgroundColor: th.card },
               ]}
             />
             <TextInput
@@ -182,7 +226,7 @@ export function NewChatSheet({
               autoCorrect={false}
               style={[
                 styles.input,
-                { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
+                { color: th.ink, borderColor: th.hairlineStrong, backgroundColor: th.card },
               ]}
             />
             <View style={styles.formActions}>
@@ -203,10 +247,18 @@ export function NewChatSheet({
             accessibilityLabel="新建项目"
             style={({ pressed }) => [
               styles.row,
-              { backgroundColor: pressed ? th.hover : "transparent" },
+              {
+                backgroundColor: pressed ? th.hover : th.surfaceSoft,
+                borderColor: th.hairline,
+              },
             ]}
           >
-            <View style={[styles.rowIcon, { backgroundColor: th.brandSoft }]}>
+            <View
+              style={[
+                styles.rowIcon,
+                { backgroundColor: th.brandSoft, borderColor: th.hairline },
+              ]}
+            >
               <Icon name="plus" size={15} color={th.brand} />
             </View>
             <View style={styles.rowText}>
@@ -215,6 +267,7 @@ export function NewChatSheet({
                 建完立即在它里面开新会话
               </Text>
             </View>
+            <Icon name="chevron-right" size={14} color={th.inkFaint} />
           </PressableScale>
         )}
 
@@ -230,15 +283,24 @@ export function NewChatSheet({
           accessibilityLabel="管理项目"
           style={({ pressed }) => [
             styles.row,
-            { backgroundColor: pressed ? th.hover : "transparent" },
+            {
+              backgroundColor: pressed ? th.hover : th.surfaceSoft,
+              borderColor: th.hairline,
+            },
           ]}
         >
-          <View style={[styles.rowIcon, { backgroundColor: th.panel }]}>
+          <View
+            style={[
+              styles.rowIcon,
+              { backgroundColor: th.card, borderColor: th.hairline },
+            ]}
+          >
             <Icon name="folder" size={15} color={th.inkSub} />
           </View>
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: th.ink }]}>管理项目…</Text>
           </View>
+          <Icon name="chevron-right" size={14} color={th.inkFaint} />
         </PressableScale>
       </ScrollView>
     </Sheet>
@@ -246,27 +308,29 @@ export function NewChatSheet({
 }
 
 const styles = StyleSheet.create({
-  body: { paddingHorizontal: space(4), paddingTop: space(1.5), paddingBottom: space(3), gap: space(1) },
-  head: { gap: space(1), paddingBottom: space(2) },
-  title: { ...text("title"), fontWeight: "700" },
+  body: { paddingHorizontal: space(4), paddingTop: space(1.5), paddingBottom: space(3), gap: space(2) },
+  head: { gap: space(1), paddingBottom: space(1) },
+  title: { ...text("heading"), fontWeight: "700" },
   subtitle: { ...text("small") },
   row: {
-    minHeight: 56,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2.5),
-    paddingHorizontal: space(2.5),
+    gap: space(3),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
     borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginVertical: space(1),
-    marginHorizontal: space(2.5),
+    marginVertical: space(0.5),
   },
   rowIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.control,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -276,11 +340,17 @@ const styles = StyleSheet.create({
   rowDetail: { ...text("micro") },
   activeBadge: {
     borderRadius: radius.chip,
-    paddingHorizontal: space(1.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space(2),
     paddingVertical: 1,
   },
   activeBadgeText: { ...text("micro"), fontWeight: "700" },
-  form: { gap: space(2), paddingHorizontal: space(2.5), paddingVertical: space(2) },
+  form: {
+    gap: space(2),
+    padding: space(3),
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,

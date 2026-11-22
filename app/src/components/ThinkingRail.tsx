@@ -18,7 +18,7 @@ import { LinearGradient } from "expo-linear-gradient";
 
 import { useReducedMotion } from "../motion/appear";
 import { haptic } from "../motion/haptics";
-import { radius, space, useNibiTheme } from "../theme";
+import { radius, size, space, text, useNibiTheme } from "../theme";
 
 export interface ThinkingLevel {
   value: string;
@@ -200,13 +200,26 @@ export function ThinkingRail({
   return (
     <View style={styles.root}>
       <View style={styles.caption}>
-        <Text style={[styles.captionLabel, { color: t.inkFaint }]}>思考强度</Text>
-        <Text style={[styles.captionValue, { color: t.ink }]}>
-          {current ? thinkingLevelLabel(current.value) : "—"}
-        </Text>
+        <Text style={[styles.captionLabel, { color: t.inkSub }]}>思考强度</Text>
+        <View
+          style={[
+            styles.captionBadge,
+            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+          ]}
+        >
+          <Text style={[styles.captionValue, { color: t.ink }]}>
+            {current ? thinkingLevelLabel(current.value) : "—"}
+          </Text>
+        </View>
       </View>
       <GestureDetector gesture={gesture}>
-        <View style={[styles.track, { borderColor: t.hairline }]} onLayout={onLayout}>
+        <View
+          style={[
+            styles.track,
+            { backgroundColor: t.surfaceSoft, borderColor: t.hairlineStrong },
+          ]}
+          onLayout={onLayout}
+        >
           <LinearGradient
             colors={["rgba(117,109,243,0.05)", "rgba(236,130,56,0.04)", "rgba(104,160,113,0.04)"]}
             locations={[0, 0.46, 1]}
@@ -273,9 +286,9 @@ export function ThinkingRail({
 }
 
 const styles = StyleSheet.create({
-  root: { gap: space(1.5) },
+  root: { gap: space(2), paddingVertical: space(0.5) },
   track: {
-    height: 36,
+    height: size.button,
     borderRadius: radius.chip,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
@@ -284,10 +297,10 @@ const styles = StyleSheet.create({
   trackTint: { ...StyleSheet.absoluteFill, opacity: 0.08 },
   fillClip: { ...StyleSheet.absoluteFill, justifyContent: "center" },
   fill: { height: 6, borderRadius: 3, opacity: 0.56 },
-  fillPeak: { height: 36, borderRadius: 0, opacity: 0.56 },
+  fillPeak: { height: size.button, borderRadius: 0, opacity: 0.56 },
   sheen: {
     position: "absolute",
-    top: 16,
+    top: (size.button - 4) / 2,
     height: 4,
     width: 44,
     borderRadius: 2,
@@ -298,19 +311,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
+    paddingHorizontal: space(3.5),
   },
   stop: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#ffffff" },
   leaf: {
     position: "absolute",
-    bottom: 10,
+    bottom: space(2.5),
     borderTopLeftRadius: 7,
     borderBottomRightRadius: 7,
     borderTopRightRadius: 2,
     borderBottomLeftRadius: 2,
     transform: [{ rotate: "-14deg" }],
   },
-  caption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  captionLabel: { fontSize: 10.5 },
-  captionValue: { fontSize: 12, fontWeight: "700" },
+  caption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: space(0.5),
+  },
+  captionLabel: { ...text("micro"), fontWeight: "600" },
+  captionBadge: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: 2,
+  },
+  captionValue: { ...text("small"), fontWeight: "700" },
 });

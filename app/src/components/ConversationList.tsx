@@ -7,9 +7,15 @@ import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
 import type { AttachmentRef, ConversationSelectionText } from "@nibi-go/shared-extract";
 import {
+  FlashList,
+  type FlashListRef,
+  type ListRenderItemInfo,
+} from "@shopify/flash-list";
+import {
   memo,
   type ComponentRef,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -311,17 +317,20 @@ function ConversationListImpl({
 }) {
   const th = useNibiTheme();
   const { isOverlayApproval } = usePhoneApprovalOverlay(rows, onRespond);
-  const ref = useRef<ComponentRef<typeof ScrollView> | null>(null);
+  const ref = useRef<FlashListRef<ChatRow> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
   const stickToBottom = useRef(true);
   // 折叠态的展开/收起只存本地：键是稳定行 id，手动切换后不再被自动策略覆盖。
   const toggles = useRef(new Map<string, boolean>());
-  const [, setToggleTick] = useState(0);
-  const isOpen = (id: string, fallback: boolean) => toggles.current.get(id) ?? fallback;
-  const toggleOpen = (id: string, fallback: boolean) => {
+  const [toggleTick, setToggleTick] = useState(0);
+  const isOpen = useCallback(
+    (id: string, fallback: boolean) => toggles.current.get(id) ?? fallback,
+    [],
+  );
+  const toggleOpen = useCallback((id: string, fallback: boolean) => {
     toggles.current.set(id, !(toggles.current.get(id) ?? fallback));
     setToggleTick((value) => value + 1);
-  };
+  }, []);
 
   // 已发送注释的标记从行上的 conversationQuotes 派生：刷新/换设备后仍然在。
   const sentAnnotationCounts = useMemo(() => {
@@ -427,52 +436,45 @@ function ConversationListImpl({
     maxSeenRowIdRef.current = max;
   }, [rows]);
 
-  // 新行入场包装：命中判定的行套 AppearIn（淡入 + 6pt 上移，播一次），其余直出不套壳。
-  const withEnter = (key: string, node: ReactNode): ReactNode =>
-    enterKeys.has(key) ? (
-      <AppearIn key={key} distance={6}>
-        {node}
-      </AppearIn>
-    ) : (
-      node
-    );
-
   /**
    * 工具行 → 插件卡（没有匹配/插件停用时 undefined，调用方退回普通工具行）。
    * 折叠后的过程行也用它，保证回合结束后工具卡不会消失。
    */
-  const renderPluginTool = (row: Extract<ChatRow, { kind: "tool" }>): ReactNode => {
-    const match = plugins && onPluginAction ? matchPluginToolCard(plugins, row) : undefined;
-    if (!match || !plugins || !onPluginAction) return undefined;
-    const host = hostSlotData({
-      enabledPlugins: plugins.length,
-      plugin: {
-        id: match.plugin.parsed.manifest.id,
-        name: match.plugin.parsed.manifest.name,
-        version: match.plugin.parsed.manifest.version,
-      },
-      settings: match.plugin.settings,
-    });
-    const data = toolSlotData({
-      host,
-      name: row.display?.toolName ?? row.name,
-      server: row.display?.serverName,
-      status: row.status,
-      structuredContent: row.display?.ui?.structuredContent,
-      widgetMeta: row.display?.ui?.widgetMeta,
-      text: row.output,
-      error: row.error,
-    });
-    return (
-      <PluginToolCard
-        key={row.key}
-        plugin={match.plugin}
-        card={match.card}
-        node={resolveView(match.card.view, data)}
-        onAction={onPluginAction}
-      />
-    );
-  };
+  const renderPluginTool = useCallback(
+    (row: Extract<ChatRow, { kind: "tool" }>): ReactNode => {
+      const match = plugins && onPluginAction ? matchPluginToolCard(plugins, row) : undefined;
+      if (!match || !plugins || !onPluginAction) return undefined;
+      const host = hostSlotData({
+        enabledPlugins: plugins.length,
+        plugin: {
+          id: match.plugin.parsed.manifest.id,
+          name: match.plugin.parsed.manifest.name,
+          version: match.plugin.parsed.manifest.version,
+        },
+        settings: match.plugin.settings,
+      });
+      const data = toolSlotData({
+        host,
+        name: row.display?.toolName ?? row.name,
+        server: row.display?.serverName,
+        status: row.status,
+        structuredContent: row.display?.ui?.structuredContent,
+        widgetMeta: row.display?.ui?.widgetMeta,
+        text: row.output,
+        error: row.error,
+      });
+      return (
+        <PluginToolCard
+          key={row.key}
+          plugin={match.plugin}
+          card={match.card}
+          node={resolveView(match.card.view, data)}
+          onAction={onPluginAction}
+        />
+      );
+    },
+    [plugins, onPluginAction],
+  );
 
   // 「回到底部」状态机：带滞回（离开 >80px、回到 <24px）与 ref 守卫，
   // 避免临界抖动和每帧重复 setState；并且只在流式/新行到达时自动贴底，
@@ -482,19 +484,28 @@ function ConversationListImpl({
   const isUserDraggingRef = useRef(false);
   const hasStreamingRef = useRef(false);
   const prevRowCountRef = useRef(rows.length);
-  const pendingAutoScrollRef = useRef(false);
+  const prevFirstKeyRef = useRef<string | undefined>(rows[0]?.key);
+  const pendingAutoScrollRef = useRef(rows.length > 0);
+  const updateAtBottom = useCallback((next: boolean) => {
+    if (next === atBottomRef.current) return;
+    atBottomRef.current = next;
+    setAtBottom(next);
+  }, []);
   hasStreamingRef.current = rows.some(
     (row) => row.kind === "pending" || (row.kind === "assistant" && row.streaming),
   );
+  // 换会话（首行身份变化或列表清空）时重置贴底状态与增量入场游标。
+  if (rows[0]?.key !== prevFirstKeyRef.current) {
+    prevFirstKeyRef.current = rows[0]?.key;
+    maxSeenRowIdRef.current = null;
+    stickToBottom.current = true;
+    pendingAutoScrollRef.current = rows.length > 0;
+    updateAtBottom(true);
+  }
   if (rows.length !== prevRowCountRef.current) {
     if (rows.length > prevRowCountRef.current) pendingAutoScrollRef.current = true;
     prevRowCountRef.current = rows.length;
   }
-  const updateAtBottom = (next: boolean) => {
-    if (next === atBottomRef.current) return;
-    atBottomRef.current = next;
-    setAtBottom(next);
-  };
   useEffect(() => {
     onAtBottomChange?.(atBottom);
   }, [atBottom, onAtBottomChange]);
@@ -506,17 +517,116 @@ function ConversationListImpl({
     stickToBottom.current = true;
     updateAtBottom(true);
     ref.current?.scrollToEnd({ animated: true });
-  }, [jumpSignal]);
+  }, [jumpSignal, updateAtBottom]);
+
+  const keyExtractor = useCallback((row: ChatRow) => row.key, []);
+  const getItemType = useCallback((row: ChatRow) => row.kind, []);
+
+  const extraData = useMemo(
+    () => ({
+      agentRunningTools,
+      showReasoning,
+      showTools,
+      autoCollapseThinking,
+      autoCollapseTools,
+      plugins,
+      turnChanges,
+      turnPushes,
+      sentAnnotationCounts,
+      annotationCountFor,
+      modelChangeKeys,
+      enterKeys,
+      toggleTick,
+      th,
+    }),
+    [
+      agentRunningTools,
+      showReasoning,
+      showTools,
+      autoCollapseThinking,
+      autoCollapseTools,
+      plugins,
+      turnChanges,
+      turnPushes,
+      sentAnnotationCounts,
+      annotationCountFor,
+      modelChangeKeys,
+      enterKeys,
+      toggleTick,
+      th,
+    ],
+  );
+
+  const renderItem = useCallback(
+    ({ item: row }: ListRenderItemInfo<ChatRow>) => (
+      <ConversationRowItem
+        row={row}
+        enter={enterKeys.has(row.key)}
+        modelChanged={modelChangeKeys.has(row.key)}
+        annotationCount={
+          (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0)
+        }
+        turnFiles={row.kind === "turn" ? (turnChanges[row.key] ?? EMPTY_FILES) : EMPTY_FILES}
+        turnPushMap={row.kind === "turn" ? turnPushes.get(row.key) : undefined}
+        overlayApproval={row.kind === "approval" && isOverlayApproval(row)}
+        agentRunningTools={agentRunningTools}
+        showReasoning={showReasoning}
+        showTools={showTools}
+        autoCollapseThinking={autoCollapseThinking}
+        autoCollapseTools={autoCollapseTools}
+        plugins={plugins}
+        onRespond={onRespond}
+        onOpenSession={onOpenSession}
+        onMessageLongPress={onMessageLongPress}
+        onRetryTurn={onRetryTurn}
+        isOpen={isOpen}
+        toggleOpen={toggleOpen}
+        renderPluginTool={renderPluginTool}
+      />
+    ),
+    [
+      enterKeys,
+      modelChangeKeys,
+      sentAnnotationCounts,
+      annotationCountFor,
+      turnChanges,
+      turnPushes,
+      isOverlayApproval,
+      agentRunningTools,
+      showReasoning,
+      showTools,
+      autoCollapseThinking,
+      autoCollapseTools,
+      plugins,
+      onRespond,
+      onOpenSession,
+      onMessageLongPress,
+      onRetryTurn,
+      isOpen,
+      toggleOpen,
+      renderPluginTool,
+    ],
+  );
+
+  const listFooter = useMemo(
+    () => <View style={{ height: bottomInset > 0 ? space(2) + bottomInset : space(3.5) }} />,
+    [bottomInset],
+  );
 
   return (
     <View style={styles.scrollWrap}>
-      <ScrollView
+      <FlashList<ChatRow>
         ref={ref}
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          bottomInset > 0 ? { paddingBottom: space(2) + bottomInset } : null,
-        ]}
+        data={rows}
+        keyExtractor={keyExtractor}
+        getItemType={getItemType}
+        drawDistance={600}
+        renderItem={renderItem}
+        extraData={extraData}
+        ItemSeparatorComponent={RowSeparator}
+        ListHeaderComponent={ListHeader}
+        ListFooterComponent={listFooter}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         onScrollBeginDrag={() => {
@@ -552,488 +662,350 @@ function ConversationListImpl({
             ref.current?.scrollToEnd({ animated: false });
           }
         }}
+        onLoad={() => {
+          if (stickToBottom.current && rows.length > 0) {
+            ref.current?.scrollToEnd({ animated: false });
+          }
+        }}
         onLayout={() => {
           // 键盘/旋转改变可视高度时也贴底，避免最后一条被输入栏或宠物切一半。
           if (stickToBottom.current && !isUserDraggingRef.current) {
             ref.current?.scrollToEnd({ animated: false });
           }
         }}
-      >
-      {rows.map((row) => {
-        if (row.kind === "pending") {
-          const parsed = parseComposerText(row.text, plugins ?? []);
-          return withEnter(
-            row.key,
-            <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
-              <View
-                style={[
-                  styles.bubble,
-                  { backgroundColor: th.brandSoft, borderColor: "transparent", opacity: 0.55 },
-                ]}
-              >
-                <MessageAttachments attachments={row.attachments ?? []} />
-                <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
-                <MessageTokens tokens={parsed.tokens} plugins={plugins} />
-                {parsed.body.length > 0 ? (
-                  <BodyText text={parsed.body} color={th.ink} />
-                ) : null}
-                {/* 发送中的乐观气泡也带同款光标：和助手流式共用一套「正在直播」的语言。 */}
-                <View style={styles.pendingHintRow}>
-                  <StreamingCursor variant="small" />
-                  <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
-                </View>
-              </View>
-            </View>,
-          );
-        }
+      />
+    </View>
+  );
+}
 
-        if (row.kind === "user") {
-          const parsed = parseComposerText(row.text, plugins ?? []);
-          const annotationCount =
-            (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0);
-          const hasQuotes = (row.conversationQuotes ?? []).some(
-            (quote) => quote.kind === "annotation" || quote.kind === "transform",
-          );
-          // 注释引用的是用户看到的内容（插件名/命令名 + 正文），不是内核命令标签。
-          const displayText = [
-            parsed.tokens.map((token) => token.label).join(" "),
-            parsed.body,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .trim();
-          return withEnter(
-            row.key,
-            <View key={row.key} style={[styles.row, { alignItems: "flex-end" }]}>
-              <Pressable
-                onLongPress={
-                  onMessageLongPress
-                    ? (event) => {
-                        haptic("longPress");
-                        onMessageLongPress(
-                          row.key,
-                          displayText || row.text,
-                          {
-                            x: event.nativeEvent.pageX,
-                            y: event.nativeEvent.pageY,
-                            width: 1,
-                            height: 1,
-                          },
-                          "user",
-                        );
-                      }
-                    : undefined
-                }
-                delayLongPress={350}
-                accessibilityRole="button"
-                accessibilityLabel="用户消息，长按添加注释"
-                style={({ pressed }) => [
-                  styles.bubble,
-                  hasQuotes && styles.bubbleWide,
-                  { backgroundColor: th.brandSoft, borderColor: "transparent" },
-                  pressed ? { opacity: 0.88 } : null,
-                ]}
-              >
-                <MessageAttachments attachments={row.attachments ?? []} />
-                <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
-                <MessageTokens tokens={parsed.tokens} plugins={plugins} />
-                {parsed.body.length > 0 ? (
-                  <BodyText text={parsed.body} color={th.ink} />
-                ) : null}
-              </Pressable>
-              {annotationCount > 0 ? (
-                <View style={styles.annotationMark}>
-                  <Icon name="quote" size={10} color={th.brand} />
-                  <Text style={[styles.annotationMarkText, { color: th.brand }]}>
-                    {annotationCount} 条注释
-                  </Text>
-                </View>
-              ) : null}
-            </View>,
-          );
-        }
+const EMPTY_FILES: readonly ChatFileChange[] = [];
 
-        if (row.kind === "tool") {
-          // 插件工具卡：MCP 工具的 display 命中某个已启用插件的 toolCard。
-          // 没有匹配/插件停用就退回普通工具行（降级为纯文本，不影响会话）。
-          if (!showTools) return null;
-          const pluginCard = renderPluginTool(row);
-          if (pluginCard) return withEnter(row.key, pluginCard);
-          return withEnter(
-            row.key,
-            <ToolRowView
-              key={row.key}
-              row={row}
-              open={isOpen(row.key, !autoCollapseTools)}
-              onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
-              agentRunning={agentRunningTools.has(row.key)}
-            />,
-          );
-        }
+const ListHeader = memo(function ListHeader() {
+  return <View style={styles.listHeader} />;
+});
 
-        if (row.kind === "toolGroup") {
-          if (!showTools) return null;
-          const open = isOpen(row.key, !autoCollapseTools);
-          // 组头 tone 与工具行同一套语义（toolTone）：跑动=amber、完成=ok。
-          const tone = toolTone(th, row.running ? "running" : "success");
-          return withEnter(
-            row.key,
-              <View key={row.key} style={styles.toolRow}>
-              <Disclosure
-                icon={<Icon name="wrench" size={12} color={tone} />}
-                title={
-                  <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
-                    {row.tools.length} 次工具调用
-                  </Text>
-                }
-                subtitle={
-                  <Text style={[styles.toolRowMeta, { color: tone }]} numberOfLines={1}>
-                    {row.running ? "进行中" : "已完成"}
-                  </Text>
-                }
-                open={open}
-                onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
-                rail
-              >
-                {row.tools.map((tool) => (
-                  <ToolRowView
-                    key={tool.key}
-                    row={tool}
-                    open={isOpen(tool.key, !autoCollapseTools)}
-                    onToggle={() => toggleOpen(tool.key, !autoCollapseTools)}
-                    agentRunning={agentRunningTools.has(tool.key)}
-                  />
-                ))}
-              </Disclosure>
-            </View>,
-          );
-        }
+const RowSeparator = memo(function RowSeparator() {
+  return <View style={styles.rowSeparator} />;
+});
 
-        if (row.kind === "turn") {
-          // 2.0.1 减法：成功回合不再写「✓ 已完成 / 用时」——回复出现即已完成，耗时是调试数据；
-          // 只有失败/中断需要显式标注（配「重试」）。tokens/工具数/文件改动是有用增量，保留。
-          const parts: string[] = [];
-          // 折叠后工具数已在过程摘要行里，脚注不再重复。
-          if (!row.folded && row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
-          if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
-          if (row.files) {
-            parts.push(
-              row.files.reverted
-                ? `${row.files.files} 个文件（已撤销）`
-                : `${row.files.files} 个文件 +${row.files.additions} −${row.files.deletions}`,
-            );
-          }
-          const ok = row.state === "completedSuccess";
-          const stateLabel = row.folded ? "" : ok ? "" : row.state === "failed" ? "✕ 失败" : "已中断";
-          const files = turnChanges[row.key] ?? [];
-          const note = plugins
-            ? plugins
-                .flatMap((plugin) =>
-                  plugin.parsed.manifest.contributes.turnNotes
-                    .map((entry) =>
-                      resolveText(
-                        entry.text,
-                        hostSlotData({
-                          enabledPlugins: plugins.length,
-                          plugin: {
-                            id: plugin.parsed.manifest.id,
-                            name: plugin.parsed.manifest.name,
-                            version: plugin.parsed.manifest.version,
-                          },
-                          settings: plugin.settings,
-                          // 推送按 MCP 服务器名收（display.ui.pluginId 是服务器名），槽按 manifest id 找。
-                          push: turnPushes
-                            .get(row.key)
-                            ?.get(
-                              plugin.parsed.manifest.runtime?.serverName ??
-                                plugin.parsed.manifest.id,
-                            ),
-                        }),
-                      ).trim(),
-                    )
-                    .filter(Boolean),
-                )
-                .join(" · ")
-            : "";
-          return withEnter(
-            row.key,
-            <View key={row.key} style={styles.turnBlock}>
-              {stateLabel || parts.length > 0 ? (
-                <View style={styles.turnHeadRow}>
-                  <Text style={[styles.turn, { color: ok ? th.inkFaint : th.red }]}>
-                    {stateLabel}
-                    {stateLabel && parts.length > 0 ? " · " : ""}
-                    {parts.join(" · ")}
-                  </Text>
-                </View>
-              ) : null}
-              {/* 失败/中断的回合给一个重试入口：内核 retryTurn 会截到这一轮的用户输入前重发。 */}
-              {!ok && onRetryTurn && row.entityId ? (
-                <PressableScale
-                  onPress={() => onRetryTurn({ rowId: row.rowId, entityId: row.entityId! })}
-                  scaleTo={0.94}
-                  accessibilityRole="button"
-                  accessibilityLabel="重试这一轮"
-                  style={[styles.retry, { backgroundColor: th.panel, borderColor: th.hairline }]}
-                >
-                  <Icon name="refresh" size={11} color={th.inkSub} />
-                  <Text style={[styles.retryText, { color: th.inkSub }]}>重试</Text>
-                </PressableScale>
-              ) : null}
-              {files.length > 0 ? <ChangeCard files={files} /> : null}
-              {note ? (
-                <Text style={[styles.turnNote, { color: th.inkFaint }]} numberOfLines={2}>
-                  {note}
-                </Text>
-              ) : null}
-            </View>,
-          );
-        }
+/** 单行消息渲染项：承接 FlashList 虚拟化行渲染与纸上鸟 2.0 精致气泡层级。 */
+function ConversationRowItem({
+  row,
+  enter,
+  modelChanged,
+  annotationCount,
+  turnFiles,
+  turnPushMap,
+  overlayApproval,
+  agentRunningTools,
+  showReasoning,
+  showTools,
+  autoCollapseThinking,
+  autoCollapseTools,
+  plugins,
+  onRespond,
+  onOpenSession,
+  onMessageLongPress,
+  onRetryTurn,
+  isOpen,
+  toggleOpen,
+  renderPluginTool,
+}: {
+  row: ChatRow;
+  enter: boolean;
+  modelChanged: boolean;
+  annotationCount: number;
+  turnFiles: readonly ChatFileChange[];
+  turnPushMap?: ReadonlyMap<string, Record<string, unknown>>;
+  overlayApproval: boolean;
+  agentRunningTools: Set<string>;
+  showReasoning: boolean;
+  showTools: boolean;
+  autoCollapseThinking: boolean;
+  autoCollapseTools: boolean;
+  plugins?: readonly LoadedPlugin[];
+  onRespond: InteractionResponder;
+  onOpenSession?: (sessionId: string) => void;
+  onMessageLongPress?: (
+    messageKey: string,
+    message: string,
+    anchor: PopupAnchor,
+    messageRole: "user" | "assistant",
+  ) => void;
+  onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
+  isOpen: (id: string, fallback: boolean) => boolean;
+  toggleOpen: (id: string, fallback: boolean) => void;
+  renderPluginTool: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
+}) {
+  const th = useNibiTheme();
+  const wrapEnter = (node: ReactNode): ReactNode =>
+    enter ? <AppearIn distance={6}>{node}</AppearIn> : node;
 
-        if (row.kind === "subagent") {
-          // 后台行可能没带 status（旧日志）：backgrounded 且无状态按运行中处理。
-          const running = row.status === "running" || (!row.status && row.backgrounded);
-          const tone = running
-            ? th.amber
-            : row.status === "failed"
-              ? th.red
-              : row.status === "cancelled"
-                ? th.inkFaint
-                : th.ok;
-          // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）；徽标补一眼可辨的完成/失败。
-          const faceStatus: AgentFaceStatus = running
-            ? "running"
-            : row.status === "failed"
-              ? "failed"
-              : row.status === "cancelled"
-                ? "cancelled"
-                : "completed";
-          const statusLabel = running
-            ? row.backgrounded
-              ? "后台运行中"
-              : "进行中"
-            : row.status === "failed"
-              ? "失败"
-              : row.status === "cancelled"
-                ? "已停止"
-                : "已完成";
-          const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
-          return withEnter(
-            row.key,
-            <View
-              key={row.key}
-              style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
-            >
-              <View style={styles.subagentHead}>
-                <AgentFace name={row.subagentType} status={faceStatus} size={22} badge />
-                <View style={styles.subagentTitleCol}>
-                  <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
-                    子智能体 · {row.subagentType}
-                  </Text>
-                  <Text style={[styles.subagentStatus, { color: tone }]}>{statusLabel}</Text>
-                </View>
-              </View>
-              {row.summary ? (
-                <Text style={[styles.toolDetail, { color: th.inkSub }]} numberOfLines={3}>
-                  {row.summary}
-                </Text>
-              ) : null}
-              {showFoot ? (
-                <View style={styles.subagentFoot}>
-                  <Text style={[styles.subagentMeta, { color: th.inkFaint }]}>
-                    {row.backgrounded ? "后台运行" : ""}
-                  </Text>
-                  {row.childSessionId && onOpenSession ? (
-                    <Pressable
-                      onPress={() => onOpenSession(row.childSessionId as string)}
-                      accessibilityRole="button"
-                      accessibilityLabel="查看子会话"
-                      hitSlop={6}
-                    >
-                      <Text style={[styles.subagentLink, { color: th.steel }]}>查看子会话 ›</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>,
-          );
-        }
+  if (row.kind === "pending") {
+    const parsed = parseComposerText(row.text, plugins ?? []);
+    return wrapEnter(
+      <View style={[styles.row, { alignItems: "flex-end" }]}>
+        <View
+          style={[
+            styles.bubble,
+            styles.bubbleUser,
+            { backgroundColor: th.brandSoft, borderColor: th.hairlineStrong, opacity: 0.65 },
+          ]}
+        >
+          <MessageAttachments attachments={row.attachments ?? []} />
+          <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
+          <MessageTokens tokens={parsed.tokens} plugins={plugins} />
+          {parsed.body.length > 0 ? <BodyText text={parsed.body} color={th.ink} /> : null}
+          {/* 发送中的乐观气泡也带同款光标：和助手流式共用一套「正在直播」的语言。 */}
+          <View style={styles.pendingHintRow}>
+            <StreamingCursor variant="small" />
+            <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
+          </View>
+        </View>
+      </View>,
+    );
+  }
 
-        if (row.kind === "process") {
-          // 过程卡里的思考/工具也走顶层同一套折叠件，并尊重 showReasoning/showTools。
-          return withEnter(
-            row.key,
-            <TurnProcessCard
-              key={row.key}
-              row={row}
-              renderTool={renderPluginTool}
-              isOpen={isOpen}
-              toggleOpen={toggleOpen}
-              showReasoning={showReasoning}
-              showTools={showTools}
-              autoCollapseThinking={autoCollapseThinking}
-              autoCollapseTools={autoCollapseTools}
-              agentRunningTools={agentRunningTools}
-            />,
-          );
-        }
-
-        if (row.kind === "approval" || row.kind === "question") {
-          // 手机工具审批已转到悬浮卡（不抢前台）；没有悬浮权限时仍走应用内卡片。
-          if (row.kind === "approval" && isOverlayApproval(row)) return null;
-          return withEnter(
-            row.key,
-            <InteractionCard key={row.key} row={row} onRespond={onRespond} />,
-          );
-        }
-
-        if (row.kind === "notice") {
-          return withEnter(
-            row.key,
-            <Text
-              key={row.key}
-              style={[
-                styles.notice,
-                { color: row.tone === "warning" ? th.amber : th.inkFaint },
-              ]}
-            >
-              {row.text}
-            </Text>,
-          );
-        }
-
-        // assistant：思考单独成块放在气泡上方，气泡里只有正文。
-        const annotationCount =
-          (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0);
-        const hasText = row.text.length > 0;
-        const showThinking = showReasoning && row.reasoning.trim().length > 0;
-        // 自动策略只给默认值；用户手动切换过的行以 Map 里的记录为准。
-        const thinkingId = `${row.key}:thinking`;
-        const thinkingDefault = autoCollapseThinking ? row.streaming : true;
-        const thinkingOpen = isOpen(thinkingId, thinkingDefault);
-        return withEnter(
-          row.key,
-          <View
-            key={row.key}
-            style={[styles.row, styles.assistantRow, { alignItems: "flex-start" }]}
-          >
-            {showThinking ? (
-              <View
-                style={[
-                  styles.thinkingChip,
-                  { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
-                ]}
-              >
-                <ThinkingDisclosure
-                  reasoning={row.reasoning}
-                  streaming={row.streaming}
-                  open={thinkingOpen}
-                  onToggle={() => toggleOpen(thinkingId, thinkingDefault)}
-                />
-              </View>
-            ) : null}
-            {hasText && row.streaming ? (
-              (() => {
-                // 流式中若已出现 markdown 结构或 html/svg 围栏，提前用平铺宽容器（bubbleFlat）
-                // 承接，落定后宽度与字号完全连续，不再从 86% 白卡突然跳成 100% 平铺；
-                // 未闭合的 html/svg 围栏先收成占位卡，不再摊出几百行源码再瞬间塌缩。
-                const streamingMd = hasMarkdownSyntax(row.text);
-                const pendingArt = streamingMd ? splitPendingArtifact(row.text) : null;
-                const visibleText = pendingArt ? pendingArt.prefix : row.text;
-                return (
-                  <View style={streamingMd ? styles.bubbleFlat : undefined}>
-                    <Pressable
-                      onLongPress={
-                        onMessageLongPress
-                          ? (event) => {
-                              haptic("longPress");
-                              onMessageLongPress(
-                                row.key,
-                                row.text,
-                                {
-                                  x: event.nativeEvent.pageX,
-                                  y: event.nativeEvent.pageY,
-                                  width: 1,
-                                  height: 1,
-                                },
-                                "assistant",
-                              );
-                            }
-                          : undefined
-                      }
-                      delayLongPress={350}
-                      accessibilityRole="button"
-                      accessibilityLabel="助手消息，长按打开动作"
-                      style={({ pressed }) => [
-                        streamingMd
-                          ? null
-                          : [styles.bubble, { backgroundColor: th.card, borderColor: th.hairline }],
-                        pressed ? { opacity: 0.88 } : null,
-                      ]}
-                    >
-                      {row.model && modelChangeKeys.has(row.key) ? (
-                        <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
-                      ) : null}
-                      {visibleText.length > 0 ? <BodyText text={visibleText} color={th.ink} /> : null}
-                      {!pendingArt?.pendingLang ? <StreamingCursor /> : null}
-                    </Pressable>
-                    {pendingArt?.pendingLang ? (
-                      <PendingArtifactCard
-                        lang={pendingArt.pendingLang}
-                        lines={pendingArt.pendingLines}
-                      />
-                    ) : null}
-                  </View>
-                );
-              })()
-            ) : hasText && hasMarkdownSyntax(row.text) ? (
-              // 落定的富排版：平铺（桌面客户端消息流同款），按围栏切片——工件卡
-              // 渲染在长按 Pressable 之外（嵌套 Pressable 会被外层吞掉触摸）。
-              <View style={styles.bubbleFlat}>
-                {row.model && modelChangeKeys.has(row.key) ? (
-                  <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
-                ) : null}
-                {(() => {
-                  const split = splitVisualArtifacts(row.text);
-                  return split.segments.map((segment, index) =>
-                    segment.kind === "artifact" ? (
-                      <ArtifactCard
-                        key={`a${segment.value}`}
-                        artifact={split.artifacts[Number(segment.value)]!}
-                      />
-                    ) : (
-                      <Pressable
-                        key={`m${index}`}
-                        onLongPress={
-                          onMessageLongPress
-                            ? (event) => {
-                                haptic("longPress");
-                                onMessageLongPress(
-                                  row.key,
-                                  row.text,
-                                  {
-                                    x: event.nativeEvent.pageX,
-                                    y: event.nativeEvent.pageY,
-                                    width: 1,
-                                    height: 1,
-                                  },
-                                  "assistant",
-                                );
-                              }
-                            : undefined
-                        }
-                        delayLongPress={350}
-                        accessibilityRole="button"
-                        accessibilityLabel="助手消息，长按打开动作"
-                        style={({ pressed }) => (pressed ? { opacity: 0.88 } : null)}
-                      >
-                        <MessageMarkdown text={segment.value} />
-                      </Pressable>
-                    ),
+  if (row.kind === "user") {
+    const parsed = parseComposerText(row.text, plugins ?? []);
+    const hasQuotes = (row.conversationQuotes ?? []).some(
+      (quote) => quote.kind === "annotation" || quote.kind === "transform",
+    );
+    // 注释引用的是用户看到的内容（插件名/命令名 + 正文），不是内核命令标签。
+    const displayText = [
+      parsed.tokens.map((token) => token.label).join(" "),
+      parsed.body,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    return wrapEnter(
+      <View style={[styles.row, { alignItems: "flex-end" }]}>
+        <Pressable
+          onLongPress={
+            onMessageLongPress
+              ? (event) => {
+                  haptic("longPress");
+                  onMessageLongPress(
+                    row.key,
+                    displayText || row.text,
+                    {
+                      x: event.nativeEvent.pageX,
+                      y: event.nativeEvent.pageY,
+                      width: 1,
+                      height: 1,
+                    },
+                    "user",
                   );
-                })()}
-              </View>
-            ) : hasText ? (
+                }
+              : undefined
+          }
+          delayLongPress={350}
+          accessibilityRole="button"
+          accessibilityLabel="用户消息，长按添加注释"
+          style={({ pressed }) => [
+            styles.bubble,
+            styles.bubbleUser,
+            hasQuotes && styles.bubbleWide,
+            { backgroundColor: th.brandSoft, borderColor: th.brand },
+            pressed ? { opacity: 0.88 } : null,
+          ]}
+        >
+          <MessageAttachments attachments={row.attachments ?? []} />
+          <AnnotationQuoteCards quotes={row.conversationQuotes ?? []} plugins={plugins} />
+          <MessageTokens tokens={parsed.tokens} plugins={plugins} />
+          {parsed.body.length > 0 ? <BodyText text={parsed.body} color={th.ink} /> : null}
+        </Pressable>
+        {annotationCount > 0 ? (
+          <View style={styles.annotationMark}>
+            <Icon name="quote" size={10} color={th.brand} />
+            <Text style={[styles.annotationMarkText, { color: th.brand }]}>
+              {annotationCount} 条注释
+            </Text>
+          </View>
+        ) : null}
+      </View>,
+    );
+  }
+
+  if (row.kind === "tool") {
+    // 插件工具卡：MCP 工具的 display 命中某个已启用插件的 toolCard。
+    // 没有匹配/插件停用就退回普通工具行（降级为纯文本，不影响会话）。
+    if (!showTools) return null;
+    const pluginCard = renderPluginTool(row);
+    if (pluginCard) return wrapEnter(pluginCard);
+    return wrapEnter(
+      <ToolRowView
+        row={row}
+        open={isOpen(row.key, !autoCollapseTools)}
+        onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
+        agentRunning={agentRunningTools.has(row.key)}
+      />,
+    );
+  }
+
+  if (row.kind === "toolGroup") {
+    if (!showTools) return null;
+    return wrapEnter(
+      <ToolGroupView
+        row={row}
+        isOpen={isOpen}
+        toggleOpen={toggleOpen}
+        autoCollapseTools={autoCollapseTools}
+        agentRunningTools={agentRunningTools}
+      />,
+    );
+  }
+
+  if (row.kind === "turn") {
+    return wrapEnter(
+      <TurnFooterView
+        row={row}
+        files={turnFiles}
+        plugins={plugins}
+        turnPushMap={turnPushMap}
+        onRetryTurn={onRetryTurn}
+      />,
+    );
+  }
+
+  if (row.kind === "subagent") {
+    // 后台行可能没带 status（旧日志）：backgrounded 且无状态按运行中处理。
+    const running = row.status === "running" || (!row.status && row.backgrounded);
+    const tone = running
+      ? th.amber
+      : row.status === "failed"
+        ? th.red
+        : row.status === "cancelled"
+          ? th.inkFaint
+          : th.ok;
+    // 瓦片脸的表情随状态走（对齐桌面 WorkflowAgentFace 的状态表情）；徽标补一眼可辨的完成/失败。
+    const faceStatus: AgentFaceStatus = running
+      ? "running"
+      : row.status === "failed"
+        ? "failed"
+        : row.status === "cancelled"
+          ? "cancelled"
+          : "completed";
+    const statusLabel = running
+      ? row.backgrounded
+        ? "后台运行中"
+        : "进行中"
+      : row.status === "failed"
+        ? "失败"
+        : row.status === "cancelled"
+          ? "已停止"
+          : "已完成";
+    const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
+    return wrapEnter(
+      <View
+        style={[styles.subagent, { backgroundColor: th.card, borderColor: th.hairline }]}
+      >
+        <View style={styles.subagentHead}>
+          <AgentFace name={row.subagentType} status={faceStatus} size={22} badge />
+          <View style={styles.subagentTitleCol}>
+            <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
+              子智能体 · {row.subagentType}
+            </Text>
+            <Text style={[styles.subagentStatus, { color: tone }]}>{statusLabel}</Text>
+          </View>
+        </View>
+        {row.summary ? (
+          <Text style={[styles.toolDetail, { color: th.inkSub }]} numberOfLines={3}>
+            {row.summary}
+          </Text>
+        ) : null}
+        {showFoot ? (
+          <View style={styles.subagentFoot}>
+            <Text style={[styles.subagentMeta, { color: th.inkFaint }]}>
+              {row.backgrounded ? "后台运行" : ""}
+            </Text>
+            {row.childSessionId && onOpenSession ? (
+              <Pressable
+                onPress={() => onOpenSession(row.childSessionId as string)}
+                accessibilityRole="button"
+                accessibilityLabel="查看子会话"
+                hitSlop={6}
+              >
+                <Text style={[styles.subagentLink, { color: th.steel }]}>查看子会话 ›</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </View>,
+    );
+  }
+
+  if (row.kind === "process") {
+    // 过程卡里的思考/工具也走顶层同一套折叠件，并尊重 showReasoning/showTools。
+    return wrapEnter(
+      <ProcessGroupView
+        row={row}
+        renderTool={renderPluginTool}
+        isOpen={isOpen}
+        toggleOpen={toggleOpen}
+        showReasoning={showReasoning}
+        showTools={showTools}
+        autoCollapseThinking={autoCollapseThinking}
+        autoCollapseTools={autoCollapseTools}
+        agentRunningTools={agentRunningTools}
+      />,
+    );
+  }
+
+  if (row.kind === "approval" || row.kind === "question") {
+    // 手机工具审批已转到悬浮卡（不抢前台）；没有悬浮权限时仍走应用内卡片。
+    if (overlayApproval) return null;
+    return wrapEnter(<InteractionCard row={row} onRespond={onRespond} />);
+  }
+
+  if (row.kind === "notice") {
+    return wrapEnter(
+      <Text
+        style={[
+          styles.notice,
+          { color: row.tone === "warning" ? th.amber : th.inkFaint },
+        ]}
+      >
+        {row.text}
+      </Text>,
+    );
+  }
+
+  // assistant：思考单独成块放在气泡上方，气泡里只有正文。
+  const hasText = row.text.length > 0;
+  const showThinking = showReasoning && row.reasoning.trim().length > 0;
+  // 自动策略只给默认值；用户手动切换过的行以 Map 里的记录为准。
+  const thinkingId = `${row.key}:thinking`;
+  const thinkingDefault = autoCollapseThinking ? row.streaming : true;
+  const thinkingOpen = isOpen(thinkingId, thinkingDefault);
+  return wrapEnter(
+    <View style={[styles.row, styles.assistantRow, { alignItems: "flex-start" }]}>
+      {showThinking ? (
+        <View
+          style={[
+            thinkingOpen || row.streaming ? styles.thinkingChip : styles.thinkingPill,
+            { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+          ]}
+        >
+          <ThinkingDisclosure
+            reasoning={row.reasoning}
+            streaming={row.streaming}
+            open={thinkingOpen}
+            onToggle={() => toggleOpen(thinkingId, thinkingDefault)}
+          />
+        </View>
+      ) : null}
+      {hasText && row.streaming ? (
+        (() => {
+          // 流式中若已出现 markdown 结构或 html/svg 围栏，提前用平铺宽容器（bubbleFlat）
+          // 承接，落定后宽度与字号完全连续，不再从 86% 白卡突然跳成 100% 平铺；
+          // 未闭合的 html/svg 围栏先收成占位卡，不再摊出几百行源码再瞬间塌缩。
+          const streamingMd = hasMarkdownSyntax(row.text);
+          const pendingArt = streamingMd ? splitPendingArtifact(row.text) : null;
+          const visibleText = pendingArt ? pendingArt.prefix : row.text;
+          return (
+            <View style={streamingMd ? styles.bubbleFlat : undefined}>
               <Pressable
                 onLongPress={
                   onMessageLongPress
@@ -1057,35 +1029,130 @@ function ConversationListImpl({
                 accessibilityRole="button"
                 accessibilityLabel="助手消息，长按打开动作"
                 style={({ pressed }) => [
-                  styles.bubble,
-                  { backgroundColor: th.card, borderColor: th.hairline },
+                  streamingMd
+                    ? null
+                    : [
+                        styles.bubble,
+                        styles.bubbleAssistant,
+                        { backgroundColor: th.card, borderColor: th.hairline },
+                        th.elevation.card,
+                      ],
                   pressed ? { opacity: 0.88 } : null,
                 ]}
               >
-                {row.model && modelChangeKeys.has(row.key) ? (
+                {row.model && modelChanged ? (
                   <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
                 ) : null}
-                <BodyText text={row.text} color={th.ink} />
+                {visibleText.length > 0 ? <BodyText text={visibleText} color={th.ink} /> : null}
+                {!pendingArt?.pendingLang ? <StreamingCursor /> : null}
               </Pressable>
-            ) : row.streaming ? (
-              // 只有思考、还没出正文：气泡不渲染，光标单独跟着思考块。
-              <StreamingCursor variant="outside" />
-            ) : showThinking ? null : (
-              <BodyText text={"…"} color={th.ink} />
-            )}
-            {annotationCount > 0 ? (
-              <View style={styles.annotationMark}>
-                <Icon name="quote" size={10} color={th.brand} />
-                <Text style={[styles.annotationMarkText, { color: th.brand }]}>
-                  已注释 {annotationCount}
-                </Text>
-              </View>
-            ) : null}
-          </View>,
-        );
-      })}
-      </ScrollView>
-    </View>
+              {pendingArt?.pendingLang ? (
+                <PendingArtifactCard
+                  lang={pendingArt.pendingLang}
+                  lines={pendingArt.pendingLines}
+                />
+              ) : null}
+            </View>
+          );
+        })()
+      ) : hasText && hasMarkdownSyntax(row.text) ? (
+        // 落定的富排版：平铺（桌面客户端消息流同款），按围栏切片——工件卡
+        // 渲染在长按 Pressable 之外（嵌套 Pressable 会被外层吞掉触摸）。
+        <View style={styles.bubbleFlat}>
+          {row.model && modelChanged ? (
+            <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
+          ) : null}
+          {(() => {
+            const split = splitVisualArtifacts(row.text);
+            return split.segments.map((segment, index) =>
+              segment.kind === "artifact" ? (
+                <ArtifactCard
+                  key={`a${segment.value}`}
+                  artifact={split.artifacts[Number(segment.value)]!}
+                />
+              ) : (
+                <Pressable
+                  key={`m${index}`}
+                  onLongPress={
+                    onMessageLongPress
+                      ? (event) => {
+                          haptic("longPress");
+                          onMessageLongPress(
+                            row.key,
+                            row.text,
+                            {
+                              x: event.nativeEvent.pageX,
+                              y: event.nativeEvent.pageY,
+                              width: 1,
+                              height: 1,
+                            },
+                            "assistant",
+                          );
+                        }
+                      : undefined
+                  }
+                  delayLongPress={350}
+                  accessibilityRole="button"
+                  accessibilityLabel="助手消息，长按打开动作"
+                  style={({ pressed }) => (pressed ? { opacity: 0.88 } : null)}
+                >
+                  <MessageMarkdown text={segment.value} />
+                </Pressable>
+              ),
+            );
+          })()}
+        </View>
+      ) : hasText ? (
+        <Pressable
+          onLongPress={
+            onMessageLongPress
+              ? (event) => {
+                  haptic("longPress");
+                  onMessageLongPress(
+                    row.key,
+                    row.text,
+                    {
+                      x: event.nativeEvent.pageX,
+                      y: event.nativeEvent.pageY,
+                      width: 1,
+                      height: 1,
+                    },
+                    "assistant",
+                  );
+                }
+              : undefined
+          }
+          delayLongPress={350}
+          accessibilityRole="button"
+          accessibilityLabel="助手消息，长按打开动作"
+          style={({ pressed }) => [
+            styles.bubble,
+            styles.bubbleAssistant,
+            { backgroundColor: th.card, borderColor: th.hairline },
+            th.elevation.card,
+            pressed ? { opacity: 0.88 } : null,
+          ]}
+        >
+          {row.model && modelChanged ? (
+            <Text style={[styles.model, { color: th.inkGhost }]}>{row.model}</Text>
+          ) : null}
+          <BodyText text={row.text} color={th.ink} />
+        </Pressable>
+      ) : row.streaming ? (
+        // 只有思考、还没出正文：气泡不渲染，光标单独跟着思考块。
+        <StreamingCursor variant="outside" />
+      ) : showThinking ? null : (
+        <BodyText text={"…"} color={th.ink} />
+      )}
+      {annotationCount > 0 ? (
+        <View style={styles.annotationMark}>
+          <Icon name="quote" size={10} color={th.brand} />
+          <Text style={[styles.annotationMarkText, { color: th.brand }]}>
+            已注释 {annotationCount}
+          </Text>
+        </View>
+      ) : null}
+    </View>,
   );
 }
 
@@ -1093,7 +1160,196 @@ function ConversationListImpl({
  *  props 全部不变时直接跳过（流式增量的重渲染由 rows 变化正常触发）。 */
 export const ConversationList = memo(ConversationListImpl);
 
-/** 单个工具行：折叠只有一行（图标 + 名称 + 状态词 + 目标），展开才是原有详情。 */
+/** 工具调用组：折叠头做成精致内嵌胶囊卡 + 步骤计数徽标，展开列出组内工具行。 */
+function ToolGroupView({
+  row,
+  isOpen,
+  toggleOpen,
+  autoCollapseTools,
+  agentRunningTools,
+}: {
+  row: Extract<ChatRow, { kind: "toolGroup" }>;
+  isOpen: (id: string, fallback: boolean) => boolean;
+  toggleOpen: (id: string, fallback: boolean) => void;
+  autoCollapseTools: boolean;
+  agentRunningTools: Set<string>;
+}) {
+  const th = useNibiTheme();
+  const open = isOpen(row.key, !autoCollapseTools);
+  const tone = toolTone(th, row.running ? "running" : "success");
+  const badgeBg = row.running ? th.amberSoft : th.okSoft;
+  return (
+    <View
+      style={[
+        styles.toolGroupCard,
+        { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+      ]}
+    >
+      <Disclosure
+        icon={
+          <View style={[styles.toolIconBadge, { backgroundColor: badgeBg }]}>
+            <Icon name="wrench" size={12} color={tone} />
+          </View>
+        }
+        title={
+          <View style={styles.groupTitleRow}>
+            <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
+              工具调用
+            </Text>
+            <View
+              style={[
+                styles.stepCountBadge,
+                { backgroundColor: th.card, borderColor: th.hairline },
+              ]}
+            >
+              <Text style={[styles.stepCountText, { color: th.inkSub }]}>
+                {row.tools.length} 步
+              </Text>
+            </View>
+          </View>
+        }
+        subtitle={
+          <Text style={[styles.toolRowMeta, { color: tone }]} numberOfLines={1}>
+            {row.running ? "进行中" : "已完成"}
+          </Text>
+        }
+        open={open}
+        onToggle={() => toggleOpen(row.key, !autoCollapseTools)}
+        rail
+      >
+        {row.tools.map((tool) => (
+          <ToolRowView
+            key={tool.key}
+            row={tool}
+            open={isOpen(tool.key, !autoCollapseTools)}
+            onToggle={() => toggleOpen(tool.key, !autoCollapseTools)}
+            agentRunning={agentRunningTools.has(tool.key)}
+          />
+        ))}
+      </Disclosure>
+    </View>
+  );
+}
+
+/** 轮末脚注（TurnFooterView）：收敛成功/中断/失败状态与重试入口，保持画面干净利落。 */
+function TurnFooterView({
+  row,
+  files,
+  plugins,
+  turnPushMap,
+  onRetryTurn,
+}: {
+  row: Extract<ChatRow, { kind: "turn" }>;
+  files: readonly ChatFileChange[];
+  plugins?: readonly LoadedPlugin[];
+  turnPushMap?: ReadonlyMap<string, Record<string, unknown>>;
+  onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
+}) {
+  const th = useNibiTheme();
+  const parts: string[] = [];
+  if (!row.folded && row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
+  if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
+  if (row.files) {
+    parts.push(
+      row.files.reverted
+        ? `${row.files.files} 个文件（已撤销）`
+        : `${row.files.files} 个文件 +${row.files.additions} −${row.files.deletions}`,
+    );
+  }
+  const ok = row.state === "completedSuccess";
+  const stateLabel = row.folded
+    ? ""
+    : ok
+      ? ""
+      : row.state === "failed"
+        ? "回合失败"
+        : "已中断";
+  const note = plugins
+    ? plugins
+        .flatMap((plugin) =>
+          plugin.parsed.manifest.contributes.turnNotes
+            .map((entry) =>
+              resolveText(
+                entry.text,
+                hostSlotData({
+                  enabledPlugins: plugins.length,
+                  plugin: {
+                    id: plugin.parsed.manifest.id,
+                    name: plugin.parsed.manifest.name,
+                    version: plugin.parsed.manifest.version,
+                  },
+                  settings: plugin.settings,
+                  push: turnPushMap?.get(
+                    plugin.parsed.manifest.runtime?.serverName ?? plugin.parsed.manifest.id,
+                  ),
+                }),
+              ).trim(),
+            )
+            .filter(Boolean),
+        )
+        .join(" · ")
+    : "";
+  const canRetry = Boolean(!ok && onRetryTurn && row.entityId);
+  return (
+    <View style={styles.turnBlock}>
+      {stateLabel || parts.length > 0 || canRetry ? (
+        <View style={styles.turnHeadRow}>
+          {stateLabel ? (
+            <View
+              style={[
+                styles.turnStateBadge,
+                {
+                  backgroundColor: row.state === "failed" ? th.redSoft : th.surfaceSoft,
+                  borderColor: row.state === "failed" ? th.red : th.hairline,
+                },
+              ]}
+            >
+              <Icon
+                name={row.state === "failed" ? "alert" : "info"}
+                size={10}
+                color={row.state === "failed" ? th.red : th.inkSub}
+              />
+              <Text
+                style={[
+                  styles.turnStateText,
+                  { color: row.state === "failed" ? th.red : th.inkSub },
+                ]}
+              >
+                {stateLabel}
+              </Text>
+            </View>
+          ) : null}
+          {parts.length > 0 ? (
+            <Text style={[styles.turn, { color: th.inkFaint }]}>{parts.join(" · ")}</Text>
+          ) : null}
+          {canRetry ? (
+            <PressableScale
+              onPress={() => onRetryTurn!({ rowId: row.rowId, entityId: row.entityId! })}
+              scaleTo={0.94}
+              accessibilityRole="button"
+              accessibilityLabel="重试这一轮"
+              style={[
+                styles.retry,
+                { backgroundColor: th.card, borderColor: th.hairlineStrong },
+              ]}
+            >
+              <Icon name="refresh" size={11} color={th.ink} />
+              <Text style={[styles.retryText, { color: th.ink }]}>重试</Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : null}
+      {files.length > 0 ? <ChangeCard files={files} /> : null}
+      {note ? (
+        <Text style={[styles.turnNote, { color: th.inkFaint }]} numberOfLines={2}>
+          {note}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** 单个工具行：折叠只有一行（22x22 图标徽标 + 名称 + 状态指示 + 目标），展开才是原有详情。 */
 const ToolRowView = memo(function ToolRowView({
   row,
   open,
@@ -1132,9 +1388,16 @@ const ToolRowView = memo(function ToolRowView({
       <Disclosure
         icon={
           isAgentTool ? (
-            <AgentFace name={faceName} status={faceStatus} size={18} badge />
+            <AgentFace name={faceName} status={faceStatus} size={20} badge />
           ) : (
-            <Icon name={toolIcon(row.name)} size={12} color={toolTone(th, row.status)} />
+            <View
+              style={[
+                styles.toolIconBadge,
+                { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+              ]}
+            >
+              <Icon name={toolIcon(row.name)} size={12} color={tone} />
+            </View>
           )
         }
         title={
@@ -1143,10 +1406,13 @@ const ToolRowView = memo(function ToolRowView({
           </Text>
         }
         subtitle={
-          <Text style={[styles.toolRowMeta, { color: th.inkFaint }]} numberOfLines={1}>
-            <Text style={{ color: tone }}>{statusWord}</Text>
-            {target ? ` · ${target}` : ""}
-          </Text>
+          <View style={styles.toolSubtitleRow}>
+            <View style={[styles.toolStatusDot, { backgroundColor: tone }]} />
+            <Text style={[styles.toolRowMeta, { color: th.inkFaint }]} numberOfLines={1}>
+              <Text style={{ color: tone, fontWeight: "600" }}>{statusWord}</Text>
+              {target ? ` · ${target}` : ""}
+            </Text>
+          </View>
         }
         open={open}
         onToggle={onToggle}
@@ -1159,7 +1425,12 @@ const ToolRowView = memo(function ToolRowView({
             ) : null}
             {row.output ? (
               // 输出正文收进内嵌井（surfaceSoft + xs 圆角）：和卡片正文拉开一档「机器输出」的质感。
-              <View style={[styles.toolOutputWell, { backgroundColor: th.surfaceSoft }]}>
+              <View
+                style={[
+                  styles.toolOutputWell,
+                  { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+                ]}
+              >
                 <Text
                   style={[
                     styles.toolOutput,
@@ -1345,6 +1616,7 @@ const ThinkingDisclosure = memo(function ThinkingDisclosure({
       open={open}
       onToggle={onToggle}
       rail
+      compact={!open && !streaming}
     >
       <ThinkingBody text={reasoning} streaming={streaming} />
     </Disclosure>
@@ -1392,10 +1664,11 @@ function reasoningTail(text: string): string {
 }
 
 /**
- * 一轮的过程摘要（dsh-Go TurnProcess）：默认收起，点开列出思考/工具/中间消息。
+ * 一轮的过程摘要（dsh-Go TurnProcess / ProcessGroupView）：默认收起，点开列出思考/工具/中间消息。
+ * 折叠头做成精致胶囊卡 + 左侧完成状态徽标 + 步骤计数胶囊，与 NIBI 桌面端过程行对齐。
  * 卡内的思考块/工具行与顶层同一套折叠件，显隐也跟随会话级的 showReasoning/showTools。
  */
-function TurnProcessCard({
+function ProcessGroupView({
   row,
   renderTool,
   isOpen,
@@ -1416,15 +1689,17 @@ function TurnProcessCard({
   showTools: boolean;
   autoCollapseThinking: boolean;
   autoCollapseTools: boolean;
-  /** 仍在后台跑的子代理对应的工具行 key（TurnProcessCard 传给子工具行）。 */
+  /** 仍在后台跑的子代理对应的工具行 key（ProcessGroupView 传给子工具行）。 */
   agentRunningTools?: Set<string>;
 }) {
   const th = useNibiTheme();
   const [open, setOpen] = useState(false);
-  const parts = ["✓ 已完成"];
-  if (row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
-  if (row.messages > 0) parts.push(`${row.messages} 条消息`);
-  const label = parts.join(" · ");
+  const metaParts: string[] = [];
+  if (row.toolCalls > 0) metaParts.push(`${row.toolCalls} 次工具`);
+  if (row.messages > 0) metaParts.push(`${row.messages} 条消息`);
+  const metaLabel = metaParts.join(" · ");
+  const totalSteps = row.toolCalls + row.messages;
+  const a11yLabel = metaLabel ? `已完成 · ${metaLabel}` : "已完成过程";
   // 先按会话级开关过滤子行：showReasoning 管思考块（正文消息保留），
   // showTools 管工具/工具组；其余子行（子智能体/通知）不受影响。
   const visible = row.rows.filter((child) => {
@@ -1438,17 +1713,47 @@ function TurnProcessCard({
   return (
     <View style={styles.process}>
       <Pressable
-        onPress={() => setOpen((value) => !value)}
+        onPress={() => {
+          haptic("tick");
+          setOpen((value) => !value);
+        }}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={label}
-        style={({ pressed }) => [styles.processHeader, pressed ? { opacity: 0.62 } : null]}
+        accessibilityLabel={a11yLabel}
+        style={({ pressed }) => [
+          styles.processHeader,
+          { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
+          pressed ? { opacity: 0.72 } : null,
+        ]}
       >
-        <Text style={[styles.processTitle, { color: th.inkSub }]}>{label}</Text>
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color={th.inkFaint} />
+        <View style={[styles.processAccentBar, { backgroundColor: th.ok }]} />
+        <View style={[styles.toolIconBadge, { backgroundColor: th.okSoft }]}>
+          <Icon name="check" size={11} color={th.ok} />
+        </View>
+        <Text style={[styles.processTitle, { color: th.ink }]}>执行过程</Text>
+        {metaLabel ? (
+          <Text style={[styles.processMeta, { color: th.inkSub }]} numberOfLines={1}>
+            {metaLabel}
+          </Text>
+        ) : null}
+        {totalSteps > 0 ? (
+          <View
+            style={[
+              styles.stepCountBadge,
+              { backgroundColor: th.card, borderColor: th.hairline },
+            ]}
+          >
+            <Text style={[styles.stepCountText, { color: th.inkSub }]}>
+              {totalSteps} 步
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.processChevron}>
+          <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color={th.inkFaint} />
+        </View>
       </Pressable>
       {open && visible.length > 0 ? (
-        <View style={[styles.processBody, { borderLeftColor: th.hairline }]}>
+        <View style={[styles.processBody, { borderLeftColor: th.hairlineStrong }]}>
           {visible.map((child) => (
             <ProcessChild
               key={child.key}
@@ -1610,15 +1915,32 @@ function formatTokens(tokens: number): string {
 const styles = StyleSheet.create({
   scrollWrap: { flex: 1 },
   scroll: { flex: 1 },
-  content: { paddingVertical: space(2), gap: space(3) },
+  listHeader: { height: space(2) },
+  rowSeparator: { height: space(2.5) },
   row: { width: "100%" },
   bubble: {
     maxWidth: "86%",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
-    paddingHorizontal: space(3),
-    paddingVertical: space(2),
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
     gap: 4,
+  },
+  // 用户气泡：右下角收敛为 xs 形成对话角，配品牌细边与充足内边距。
+  bubbleUser: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    borderBottomRightRadius: radius.xs,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
+  },
+  // 助手短消息白卡：左上角收敛为 xs 与上方思考块自然衔接，带轻投影抬升层级。
+  bubbleAssistant: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    borderTopLeftRadius: radius.xs,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
   },
   // 富排版消息的平铺容器：与思考块同列宽（assistantRow 已对齐），不套卡。
   // 必须 stretch——自动宽容器里 flex:1 的子列会塌成 0（工件卡标题消失的根因）。
@@ -1682,8 +2004,15 @@ const styles = StyleSheet.create({
     width: "86%",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(1),
+  },
+  thinkingPill: {
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
     paddingHorizontal: space(2.5),
-    paddingVertical: 2,
+    paddingVertical: 1,
   },
   thinkingTitle: { ...text("micro"), fontWeight: "600" },
   thinkingPreview: { ...text("micro") },
@@ -1692,9 +2021,47 @@ const styles = StyleSheet.create({
   thinkingScroll: { flex: 1, maxHeight: 240 },
   thinkingContent: { paddingRight: space(1), paddingBottom: space(1) },
   thinkingText: { ...text("small"), lineHeight: 19 },
-  toolRow: { paddingVertical: 1 },
+  toolRow: { paddingVertical: 2 },
+  toolIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   toolRowName: { ...text("small"), fontWeight: "600" },
-  toolRowMeta: { ...text("micro") },
+  toolSubtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+  },
+  toolStatusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: radius.chip,
+  },
+  toolRowMeta: { ...text("micro"), flexShrink: 1 },
+  toolGroupCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+  },
+  groupTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+  },
+  stepCountBadge: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(1.5),
+    paddingVertical: 1,
+  },
+  stepCountText: { ...text("micro"), fontWeight: "600" },
   turn: { ...text("micro"), textAlign: "center" },
   turnHeadRow: {
     flexDirection: "row",
@@ -1703,8 +2070,17 @@ const styles = StyleSheet.create({
     gap: space(2),
     flexWrap: "wrap",
   },
+  turnStateBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2),
+    paddingVertical: 2,
+  },
+  turnStateText: { ...text("micro"), fontWeight: "600" },
   retry: {
-    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -1712,27 +2088,37 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     paddingHorizontal: space(2.5),
     paddingVertical: 3,
-    marginTop: 2,
   },
   retryText: { ...text("micro"), fontWeight: "600" },
   turnNote: { ...text("micro"), textAlign: "center" },
-  turnBlock: { gap: space(2) },
-  process: { gap: 2 },
+  turnBlock: { gap: space(1.5), paddingVertical: space(0.5) },
+  process: { gap: space(1) },
   processHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
     minHeight: size.chipLg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
   },
-  processTitle: { ...text("micro"), fontWeight: "600" },
+  processAccentBar: {
+    width: 2.5,
+    height: 14,
+    borderRadius: 2,
+  },
+  processTitle: { ...text("small"), fontWeight: "600" },
+  processMeta: { ...text("micro"), flexShrink: 1 },
+  processChevron: { marginLeft: "auto" },
   processBody: {
     borderLeftWidth: 2,
     paddingLeft: space(3),
-    marginLeft: space(1),
+    marginLeft: space(2),
     paddingVertical: space(1),
     gap: space(2),
   },
-  processBlock: { gap: 2 },
+  processBlock: { gap: 4 },
   processText: { ...text("small") },
   processTool: { ...text("micro") },
   notice: { ...text("micro"), textAlign: "center", paddingHorizontal: space(2) },
@@ -1742,8 +2128,9 @@ const styles = StyleSheet.create({
   toolDetail: { ...text("micro") },
   // 工具输出井：内嵌面 + xs 圆角 + 等宽字，「机器输出」与正文拉开一档。
   toolOutputWell: {
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.xs,
-    paddingHorizontal: space(2),
+    paddingHorizontal: space(2.5),
     paddingVertical: space(1.5),
   },
   toolOutput: { fontFamily: "monospace", ...text("micro") },
