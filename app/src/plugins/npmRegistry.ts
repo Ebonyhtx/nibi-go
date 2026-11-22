@@ -458,6 +458,392 @@ export function inspectNpmPackageJson(
   };
 }
 
+/** 根据 npm MCP 入口路径（`node_modules/<pkg>/...`）反推 npm 包名（用于兼容旧版已装包缺少 sourceMeta 的场景）。 */
+export function inferNpmPackageFromEntry(entry?: string): string | undefined {
+  if (!entry) return undefined;
+  const match = /^node_modules\/(@[^/\s]+\/[^/\s]+|[^/\s]+)\//u.exec(entry.trim());
+  const candidate = match?.[1];
+  return candidate && NPM_NAME_RE.test(candidate) ? candidate : undefined;
+}
+
+/** 合法插件环境变量名（与 plugin-contract 的 ENV_VAR_RE 对齐：大写字母开头，2–64 位）。 */
+export const PLUGIN_ENV_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/u;
+
+/** 高危系统/运行时环境变量黑名单：无论自动探测还是手动新增均禁止覆盖。 */
+const BLOCKED_PLUGIN_ENV_NAMES = new Set([
+  "PATH",
+  "PATHEXT",
+  "HOME",
+  "SHELL",
+  "TMP",
+  "TEMP",
+  "TMPDIR",
+  "NIBIGO_SETTINGS",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_EXTRA_CA_CERTS",
+  "NODE_TLS_REJECT_UNAUTHORIZED",
+  "OPENSSL_CONF",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "COMSPEC",
+  "SYSTEMROOT",
+  "WINDIR",
+  "CLASSPATH",
+  "PYTHONPATH",
+]);
+
+const BLOCKED_PLUGIN_ENV_PREFIXES = ["LD_", "DYLD_", "NIBIGO_"] as const;
+
+/** 自动探测时的噪音变量黑名单（仅跳过自动建议，用户仍可在需要时手动配置）。 */
+const IGNORED_DETECTED_ENV_NAMES = new Set([
+  "NODE_ENV",
+  "NODE_DEBUG",
+  "NODE_NO_WARNINGS",
+  "NODE_DISABLE_COLORS",
+  "NODE_VERSION",
+  "NPM_VERSION",
+  "UV_THREADPOOL_SIZE",
+  "DEBUG",
+  "VERBOSE",
+  "SILENT",
+  "QUIET",
+  "CI",
+  "TEST",
+  "ENV",
+  "PORT",
+  "HOST",
+  "HOSTNAME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "FTP_PROXY",
+  "TZ",
+  "LANG",
+  "LANGUAGE",
+  "TERM",
+  "TERM_PROGRAM",
+  "COLORTERM",
+  "FORCE_COLOR",
+  "NO_COLOR",
+  "CLICOLOR",
+  "CLICOLOR_FORCE",
+  "COLUMNS",
+  "LINES",
+  "USER",
+  "USERNAME",
+  "LOGNAME",
+  "USERPROFILE",
+  "HOMEPATH",
+  "HOMEDRIVE",
+  "PWD",
+  "OLDPWD",
+  "SHLVL",
+  "OS",
+  "OSTYPE",
+  "HOSTTYPE",
+  "PLATFORM",
+  "ARCH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "EDITOR",
+  "VISUAL",
+  "PAGER",
+  "LOG_LEVEL",
+  "JEST_WORKER_ID",
+  "VITEST",
+  "GITHUB_ACTIONS",
+  "GITHUB_WORKFLOW",
+  "GITHUB_RUN_ID",
+  "GITHUB_SHA",
+  "GITHUB_REF",
+  "GITHUB_REPOSITORY",
+  "GITHUB_EVENT_NAME",
+  "GITHUB_WORKSPACE",
+  "GITLAB_CI",
+  "JENKINS_URL",
+  "TRAVIS",
+  "CIRCLECI",
+  "BUILDKITE",
+  "VERCEL",
+  "NETLIFY",
+  "DOCKER",
+  "KUBERNETES_SERVICE_HOST",
+  "INIT_CWD",
+  "COREPACK_ENABLE_STRICT",
+  "GOPATH",
+  "CARGO_HOME",
+  "RUSTUP_HOME",
+  "FOO",
+  "BAR",
+  "BAZ",
+  "KEY",
+  "VALUE",
+  "NAME",
+  "STRING",
+  "TRUE",
+  "FALSE",
+  "NULL",
+  "UNDEFINED",
+]);
+
+const IGNORED_DETECTED_ENV_PREFIXES = [
+  "NODE_",
+  "NPM_",
+  "LC_",
+  "XDG_",
+  "ANDROID_",
+  "V8_",
+  "RUNNER_",
+  "ACTIONS_",
+  "NIBI_",
+  "ZCODE_",
+  "ELECTRON_",
+  "CHROME_",
+  "PLAYWRIGHT_",
+  "PUPPETEER_",
+  "YOUR_",
+  "EXAMPLE_",
+] as const;
+
+export function isBlockedPluginEnvName(name: string): boolean {
+  if (BLOCKED_PLUGIN_ENV_NAMES.has(name)) return true;
+  return BLOCKED_PLUGIN_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+export function isIgnoredDetectedEnvName(name: string): boolean {
+  if (!PLUGIN_ENV_NAME_RE.test(name)) return true;
+  if (isBlockedPluginEnvName(name)) return true;
+  if (IGNORED_DETECTED_ENV_NAMES.has(name)) return true;
+  return IGNORED_DETECTED_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+export type ValidatedPluginEnvName =
+  | { ok: true; name: string }
+  | { ok: false; reason: string };
+
+/** 校验用户输入的自定义环境变量名。 */
+export function validatePluginEnvName(rawName: string): ValidatedPluginEnvName {
+  const name = rawName.trim();
+  if (!name) return { ok: false, reason: "请输入环境变量名（如 AMAP_KEY）" };
+  if (!PLUGIN_ENV_NAME_RE.test(name)) {
+    return {
+      ok: false,
+      reason: "变量名须以大写字母开头，仅含大写字母、数字和下划线（2–64 位）",
+    };
+  }
+  if (isBlockedPluginEnvName(name)) {
+    return { ok: false, reason: `环境变量 ${name} 属于系统保留项，不允许覆盖` };
+  }
+  return { ok: true, name };
+}
+
+const MAX_SCAN_TEXT_CHARS = 512 * 1024;
+
+function pushDetectedEnv(name: string, seen: Set<string>, out: string[]): void {
+  if (seen.has(name) || isIgnoredDetectedEnvName(name)) return;
+  seen.add(name);
+  out.push(name);
+}
+
+/** 从 JS/MJS/CJS/TS 源码中提取读取的 `process.env.*` 环境变量名（按出现顺序去重）。 */
+export function extractEnvVarsFromJs(source: string): string[] {
+  const text = source.length > MAX_SCAN_TEXT_CHARS ? source.slice(0, MAX_SCAN_TEXT_CHARS) : source;
+  const seen = new Set<string>();
+  const found: string[] = [];
+
+  // 1) process.env.VAR_NAME / process?.env?.VAR_NAME / Bun.env.VAR_NAME
+  const dotRe = /\b(?:process|Bun)\??\.env\??\.([A-Z][A-Z0-9_]{1,63})\b/gu;
+  let match: RegExpExecArray | null;
+  while ((match = dotRe.exec(text)) !== null) {
+    if (match[1]) pushDetectedEnv(match[1], seen, found);
+  }
+
+  // 2) process.env["VAR_NAME"] / process?.env?.['VAR_NAME']
+  const bracketRe =
+    /\b(?:process|Bun)\??\.env(?:\?\.)?\[\s*["']([A-Z][A-Z0-9_]{1,63})["']\s*\]/gu;
+  while ((match = bracketRe.exec(text)) !== null) {
+    if (match[1]) pushDetectedEnv(match[1], seen, found);
+  }
+
+  // 3) const { VAR_A, VAR_B = "x", VAR_C: local } = process.env
+  const destructRe = /\{([^{}]{1,400})\}\s*=\s*process\??\.env\b/gu;
+  while ((match = destructRe.exec(text)) !== null) {
+    const body = match[1] ?? "";
+    for (const part of body.split(",")) {
+      const token = part.trim().replace(/^\.\.\./u, "");
+      const key = token.split(/[:=]/u)[0]?.trim() ?? "";
+      if (key) pushDetectedEnv(key, seen, found);
+    }
+  }
+
+  return found;
+}
+
+/** 从 README / Markdown 文档中提取 MCP 配置块里的 `env` 键与 `process.env.*` 引用。 */
+export function extractEnvVarsFromReadme(markdown: string): string[] {
+  const text =
+    markdown.length > MAX_SCAN_TEXT_CHARS ? markdown.slice(0, MAX_SCAN_TEXT_CHARS) : markdown;
+  const seen = new Set<string>();
+  const found: string[] = [];
+
+  for (const name of extractEnvVarsFromJs(text)) {
+    pushDetectedEnv(name, seen, found);
+  }
+
+  // 标准 MCP JSON 配置片段：`"env": { "AMAP_KEY": "your-key" }`
+  const envBlockRe = /"env"\s*:\s*\{([^{}]{1,2000})\}/gu;
+  let match: RegExpExecArray | null;
+  while ((match = envBlockRe.exec(text)) !== null) {
+    const body = match[1] ?? "";
+    const keyRe = /"([A-Z][A-Z0-9_]{1,63})"\s*:/gu;
+    let keyMatch: RegExpExecArray | null;
+    while ((keyMatch = keyRe.exec(body)) !== null) {
+      if (keyMatch[1]) pushDetectedEnv(keyMatch[1], seen, found);
+    }
+  }
+
+  // `export AMAP_KEY=...` 或独立行 `AMAP_KEY=...`
+  const assignRe = /(?:^|\n)[ \t]*(?:export[ \t]+)?([A-Z][A-Z0-9_]{1,63})=(?:[^\n]*)/gu;
+  while ((match = assignRe.exec(text)) !== null) {
+    if (match[1]) pushDetectedEnv(match[1], seen, found);
+  }
+
+  return found;
+}
+
+/** 从 `.env.example` / `.env.sample` 提取环境变量名。 */
+export function extractEnvVarsFromDotEnv(content: string): string[] {
+  const text =
+    content.length > MAX_SCAN_TEXT_CHARS ? content.slice(0, MAX_SCAN_TEXT_CHARS) : content;
+  const seen = new Set<string>();
+  const found: string[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = /^(?:export\s+)?([A-Z][A-Z0-9_]{1,63})\s*=/u.exec(trimmed);
+    if (match?.[1]) pushDetectedEnv(match[1], seen, found);
+  }
+  return found;
+}
+
+/** 合并显式声明与包内 JS / `.env.example` / README 扫描出的环境变量规格（上限 8 项）。 */
+export function detectNpmEnvSpecs(sources: {
+  jsFiles?: readonly string[];
+  envExampleFiles?: readonly string[];
+  readmeFiles?: readonly string[];
+  explicit?: readonly NpmEnvSpec[];
+  maxCount?: number;
+}): NpmEnvSpec[] {
+  const limit = Math.max(0, Math.min(8, sources.maxCount ?? 8));
+  const out: NpmEnvSpec[] = [];
+  const seen = new Set<string>();
+
+  for (const item of sources.explicit ?? []) {
+    if (out.length >= limit) break;
+    const name = item.name.trim();
+    if (!PLUGIN_ENV_NAME_RE.test(name) || isBlockedPluginEnvName(name) || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ ...item, name });
+  }
+
+  const detectedNames: string[] = [];
+  for (const source of sources.jsFiles ?? []) {
+    detectedNames.push(...extractEnvVarsFromJs(source));
+  }
+  for (const envFile of sources.envExampleFiles ?? []) {
+    detectedNames.push(...extractEnvVarsFromDotEnv(envFile));
+  }
+  for (const readme of sources.readmeFiles ?? []) {
+    detectedNames.push(...extractEnvVarsFromReadme(readme));
+  }
+
+  for (const name of detectedNames) {
+    if (out.length >= limit) break;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({
+      name,
+      title: name,
+      description: `自动探测的环境变量（${name}），填写后新开会话生效`,
+      placeholder: `填写 ${name}`.slice(0, 64),
+    });
+  }
+
+  return out;
+}
+
+/** 合并插件设置映射（runtime.envMap）与用户自定义环境变量（customEnv），产出 MCP 子进程启动 env。 */
+export function resolvePluginMcpEnv(params: {
+  settings: Readonly<Record<string, string | boolean>>;
+  envMap?: Readonly<Record<string, string>>;
+  customEnv?: Readonly<Record<string, string>>;
+}): Array<{ name: string; value: string }> {
+  const env: Array<{ name: string; value: string }> = [];
+  if (Object.keys(params.settings).length > 0) {
+    env.push({ name: "NIBIGO_SETTINGS", value: JSON.stringify(params.settings) });
+  }
+
+  const values = new Map<string, string>();
+  if (params.envMap) {
+    for (const [settingId, envName] of Object.entries(params.envMap)) {
+      if (!PLUGIN_ENV_NAME_RE.test(envName) || isBlockedPluginEnvName(envName)) continue;
+      const raw = params.settings[settingId];
+      if (raw === undefined) continue;
+      const asText = String(raw).trim();
+      if (asText.length > 0 && !asText.includes("\0")) {
+        values.set(envName, asText);
+      }
+    }
+  }
+  if (params.customEnv) {
+    for (const [envName, raw] of Object.entries(params.customEnv)) {
+      if (!PLUGIN_ENV_NAME_RE.test(envName) || isBlockedPluginEnvName(envName)) continue;
+      const asText = raw.trim();
+      if (asText.length > 0 && !asText.includes("\0")) {
+        values.set(envName, asText);
+      }
+    }
+  }
+
+  for (const [name, value] of [...values.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    env.push({ name, value });
+  }
+  return env;
+}
+
+/** 计算插件已声明或自动探测但尚未填值的环境变量名列表（用于 UI 待配置提醒）。 */
+export function missingEnvVarNames(params: {
+  settings: Readonly<Record<string, string | boolean>>;
+  envMap?: Readonly<Record<string, string>>;
+  customEnv?: Readonly<Record<string, string>>;
+  detectedEnvVars?: readonly string[];
+}): string[] {
+  const expected: string[] = [];
+  const seen = new Set<string>();
+  const addExpected = (name: string) => {
+    if (!PLUGIN_ENV_NAME_RE.test(name) || isBlockedPluginEnvName(name) || seen.has(name)) return;
+    seen.add(name);
+    expected.push(name);
+  };
+  for (const envName of Object.values(params.envMap ?? {})) addExpected(envName);
+  for (const envName of params.detectedEnvVars ?? []) addExpected(envName);
+
+  const filled = new Set<string>();
+  for (const [settingId, envName] of Object.entries(params.envMap ?? {})) {
+    const raw = params.settings[settingId];
+    if (raw !== undefined && String(raw).trim().length > 0) filled.add(envName);
+  }
+  for (const [envName, raw] of Object.entries(params.customEnv ?? {})) {
+    if (raw.trim().length > 0) filled.add(envName);
+  }
+
+  return expected.filter((name) => !filled.has(name));
+}
+
 /** 为已安装的纯 JS npm MCP 包生成 NIBI-GO 宿主清单（`nibi-go.plugin.json`）与内核元数据。 */
 export function buildNpmPluginManifest(params: {
   id: string;
@@ -475,16 +861,25 @@ export function buildNpmPluginManifest(params: {
   const serverName = mcpServerNameFor(params.packageName, params.serverName);
   const envMap: Record<string, string> = {};
   const settings: Array<Record<string, unknown>> = [];
+  const seenSettingIds = new Set<string>();
 
-  for (const item of (params.env ?? []).slice(0, 8)) {
-    const settingId = item.name.toLowerCase().replace(/[^a-z0-9_]+/gu, "_").slice(0, 64);
-    envMap[settingId] = item.name;
+  for (const item of params.env ?? []) {
+    if (settings.length >= 8) break;
+    const envName = item.name.trim();
+    if (!PLUGIN_ENV_NAME_RE.test(envName) || isBlockedPluginEnvName(envName)) continue;
+    const settingId = envName.toLowerCase().replace(/[^a-z0-9_]+/gu, "_").slice(0, 64);
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(settingId) || seenSettingIds.has(settingId)) continue;
+    seenSettingIds.add(settingId);
+    envMap[settingId] = envName;
+    const title = (item.title.trim() || envName).slice(0, 64);
+    const description = item.description?.trim().slice(0, 120);
+    const placeholder = (item.placeholder?.trim() || `填写 ${envName}`).slice(0, 64);
     settings.push({
       id: settingId,
-      title: item.title,
+      title,
       type: "text",
-      ...(item.description ? { description: item.description } : {}),
-      ...(item.placeholder ? { placeholder: item.placeholder } : { placeholder: `填写 ${item.name}` }),
+      ...(description ? { description } : {}),
+      placeholder,
       maxLength: 512,
     });
   }

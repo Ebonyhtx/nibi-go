@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 
+import { APP_CAPABILITIES, readPluginManifest } from "@nibi-go/plugin-contract";
+
 import {
   buildNpmPluginManifest,
+  detectNpmEnvSpecs,
+  extractEnvVarsFromDotEnv,
+  extractEnvVarsFromJs,
+  extractEnvVarsFromReadme,
+  inferNpmPackageFromEntry,
   inspectNpmPackageJson,
   mcpServerNameFor,
+  missingEnvVarNames,
   npmPluginIdFor,
   npmRegistriesForRegion,
   parseNpmSpec,
+  resolvePluginMcpEnv,
+  validatePluginEnvName,
 } from "../src/plugins/npmRegistry";
 
 describe("parseNpmSpec", () => {
@@ -139,5 +149,136 @@ describe("inspectNpmPackageJson", () => {
       },
     });
     expect(kernelManifest).toMatchObject({ name: "npm.amap.maps" });
+  });
+});
+
+describe("npm MCP 环境变量自动探测与注入", () => {
+  it("从 JS 源码提取 process.env.*（点号/下标/解构）并过滤系统与噪音变量", () => {
+    const code = `
+      const key = process.env.AMAP_KEY || process.env["AMAP_MAPS_API_KEY"];
+      const tok = process?.env?.['GITHUB_TOKEN'];
+      const { TAVILY_API_KEY, NODE_ENV = "production", DEBUG: dbg, LD_PRELOAD } = process.env;
+      const ignored = [process.env.PATH, process.env.HOME, process.env.HTTP_PROXY, process.env.NPM_CONFIG_REGISTRY];
+    `;
+    expect(extractEnvVarsFromJs(code)).toEqual([
+      "AMAP_KEY",
+      "AMAP_MAPS_API_KEY",
+      "GITHUB_TOKEN",
+      "TAVILY_API_KEY",
+    ]);
+  });
+
+  it("从 README 的 MCP env 配置片段与 .env.example 提取环境变量", () => {
+    const readme = `
+      # amap-mcp-server
+      \`\`\`json
+      {
+        "mcpServers": {
+          "amap": {
+            "command": "npx",
+            "args": ["-y", "amap-mcp-server"],
+            "env": {
+              "AMAP_KEY": "your-amap-web-service-key",
+              "NODE_ENV": "production"
+            }
+          }
+        }
+      }
+      \`\`\`
+      export AMAP_SECURITY_CODE=abc
+      YOUR_API_KEY=ignored
+    `;
+    expect(extractEnvVarsFromReadme(readme)).toEqual(["AMAP_KEY", "AMAP_SECURITY_CODE"]);
+    expect(
+      extractEnvVarsFromDotEnv("# comment\nAMAP_KEY=\nPORT=3000\nBRAVE_API_KEY=xxx\n"),
+    ).toEqual(["AMAP_KEY", "BRAVE_API_KEY"]);
+  });
+
+  it("合并显式项与自动探测项生成零告警的宿主清单", () => {
+    const specs = detectNpmEnvSpecs({
+      jsFiles: ['const apiKey = process.env.AMAP_KEY || process.env.AMAP_MAPS_API_KEY;'],
+      readmeFiles: ['"env": { "AMAP_KEY": "xxx", "AMAP_EXTRA_TOKEN": "yyy" }'],
+    });
+    expect(specs.map((item) => item.name)).toEqual([
+      "AMAP_KEY",
+      "AMAP_MAPS_API_KEY",
+      "AMAP_EXTRA_TOKEN",
+    ]);
+
+    const { hostManifest } = buildNpmPluginManifest({
+      id: "npm.amap-mcp-server",
+      name: "amap-mcp-server",
+      version: "1.2.1",
+      packageName: "amap-mcp-server",
+      pluginEntry: "node_modules/amap-mcp-server/index.js",
+      env: specs,
+    });
+    const parsed = readPluginManifest(
+      hostManifest,
+      { host: "local", appVersion: "0.1.7", caps: APP_CAPABILITIES },
+      "npm.amap-mcp-server",
+    );
+    expect(parsed.status).toBe("ready");
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.manifest.runtime?.envMap).toEqual({
+      amap_key: "AMAP_KEY",
+      amap_maps_api_key: "AMAP_MAPS_API_KEY",
+      amap_extra_token: "AMAP_EXTRA_TOKEN",
+    });
+  });
+
+  it("校验自定义环境变量名并拦截高危系统变量", () => {
+    expect(validatePluginEnvName("AMAP_KEY")).toEqual({ ok: true, name: "AMAP_KEY" });
+    expect(validatePluginEnvName("  API_V2_KEY  ")).toEqual({ ok: true, name: "API_V2_KEY" });
+    expect(validatePluginEnvName("amap_key").ok).toBe(false);
+    expect(validatePluginEnvName("1_KEY").ok).toBe(false);
+    expect(validatePluginEnvName("PATH").ok).toBe(false);
+    expect(validatePluginEnvName("NODE_OPTIONS").ok).toBe(false);
+    expect(validatePluginEnvName("LD_PRELOAD").ok).toBe(false);
+    expect(validatePluginEnvName("NIBIGO_SETTINGS").ok).toBe(false);
+  });
+
+  it("合并 envMap 与 customEnv 注入 MCP 启动环境，并准确计算待配置变量", () => {
+    const env = resolvePluginMcpEnv({
+      settings: { amap_key: "from-settings", empty_key: "   " },
+      envMap: { amap_key: "AMAP_KEY", empty_key: "EMPTY_KEY", bad: "PATH" },
+      customEnv: {
+        AMAP_KEY: "from-custom",
+        EXTRA_TOKEN: "tok-123",
+        NODE_OPTIONS: "--evil",
+      },
+    });
+    expect(env).toEqual([
+      { name: "NIBIGO_SETTINGS", value: JSON.stringify({ amap_key: "from-settings", empty_key: "   " }) },
+      { name: "AMAP_KEY", value: "from-custom" },
+      { name: "EXTRA_TOKEN", value: "tok-123" },
+    ]);
+
+    // 免重装场景：已安装老清单无 envMap，但 detectedEnvVars 探测到 AMAP_KEY
+    expect(
+      missingEnvVarNames({
+        settings: {},
+        customEnv: {},
+        detectedEnvVars: ["AMAP_KEY", "AMAP_MAPS_API_KEY"],
+      }),
+    ).toEqual(["AMAP_KEY", "AMAP_MAPS_API_KEY"]);
+
+    // 在自定义环境变量中补配 AMAP_KEY 后，AMAP_KEY 不再缺失
+    expect(
+      missingEnvVarNames({
+        settings: {},
+        customEnv: { AMAP_KEY: "my-web-key" },
+        detectedEnvVars: ["AMAP_KEY", "AMAP_MAPS_API_KEY"],
+      }),
+    ).toEqual(["AMAP_MAPS_API_KEY"]);
+
+    // 从 runtime.entry 反推 npm 包名（兼容历史已装包无 sourceMeta 的场景）
+    expect(inferNpmPackageFromEntry("node_modules/amap-mcp-server/index.js")).toBe(
+      "amap-mcp-server",
+    );
+    expect(
+      inferNpmPackageFromEntry("node_modules/@amap/amap-maps-mcp-server/build/index.js"),
+    ).toBe("@amap/amap-maps-mcp-server");
+    expect(inferNpmPackageFromEntry("server.mjs")).toBeUndefined();
   });
 });

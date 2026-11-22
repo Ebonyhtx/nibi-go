@@ -135,7 +135,7 @@ export async function saveMarketRegion(region: MarketRegion): Promise<void> {
   try {
     const file = prefsFile();
     if (!file.exists) file.create();
-    file.write(JSON.stringify({ region }));
+    await file.write(JSON.stringify({ region }));
   } catch {
     // 持久化失败不阻塞内存态切换
   }

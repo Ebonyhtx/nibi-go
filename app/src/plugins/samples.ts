@@ -4,7 +4,6 @@
 //   3. PPT 演示 (nibigo-presentations)：16:9 .pptx 幻灯片生成与大纲提取
 //   4. PDF 工具箱 (nibigo-pdf)：.pdf 文档排版生成与页数/文本解析
 //   5. 图表与可视化 (nibigo-visualize)：响应式 SVG/HTML 数据图表与架构流程图
-//   6. 写作与办公助手 (nibigo-assistant)：总结、润色、缩写、待办提炼与周报/方案/邮件模板
 //
 // 所有 MCP 服务器均运行在本机 Node 24 子进程（stdio JSON-RPC），并在消息流中渲染原生 NIBI-GO 工具卡片。
 
@@ -16,11 +15,12 @@ export interface BundledPlugin {
   files: Record<string, string>;
 }
 
-/** 已退役的旧版示例插件目录：升级启动时由 store.ts 自动清理。 */
+/** 已退役的旧版示例/内置插件目录：升级启动时由 store.ts 自动清理。 */
 export const RETIRED_SAMPLE_DIRS = [
   "nibigo-weather",
   "nibigo-quick",
   "nibigo-focus",
+  "nibigo-assistant",
   "nibigo.weather",
   "nibigo.focus",
   "nibigo.usage",
@@ -1435,139 +1435,12 @@ const VISUALIZE_MANIFEST: Record<string, unknown> = {
   },
 };
 
-// ── 6. 写作与办公助手 (nibigo-assistant) ────────────────────────────────────
-
-const ASSISTANT_MANIFEST: Record<string, unknown> = {
-  schemaVersion: 1,
-  id: "nibigo-assistant",
-  name: "写作与办公助手",
-  version: "1.0.0",
-  description: "长按消息即可润色、缩写或提炼待办；快捷面板提供总结、周报、技术方案与邮件模板。",
-  minApp: "0.1.0",
-  accent: "ok",
-  caps: ["view.v1", "slots.v1", "effects.v1"],
-  skills: [
-    {
-      id: "writing-check",
-      name: "结构化写作与审校",
-      description: "按事实准确性、结构层次、语气得体度与精简度四项标准审校文本。",
-      body: [
-        "# 结构化写作与审校",
-        "",
-        "1. 事实：不编造上下文未提及的数字、日期或承诺。",
-        "2. 结构：结论先行，段落单一主题，善用列表拆解行动项。",
-        "3. 语气：专业克制，删去空洞套话。",
-      ].join("\n"),
-    },
-  ],
-  contributes: {
-    "composer.actions": [
-      {
-        id: "summarize",
-        title: "总结",
-        icon: "doc",
-        token: { kind: "command", value: "nibigo-assistant-summarize" },
-        prompt: [
-          "请总结当前会话或指定内容的核心结论、关键要点与下一步待办，条理清晰，不编造事实。",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-      {
-        id: "polish",
-        title: "润色",
-        icon: "sparkles",
-        token: { kind: "command", value: "nibigo-assistant-polish" },
-        skills: ["nibigo-assistant:writing-check"],
-        prompt: [
-          "请润色用户指定或上文的内容，保持事实不变，使表达更清晰专业。",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-    ],
-    "message.actions": [
-      {
-        id: "polish-message",
-        title: "润色表达",
-        command: "nibigo-assistant-polish-message",
-        skills: ["nibigo-assistant:writing-check"],
-        prompt: [
-          "请润色下面引用的这条消息，直接输出润色后的正文，保持事实不变：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-      {
-        id: "shorten-message",
-        title: "精简缩写",
-        command: "nibigo-assistant-shorten-message",
-        prompt: [
-          "请精简缩写下面引用的这条消息，只保留核心结论与关键数字：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-      {
-        id: "action-items",
-        title: "提炼待办",
-        command: "nibigo-assistant-action-items",
-        prompt: [
-          "请从下面引用的消息中提炼出可执行的待办清单（Checklist）：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-    ],
-    "composer.tools": [
-      {
-        id: "weekly-template",
-        title: "周报汇报模板",
-        icon: "doc",
-        token: { kind: "command", value: "nibigo-assistant-weekly" },
-        prompt: [
-          "请按「本周完成 / 核心产出 / 风险与阻塞 / 下周计划」结构撰写一份工作周报：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-      {
-        id: "spec-template",
-        title: "技术方案模板",
-        icon: "checklist",
-        token: { kind: "command", value: "nibigo-assistant-spec" },
-        prompt: [
-          "请按「背景与目标 / 核心设计 / 接口与数据模型 / 边界与风险 / 验证计划」结构起草一份技术方案：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-      {
-        id: "mail-template",
-        title: "正式邮件模板",
-        icon: "globe",
-        token: { kind: "command", value: "nibigo-assistant-mail" },
-        prompt: [
-          "请撰写一封简洁得体的工作邮件（含主题、背景、核心诉求与下一步时间节点）：",
-          "$ARGUMENTS",
-        ].join("\n"),
-      },
-    ],
-    "session.actions": [
-      {
-        id: "summarize-session",
-        title: "总结本会话",
-        effects: [{ kind: "insert", text: "请总结当前会话的要点、结论和下一步待办。" }],
-      },
-      {
-        id: "open-plugins",
-        title: "打开插件中心",
-        effects: [{ kind: "command", name: "openPlugins" }],
-      },
-    ],
-  },
-};
-
 export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
   { dir: "nibigo-documents", manifest: DOCUMENTS_MANIFEST, files: { "server.mjs": DOCUMENTS_SERVER } },
   { dir: "nibigo-spreadsheets", manifest: SPREADSHEETS_MANIFEST, files: { "server.mjs": SPREADSHEETS_SERVER } },
   { dir: "nibigo-presentations", manifest: PRESENTATIONS_MANIFEST, files: { "server.mjs": PRESENTATIONS_SERVER } },
   { dir: "nibigo-pdf", manifest: PDF_MANIFEST, files: { "server.mjs": PDF_SERVER } },
   { dir: "nibigo-visualize", manifest: VISUALIZE_MANIFEST, files: {} },
-  { dir: "nibigo-assistant", manifest: ASSISTANT_MANIFEST, files: {} },
 ];
 
 export const MANIFEST_FILE = "nibi-go.plugin.json";

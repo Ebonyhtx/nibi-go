@@ -33,6 +33,7 @@ import {
   npmPluginIdFor,
   parseNpmSpec,
 } from "./npmRegistry";
+import { scanNpmPackageEnvSpecs } from "./npmEnvScan";
 import { forgetInstalledPlugin, recordInstalledPlugin } from "./paid";
 import {
   inspectPluginArchive,
@@ -180,7 +181,7 @@ export async function installPluginArchiveBytes(
     for (const file of inspection.files) {
       const destination = new File(staging, file.path);
       destination.create({ intermediates: true, overwrite: true });
-      destination.write(file.bytes);
+      await destination.write(file.bytes);
     }
 
     // 写入合成文件（例如标准包的宿主映射清单、纯技能包的 `.nibi-plugin/plugin.json`）。
@@ -198,7 +199,7 @@ export async function installPluginArchiveBytes(
           : synth.content;
       const destination = new File(staging, synth.path);
       destination.create({ intermediates: true, overwrite: true });
-      destination.write(content);
+      await destination.write(content);
     }
 
     // 原生 nibi-go 插件若带 skills/commands 但未自带 `.nibi-plugin/plugin.json`，自动补齐给内核发现。
@@ -207,7 +208,7 @@ export async function installPluginArchiveBytes(
       for (const kf of kernelFiles) {
         const destination = new File(staging, kf.path);
         destination.create({ intermediates: true, overwrite: true });
-        destination.write(kf.content);
+        await destination.write(kf.content);
       }
     }
 
@@ -219,10 +220,10 @@ export async function installPluginArchiveBytes(
     };
     const metaFile = new File(staging, SOURCE_META_FILE);
     metaFile.create({ intermediates: true, overwrite: true });
-    metaFile.write(`${JSON.stringify(sourceMeta, null, 2)}\n`);
+    await metaFile.write(`${JSON.stringify(sourceMeta, null, 2)}\n`);
 
-    if (target.exists) target.move(trash);
-    staging.move(target);
+    if (target.exists) await target.move(trash);
+    await staging.move(target);
     safeDeleteDir(trash);
   } catch (error) {
     safeDeleteDir(staging);
@@ -350,6 +351,11 @@ export async function installNpmPlugin(params: {
         ? installedPkgJson.description.trim()
         : meta.description);
 
+    const resolvedEnv = scanNpmPackageEnvSpecs(staging, meta.name, {
+      pluginEntry: postcheck.pluginEntry,
+      explicit: params.env,
+    });
+
     const { hostManifest, kernelManifest } = buildNpmPluginManifest({
       id: dir,
       name: displayName,
@@ -359,7 +365,7 @@ export async function installNpmPlugin(params: {
       pluginEntry: postcheck.pluginEntry,
       serverName: params.serverName,
       args: params.args,
-      env: params.env,
+      env: resolvedEnv,
       alwaysLoad: params.alwaysLoad,
       timeoutMs: params.timeoutMs,
     });
@@ -372,11 +378,11 @@ export async function installNpmPlugin(params: {
 
     const hostFile = new File(staging, MANIFEST_FILE);
     hostFile.create({ intermediates: true, overwrite: true });
-    hostFile.write(`${JSON.stringify(hostManifest, null, 2)}\n`);
+    await hostFile.write(`${JSON.stringify(hostManifest, null, 2)}\n`);
 
     const kernelFile = new File(staging, ".nibi-plugin/plugin.json");
     kernelFile.create({ intermediates: true, overwrite: true });
-    kernelFile.write(`${JSON.stringify(kernelManifest, null, 2)}\n`);
+    await kernelFile.write(`${JSON.stringify(kernelManifest, null, 2)}\n`);
 
     const sourceMeta: PluginSourceMeta = {
       kind: "npm",
@@ -392,18 +398,27 @@ export async function installNpmPlugin(params: {
     };
     const metaFile = new File(staging, SOURCE_META_FILE);
     metaFile.create({ intermediates: true, overwrite: true });
-    metaFile.write(`${JSON.stringify(sourceMeta, null, 2)}\n`);
+    await metaFile.write(`${JSON.stringify(sourceMeta, null, 2)}\n`);
 
-    if (target.exists) target.move(trash);
-    staging.move(target);
+    if (target.exists) await target.move(trash);
+    await staging.move(target);
     safeDeleteDir(trash);
 
     await recordInstalledPlugin(dir, parsed.manifest.version, Boolean(params.paid)).catch(() => {});
+    const warnings = [...postcheck.warnings];
+    if (resolvedEnv.length > 0) {
+      const names = resolvedEnv
+        .map((item) => item.name)
+        .slice(0, 2)
+        .join("、");
+      const suffix = resolvedEnv.length > 2 ? ` 等 ${resolvedEnv.length} 项` : "";
+      warnings.unshift(`请在插件中心配置 ${names}${suffix}`);
+    }
     return {
       ok: true,
       dir,
       manifest: parsed.manifest,
-      ...(postcheck.warnings.length > 0 ? { warnings: postcheck.warnings } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (error) {
     safeDeleteDir(staging);

@@ -7,7 +7,7 @@ import {
   friendlyToolName,
   friendlyToolTarget,
 } from "../src/conversation/toolLabels";
-import { BUNDLED_PLUGINS } from "../src/plugins/samples";
+import { BUNDLED_PLUGINS, RETIRED_SAMPLE_DIRS } from "../src/plugins/samples";
 
 describe("toolLabels 用户口径中文化", () => {
   it("将 mcp__phone__* 工具名映射为自然中文动作", () => {
@@ -54,7 +54,7 @@ describe("toolLabels 用户口径中文化", () => {
 });
 
 describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
-  it("包含文档四件套（Word/Excel/PPT/PDF）+ 可视化 + 写作与办公助手且清单全部合法", () => {
+  it("包含文档四件套（Word/Excel/PPT/PDF）+ 可视化且清单零告警", () => {
     const ids = BUNDLED_PLUGINS.map((item) => item.dir);
     expect(ids).toEqual([
       "nibigo-documents",
@@ -62,8 +62,8 @@ describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
       "nibigo-presentations",
       "nibigo-pdf",
       "nibigo-visualize",
-      "nibigo-assistant",
     ]);
+    expect(RETIRED_SAMPLE_DIRS).toContain("nibigo-assistant");
 
     for (const plugin of BUNDLED_PLUGINS) {
       const parsed = readPluginManifest(
@@ -76,6 +76,8 @@ describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
         plugin.dir,
       );
       expect(parsed.status).toBe("ready");
+      expect(parsed.issues).toEqual([]);
+      expect(parsed.degraded).toEqual([]);
     }
   });
 });

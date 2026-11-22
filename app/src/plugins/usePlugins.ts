@@ -4,9 +4,11 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
+  deletePluginEnvVar,
   enabledPlugins as filterEnabled,
   loadPlugins,
   setPluginEnabled,
+  setPluginEnvVar,
   setPluginSetting,
   type LoadedPlugin,
 } from "./store";
@@ -20,6 +22,8 @@ export interface PluginsState {
   reload: () => Promise<readonly LoadedPlugin[]>;
   setEnabled: (id: string, enabled: boolean) => Promise<void>;
   setSetting: (id: string, key: string, value: string | boolean) => Promise<void>;
+  setEnvVar: (id: string, name: string, value: string) => Promise<void>;
+  deleteEnvVar: (id: string, name: string) => Promise<void>;
 }
 
 export function usePlugins(): PluginsState {
@@ -74,5 +78,32 @@ export function usePlugins(): PluginsState {
     [reload],
   );
 
-  return { plugins, enabled, loading, error, reload, setEnabled, setSetting };
+  // 自定义环境变量保存/删除后重读：下次新开会话自动注入 MCP 子进程 env。
+  const setEnvVar = useCallback(
+    async (id: string, name: string, value: string) => {
+      await setPluginEnvVar(id, name, value);
+      await reload();
+    },
+    [reload],
+  );
+
+  const deleteEnvVar = useCallback(
+    async (id: string, name: string) => {
+      await deletePluginEnvVar(id, name);
+      await reload();
+    },
+    [reload],
+  );
+
+  return {
+    plugins,
+    enabled,
+    loading,
+    error,
+    reload,
+    setEnabled,
+    setSetting,
+    setEnvVar,
+    deleteEnvVar,
+  };
 }

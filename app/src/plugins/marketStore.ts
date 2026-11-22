@@ -94,9 +94,9 @@ async function writeSnapshot(snapshot: MarketSnapshotFile): Promise<void> {
   const temp = new File(Paths.document, `${SNAPSHOT_FILE}.tmp`);
   if (temp.exists) temp.delete();
   temp.create();
-  temp.write(JSON.stringify(snapshot));
+  await temp.write(JSON.stringify(snapshot));
   if (file.exists) file.delete();
-  temp.move(file);
+  await temp.move(file);
 }
 
 export interface RefreshMarketOutcome {
@@ -169,5 +169,5 @@ export async function loadPersonalSources(): Promise<PersonalPluginSource[]> {
 export async function savePersonalSources(sources: PersonalPluginSource[]): Promise<void> {
   const file = personalFile();
   if (!file.exists) file.create();
-  file.write(JSON.stringify(sources, null, 2));
+  await file.write(JSON.stringify(sources, null, 2));
 }

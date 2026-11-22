@@ -20,6 +20,14 @@ import type { KernelMcpServer } from "@nibi-go/kernel-session";
 
 import { BUNDLED_PLUGINS, MANIFEST_FILE, RETIRED_SAMPLE_DIRS } from "./samples";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
+import { scanNpmPackageEnvSpecs } from "./npmEnvScan";
+import {
+  inferNpmPackageFromEntry,
+  isBlockedPluginEnvName,
+  PLUGIN_ENV_NAME_RE,
+  resolvePluginMcpEnv,
+  validatePluginEnvName,
+} from "./npmRegistry";
 import {
   STANDARD_MANIFEST_PATHS,
   synthesizeHostManifestFromStandard,
@@ -57,6 +65,10 @@ export interface LoadedPlugin {
   entryPath?: string;
   /** 生效的设置值（清单默认值 + 用户保存值；已按类型收敛）。 */
   settings: Record<string, string | boolean>;
+  /** 用户为该插件保存的自定义环境变量（存于 nibi-plugin-env.json；仅注入 MCP 子进程）。 */
+  customEnv: Record<string, string>;
+  /** 对清单尚未声明 envMap 的已安装 npm MCP，自动探测到的环境变量名列表（支持免重装补配）。 */
+  detectedEnvVars?: readonly string[];
 }
 
 interface PluginState {
@@ -70,9 +82,16 @@ interface PluginSettingsState {
   plugins: Record<string, Record<string, unknown>>;
 }
 
+/** 插件自定义环境变量：`{ "<manifest id>": { "<ENV_NAME>": "<value>" } }`。 */
+interface PluginEnvState {
+  version: 1;
+  plugins: Record<string, Record<string, string>>;
+}
+
 const PLUGINS_DIR = "plugins";
 const STATE_FILE = "nibi-plugins.json";
 const SETTINGS_FILE = "nibi-plugin-settings.json";
+const ENV_FILE = "nibi-plugin-env.json";
 const KERNEL_MANIFEST_DIR = ".nibi-plugin";
 const KERNEL_COMMANDS_DIR = "commands";
 const KERNEL_SKILLS_DIR = "skills";
@@ -392,6 +411,114 @@ export async function setPluginSetting(
   await writeSettings(plugins);
 }
 
+function envFile(): File {
+  return new File(Paths.document, ENV_FILE);
+}
+
+const MAX_ENV_VALUE_LENGTH = 4096;
+
+async function readCustomEnvs(): Promise<Record<string, Record<string, string>>> {
+  try {
+    const file = envFile();
+    if (!file.exists) return {};
+    const parsed = JSON.parse(await file.text()) as PluginEnvState | null;
+    const plugins = record(parsed?.plugins) ?? {};
+    const result: Record<string, Record<string, string>> = {};
+    for (const [id, rawEntry] of Object.entries(plugins)) {
+      const entry = record(rawEntry);
+      if (!entry) continue;
+      const clean: Record<string, string> = {};
+      for (const [name, val] of Object.entries(entry)) {
+        if (!PLUGIN_ENV_NAME_RE.test(name) || isBlockedPluginEnvName(name)) continue;
+        if (typeof val !== "string") continue;
+        const trimmed = val.trim();
+        if (trimmed.length > 0 && !trimmed.includes("\0")) {
+          clean[name] = trimmed.slice(0, MAX_ENV_VALUE_LENGTH);
+        }
+      }
+      if (Object.keys(clean).length > 0) result[id] = clean;
+    }
+    return result;
+  } catch (error) {
+    console.warn("[nibigo] 读取插件环境变量失败", error);
+    return {};
+  }
+}
+
+async function writeCustomEnvs(
+  plugins: Record<string, Record<string, string>>,
+): Promise<void> {
+  await envFile().write(`${JSON.stringify({ version: 1, plugins }, null, 2)}\n`);
+}
+
+/** 新增或更新某插件的一项自定义环境变量（按 manifest id 存；空值视为删除）。 */
+export async function setPluginEnvVar(
+  id: string,
+  rawName: string,
+  rawValue: string,
+): Promise<void> {
+  const validated = validatePluginEnvName(rawName);
+  if (!validated.ok) throw new Error(validated.reason);
+  const trimmed = rawValue.trim();
+  if (trimmed.includes("\0")) throw new Error("环境变量值包含非法字符");
+  const plugins = await readCustomEnvs();
+  const nextForPlugin = { ...(plugins[id] ?? {}) };
+  if (trimmed.length === 0) {
+    delete nextForPlugin[validated.name];
+  } else {
+    nextForPlugin[validated.name] = trimmed.slice(0, MAX_ENV_VALUE_LENGTH);
+  }
+  if (Object.keys(nextForPlugin).length === 0) {
+    delete plugins[id];
+  } else {
+    plugins[id] = nextForPlugin;
+  }
+  await writeCustomEnvs(plugins);
+}
+
+/** 删除某插件的一项自定义环境变量。 */
+export async function deletePluginEnvVar(id: string, name: string): Promise<void> {
+  const plugins = await readCustomEnvs();
+  const current = plugins[id];
+  if (!current || !(name in current)) return;
+  const nextForPlugin = { ...current };
+  delete nextForPlugin[name];
+  if (Object.keys(nextForPlugin).length === 0) {
+    delete plugins[id];
+  } else {
+    plugins[id] = nextForPlugin;
+  }
+  await writeCustomEnvs(plugins);
+}
+
+const detectedEnvCache = new Map<string, readonly string[]>();
+
+function detectInstalledNpmEnvVars(
+  dir: Directory,
+  pluginDir: string,
+  sourceMeta: LoadedPluginSourceMeta | undefined,
+  manifest: ParsedPlugin["manifest"],
+): readonly string[] | undefined {
+  const runtime = manifest.runtime;
+  if (sourceMeta?.kind !== "npm" || !sourceMeta.npmPackage || runtime?.type !== "mcp") {
+    return undefined;
+  }
+  // 清单已经自带 envMap 时无需重复扫描（安装阶段已完成探测）。
+  if (runtime.envMap && Object.keys(runtime.envMap).length > 0) return undefined;
+  const cacheKey = `${pluginDir}|${sourceMeta.npmPackage}|${sourceMeta.installedAt ?? manifest.version}`;
+  const cached = detectedEnvCache.get(cacheKey);
+  if (cached) return cached.length > 0 ? cached : undefined;
+  try {
+    const names = scanNpmPackageEnvSpecs(dir, sourceMeta.npmPackage, {
+      pluginEntry: runtime.entry,
+    }).map((item) => item.name);
+    detectedEnvCache.set(cacheKey, names);
+    return names.length > 0 ? names : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 插件目录清单：内置按 samples 顺序在前，市场安装的按目录名排在后面。 */
 function pluginDirs(): Array<{ dir: string; bundled: boolean }> {
   const root = new Directory(Paths.document, PLUGINS_DIR);
@@ -448,6 +575,7 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
   await ensurePluginFiles();
   const disabled = await readDisabled();
   const stored = await readSettings();
+  const storedEnvs = await readCustomEnvs();
   const profile = hostProfile();
   await ensureLicenseLoaded();
   const paid = await paidPluginIds();
@@ -478,12 +606,24 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
       parsed = readPluginManifest(null, profile, pluginDir);
     }
     const runtime = parsed.manifest.runtime;
+    const inferredNpmPackage =
+      !sourceMeta && runtime?.type === "mcp"
+        ? inferNpmPackageFromEntry(runtime.entry)
+        : undefined;
+    const effectiveSourceMeta: LoadedPluginSourceMeta | undefined =
+      sourceMeta ?? (inferredNpmPackage ? { kind: "npm", npmPackage: inferredNpmPackage } : undefined);
     const entryPath = runtime
       ? stripFileScheme(new File(dir, runtime.entry).uri)
       : undefined;
     const manifestId = parsed.manifest.id;
     const license = paid.has(manifestId) ? pluginLicenseDecision(manifestId) : null;
     const licenseBlocked = license && !license.allowed ? license.reason : undefined;
+    const detectedEnvVars = detectInstalledNpmEnvVars(
+      dir,
+      pluginDir,
+      effectiveSourceMeta,
+      parsed.manifest,
+    );
     return {
       dir: pluginDir,
       root: stripFileScheme(dir.uri),
@@ -491,8 +631,10 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
       enabled: parsed.status === "ready" && !disabled.has(manifestId) && !licenseBlocked,
       bundled,
       ...(kernelName ? { kernelName } : {}),
-      ...(sourceMeta ? { sourceMeta } : {}),
+      ...(effectiveSourceMeta ? { sourceMeta: effectiveSourceMeta } : {}),
       settings: effectiveSettings(parsed.manifest, stored[manifestId]),
+      customEnv: storedEnvs[manifestId] ?? {},
+      ...(detectedEnvVars ? { detectedEnvVars } : {}),
       ...(entryPath ? { entryPath } : {}),
       ...(licenseBlocked ? { licenseBlocked } : {}),
     };
@@ -528,20 +670,11 @@ export function pluginMcpServers(plugins: readonly LoadedPlugin[]): KernelMcpSer
     const runtime = plugin.parsed.manifest.runtime;
     if (!runtime || !plugin.entryPath || seen.has(runtime.serverName)) continue;
     seen.add(runtime.serverName);
-    const keys = Object.keys(plugin.settings);
-    const env: Array<{ name: string; value: string }> = [];
-    if (keys.length > 0) {
-      env.push({ name: "NIBIGO_SETTINGS", value: JSON.stringify(plugin.settings) });
-    }
-    // 标准 npm MCP 的环境变量映射（仅注入非空值）。
-    if (runtime.envMap) {
-      for (const [settingId, envName] of Object.entries(runtime.envMap)) {
-        const value = plugin.settings[settingId];
-        if (value === undefined) continue;
-        const asText = String(value).trim();
-        if (asText.length > 0) env.push({ name: envName, value: asText });
-      }
-    }
+    const env = resolvePluginMcpEnv({
+      settings: plugin.settings,
+      envMap: runtime.envMap,
+      customEnv: plugin.customEnv,
+    });
     servers.push({
       name: runtime.serverName,
       command: "node",

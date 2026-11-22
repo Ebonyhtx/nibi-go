@@ -42,9 +42,9 @@ async function writeRecords(plugins: Record<string, InstalledPluginRecord>): Pro
   const temp = new File(Paths.document, `${RECORD_FILE}.tmp`);
   if (temp.exists) temp.delete();
   temp.create();
-  temp.write(JSON.stringify({ version: 1, plugins } satisfies RecordFile));
+  await temp.write(JSON.stringify({ version: 1, plugins } satisfies RecordFile));
   if (file.exists) file.delete();
-  temp.move(file);
+  await temp.move(file);
 }
 
 export async function recordInstalledPlugin(
