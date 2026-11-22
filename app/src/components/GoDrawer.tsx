@@ -20,7 +20,6 @@ import Animated, {
 import { haptic } from "../motion/haptics";
 import { rubberBandProgress, SIDE_BLEED, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import {
-  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -30,12 +29,13 @@ import {
   TextInput,
   useWindowDimensions,
   View,
-  type AlertButton,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Dot, Icon } from "./Icon";
+import { Sheet } from "./ui/Sheet";
 import { useProjects } from "../kernel/projects";
 import { projectIdOfWorkspace } from "../kernel/workspace";
 import type { PetStateId } from "./PetView";
@@ -272,82 +272,88 @@ export function GoNavContent({
     return out;
   }, [groups, sessions, search, projects, projectFilter, workspaceRoot]);
 
+  // 会话三点菜单（NIBI-GO Sheet 弹层）与彻底删除确认（ConfirmDialog），不再弹原生 Android AlertDialog。
+  const [menuSession, setMenuSession] = useState<KernelSessionSummary | null>(null);
+  const menuSessionRef = useRef<KernelSessionSummary | null>(null);
+  if (menuSession) menuSessionRef.current = menuSession;
+  const shownMenuSession = menuSession ?? menuSessionRef.current;
+
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    | { kind: "single"; session: KernelSessionSummary }
+    | { kind: "all"; count: number }
+    | null
+  >(null);
+  const [drawerNotice, setDrawerNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showDrawerNotice = (msg: string) => {
+    setDrawerNotice(msg);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setDrawerNotice(null), 3500);
+  };
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    },
+    [],
+  );
+
   const run = (action: (() => void | Promise<void>) | undefined, message: string) => {
     if (!action) return;
     void Promise.resolve(action()).catch((error: unknown) => {
-      Alert.alert(message, error instanceof Error ? error.message : String(error));
+      showDrawerNotice(`${message}：${error instanceof Error ? error.message : String(error)}`);
     });
   };
 
-  /** 活动列表的行菜单：归档任务（删除只在归档管理里，避免误删）。 */
+  /** 活动列表的行菜单：打开 NIBI-GO 风格底部 Sheet（归档任务 / 会话信息）。 */
   const openRowMenu = (session: KernelSessionSummary) => {
-    const buttons: AlertButton[] = [
-      { text: "取消", style: "cancel" },
-      { text: "归档任务", onPress: () => run(() => onArchiveSession?.(session.sessionId), "归档失败") },
-    ];
-    if (onSessionActions) {
-      buttons.push({
-        text: "会话信息",
-        onPress: () => onSessionActions(session.sessionId),
-      });
-    }
-    Alert.alert(session.title || "新对话", "归档后可在「已归档」里恢复或删除。", buttons);
+    haptic("tick");
+    setMenuSession(session);
   };
 
   const confirmDelete = (session: KernelSessionSummary) => {
-    Alert.alert(
-      "彻底删除这个会话？",
-      `“${session.title || "新对话"}”的会话记录、附件与轨迹文件会一起删除，无法恢复。`,
-      [
-        { text: "取消", style: "cancel" },
-        {
-          text: "彻底删除",
-          style: "destructive",
-          onPress: () => {
-            void Promise.resolve(onDeleteSession?.(session.sessionId))
-              .then((bytes) => {
-                if (typeof bytes === "number" && bytes > 0) {
-                  Alert.alert("已删除", `释放了 ${formatBytes(bytes)}。`);
-                }
-              })
-              .catch((error: unknown) => {
-                Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
-              });
-          },
-        },
-      ],
-    );
+    haptic("tick");
+    setDeleteConfirm({ kind: "single", session });
   };
 
   const confirmDeleteAll = () => {
     if (archivedSessions.length === 0) return;
-    Alert.alert(
-      `彻底删除这 ${archivedSessions.length} 个归档会话？`,
-      "会话记录、附件与轨迹文件会一起删除，无法恢复。运行中或被引用的会话会保留。",
-      [
-        { text: "取消", style: "cancel" },
-        {
-          text: "全部删除",
-          style: "destructive",
-          onPress: () => {
-            void onDeleteAllArchived?.()
-              .then((result) => {
-                const lines = [`成功 ${result.succeeded} 项`];
-                if (result.bytes > 0) lines.push(`释放 ${formatBytes(result.bytes)}`);
-                if (result.kept > 0) lines.push(`保留 ${result.kept} 项（运行中/被引用）`);
-                if (result.failed > 0) lines.push(`失败 ${result.failed} 项`);
-                Alert.alert(
-                  result.failed > 0 ? "部分删除失败" : "删除完成",
-                  `${lines.join("，")}。`,
-                );
-              })
-              .catch((error: unknown) => {
-                Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
-              });
-          },
-        },
-      ],
-    );
+    haptic("tick");
+    setDeleteConfirm({ kind: "all", count: archivedSessions.length });
+  };
+
+  const executeDeleteConfirm = () => {
+    const target = deleteConfirm;
+    setDeleteConfirm(null);
+    if (!target) return;
+    if (target.kind === "single") {
+      void Promise.resolve(onDeleteSession?.(target.session.sessionId))
+        .then((bytes) => {
+          if (typeof bytes === "number" && bytes > 0) {
+            showDrawerNotice(`已删除，释放了 ${formatBytes(bytes)}`);
+          } else {
+            showDrawerNotice("已彻底删除该会话");
+          }
+        })
+        .catch((error: unknown) => {
+          showDrawerNotice(
+            `删除失败：${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      return;
+    }
+    void onDeleteAllArchived?.()
+      .then((result) => {
+        const lines = [`已删除 ${result.succeeded} 项`];
+        if (result.bytes > 0) lines.push(`释放 ${formatBytes(result.bytes)}`);
+        if (result.kept > 0) lines.push(`保留 ${result.kept} 项（运行中/被引用）`);
+        if (result.failed > 0) lines.push(`失败 ${result.failed} 项`);
+        showDrawerNotice(lines.join("，"));
+      })
+      .catch((error: unknown) => {
+        showDrawerNotice(
+          `删除失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   };
 
   // 入场 stagger 的全局序号（渲染期同步递增，不进状态）：归档入口行占 0，分组头/行依次 +1。
@@ -733,6 +739,18 @@ export function GoNavContent({
       </ScrollView>
 
       {/* 底部三键底座：远控 / 插件中心 / 设置（内嵌面卡片 + 圆底图标徽章） */}
+      {drawerNotice ? (
+        <View
+          style={[
+            styles.drawerNotice,
+            { backgroundColor: t.brandSoft, borderColor: t.brand },
+          ]}
+        >
+          <Text style={[styles.drawerNoticeText, { color: t.ink }]} numberOfLines={2}>
+            {drawerNotice}
+          </Text>
+        </View>
+      ) : null}
       <View style={[styles.footWrap, { paddingBottom: insetBottom + space(2.5) }]}>
         <View
           style={[
@@ -818,6 +836,112 @@ export function GoNavContent({
           </PressableScale>
         </View>
       </View>
+
+      {/* 会话行三点菜单：NIBI-GO 纸上鸟 2.0 底部 Sheet，替代原生 Android AlertDialog */}
+      <Sheet
+        visible={menuSession !== null}
+        onClose={() => setMenuSession(null)}
+        title={shownMenuSession?.title || "新对话"}
+        maxHeightRatio={0.48}
+      >
+        <View style={styles.sheetMenuWrap}>
+          <Text style={[styles.sheetMenuHint, { color: t.inkSub }]}>
+            归档后可在抽屉顶部的「已归档」列表里随时恢复或彻底删除。
+          </Text>
+          <PressableScale
+            scaleTo={0.98}
+            onPress={() => {
+              const target = menuSession;
+              setMenuSession(null);
+              if (target) {
+                run(() => onArchiveSession?.(target.sessionId), "归档失败");
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="归档任务"
+            style={({ pressed }) => [
+              styles.sheetMenuCard,
+              {
+                backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                borderColor: t.hairline,
+              },
+            ]}
+          >
+            <View style={[styles.sheetMenuIcon, { backgroundColor: t.brandSoft }]}>
+              <Icon name="folder" size={16} color={t.brand} />
+            </View>
+            <View style={styles.sheetMenuTextCol}>
+              <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>归档任务</Text>
+              <Text style={[styles.sheetMenuSub, { color: t.inkFaint }]}>
+                从当前会话列表移入归档夹
+              </Text>
+            </View>
+            <Icon name="chevron-right" size={14} color={t.inkGhost} />
+          </PressableScale>
+
+          {onSessionActions ? (
+            <PressableScale
+              scaleTo={0.98}
+              onPress={() => {
+                const target = menuSession;
+                setMenuSession(null);
+                if (target) onSessionActions(target.sessionId);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="会话信息"
+              style={({ pressed }) => [
+                styles.sheetMenuCard,
+                {
+                  backgroundColor: pressed ? t.hover : t.surfaceSoft,
+                  borderColor: t.hairline,
+                },
+              ]}
+            >
+              <View style={[styles.sheetMenuIcon, { backgroundColor: t.steelSoft }]}>
+                <Icon name="sparkles" size={16} color={t.steel} />
+              </View>
+              <View style={styles.sheetMenuTextCol}>
+                <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>会话动作与信息</Text>
+                <Text style={[styles.sheetMenuSub, { color: t.inkFaint }]}>
+                  执行当前会话关联的插件动作
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={14} color={t.inkGhost} />
+            </PressableScale>
+          ) : null}
+
+          <PressableScale
+            scaleTo={0.98}
+            onPress={() => setMenuSession(null)}
+            accessibilityRole="button"
+            accessibilityLabel="取消"
+            style={[
+              styles.sheetCancelBtn,
+              { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+            ]}
+          >
+            <Text style={[styles.sheetCancelText, { color: t.inkSub }]}>取消</Text>
+          </PressableScale>
+        </View>
+      </Sheet>
+
+      <ConfirmDialog
+        visible={deleteConfirm !== null}
+        title={
+          deleteConfirm?.kind === "all"
+            ? `彻底删除这 ${deleteConfirm.count} 个归档会话？`
+            : "彻底删除这个会话？"
+        }
+        message={
+          deleteConfirm?.kind === "all"
+            ? "会话记录、附件与轨迹文件会一起删除，无法恢复。运行中或被引用的会话会保留。"
+            : `“${deleteConfirm?.session.title || "新对话"}”的会话记录、附件与轨迹文件会一起删除，无法恢复。`
+        }
+        confirmLabel={deleteConfirm?.kind === "all" ? "全部删除" : "彻底删除"}
+        danger
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={executeDeleteConfirm}
+      />
     </>
   );
 }
@@ -902,14 +1026,24 @@ export function GoDrawer({
     return { transform: [{ translateX: -10 * (1 - p) }] };
   });
   // 展开后在面板上往左拖 = 跟手关闭；保留松手速度，带过阈微触感与异常取消兜底。
+  // 必须在 onStart（跨过 activeOffsetX 真正成拖动）才置 dragging=1，否则面板内点按钮
+  // 会触发 onBegin → 抹掉玻璃模糊并在 onFinalize 里把 progress 重置回 1。
   const crossed = useSharedValue(0);
+  const panActive = useSharedValue(0);
   const closeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-14, 14])
+        .enabled(open)
+        .activeOffsetX([-20, 20])
         .failOffsetY([-16, 16])
         .onBegin(() => {
           "worklet";
+          panActive.value = 0;
+          crossed.value = 0;
+        })
+        .onStart(() => {
+          "worklet";
+          panActive.value = 1;
           dragging.value = 1;
           crossed.value = 0;
         })
@@ -937,13 +1071,16 @@ export function GoDrawer({
         })
         .onFinalize((_event, success) => {
           "worklet";
-          dragging.value = 0;
-          if (!success) {
-            progress.value = withSpring(1, SIDE_SPRING_CONFIG);
+          if (panActive.value === 1) {
+            panActive.value = 0;
+            dragging.value = 0;
+            if (!success) {
+              progress.value = withSpring(1, SIDE_SPRING_CONFIG);
+            }
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [open],
   );
 
 
@@ -1132,6 +1269,65 @@ export function GoRail({
 
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
+  drawerNotice: {
+    marginHorizontal: space(3.5),
+    marginBottom: space(2),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  drawerNoticeText: { ...text("micro"), fontWeight: "600" },
+  sheetMenuWrap: {
+    gap: space(2),
+    paddingHorizontal: space(4),
+    paddingTop: space(1),
+    paddingBottom: space(3),
+  },
+  sheetMenuHint: {
+    ...text("small"),
+    marginBottom: space(0.5),
+  },
+  sheetMenuCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2.5),
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  sheetMenuIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.control,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetMenuTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  sheetMenuTitle: {
+    ...text("body"),
+    fontWeight: "600",
+  },
+  sheetMenuSub: {
+    ...text("micro"),
+  },
+  sheetCancelBtn: {
+    marginTop: space(1),
+    height: size.button,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetCancelText: {
+    ...text("body"),
+    fontWeight: "600",
+  },
   panel: {
     position: "absolute",
     left: 0,

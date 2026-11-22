@@ -445,9 +445,14 @@ export function useKernelConversation(): KernelConversation {
       return;
     }
     const cumulative = controller.snapshot?.usage.cumulative;
+    const cumulativeTotalInput = cumulative
+      ? cumulative.inputTokens +
+        cumulative.cacheReadTokens +
+        (cumulative.cacheWriteTokens ?? 0)
+      : 0;
     const fallbackHitRate =
-      cumulative && cumulative.inputTokens > 0
-        ? cumulative.cacheReadTokens / cumulative.inputTokens
+      cumulative && cumulativeTotalInput > 0
+        ? Math.min(1, cumulative.cacheReadTokens / cumulativeTotalInput)
         : null;
     // 内核 /context 分析器的分项（chars 是 4 字符/token 折算）：右侧面板用它回答“上下文由什么组成”。
     const breakdown = Array.isArray(usage.breakdown)

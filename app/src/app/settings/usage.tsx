@@ -25,6 +25,7 @@ import type {
 import { SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
+import { friendlyToolName } from "../../conversation/toolLabels";
 import { currentKernelClient } from "../../kernel/kernelRegistry";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { radius, space, text, useNibiTheme } from "../../theme";
@@ -271,7 +272,7 @@ export default function UsageScreen() {
                     stats.tools.slice(0, 8).map((tool) => (
                       <View key={tool.toolName} style={styles.kv}>
                         <Text numberOfLines={1} style={[styles.kvKey, { color: th.inkSub }]}>
-                          {tool.toolName}
+                          {friendlyToolName(tool.toolName)}
                         </Text>
                         <Text style={[styles.kvValue, { color: th.ink }]}>
                           {tool.callCount}

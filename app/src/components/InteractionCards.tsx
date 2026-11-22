@@ -10,6 +10,7 @@ import { StyleSheet, Text, TextInput, View } from "react-native";
 
 import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
+import { friendlyApprovalTitle, friendlyToolName } from "../conversation/toolLabels";
 import { radius, size, space, text, useNibiTheme } from "../theme";
 import { Icon } from "./Icon";
 import { PillButton } from "./ui/PillButton";
@@ -22,23 +23,7 @@ export interface InteractionResponder {
 }
 
 function approvalTitle(toolName: string): string {
-  switch (toolName) {
-    case "bash":
-    case "pwsh":
-    case "shell":
-      return "允许运行这条命令？";
-    case "write":
-      return "允许写入文件？";
-    case "edit":
-    case "str_replace_editor":
-      return "允许修改文件？";
-    case "web_fetch":
-      return "允许访问这个网页？";
-    case "web_search":
-      return "允许联网搜索？";
-    default:
-      return toolName ? `允许使用 ${toolName}？` : "允许执行这个工具？";
-  }
+  return friendlyApprovalTitle(toolName);
 }
 
 function errorText(error: unknown): string {

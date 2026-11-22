@@ -1001,6 +1001,7 @@ export default function GoHomeScreen() {
   const sideMode = useSharedValue(0);
   // 手指正在拖动侧栏的标记（1=拖动中，0=松手）：拖动期绝不挂载 BlurView 掉帧。
   const sideDragging = useSharedValue(0);
+  const sidePanActive = useSharedValue(0);
   const sideCrossed = useSharedValue(0);
   const drawerW = useSharedValue(300);
   const panelW = useSharedValue(360);
@@ -1044,10 +1045,17 @@ export default function GoHomeScreen() {
   const sideGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-14, 14])
-        .failOffsetY([-16, 16])
+        .enabled(!drawerOpen && !workspacePanelOpen)
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-14, 14])
         .onBegin(() => {
           "worklet";
+          sidePanActive.value = 0;
+          sideCrossed.value = 0;
+        })
+        .onStart(() => {
+          "worklet";
+          sidePanActive.value = 1;
           sideDragging.value = 1;
           sideCrossed.value = 0;
         })
@@ -1127,14 +1135,17 @@ export default function GoHomeScreen() {
         })
         .onFinalize((_event, success) => {
           "worklet";
-          sideDragging.value = 0;
-          if (!success) {
-            side.value = withSpring(sideMode.value, SIDE_SPRING_CONFIG);
+          if (sidePanActive.value === 1) {
+            sidePanActive.value = 0;
+            sideDragging.value = 0;
+            if (!success) {
+              side.value = withSpring(sideMode.value, SIDE_SPRING_CONFIG);
+            }
           }
         }),
-    // 回调都是稳定的 setter；闭包捕获的 setState 引用不会随渲染失效。
+    // 回调都是稳定的 setter；按侧栏开关状态启用/停用中部手势。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [drawerOpen, workspacePanelOpen],
   );
   // 舞台微景深（纯 GPU scale + 圆角，仅作用在 BlurTargetView 内部正文层；
   // 拖动期 BlurView 未挂载、停稳后模糊已冻结，所以零额外模糊帧开销）。

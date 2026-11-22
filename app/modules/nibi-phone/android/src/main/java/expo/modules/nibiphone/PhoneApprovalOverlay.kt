@@ -154,9 +154,21 @@ class PhoneApprovalOverlay(private val context: Context) {
     val label = text("NIBI-GO · 手机操控", 11f, Color.parseColor("#C2662F"), bold = true)
     card.addView(label)
 
-    val shortName = toolName.removePrefix("mcp__phone__").ifBlank { "手机工具" }
+    val shortName = toolName.removePrefix("mcp__phone__").removePrefix("phone_").ifBlank { "手机工具" }
+    val friendlyTitle = when (shortName) {
+      "apps" -> "允许查看手机已安装应用？"
+      "open" -> "允许打开手机应用或网页？"
+      "screen" -> "允许读取当前手机屏幕内容？"
+      "tap" -> "允许点按手机屏幕上的元素？"
+      "type" -> "允许在手机输入框填入文字？"
+      "scroll" -> "允许滑动手机屏幕？"
+      "key" -> "允许执行手机系统按键？"
+      "screenshot" -> "允许截取当前手机屏幕画面？"
+      "android_shell" -> "允许在手机上执行系统命令？"
+      else -> "允许执行手机操作（$shortName）？"
+    }
     card.addView(
-      text("允许使用 $shortName？", 17f, Color.parseColor("#111827"), bold = true).apply {
+      text(friendlyTitle, 17f, Color.parseColor("#111827"), bold = true).apply {
         setPadding(0, dp(4), 0, 0)
       },
     )

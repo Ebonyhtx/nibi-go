@@ -19,9 +19,10 @@ async function candidateWorkspaces(client: KernelSessionClient): Promise<string[
   const paths = new Set<string>(["/"]);
   try {
     const list = await client.listSessions();
-    const current = list.find((item) => item.sessionId === client.currentSessionId);
-    const workspace = current?.workspace?.workspacePath;
-    if (typeof workspace === "string" && workspace) paths.add(workspace);
+    for (const item of list) {
+      const workspace = item?.workspace?.workspacePath;
+      if (typeof workspace === "string" && workspace) paths.add(workspace);
+    }
   } catch {
     // 会话列表不可用时只探测 `/`；measure 本身仍会给出结果。
   }

@@ -1,22 +1,33 @@
-// 市场快照的本地持久化与刷新：filesDir/nibi-market.json 存“上次接受的索引 + 状态”。
+// 市场快照与个人插件源的本地持久化与刷新：
+// - filesDir/nibi-market.json 存“上次接受的公开索引 + 状态”；
+// - filesDir/nibi-market-personal.json 存用户在「个人」子页添加的自定义插件包源。
 //
 // 刷新失败（网络/验签/回滚/版本不变量）一律保留旧快照；只有 accept 才覆盖。
 // 网络取字节在这里（expo/RN fetch），判决逻辑在 @nibi-go/market-index。
 
-import { Directory, File, Paths } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 
 import {
   refreshMarketIndexFromSources,
   type MarketIndex,
+  type MarketPluginEntry,
   type MarketRefreshResult,
   type MarketSnapshotState,
 } from "@nibi-go/market-index";
 
-import { MARKET_INDEX_URLS } from "./marketSource";
+import {
+  currentMarketRegion,
+  marketIndexUrlsForRegion,
+  type MarketRegion,
+} from "./marketSource";
 import { fetchBytes } from "./fetchBytes";
 
 const SNAPSHOT_FILE = "nibi-market.json";
+const PERSONAL_FILE = "nibi-market-personal.json";
 const INDEX_MAX_BYTES = 2 * 1024 * 1024;
+
+/** 早期链路联调专用的最小示例 id，不在正式市场面向用户展示。 */
+const HIDDEN_MARKET_IDS = new Set(["nibi.market.hello"]);
 
 export interface MarketSnapshotFile {
   version: 1;
@@ -25,8 +36,20 @@ export interface MarketSnapshotFile {
   index: MarketIndex;
 }
 
+export interface PersonalPluginSource {
+  id: string;
+  name: string;
+  url: string;
+  addedAt: string;
+  installedPluginId?: string;
+}
+
 function snapshotFile(): File {
   return new File(Paths.document, SNAPSHOT_FILE);
+}
+
+function personalFile(): File {
+  return new File(Paths.document, PERSONAL_FILE);
 }
 
 function parseSnapshot(text: string): MarketSnapshotFile | null {
@@ -80,14 +103,14 @@ export interface RefreshMarketOutcome {
   snapshot: MarketSnapshotFile | null;
 }
 
-/** 拉取并校验官方索引；accept 时原子写入快照。 */
-export async function refreshMarket(): Promise<RefreshMarketOutcome> {
+/** 拉取并校验索引；按当前所选「国内源 / 国外源」优先级并发拉取，accept 时原子写入快照。 */
+export async function refreshMarket(region?: MarketRegion): Promise<RefreshMarketOutcome> {
+  const activeRegion = region ?? currentMarketRegion();
   const previous = await loadMarketSnapshot();
-  // 多源取 revision 最大的一份（镜像落后时不会被旧索引卡住；同 revision 不同字节算冲突）。
   const result = await refreshMarketIndexFromSources(
     (url) => fetchBytes(url, INDEX_MAX_BYTES, { cacheBust: true }),
     {
-      indexUrls: MARKET_INDEX_URLS,
+      indexUrls: marketIndexUrlsForRegion(activeRegion),
       previous: previous?.state ?? null,
       previousIndex: previous?.index ?? null,
     },
@@ -109,4 +132,40 @@ export function findMarketPlugin(
   id: string,
 ): MarketIndex["plugins"][number] | undefined {
   return snapshot?.index.plugins.find((plugin) => plugin.id === id);
+}
+
+/** 判断一条远端索引插件是否归属「NIBI」官方子页（其余归属「公开」子页）。 */
+export function isOfficialNibiMarketEntry(entry: MarketPluginEntry): boolean {
+  const pub = (entry.publisher ?? "").toLowerCase();
+  return pub.includes("nibi") || entry.id.startsWith("nibi.") || entry.id.startsWith("nibigo-");
+}
+
+/** 过滤掉联调测试条目后的可见索引条目。 */
+export function visibleMarketEntries(snapshot: MarketSnapshotFile | null): MarketPluginEntry[] {
+  if (!snapshot) return [];
+  return snapshot.index.plugins.filter((entry) => !HIDDEN_MARKET_IDS.has(entry.id));
+}
+
+export async function loadPersonalSources(): Promise<PersonalPluginSource[]> {
+  try {
+    const file = personalFile();
+    if (!file.exists) return [];
+    const parsed = JSON.parse(await file.text()) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is PersonalPluginSource =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as PersonalPluginSource).id === "string" &&
+        typeof (item as PersonalPluginSource).url === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function savePersonalSources(sources: PersonalPluginSource[]): Promise<void> {
+  const file = personalFile();
+  if (!file.exists) file.create();
+  file.write(JSON.stringify(sources, null, 2));
 }

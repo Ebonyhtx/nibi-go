@@ -59,8 +59,9 @@ export function SideBackdrop({
     opacity: Math.min(1, Math.abs(progress.value)),
   }));
 
-  // 磨砂层状态（0 关 / 1 开）；带滞回与 dragging 守卫：手指按下或拖动期立即摘掉，
-  // 停稳后才淡入，保证滑动全程 60/120fps 不掉帧。
+  // 磨砂层状态（0 关 / 1 开）；带滞回与 dragging 守卫：手指真实拖动期摘掉，
+  // 停稳后淡入并冻结纹理；点击按钮收起侧栏时（drag===0）随外层 dimStyle 一并平滑淡出，
+  // 到完全收起（p<=0.02）再卸载，避免点按钮时磨砂突然消失。
   const frost = useSharedValue(0);
   const [frosted, setFrosted] = useState(false);
   useAnimatedReaction(
@@ -70,7 +71,7 @@ export function SideBackdrop({
       if (drag === 0 && p >= 0.992 && frost.value === 0) {
         frost.value = withTiming(1, { duration: 180 });
         runOnJS(setFrosted)(true);
-      } else if ((drag === 1 || p <= 0.985) && frost.value > 0) {
+      } else if ((drag === 1 || p <= 0.02) && frost.value > 0) {
         frost.value = 0;
         runOnJS(setFrosted)(false);
       }
@@ -88,13 +89,23 @@ export function SideBackdrop({
   }, [frosted]);
 
   // 遮罩手势：点按即收，横滑跟手收起（并触发一次过阈轻触感）。
+  // 注意：必须在 onStart（跨过 activeOffsetX 真正成拖动）才置 dragging=1 与 panActive=1，
+  // 否则轻点遮罩也会触发 onBegin → 抹掉模糊并在 onFinalize 里把 progress 弹回展开态。
   const crossed = useSharedValue(0);
+  const panActive = useSharedValue(0);
   const backdropGesture = useMemo(() => {
     const pan = Gesture.Pan()
-      .activeOffsetX([-12, 12])
+      .enabled(open)
+      .activeOffsetX([-18, 18])
       .failOffsetY([-18, 18])
       .onBegin(() => {
         "worklet";
+        panActive.value = 0;
+        crossed.value = 0;
+      })
+      .onStart(() => {
+        "worklet";
+        panActive.value = 1;
         dragging.value = 1;
         crossed.value = 0;
       })
@@ -145,15 +156,19 @@ export function SideBackdrop({
       })
       .onFinalize((_event, success) => {
         "worklet";
-        dragging.value = 0;
-        if (!success) {
-          const mode = sideMode.value;
-          progress.value = withSpring(mode, SIDE_SPRING_CONFIG);
+        if (panActive.value === 1) {
+          panActive.value = 0;
+          dragging.value = 0;
+          if (!success) {
+            const mode = sideMode.value;
+            progress.value = withSpring(mode, SIDE_SPRING_CONFIG);
+          }
         }
       });
 
     const tap = Gesture.Tap()
-      .maxDistance(12)
+      .enabled(open)
+      .maxDistance(14)
       .onEnd((_event, success) => {
         "worklet";
         if (success) runOnJS(onClose)();
@@ -161,7 +176,7 @@ export function SideBackdrop({
 
     return Gesture.Race(pan, tap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [open]);
 
   return (
     <Animated.View style={[styles.dim, dimStyle]} pointerEvents={open ? "auto" : "none"}>
@@ -186,6 +201,7 @@ export function SideBackdrop({
       <GestureDetector gesture={backdropGesture}>
         <View
           style={StyleSheet.absoluteFill}
+          pointerEvents={open ? "auto" : "none"}
           accessible
           accessibilityRole="button"
           accessibilityLabel="关闭侧栏"

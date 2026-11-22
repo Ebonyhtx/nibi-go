@@ -43,6 +43,11 @@ import { motion, radius, size, space, text, type NibiTheme, useNibiTheme } from 
 import { AgentFace, type AgentFaceStatus } from "./AgentFace";
 import { Disclosure } from "./Disclosure";
 import { Icon, type IconName } from "./Icon";
+import {
+  friendlyToolIcon,
+  friendlyToolName,
+  friendlyToolTarget,
+} from "../conversation/toolLabels";
 import { InteractionCard, type InteractionResponder } from "./InteractionCards";
 import {
   matchPluginToolCard,
@@ -477,35 +482,65 @@ function ConversationListImpl({
   );
 
   // 「回到底部」状态机：带滞回（离开 >80px、回到 <24px）与 ref 守卫，
-  // 避免临界抖动和每帧重复 setState；并且只在流式/新行到达时自动贴底，
+  // 避免临界抖动和每帧重复 setState；并且只在流式/新行到达/回合刚落定时自动贴底，
   // 手动点开思考或工具详情不再把列表强拽回底部。
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
   const isUserDraggingRef = useRef(false);
   const hasStreamingRef = useRef(false);
+  const wasStreamingRef = useRef(false);
   const prevRowCountRef = useRef(rows.length);
   const prevFirstKeyRef = useRef<string | undefined>(rows[0]?.key);
+  const prevLastKeyRef = useRef<string | undefined>(rows[rows.length - 1]?.key);
   const pendingAutoScrollRef = useRef(rows.length > 0);
+  const autoScrollUntilRef = useRef(0);
   const updateAtBottom = useCallback((next: boolean) => {
     if (next === atBottomRef.current) return;
     atBottomRef.current = next;
     setAtBottom(next);
   }, []);
-  hasStreamingRef.current = rows.some(
+  const nowStreaming = rows.some(
     (row) => row.kind === "pending" || (row.kind === "assistant" && row.streaming),
   );
+  // 流式结束（true -> false）瞬间：思考块自动收起、中间过程折叠进 ProcessGroup、
+  // 正文从 BodyText 切到 MessageMarkdown 并追加 turn 脚注——这几个布局高度重算在
+  // 随后 ~450ms 内陆续触发 onContentSizeChange，必须保持自动贴底窗口。
+  if (wasStreamingRef.current && !nowStreaming) {
+    pendingAutoScrollRef.current = true;
+    autoScrollUntilRef.current = Date.now() + 500;
+  }
+  wasStreamingRef.current = nowStreaming;
+  hasStreamingRef.current = nowStreaming;
   // 换会话（首行身份变化或列表清空）时重置贴底状态与增量入场游标。
   if (rows[0]?.key !== prevFirstKeyRef.current) {
     prevFirstKeyRef.current = rows[0]?.key;
+    prevLastKeyRef.current = rows[rows.length - 1]?.key;
     maxSeenRowIdRef.current = null;
     stickToBottom.current = true;
     pendingAutoScrollRef.current = rows.length > 0;
+    autoScrollUntilRef.current = Date.now() + 500;
     updateAtBottom(true);
   }
-  if (rows.length !== prevRowCountRef.current) {
-    if (rows.length > prevRowCountRef.current) pendingAutoScrollRef.current = true;
+  const currentLastKey = rows[rows.length - 1]?.key;
+  if (rows.length !== prevRowCountRef.current || currentLastKey !== prevLastKeyRef.current) {
+    pendingAutoScrollRef.current = true;
+    autoScrollUntilRef.current = Date.now() + 450;
     prevRowCountRef.current = rows.length;
+    prevLastKeyRef.current = currentLastKey;
   }
+  useEffect(() => {
+    if (!stickToBottom.current || isUserDraggingRef.current || rows.length === 0) return;
+    if (hasStreamingRef.current || pendingAutoScrollRef.current || Date.now() < autoScrollUntilRef.current) {
+      ref.current?.scrollToEnd({ animated: false });
+      const timer = setTimeout(() => {
+        if (stickToBottom.current && !isUserDraggingRef.current && rows.length > 0) {
+          ref.current?.scrollToEnd({ animated: false });
+        }
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [rows.length, currentLastKey, nowStreaming]);
   useEffect(() => {
     onAtBottomChange?.(atBottom);
   }, [atBottom, onAtBottomChange]);
@@ -612,6 +647,10 @@ function ConversationListImpl({
     () => <View style={{ height: bottomInset > 0 ? space(2) + bottomInset : space(3.5) }} />,
     [bottomInset],
   );
+  // 禁用 FlashList v2 默认开启的 maintainVisibleContentPosition：
+  // 它的 applyOffsetCorrection 会锚定首屏顶部或上次惯性滚动停止时的第一条可见项（firstVisibleItemKey），
+  // 导致回合结束折叠过程行/追加 turn 脚注（data 变化）时把滚动条强行拉回旧消息甚至列表最顶部。
+  const mvcpConfig = useMemo(() => ({ disabled: true }), []);
 
   return (
     <View style={styles.scrollWrap}>
@@ -622,6 +661,7 @@ function ConversationListImpl({
         keyExtractor={keyExtractor}
         getItemType={getItemType}
         drawDistance={600}
+        maintainVisibleContentPosition={mvcpConfig}
         renderItem={renderItem}
         extraData={extraData}
         ItemSeparatorComponent={RowSeparator}
@@ -645,7 +685,7 @@ function ConversationListImpl({
           const next = atBottomRef.current
             ? distanceFromBottom <= 80
             : distanceFromBottom <= 24;
-          // 仅在用户主动滑动或接近底部时更新 stickToBottom，防止展开折叠块误断贴底。
+          // 仅在用户主动滑动或接近底部时更新 stickToBottom，防止展开折叠块或回合折叠误断贴底。
           if (isUserDraggingRef.current || next) {
             stickToBottom.current = next;
             updateAtBottom(next);
@@ -656,7 +696,9 @@ function ConversationListImpl({
           if (
             stickToBottom.current &&
             !isUserDraggingRef.current &&
-            (hasStreamingRef.current || pendingAutoScrollRef.current)
+            (hasStreamingRef.current ||
+              pendingAutoScrollRef.current ||
+              Date.now() < autoScrollUntilRef.current)
           ) {
             pendingAutoScrollRef.current = false;
             ref.current?.scrollToEnd({ animated: false });
@@ -1396,13 +1438,13 @@ const ToolRowView = memo(function ToolRowView({
                 { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
               ]}
             >
-              <Icon name={toolIcon(row.name)} size={12} color={tone} />
+              <Icon name={toolIcon(row.name, row.detail)} size={12} color={tone} />
             </View>
           )
         }
         title={
           <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
-            {row.name || "tool"}
+            {friendlyToolName(row.name, row.detail)}
           </Text>
         }
         subtitle={
@@ -1451,26 +1493,8 @@ const ToolRowView = memo(function ToolRowView({
   );
 });
 
-/** 已知工具的专属图标（Agent 走瓦片脸；其余落 wrench——通用工具语义）。 */
-const TOOL_ICONS: Partial<Record<string, IconName>> = {
-  Bash: "terminal",
-  PowerShell: "terminal",
-  Read: "doc",
-  Write: "doc",
-  NotebookEdit: "doc",
-  Edit: "pen",
-  Grep: "search",
-  Glob: "folder",
-  WebFetch: "globe",
-  WebSearch: "globe",
-  TodoWrite: "checklist",
-  Skill: "sparkles",
-  TaskStop: "stop",
-  TaskOutput: "clock",
-};
-
-function toolIcon(name: string): IconName {
-  return TOOL_ICONS[name] ?? "wrench";
+function toolIcon(name: string, detail?: string): IconName {
+  return friendlyToolIcon(name, detail);
 }
 
 /** 工具状态 → 词；未知状态原样显示，不吞信息。 */
@@ -1498,74 +1522,12 @@ function toolTone(th: NibiTheme, status: string): string {
   return th.amber;
 }
 
-/** 参数 JSON（可能被截断）里抓一个字符串键的值；做最小反转义。
- * 不要求闭合引号：detail 截 120 字常把长值拦腰截断，抓到开头就够用。 */
-function paramOf(raw: string, key: string): string | undefined {
-  const match = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, "u").exec(raw);
-  if (!match) return undefined;
-  return match[1]
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    )
-    .replace(/\\(.)/gu, "$1");
-}
-
-function cap(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value;
-}
-
 /**
- * 折叠行里的目标摘要：按工具挑人能读的参数（命令/文件名/模式/URL），
- * 不再把裸 JSON 摆进消息流；认不出的工具回退到参数摘要前 40 字。
+ * 折叠行里的目标摘要：按工具挑人能读的参数（命令/文件名/应用名/手机操作对象/URL），
+ * 不再把裸 JSON 或工程细节摆进消息流。
  */
 function toolTarget(row: Extract<ChatRow, { kind: "tool" }>): string {
-  const raw = row.detail ?? "";
-  const squash = (value: string) => value.replace(/\s+/g, " ").trim();
-  switch (row.name) {
-    case "Bash":
-    case "PowerShell": {
-      const command = paramOf(raw, "command");
-      if (command) return cap(squash(command), 56);
-      break;
-    }
-    case "Read":
-    case "Write":
-    case "Edit":
-    case "NotebookEdit": {
-      const path = paramOf(raw, "file_path") ?? paramOf(raw, "notebook_path");
-      if (path) {
-        // 只留文件名：目录是工程细节，展开后看全路径。
-        return cap(path.split(/[\\/]/u).pop() ?? path, 40);
-      }
-      break;
-    }
-    case "Grep":
-    case "Glob": {
-      const pattern = paramOf(raw, "pattern");
-      if (pattern) return cap(pattern, 40);
-      break;
-    }
-    case "WebFetch":
-    case "WebSearch": {
-      const target = paramOf(raw, "url") ?? paramOf(raw, "query");
-      if (target) return cap(target.replace(/^https?:\/\//u, ""), 48);
-      break;
-    }
-    case "Agent": {
-      const description = paramOf(raw, "description");
-      if (description) return cap(squash(description), 40);
-      break;
-    }
-    case "Skill": {
-      const skill = paramOf(raw, "skill") ?? paramOf(raw, "command");
-      if (skill) return cap(squash(skill), 40);
-      break;
-    }
-    default:
-      break;
-  }
-  const fallback = squash(raw);
-  return fallback ? cap(fallback, 40) : "";
+  return friendlyToolTarget(row.name, row.detail, row.todos?.length);
 }
 
 /** 思考块：折叠一行（标签 / 耗时 / 流式尾部预览），展开是纯文本滚动区。 */

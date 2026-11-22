@@ -6,7 +6,7 @@
 //   - 可选 avoidKeyboard（独立 UI 线程 translateY，绝不与 RN Animated 驱动冲突）
 //   - 退场完成带 visibleRef 守卫（关→立刻重开不会误卸）
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Keyboard, Modal, StyleSheet, View, type KeyboardEvent } from "react-native";
+import { Keyboard, Modal, StyleSheet, Text, View, type KeyboardEvent } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReducedMotion } from "../../motion/appear";
 import { haptic } from "../../motion/haptics";
-import { radius, space, useNibiTheme } from "../../theme";
+import { radius, space, text, useNibiTheme } from "../../theme";
 
 const SHEET_SPRING = {
   damping: 30,
@@ -34,6 +34,7 @@ const SHEET_SPRING = {
 export function Sheet({
   visible,
   onClose,
+  title,
   children,
   maxHeightRatio = 0.84,
   /** 危险/沉浸弹层用加深遮罩 */
@@ -45,6 +46,7 @@ export function Sheet({
 }: {
   visible: boolean;
   onClose: () => void;
+  title?: string;
   children: ReactNode;
   maxHeightRatio?: number;
   strong?: boolean;
@@ -274,6 +276,13 @@ export function Sheet({
                 </View>
               </GestureDetector>
             ) : null}
+            {title ? (
+              <View style={styles.titleRow}>
+                <Text style={[styles.titleText, { color: th.ink }]} numberOfLines={1}>
+                  {title}
+                </Text>
+              </View>
+            ) : null}
             {children}
           </Animated.View>
         </Animated.View>
@@ -305,5 +314,14 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: radius.chip,
     opacity: 0.65,
+  },
+  titleRow: {
+    paddingHorizontal: space(4),
+    paddingTop: space(1),
+    paddingBottom: space(2),
+  },
+  titleText: {
+    ...text("bodyLg"),
+    fontWeight: "700",
   },
 });

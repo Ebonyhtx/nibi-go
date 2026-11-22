@@ -1,21 +1,25 @@
-// 插件市场：读已验签的索引快照，展示可安装/可更新插件，执行安装/更新/卸载。
+// 插件市场：分为「NIBI / 公开 / 个人」三个子页，顶部支持一键切换「国内源 / 国外源」。
 //
-// 索引刷新失败（网络/验签/回滚/版本不变量）会保留上一份快照并给出原因；
-// 安装前校验包 sha256，解包后校验清单 id/version 与索引一致。
-// 2.0：ScreenHeader（右槽=刷新）；账号/授权卡改 SectionCard + Row；
-// 安装/更新/卸载统一 PillButton（primary=安装/更新，danger=卸载）；进度条 token 化。
-// 「同步」按钮必须保留 onLongPress 调试入口（授权状态模拟），所以不换成 PillButton。
+// - NIBI：NIBI-GO 官方原生插件套件（Word / Excel / PPT / PDF 文档四件套、图表与可视化、写作与办公助手）及官方扩展；
+// - 公开：来自公开镜像源（国内 jsDelivr + npmmirror / 国外 GitHub Raw + npmjs）的开源与社区插件；
+// - 个人：用户自定义添加的插件包直链 / 镜像地址，或从手机本地导入的 .zip 插件包。
+//
+// 界面静态零「付费 / 会员」字样：所有未安装插件统一展示「安装」；
+// 仅在点击「安装」且该插件需要账号授权时，才按需校验登录态与授权，未获权时弹出应用内嵌 handoff WebView。
 
-import { router, useFocusEffect } from "expo-router";
-import { Fragment, useCallback, useRef, useState } from "react";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
+import { strToU8, zipSync } from "fflate";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Linking,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,29 +27,242 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { comparePluginVersions, type MarketPluginEntry } from "@nibi-go/market-index";
 
 import { Icon } from "../components/Icon";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MembershipSheet } from "../components/MembershipSheet";
 import { PillButton } from "../components/ui/PillButton";
 import { Row } from "../components/ui/Row";
-import { Divider, SectionCard } from "../components/ui/SectionCard";
 import { ScreenHeader } from "../components/ui/ScreenHeader";
-import { installMarketPlugin, readInstalledManifest, uninstallMarketPlugin } from "../plugins/installer";
-import { readMarketSnapshot, refreshMarket, type MarketSnapshotFile } from "../plugins/marketStore";
-import {
-  currentLicenseToken,
-  debugClearLicenseSim,
-  debugLicenseSimActive,
-  debugSimulateLastCheckAge,
-  ensureLicenseLoaded,
-  licenseNeedsSync,
-  licenseSnapshot,
-  licenseSummary,
-  pluginLicenseDecision,
-} from "../plugins/license";
-import { syncLicense } from "../plugins/licenseSync";
-import { usePlugins } from "../plugins/usePlugins";
-import { useSession } from "../relay/useSession";
+import { Divider, SectionCard } from "../components/ui/SectionCard";
+import { SegmentedControl, type SegmentedOption } from "../components/ui/SegmentedControl";
+import { Sheet } from "../components/ui/Sheet";
 import { AppearIn, staggerDelay } from "../motion/appear";
 import { PressableScale } from "../motion/PressableScale";
+import {
+  installMarketPlugin,
+  installPersonalUrlPlugin,
+  installPluginArchiveBytes,
+  readInstalledManifest,
+  uninstallMarketPlugin,
+} from "../plugins/installer";
+import { ensureLicenseLoaded, pluginLicenseDecision } from "../plugins/license";
+import { syncLicense } from "../plugins/licenseSync";
+import {
+  currentMarketRegion,
+  loadMarketRegion,
+  marketRegionLabel,
+  saveMarketRegion,
+  type MarketRegion,
+} from "../plugins/marketSource";
+import {
+  isOfficialNibiMarketEntry,
+  loadPersonalSources,
+  readMarketSnapshot,
+  refreshMarket,
+  savePersonalSources,
+  visibleMarketEntries,
+  type MarketSnapshotFile,
+  type PersonalPluginSource,
+} from "../plugins/marketStore";
+import { BUNDLED_PLUGINS } from "../plugins/samples";
+import { usePlugins } from "../plugins/usePlugins";
+import { useSession } from "../relay/useSession";
 import { radius, size, space, text, useNibiTheme } from "../theme";
+
+type MarketTab = "nibi" | "public" | "personal";
+
+const MARKET_TABS: readonly SegmentedOption<MarketTab>[] = [
+  { value: "nibi", label: "NIBI" },
+  { value: "public", label: "公开" },
+  { value: "personal", label: "个人" },
+];
+
+interface CuratedPublicPlugin {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  description: string;
+  files: Record<string, string>;
+}
+
+/**
+ * 公开子页内置的开源实用插件包（支持离线/在线一键打包安装到 filesDir/plugins/<id>，
+ * 同时与远端公开镜像索引拉取到的社区插件合并展示）。
+ */
+const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
+  {
+    id: "open.git-workflow",
+    name: "Git 变更与提交审阅",
+    version: "1.0.0",
+    publisher: "Open Community",
+    description: "梳理工作区 Git 变更差异、按 Conventional Commits 规范生成提交说明并排查潜在冲突。",
+    files: {
+      "nibi-go.plugin.json": JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: "open.git-workflow",
+          name: "Git 变更与提交审阅",
+          version: "1.0.0",
+          description: "梳理工作区 Git 变更差异、按规范生成提交说明并排查潜在冲突。",
+          minApp: "0.1.0",
+          accent: "brand",
+          caps: ["view.v1", "slots.v1", "effects.v1"],
+          skills: [
+            {
+              id: "commit-review",
+              name: "Git 提交审阅",
+              description: "审阅工作区代码变更并生成规范的提交说明。",
+              body: "# Git 变更审阅与提交规范\n\n审阅代码变更时，先归纳核心意图与影响面，指出破坏性改动或遗漏测试，再给出 `type(scope): subject` 格式的提交说明。",
+            },
+          ],
+          contributes: {
+            "composer.actions": [
+              {
+                id: "draft-commit",
+                title: "提交说明",
+                icon: "checklist",
+                token: { kind: "command", value: "open-git-draft-commit" },
+                skills: ["open.git-workflow:commit-review"],
+                prompt: "请检查当前项目的改动内容，审阅潜在问题并按 Conventional Commits 规范拟定清晰的 Git 提交说明。\n$ARGUMENTS",
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    },
+  },
+  {
+    id: "open.api-inspector",
+    name: "HTTP 接口联调助手",
+    version: "1.0.0",
+    publisher: "Open Community",
+    description: "快速构造 REST / GraphQL 请求参数、解析响应结构并生成接口联调诊断报告。",
+    files: {
+      "nibi-go.plugin.json": JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: "open.api-inspector",
+          name: "HTTP 接口联调助手",
+          version: "1.0.0",
+          description: "快速构造 REST / GraphQL 请求参数、解析响应结构并生成接口联调诊断报告。",
+          minApp: "0.1.0",
+          accent: "steel",
+          caps: ["view.v1", "slots.v1", "effects.v1"],
+          skills: [
+            {
+              id: "api-debug",
+              name: "接口联调诊断",
+              description: "核对 HTTP 请求头、入参、状态码与响应结构。",
+              body: "# HTTP 接口联调诊断\n\n针对接口请求异常，依次核对鉴权头、Content-Type、路径参数、超时与幂等性，并给出可直接复现的验证步骤。",
+            },
+          ],
+          contributes: {
+            "composer.actions": [
+              {
+                id: "inspect-api",
+                title: "接口排查",
+                icon: "globe",
+                token: { kind: "command", value: "open-api-inspect" },
+                skills: ["open.api-inspector:api-debug"],
+                prompt: "请帮我分析接口的请求头、入参、状态码与响应体，定位联调失败或字段不匹配的根因并给出修复方案。\n$ARGUMENTS",
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    },
+  },
+  {
+    id: "open.sql-helper",
+    name: "SQL 建模与查询优化",
+    version: "1.0.0",
+    publisher: "Open Community",
+    description: "辅助设计数据库表结构、编写复杂聚合查询并分析索引与慢查询瓶颈。",
+    files: {
+      "nibi-go.plugin.json": JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: "open.sql-helper",
+          name: "SQL 建模与查询优化",
+          version: "1.0.0",
+          description: "辅助设计数据库表结构、编写复杂聚合查询并分析索引与慢查询瓶颈。",
+          minApp: "0.1.0",
+          accent: "amber",
+          caps: ["view.v1", "slots.v1", "effects.v1"],
+          skills: [
+            {
+              id: "sql-tuning",
+              name: "SQL 建模与调优",
+              description: "数据库表结构设计与慢查询索引优化。",
+              body: "# SQL 建模与查询优化\n\n输出 SQL 时明确方言（PostgreSQL / MySQL / SQLite），优先使用联合索引覆盖高频过滤列，避免隐式类型转换与全表扫描。",
+            },
+          ],
+          contributes: {
+            "composer.actions": [
+              {
+                id: "optimize-sql",
+                title: "SQL 优化",
+                icon: "terminal",
+                token: { kind: "command", value: "open-sql-optimize" },
+                skills: ["open.sql-helper:sql-tuning"],
+                prompt: "请审阅以下 SQL 语句或表结构，分析索引命中情况与执行代价，并给出优化后的 SQL 与索引建议。\n$ARGUMENTS",
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    },
+  },
+  {
+    id: "open.test-architect",
+    name: "单元测试与边界用例生成",
+    version: "1.0.0",
+    publisher: "Open Community",
+    description: "针对核心业务函数自动推导正常路径、边界条件与异常分支测试，提升代码覆盖率。",
+    files: {
+      "nibi-go.plugin.json": JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: "open.test-architect",
+          name: "单元测试与边界用例生成",
+          version: "1.0.0",
+          description: "针对核心业务函数自动推导正常路径、边界条件与异常分支测试。",
+          minApp: "0.1.0",
+          accent: "ok",
+          caps: ["view.v1", "slots.v1", "effects.v1"],
+          skills: [
+            {
+              id: "unit-test-gen",
+              name: "边界用例设计",
+              description: "推导正常路径、极值边界与异常分支单元测试。",
+              body: "# 单元测试与边界用例设计\n\n遵循 Arrange-Act-Assert 结构，聚焦真实业务不变量与边界输入，不写毫无断言的形式化测试。",
+            },
+          ],
+          contributes: {
+            "composer.actions": [
+              {
+                id: "gen-tests",
+                title: "生成单测",
+                icon: "check",
+                token: { kind: "command", value: "open-test-gen" },
+                skills: ["open.test-architect:unit-test-gen"],
+                prompt: "请为当前模块设计覆盖正常路径、空值/极值边界与异常分支的单元测试用例并运行验证。\n$ARGUMENTS",
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    },
+  },
+];
 
 function describeFailure(kind: string, detail: string): string {
   switch (kind) {
@@ -62,31 +279,6 @@ function describeFailure(kind: string, detail: string): string {
   }
 }
 
-/** 服务端拒绝原因 → 用户能执行下一步的中文；登录态与会员是两件事，不能混成“需会员”。 */
-function describeLicenseRefusal(reason: string | null, detail?: string | null): string {
-  switch (reason) {
-    case "no_membership":
-      return "账号已登录，但这个账号还没有开通 NIBI 会员；付费插件需要会员授权。";
-    case "membership_expired":
-      return "NIBI 会员已到期，续费后同步即可。";
-    case "device_limit":
-      return detail ?? "这个账号绑定的设备数已达上限，请先在用户中心移除不用的设备。";
-    case "device_mismatch":
-      return "本机授权与设备不匹配，请重新登录并同步授权。";
-    case "account_mismatch":
-      return "本机授权属于另一个 NIBI 账号，请重新登录并同步授权。";
-    case "activation_revoked":
-      return "这台设备的激活已被撤销，请重新登录或联系支持。";
-    case "not_entitled":
-      return "当前会员不包含这个插件。";
-    case "http_401":
-      return "登录已过期，请重新登录。";
-    default:
-      return detail ?? (reason ? `服务端拒绝：${reason}` : "本机还没有同步付费授权");
-  }
-}
-
-/** 状态徽标：soft 底 + 对应色文字（付费/未安装/可更新/已安装/已下架 统一走这一处）。 */
 function StatusPill({ bg, color, label }: { bg: string; color: string; label: string }) {
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
@@ -95,7 +287,6 @@ function StatusPill({ bg, color, label }: { bg: string; color: string; label: st
   );
 }
 
-/** ISO 时间戳 → 本地「YYYY-MM-DD HH:mm」（原样 ISO 串不友好，2.0.1 审查）。 */
 function formatFetchedAt(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -105,14 +296,14 @@ function formatFetchedAt(iso: string): string {
   )}:${pad(date.getMinutes())}`;
 }
 
+/**
+ * 市场插件卡片：不显示任何静态「付费 / 会员」标签。
+ * 未安装统一显示「未安装」与「安装」按钮；点击「安装」时按需触发登录或内嵌授权。
+ */
 function MarketRow({
   entry,
   installedVersion,
   busy,
-  paidDecision,
-  blockedReason,
-  accessLabel,
-  onResolveAccess,
   onInstall,
   onUninstall,
   onCancel,
@@ -120,10 +311,6 @@ function MarketRow({
   entry: MarketPluginEntry;
   installedVersion: string | null;
   busy: boolean;
-  paidDecision: { allowed: boolean; reason: string } | null;
-  blockedReason?: string;
-  accessLabel: string;
-  onResolveAccess: () => void;
   onInstall: () => void;
   onUninstall: () => void;
   onCancel: () => void;
@@ -131,19 +318,18 @@ function MarketRow({
   const t = useNibiTheme();
   const hasUpdate =
     installedVersion !== null && comparePluginVersions(entry.version, installedVersion) > 0;
-  const blocked = paidDecision !== null && !paidDecision.allowed;
-  const action = blocked ? accessLabel : installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
+  const action = installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
       <View style={styles.cardHead}>
         <View style={styles.cardTitleWrap}>
           <Text style={[styles.name, { color: t.ink }]}>{entry.name}</Text>
-          {/* 2.0.1：包 id 与体积是实现细节（id 归属校验在安装时自动做），meta 只留版本。 */}
-          <Text style={[styles.meta, { color: t.inkFaint }]}>v{entry.version}</Text>
+          <Text style={[styles.meta, { color: t.inkFaint }]}>
+            v{entry.version}
+            {entry.publisher ? ` · ${entry.publisher}` : ""}
+          </Text>
         </View>
-        {paidDecision !== null && blocked ? (
-          <StatusPill bg={t.amberSoft} color={t.amber} label="付费" />
-        ) : installedVersion === null ? (
+        {installedVersion === null ? (
           <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
         ) : hasUpdate ? (
           <StatusPill bg={t.amberSoft} color={t.amber} label="可更新" />
@@ -155,18 +341,13 @@ function MarketRow({
       {entry.description ? (
         <Text style={[styles.description, { color: t.inkSub }]}>{entry.description}</Text>
       ) : null}
-      {blocked ? (
-        <Text style={[styles.description, { color: t.amber }]}>
-          {blockedReason ?? paidDecision?.reason}
-        </Text>
-      ) : null}
 
       <View style={styles.actions}>
         <PillButton
           label={action}
           variant="primary"
           disabled={busy}
-          onPress={blocked ? onResolveAccess : onInstall}
+          onPress={onInstall}
           accessibilityLabel={`${action} ${entry.name}`}
           style={styles.primaryButton}
         />
@@ -197,103 +378,92 @@ export default function MarketScreen() {
   const insets = useSafeAreaInsets();
   const plugins = usePlugins();
   const { session, snapshot: sessionSnapshot } = useSession();
+
+  const [tab, setTab] = useState<MarketTab>("nibi");
+  const [region, setRegion] = useState<MarketRegion>(currentMarketRegion());
   const [snapshot, setSnapshot] = useState<MarketSnapshotFile | null>(null);
+  const [personalSources, setPersonalSources] = useState<PersonalPluginSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [versions, setVersions] = useState<Record<string, string | null>>({});
-  const [license, setLicense] = useState(licenseSummary());
-  const [refusal, setRefusal] = useState<string | null>(licenseSnapshot().lastRefusal);
-  const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
-  const [hasLicenseToken, setHasLicenseToken] = useState(currentLicenseToken() !== null);
   const [corruptSnapshot, setCorruptSnapshot] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
   const [progress, setProgress] = useState<{ loaded: number; total: number | null } | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const syncingRef = useRef(false);
-  const autoSyncAt = useRef(0);
 
-  const readVersions = useCallback((entries: MarketPluginEntry[]) => {
+  // 按需登录 / 内嵌 WebView 授权弹窗状态（仅在点击需授权插件的「安装」时触发）
+  const [loginPromptEntry, setLoginPromptEntry] = useState<MarketPluginEntry | null>(null);
+  const [membershipEntry, setMembershipEntry] = useState<MarketPluginEntry | null>(null);
+
+  // 「个人」子页添加源 Sheet 状态
+  const [addPersonalOpen, setAddPersonalOpen] = useState(false);
+  const [personalNameInput, setPersonalNameInput] = useState("");
+  const [personalUrlInput, setPersonalUrlInput] = useState("");
+  const [personalRiskAccepted, setPersonalRiskAccepted] = useState(false);
+  const [addingPersonal, setAddingPersonal] = useState(false);
+
+  const abortRef = useRef<AbortController | null>(null);
+
+  const refreshInstalledVersions = useCallback((entries: MarketPluginEntry[]) => {
     const next: Record<string, string | null> = {};
-    for (const entry of entries) next[entry.id] = readInstalledManifest(entry.id)?.version ?? null;
+    for (const entry of entries) {
+      next[entry.id] = readInstalledManifest(entry.id)?.version ?? null;
+    }
+    for (const item of CURATED_PUBLIC_PLUGINS) {
+      next[item.id] = readInstalledManifest(item.id)?.version ?? null;
+    }
     setVersions(next);
   }, []);
 
   const loadLocal = useCallback(async () => {
     await ensureLicenseLoaded();
-    setLicense(licenseSummary());
-    setRefusal(licenseSnapshot().lastRefusal);
-    setHasLicenseToken(currentLicenseToken() !== null);
+    const savedRegion = await loadMarketRegion();
+    setRegion(savedRegion);
+    const savedPersonal = await loadPersonalSources();
+    setPersonalSources(savedPersonal);
     const { snapshot: local, corrupt } = await readMarketSnapshot();
     setCorruptSnapshot(corrupt);
     setSnapshot(local);
-    if (local) readVersions(local.index.plugins);
+    refreshInstalledVersions(local?.index.plugins ?? []);
     setLoading(false);
-    return local;
-  }, [readVersions]);
-
-  /**
-   * 进入市场时静默换证：原生已登录或本机已有 license 才发请求；10 分钟节流，
-   * 先用本地快照渲染，失败不打断浏览（与桌面启动检查同口径）。
-   */
-  const autoSync = useCallback(async () => {
-    if (syncingRef.current) return;
-    if (!sessionSnapshot.loggedIn && !currentLicenseToken()) return;
-    if (debugLicenseSimActive()) return; // 模拟宽限/过期期间不自动同步（一同步模拟就失效）。
-    if (!licenseNeedsSync()) return;
-    if (Date.now() - autoSyncAt.current < 60_000) return;
-    autoSyncAt.current = Date.now();
-    syncingRef.current = true;
-    setSyncing(true);
-    try {
-      const outcome = await syncLicense();
-      setLicense(licenseSummary());
-      setRefusal(licenseSnapshot().lastRefusal);
-      setHasLicenseToken(currentLicenseToken() !== null);
-      if (outcome.ok) {
-        setUpgradeUrl(outcome.authorized ? null : (outcome.upgradeUrl ?? null));
-      }
-    } catch {
-      // 自动检查失败保留上一次结果；用户可手动点「同步」重试。
-    } finally {
-      syncingRef.current = false;
-      setSyncing(false);
-    }
-  }, [sessionSnapshot.loggedIn]);
+    return { local, savedRegion };
+  }, [refreshInstalledVersions]);
 
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      void loadLocal().then((local) => {
+      void loadLocal().then(({ local, savedRegion }) => {
         if (!alive) return;
-        if (local === null) void doRefresh(true);
-        void autoSync();
+        if (local === null) void doRefresh(true, savedRegion);
       });
       return () => {
         alive = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loadLocal, autoSync]),
+    }, [loadLocal]),
   );
 
-  async function doRefresh(quiet = false) {
+  async function doRefresh(quiet = false, targetRegion?: MarketRegion) {
     if (refreshing) return;
+    const activeRegion = targetRegion ?? region;
     setRefreshing(true);
     if (!quiet) setMessage(null);
     try {
-      const { result, snapshot: fresh } = await refreshMarket();
+      const { result, snapshot: fresh } = await refreshMarket(activeRegion);
       if (!result.ok) {
         setMessage(describeFailure(result.kind, "detail" in result ? (result.detail ?? "") : ""));
         return;
       }
       if (fresh) {
         setSnapshot(fresh);
-        readVersions(fresh.index.plugins);
-        setMessage(result.kind === "unchanged" ? "已是最新索引" : null);
+        refreshInstalledVersions(fresh.index.plugins);
+        setMessage(
+          result.kind === "unchanged"
+            ? `已同步（${marketRegionLabel(activeRegion)}，最新索引）`
+            : `已从${marketRegionLabel(activeRegion)}更新索引`,
+        );
       } else {
-        setMessage("已是最新索引");
+        setMessage(`已同步（${marketRegionLabel(activeRegion)}，已是最新）`);
       }
     } catch (error) {
       setMessage(`刷新失败：${error instanceof Error ? error.message : String(error)}`);
@@ -302,20 +472,35 @@ export default function MarketScreen() {
     }
   }
 
-  async function install(entry: MarketPluginEntry) {
+  async function toggleRegion() {
+    const nextRegion: MarketRegion = region === "cn" ? "global" : "cn";
+    setRegion(nextRegion);
+    await saveMarketRegion(nextRegion);
+    setMessage(
+      nextRegion === "cn"
+        ? "已切换为国内源（优先 jsDelivr / npmmirror 镜像）"
+        : "已切换为国外源（优先 GitHub Raw / npmjs 官方源）",
+    );
+    void doRefresh(true, nextRegion);
+  }
+
+  async function performMarketInstall(entry: MarketPluginEntry) {
     if (busyId) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setBusyId(entry.id);
     setProgress({ loaded: 0, total: entry.package.size });
-    setMessage(`正在下载并校验 ${entry.name} v${entry.version}…`);
+    setMessage(`正在通过${marketRegionLabel(region)}下载并校验 ${entry.name} v${entry.version}…`);
     try {
       const outcome = await installMarketPlugin(entry, {
+        region,
         signal: controller.signal,
         onProgress: (loaded, total) => setProgress({ loaded, total: total ?? entry.package.size }),
       });
       if (!outcome.ok) {
-        setMessage(`${entry.name} 安装失败：${outcome.reason}${outcome.reason === "已取消" ? "" : "（可重试）"}`);
+        setMessage(
+          `${entry.name} 安装失败：${outcome.reason}${outcome.reason === "已取消" ? "" : "（可重试）"}`,
+        );
         return;
       }
       setVersions((current) => ({ ...current, [entry.id]: outcome.manifest.version }));
@@ -328,159 +513,203 @@ export default function MarketScreen() {
     }
   }
 
-  function cancelInstall() {
-    abortRef.current?.abort();
-  }
-
-  async function uninstall(entry: MarketPluginEntry) {
-    const removed = await uninstallMarketPlugin(entry.id);
-    setVersions((current) => ({ ...current, [entry.id]: null }));
-    void plugins.reload();
-    setMessage(removed ? `${entry.name} 已卸载` : "没有可卸载的目录");
-  }
-
-  // 本地已装、但已不在索引里的插件（被市场撤回）；只允许卸载，不提供更新。
-  async function uninstallDelisted(dir: string, name: string) {
-    const removed = await uninstallMarketPlugin(dir);
-    await plugins.reload();
-    setMessage(removed ? `${name} 已卸载` : "没有可卸载的目录");
-  }
-
-  async function doSync() {
-    if (syncingRef.current) return;
-    syncingRef.current = true;
-    setSyncing(true);
-    setMessage(null);
-    try {
-      const outcome = await syncLicense();
-      setLicense(licenseSummary());
-      setRefusal(licenseSnapshot().lastRefusal);
-      setHasLicenseToken(currentLicenseToken() !== null);
-      if (outcome.ok) {
-        if (outcome.authorized) {
-          setUpgradeUrl(null);
-          setMessage(`授权已同步${outcome.plan ? `（${outcome.plan}）` : ""}`);
-        } else {
-          setUpgradeUrl(outcome.upgradeUrl ?? null);
-          setMessage(describeLicenseRefusal(outcome.reason, outcome.detail));
-        }
-      } else {
-        setMessage(
-          outcome.kind === "login-required"
-            ? "还没有登录 NIBI 账号。登录后会自动同步本机授权。"
-            : `同步失败：${outcome.detail}`,
-        );
-      }
-    } finally {
-      syncingRef.current = false;
-      setSyncing(false);
-    }
-  }
-
   /**
-   * 【仅调试构建】授权状态模拟入口（长按「同步」）：回拨 lastCheckAt 现场验证
-   * 宽限/过期文案与安装门禁；退出模拟后手动同步一次即恢复真实状态。
+   * 点击「安装」时的统一入口：
+   * - 普通插件直接下载安装；
+   * - 需要账号授权的插件（entry.paid === true）在点击「安装」时才检查登录态与本机授权：
+   *   1) 未登录 → 弹窗引导登录 NIBI 账号；
+   *   2) 已登录但未获权 → 先在线同步一次授权，仍未获权则打开应用内嵌 handoff WebView。
    */
-  const showLicenseDebugMenu = () => {
-    if (!__DEV__) return;
-    const apply = (days: number) => {
-      void debugSimulateLastCheckAge(days).then(() => {
-        setLicense(licenseSummary());
-        setRefusal(licenseSnapshot().lastRefusal);
-        setMessage(`已模拟 lastCheckAt 回拨 ${days} 天（自动同步已暂停）`);
-      });
-    };
-    Alert.alert(
-      "授权状态模拟（仅调试）",
-      "回拨本机 lastCheckAt 验证宽限/过期状态；模拟期间不自动同步，退出后重新同步即恢复。",
-      [
-        { text: "模拟 4 天未检查（宽限）", onPress: () => apply(4) },
-        { text: "模拟 8 天未检查（过期）", onPress: () => apply(8) },
-        {
-          text: "退出模拟（恢复真实状态）",
-          onPress: () => {
-            void debugClearLicenseSim().then(() => {
-              setLicense(licenseSummary());
-              setRefusal(licenseSnapshot().lastRefusal);
-              setMessage("已退出模拟，点「同步」刷新真实授权。");
-            });
-          },
-        },
-        { text: "取消", style: "cancel" },
-      ],
-    );
-  };
+  async function handleInstallPress(entry: MarketPluginEntry) {
+    if (busyId) return;
+    if (!entry.paid) {
+      await performMarketInstall(entry);
+      return;
+    }
 
-  /** 原生账号登录（与 WORK 网页会话是两套；登录成功立刻换证）。 */
-  async function doLogin() {
-    if (loggingIn) return;
-    setLoggingIn(true);
+    if (!sessionSnapshot.loggedIn) {
+      setLoginPromptEntry(entry);
+      return;
+    }
+
+    await ensureLicenseLoaded();
+    let decision = pluginLicenseDecision(entry.id);
+    if (!decision.allowed) {
+      setMessage("正在核验账号授权状态…");
+      await syncLicense().catch(() => null);
+      decision = pluginLicenseDecision(entry.id);
+    }
+    if (decision.allowed) {
+      await performMarketInstall(entry);
+      return;
+    }
+
     setMessage(null);
+    setMembershipEntry(entry);
+  }
+
+  async function handleConfirmLoginAndInstall() {
+    const targetEntry = loginPromptEntry;
+    setLoginPromptEntry(null);
+    if (!targetEntry) return;
     try {
       await session.login();
       const current = session.getSnapshot();
       if (!current.loggedIn) {
-        setMessage(current.error?.message ?? "登录没有完成，请重试");
+        setMessage(current.error?.message ?? "登录未完成，请重试");
         return;
       }
-      await doSync();
-    } finally {
-      setLoggingIn(false);
-    }
-  }
-
-  /**
-   * 付费行的主按钮：未登录 → 登录；服务端明确说没会员/已到期且有购买页 → 打开购买页；
-   * 其余情况 → 同步。安装本身仍由 installer 的 fail-closed 门禁兜底。
-   */
-  async function resolveAccess() {
-    if (!sessionSnapshot.loggedIn) {
-      await doLogin();
-      return;
-    }
-    if (
-      (refusal === "no_membership" || refusal === "membership_expired") &&
-      upgradeUrl
-    ) {
-      try {
-        await Linking.openURL(upgradeUrl);
-      } catch {
-        setMessage("无法打开会员页面，请手动打开官网后重试。");
+      await syncLicense().catch(() => null);
+      const decision = pluginLicenseDecision(targetEntry.id);
+      if (decision.allowed) {
+        await performMarketInstall(targetEntry);
+      } else {
+        setMembershipEntry(targetEntry);
       }
-      return;
+    } catch (error) {
+      setMessage(`登录失败：${error instanceof Error ? error.message : String(error)}`);
     }
-    await doSync();
   }
 
-  const entries = snapshot?.index.plugins ?? [];
-  const delisted = snapshot
-    ? plugins.plugins.filter(
-        (plugin) =>
-          !plugin.bundled && !entries.some((entry) => entry.id === plugin.parsed.manifest.id),
-      )
-    : [];
+  function cancelInstall() {
+    abortRef.current?.abort();
+  }
 
-  const accountText = sessionSnapshot.loggedIn
-    ? `已登录${sessionSnapshot.displayName ? `：${sessionSnapshot.displayName}` : ""}`
-    : "未登录 NIBI 账号";
-  const licenseText = license.activated
-    ? `付费授权${license.grace ? "处于离线宽限期" : "已激活"}${
-        license.plan ? `（${license.plan}）` : ""
-      }${license.expiresAt ? `，至 ${license.expiresAt.slice(0, 10)}` : ""}`
-    : `付费授权：${license.reason}`;
-  const blockedReason = !hasLicenseToken
-    ? sessionSnapshot.loggedIn
-      ? "已登录，本机授权尚未同步。"
-      : "未登录 NIBI 账号，本机还没有付费授权。手机远控的网页登录只用于远控，不会自动给这台手机发授权。"
-    : refusal
-      ? describeLicenseRefusal(refusal)
-      : undefined;
-  const accessLabel =
-    !sessionSnapshot.loggedIn
-      ? "登录账号"
-      : (refusal === "no_membership" || refusal === "membership_expired") && upgradeUrl
-        ? "开通会员"
-        : "同步授权";
+  async function uninstall(id: string, name: string) {
+    const removed = await uninstallMarketPlugin(id);
+    setVersions((current) => ({ ...current, [id]: null }));
+    await plugins.reload();
+    setMessage(removed ? `已卸载 ${name}` : `${name} 未安装`);
+  }
+
+  async function installCuratedPublic(item: CuratedPublicPlugin) {
+    if (busyId) return;
+    setBusyId(item.id);
+    try {
+      const archiveInput: Record<string, Uint8Array> = {};
+      for (const [relPath, content] of Object.entries(item.files)) {
+        archiveInput[relPath] = strToU8(content);
+      }
+      const zipped = zipSync(archiveInput);
+      const outcome = await installPluginArchiveBytes(zipped, {
+        expectedId: item.id,
+        expectedVersion: item.version,
+      });
+      if (!outcome.ok) {
+        setMessage(`${item.name} 安装失败：${outcome.reason}`);
+        return;
+      }
+      setVersions((current) => ({ ...current, [item.id]: outcome.manifest.version }));
+      await plugins.reload();
+      setMessage(`${item.name} v${outcome.manifest.version} 已安装并启用`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleAddPersonalUrl() {
+    const url = personalUrlInput.trim();
+    if (!url || !personalRiskAccepted || addingPersonal) return;
+    if (!/^https?:\/\//i.test(url)) {
+      setMessage("请输入以 https:// 或 http:// 开头的插件包 (.zip) 地址");
+      return;
+    }
+    setAddingPersonal(true);
+    setMessage(`正在通过${marketRegionLabel(region)}拉取个人插件包…`);
+    try {
+      const outcome = await installPersonalUrlPlugin(url, { region });
+      if (!outcome.ok) {
+        setMessage(`添加失败：${outcome.reason}`);
+        return;
+      }
+      const sourceEntry: PersonalPluginSource = {
+        id: `src-${Date.now()}`,
+        name: personalNameInput.trim() || outcome.manifest.name,
+        url,
+        addedAt: new Date().toISOString(),
+        installedPluginId: outcome.manifest.id,
+      };
+      const next = [
+        sourceEntry,
+        ...personalSources.filter(
+          (item) => item.url !== url && item.installedPluginId !== outcome.manifest.id,
+        ),
+      ];
+      setPersonalSources(next);
+      await savePersonalSources(next);
+      setVersions((current) => ({ ...current, [outcome.manifest.id]: outcome.manifest.version }));
+      await plugins.reload();
+      setAddPersonalOpen(false);
+      setPersonalNameInput("");
+      setPersonalUrlInput("");
+      setPersonalRiskAccepted(false);
+      setMessage(`已从个人源安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+    } finally {
+      setAddingPersonal(false);
+    }
+  }
+
+  async function handleImportLocalZip() {
+    if (busyId) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["application/zip", "application/x-zip-compressed", "application/octet-stream"],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      const asset = picked.assets[0];
+      setBusyId("local-zip");
+      setMessage(`正在校验本地插件包 ${asset.name}…`);
+      const file = new File(asset.uri);
+      const bytes = await file.bytes();
+      const outcome = await installPluginArchiveBytes(bytes);
+      if (!outcome.ok) {
+        setMessage(`本地插件包导入失败：${outcome.reason}`);
+        return;
+      }
+      setVersions((current) => ({ ...current, [outcome.manifest.id]: outcome.manifest.version }));
+      await plugins.reload();
+      setMessage(`已导入并安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+    } catch (error) {
+      setMessage(`读取本地插件包失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRemovePersonalSource(source: PersonalPluginSource) {
+    const next = personalSources.filter((item) => item.id !== source.id);
+    setPersonalSources(next);
+    await savePersonalSources(next);
+    if (source.installedPluginId) {
+      await uninstallMarketPlugin(source.installedPluginId);
+      setVersions((current) => ({ ...current, [source.installedPluginId!]: null }));
+      await plugins.reload();
+    }
+    setMessage(`已移除个人插件源「${source.name}」`);
+  }
+
+  const allRemoteEntries = useMemo(() => visibleMarketEntries(snapshot), [snapshot]);
+  const nibiRemoteEntries = useMemo(
+    () => allRemoteEntries.filter((entry) => isOfficialNibiMarketEntry(entry)),
+    [allRemoteEntries],
+  );
+  const publicRemoteEntries = useMemo(
+    () => allRemoteEntries.filter((entry) => !isOfficialNibiMarketEntry(entry)),
+    [allRemoteEntries],
+  );
+
+  // 本地已安装的个人/第三方插件（既不是内置插件，也不在公开策展和远端公开索引中）
+  const localPersonalPlugins = useMemo(() => {
+    const curatedIds = new Set(CURATED_PUBLIC_PLUGINS.map((item) => item.id));
+    const remoteIds = new Set(allRemoteEntries.map((item) => item.id));
+    return plugins.plugins.filter(
+      (plugin) =>
+        !plugin.bundled &&
+        !curatedIds.has(plugin.parsed.manifest.id) &&
+        !remoteIds.has(plugin.parsed.manifest.id),
+    );
+  }, [plugins.plugins, allRemoteEntries]);
 
   return (
     <View style={styles.root}>
@@ -494,194 +723,484 @@ export default function MarketScreen() {
         title="插件市场"
         onBack={() => router.back()}
         right={
-          // 头部右槽刷新：与 ScreenHeader 返回钮同一档玻璃圆钮。
-          <PressableScale
-            onPress={() => void doRefresh()}
-            disabled={refreshing}
-            accessibilityRole="button"
-            accessibilityLabel="刷新市场索引"
-            hitSlop={8}
-            style={[
-              styles.headButton,
-              { backgroundColor: t.glass, borderColor: t.glassBorder },
-              refreshing ? styles.busy : null,
-            ]}
-          >
-            {refreshing ? (
-              <ActivityIndicator color={t.brand} size="small" />
-            ) : (
-              <Icon name="refresh" size={16} color={t.ink} />
-            )}
-          </PressableScale>
+          <View style={styles.headerRightRow}>
+            <PressableScale
+              onPress={() => void toggleRegion()}
+              disabled={refreshing}
+              accessibilityRole="button"
+              accessibilityLabel={`切换镜像源，当前为${marketRegionLabel(region)}`}
+              hitSlop={6}
+              style={[
+                styles.regionButton,
+                { backgroundColor: t.glass, borderColor: t.glassBorder },
+                refreshing ? styles.busy : null,
+              ]}
+            >
+              <Icon name="globe" size={14} color={t.brand} />
+              <Text style={[styles.regionButtonText, { color: t.ink }]}>
+                {marketRegionLabel(region)}
+              </Text>
+            </PressableScale>
+
+            <PressableScale
+              onPress={() => void doRefresh()}
+              disabled={refreshing}
+              accessibilityRole="button"
+              accessibilityLabel="刷新市场索引"
+              hitSlop={8}
+              style={[
+                styles.headButton,
+                { backgroundColor: t.glass, borderColor: t.glassBorder },
+                refreshing ? styles.busy : null,
+              ]}
+            >
+              {refreshing ? (
+                <ActivityIndicator color={t.brand} size="small" />
+              ) : (
+                <Icon name="refresh" size={16} color={t.ink} />
+              )}
+            </PressableScale>
+          </View>
         }
       />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
-        {/* 2.0.1：删页顶的验签/URL 两行——校验是本 app 对每个包自动做的事，用户无需决策。 */}
+      <ScrollView
+        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
+      >
+        <AppearIn delay={staggerDelay(0, 28, 200)}>
+          <SegmentedControl
+            options={MARKET_TABS}
+            value={tab}
+            onChange={setTab}
+          />
+        </AppearIn>
 
-        <AppearIn delay={staggerDelay(1, 32, 240)}>
-          <SectionCard label="账号与授权">
-            <Row
-              icon="user"
-              tone={sessionSnapshot.loggedIn ? "steel" : "plain"}
-              title={accountText}
-              right={
-                // onLongPress 挂调试入口（授权状态模拟），必须保留长按——不能用 PillButton。
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={sessionSnapshot.loggedIn ? "同步付费授权" : "登录 NIBI 账号"}
-                  disabled={syncing || loggingIn}
-                  onPress={() => void (sessionSnapshot.loggedIn ? doSync() : doLogin())}
-                  onLongPress={showLicenseDebugMenu}
-                  style={[
-                    styles.syncButton,
-                    { backgroundColor: t.surfaceSoft },
-                    syncing || loggingIn ? styles.busy : null,
-                  ]}
-                >
-                  {syncing || loggingIn ? (
-                    <ActivityIndicator color={t.brand} size="small" />
-                  ) : (
-                    <Text style={[styles.syncText, { color: t.inkSub }]}>
-                      {sessionSnapshot.loggedIn ? "同步" : "登录"}
-                    </Text>
-                  )}
-                </PressableScale>
-              }
-            />
-            <View style={styles.licenseBody}>
-              {/* 长句不用 amber：橙字 on 白 ≈2.6:1 不可读（2.0.1 审查）；强调留给「付费」徽标与按钮。 */}
-              <Text style={[styles.licenseText, { color: license.activated ? t.inkFaint : t.ink }]}>
-                {licenseText}
+        <AppearIn delay={staggerDelay(1, 28, 200)}>
+          <View style={[styles.mirrorBanner, { backgroundColor: t.card, borderColor: t.hairline }]}>
+            <View style={styles.mirrorBannerTextWrap}>
+              <Text style={[styles.mirrorBannerTitle, { color: t.ink }]}>
+                当前镜像：{marketRegionLabel(region)}
               </Text>
-              {!sessionSnapshot.loggedIn ? (
-                <Text style={[styles.licenseHint, { color: t.inkGhost }]}>
-                  在本应用内登录并同步一次。
-                </Text>
-              ) : null}
+              <Text style={[styles.mirrorBannerSub, { color: t.inkFaint }]}>
+                {region === "cn"
+                  ? "优先走 jsDelivr / Fastly 公共镜像与 npmmirror 国内源，无需消耗自有 CDN"
+                  : "优先走 GitHub Raw 与 registry.npmjs.org 全球官方源，jsDelivr 自动兜底"}
+              </Text>
             </View>
-          </SectionCard>
+            <PillButton
+              label={region === "cn" ? "切国外源" : "切国内源"}
+              variant="secondary"
+              buttonSize="sm"
+              onPress={() => void toggleRegion()}
+            />
+          </View>
         </AppearIn>
 
         {corruptSnapshot ? (
-          <AppearIn delay={staggerDelay(2, 32, 240)}>
-            <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
-              <Text style={[styles.messageText, { color: t.amber }]}>
-                本地市场快照损坏，已忽略；刷新会重新建立快照。
-              </Text>
-            </View>
-          </AppearIn>
+          <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
+            <Text style={[styles.messageText, { color: t.amber }]}>
+              本地市场快照损坏，已忽略；刷新会重新建立快照。
+            </Text>
+          </View>
         ) : null}
 
         {message ? (
-          <AppearIn delay={staggerDelay(2, 32, 240)}>
-            <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
-              <Text style={[styles.messageText, { color: t.inkSub }]}>{message}</Text>
-            </View>
-          </AppearIn>
+          <View style={[styles.message, { backgroundColor: t.panel, borderColor: t.hairline }]}>
+            <Text style={[styles.messageText, { color: t.inkSub }]}>{message}</Text>
+          </View>
         ) : null}
 
         {busyId && progress ? (
-          <AppearIn delay={staggerDelay(2, 32, 240)}>
-            <View style={styles.progressWrap}>
-              <View style={[styles.progressTrack, { backgroundColor: t.surfaceSoft }]}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      backgroundColor: t.brand,
-                      width: `${Math.max(4, Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1))))}%`,
-                    },
-                  ]}
-                />
+          <View style={styles.progressWrap}>
+            <View style={[styles.progressTrack, { backgroundColor: t.surfaceSoft }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: t.brand,
+                    width: `${Math.max(
+                      4,
+                      Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1))),
+                    )}%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={[styles.progressText, { color: t.inkFaint }]}>
+              {Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1)))}%
+            </Text>
+          </View>
+        ) : null}
+
+        {tab === "nibi" ? (
+          <>
+            <AppearIn delay={staggerDelay(2, 28, 200)}>
+              <SectionCard label="NIBI-GO 官方套件（本机就绪）">
+                {BUNDLED_PLUGINS.map((bundled, idx) => {
+                  const installed = plugins.plugins.find((item) => item.dir === bundled.dir);
+                  const manifest = installed?.parsed.manifest;
+                  const enabled = installed?.enabled ?? true;
+                  return (
+                    <Fragment key={bundled.dir}>
+                      {idx > 0 ? <Divider /> : null}
+                      <Row
+                        icon="sparkles"
+                        tone="brand"
+                        title={manifest?.name ?? bundled.dir}
+                        detail={
+                          manifest?.description ??
+                          "NIBI-GO 官方内置套件，支持本地 MCP 工具与快捷技能"
+                        }
+                        right={
+                          <Switch
+                            value={enabled}
+                            onValueChange={(next) => void plugins.setEnabled(bundled.dir, next)}
+                            trackColor={{ false: t.surfaceSoft, true: t.brand }}
+                            thumbColor="#FFFFFF"
+                          />
+                        }
+                      />
+                    </Fragment>
+                  );
+                })}
+              </SectionCard>
+            </AppearIn>
+
+            {nibiRemoteEntries.length > 0 ? (
+              <AppearIn delay={staggerDelay(3, 28, 200)}>
+                <View style={styles.sectionStack}>
+                  <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                    NIBI 官方扩展包
+                  </Text>
+                  {nibiRemoteEntries.map((entry) => (
+                    <MarketRow
+                      key={entry.id}
+                      entry={entry}
+                      installedVersion={versions[entry.id] ?? null}
+                      busy={busyId === entry.id}
+                      onInstall={() => void handleInstallPress(entry)}
+                      onUninstall={() => void uninstall(entry.id, entry.name)}
+                      onCancel={cancelInstall}
+                    />
+                  ))}
+                </View>
+              </AppearIn>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "public" ? (
+          <>
+            {loading ? (
+              <View style={styles.loading}>
+                <ActivityIndicator color={t.brand} />
+                <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开插件列表…</Text>
               </View>
-              <Text style={[styles.progressText, { color: t.inkFaint }]}>
-                {Math.min(100, Math.round((progress.loaded * 100) / (progress.total || 1)))}%
-              </Text>
+            ) : (
+              <View style={styles.sectionStack}>
+                {CURATED_PUBLIC_PLUGINS.map((item, idx) => {
+                  const installedVer = versions[item.id] ?? null;
+                  const isBusy = busyId === item.id;
+                  return (
+                    <AppearIn key={item.id} delay={staggerDelay(idx + 2, 28, 200)}>
+                      <View
+                        style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
+                      >
+                        <View style={styles.cardHead}>
+                          <View style={styles.cardTitleWrap}>
+                            <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
+                            <Text style={[styles.meta, { color: t.inkFaint }]}>
+                              v{item.version} · {item.publisher}
+                            </Text>
+                          </View>
+                          {installedVer === null ? (
+                            <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
+                          ) : (
+                            <StatusPill
+                              bg={t.okSoft}
+                              color={t.ok}
+                              label={`已安装 v${installedVer}`}
+                            />
+                          )}
+                        </View>
+                        <Text style={[styles.description, { color: t.inkSub }]}>
+                          {item.description}
+                        </Text>
+                        <View style={styles.actions}>
+                          <PillButton
+                            label={installedVer === null ? "安装" : "重新安装"}
+                            variant="primary"
+                            disabled={isBusy}
+                            onPress={() => void installCuratedPublic(item)}
+                            style={styles.primaryButton}
+                          />
+                          {installedVer !== null && !isBusy ? (
+                            <PillButton
+                              label="卸载"
+                              variant="danger"
+                              onPress={() => void uninstall(item.id, item.name)}
+                            />
+                          ) : null}
+                        </View>
+                      </View>
+                    </AppearIn>
+                  );
+                })}
+
+                {publicRemoteEntries.map((entry, idx) => (
+                  <AppearIn
+                    key={entry.id}
+                    delay={staggerDelay(CURATED_PUBLIC_PLUGINS.length + idx + 2, 28, 200)}
+                  >
+                    <MarketRow
+                      entry={entry}
+                      installedVersion={versions[entry.id] ?? null}
+                      busy={busyId === entry.id}
+                      onInstall={() => void handleInstallPress(entry)}
+                      onUninstall={() => void uninstall(entry.id, entry.name)}
+                      onCancel={cancelInstall}
+                    />
+                  </AppearIn>
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
+
+        {tab === "personal" ? (
+          <AppearIn delay={staggerDelay(2, 28, 200)}>
+            <View style={styles.sectionStack}>
+              <SectionCard label="添加个人插件">
+                <Row
+                  icon="globe"
+                  tone="brand"
+                  title="从链接或镜像源安装 (.zip)"
+                  detail="支持 GitHub Raw、jsDelivr、npmmirror 或任意 HTTPS 插件包直链"
+                  onPress={() => setAddPersonalOpen(true)}
+                />
+                <Divider />
+                <Row
+                  icon="folder"
+                  tone="steel"
+                  title="从手机本地导入插件包 (.zip)"
+                  detail="选择本机含 nibi-go.plugin.json 清单的 .zip 插件压缩包安装"
+                  onPress={() => void handleImportLocalZip()}
+                />
+              </SectionCard>
+
+              {personalSources.length > 0 ? (
+                <SectionCard label="已添加的个人源">
+                  {personalSources.map((src, idx) => {
+                    const installedVer = src.installedPluginId
+                      ? (versions[src.installedPluginId] ??
+                        readInstalledManifest(src.installedPluginId)?.version ??
+                        null)
+                      : null;
+                    return (
+                      <Fragment key={src.id}>
+                        {idx > 0 ? <Divider /> : null}
+                        <Row
+                          icon="puzzle"
+                          tone="plain"
+                          title={src.name}
+                          detail={src.url}
+                          right={
+                            <View style={styles.rowRight}>
+                              {installedVer ? (
+                                <StatusPill
+                                  bg={t.okSoft}
+                                  color={t.ok}
+                                  label={`v${installedVer}`}
+                                />
+                              ) : null}
+                              <PillButton
+                                label="移除"
+                                variant="danger"
+                                buttonSize="sm"
+                                onPress={() => void handleRemovePersonalSource(src)}
+                              />
+                            </View>
+                          }
+                        />
+                      </Fragment>
+                    );
+                  })}
+                </SectionCard>
+              ) : null}
+
+              {localPersonalPlugins.length > 0 ? (
+                <SectionCard label="本机个人插件">
+                  {localPersonalPlugins.map((plugin, idx) => (
+                    <Fragment key={plugin.dir}>
+                      {idx > 0 ? <Divider /> : null}
+                      <Row
+                        icon="puzzle"
+                        tone="plain"
+                        title={plugin.parsed.manifest.name}
+                        detail={`${plugin.parsed.manifest.id} · v${plugin.parsed.manifest.version}`}
+                        right={
+                          <View style={styles.rowRight}>
+                            <StatusPill bg={t.okSoft} color={t.ok} label="已安装" />
+                            <PillButton
+                              label="卸载"
+                              variant="danger"
+                              buttonSize="sm"
+                              onPress={() =>
+                                void uninstall(plugin.dir, plugin.parsed.manifest.name)
+                              }
+                            />
+                          </View>
+                        }
+                      />
+                    </Fragment>
+                  ))}
+                </SectionCard>
+              ) : (
+                <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
+                  <Text style={[styles.emptyTitle, { color: t.inkSub }]}>
+                    还没有添加个人插件
+                  </Text>
+                  <Text style={[styles.hint, { color: t.inkFaint }]}>
+                    你可以粘贴 GitHub / jsDelivr / npmmirror 上的插件包直链，或直接从手机文件选择器导入本地 .zip 插件包。
+                  </Text>
+                </View>
+              )}
             </View>
           </AppearIn>
         ) : null}
-
-        {loading ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={t.brand} />
-            <Text style={[styles.hint, { color: t.inkFaint }]}>读取市场快照…</Text>
-          </View>
-        ) : entries.length === 0 ? (
-          <AppearIn delay={staggerDelay(3, 32, 240)}>
-            <View style={[styles.empty, { borderColor: t.hairline }]}>
-              <Text style={[styles.emptyTitle, { color: t.inkSub }]}>市场里还没有插件</Text>
-              <Text style={[styles.hint, { color: t.inkFaint }]}>点右上角刷新</Text>
-            </View>
-          </AppearIn>
-        ) : (
-          entries.map((entry, entryIndex) => (
-            <AppearIn key={entry.id} delay={staggerDelay(entryIndex + 3, 32, 240)}>
-              <MarketRow
-                entry={entry}
-                installedVersion={versions[entry.id] ?? null}
-                busy={busyId === entry.id}
-                paidDecision={entry.paid ? pluginLicenseDecision(entry.id) : null}
-                blockedReason={blockedReason}
-                accessLabel={accessLabel}
-                onResolveAccess={() => void resolveAccess()}
-                onInstall={() => void install(entry)}
-                onUninstall={() => void uninstall(entry)}
-                onCancel={cancelInstall}
-              />
-            </AppearIn>
-          ))
-        )}
 
         {snapshot ? (
           <Text style={[styles.footnote, { color: t.inkGhost }]}>
-            更新于 {formatFetchedAt(snapshot.fetchedAt)}
+            索引同步于 {formatFetchedAt(snapshot.fetchedAt)} · {marketRegionLabel(region)}
           </Text>
         ) : null}
-
-        {delisted.length > 0 ? (
-          <AppearIn delay={staggerDelay(entries.length + 3, 32, 240)}>
-            <SectionCard label="已下架">
-              <View style={styles.delistedIntro}>
-                <Text style={[styles.hint, { color: t.inkFaint }]}>
-                  这些插件还装在本地，但已从市场索引撤回：不会再收到更新，也可能不再安全。
-                  本地副本不会被远程删除，需要时在这里卸载。
-                </Text>
-              </View>
-              {delisted.map((plugin, pluginIndex) => (
-                <Fragment key={plugin.dir}>
-                  {pluginIndex > 0 ? <Divider /> : null}
-                  <Row
-                    icon="puzzle"
-                    tone="plain"
-                    title={plugin.parsed.manifest.name}
-                    detail={`${plugin.parsed.manifest.id} · v${plugin.parsed.manifest.version}`}
-                    right={
-                      <View style={styles.rowRight}>
-                        <StatusPill bg={t.amberSoft} color={t.amber} label="已下架" />
-                        <PillButton
-                          label="卸载"
-                          variant="danger"
-                          onPress={() =>
-                            void uninstallDelisted(plugin.dir, plugin.parsed.manifest.name)
-                          }
-                          accessibilityLabel={`卸载 ${plugin.parsed.manifest.name}`}
-                        />
-                      </View>
-                    }
-                  />
-                </Fragment>
-              ))}
-            </SectionCard>
-          </AppearIn>
-        ) : null}
       </ScrollView>
+
+      {/* 添加个人插件源 Sheet */}
+      <Sheet
+        visible={addPersonalOpen}
+        onClose={() => setAddPersonalOpen(false)}
+        title="添加个人插件包地址"
+      >
+        <View style={styles.sheetForm}>
+          <Text style={[styles.hint, { color: t.inkSub }]}>
+            支持填写 GitHub Raw、jsDelivr、npmmirror 或个人服务器上的插件包（.zip）HTTPS 地址，下载时将自动按当前所选「{marketRegionLabel(region)}」加速。
+          </Text>
+          <TextInput
+            value={personalNameInput}
+            onChangeText={setPersonalNameInput}
+            placeholder="备注名称（可选，留空自动取插件清单名）"
+            placeholderTextColor={t.inkGhost}
+            style={[
+              styles.input,
+              { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+            ]}
+          />
+          <TextInput
+            value={personalUrlInput}
+            onChangeText={setPersonalUrlInput}
+            placeholder="https://cdn.jsdelivr.net/gh/<owner>/<repo>@main/plugin.zip"
+            placeholderTextColor={t.inkGhost}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            style={[
+              styles.input,
+              { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+            ]}
+          />
+          <PressableScale
+            onPress={() => setPersonalRiskAccepted((prev) => !prev)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: personalRiskAccepted }}
+            style={styles.checkboxRow}
+          >
+            <View
+              style={[
+                styles.checkboxBox,
+                {
+                  borderColor: personalRiskAccepted ? t.brand : t.inkFaint,
+                  backgroundColor: personalRiskAccepted ? t.brand : "transparent",
+                },
+              ]}
+            >
+              {personalRiskAccepted ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
+            </View>
+            <Text style={[styles.checkboxLabel, { color: t.inkSub }]}>
+              我信任该插件来源，并知晓自定义插件将在本机沙箱环境中运行。
+            </Text>
+          </PressableScale>
+          <View style={styles.sheetActions}>
+            <PillButton
+              label="取消"
+              variant="secondary"
+              onPress={() => setAddPersonalOpen(false)}
+            />
+            <PillButton
+              label={addingPersonal ? "正在安装…" : "下载并安装"}
+              variant="primary"
+              disabled={!personalUrlInput.trim() || !personalRiskAccepted || addingPersonal}
+              onPress={() => void handleAddPersonalUrl()}
+            />
+          </View>
+        </View>
+      </Sheet>
+
+      {/* 按需登录确认框：仅在点击需账号授权插件的「安装」且未登录时弹出 */}
+      <ConfirmDialog
+        visible={loginPromptEntry !== null}
+        title="需要登录 NIBI 账号"
+        message={
+          loginPromptEntry
+            ? `安装「${loginPromptEntry.name}」需要先登录你的 NIBI 账号以核验可用权限。`
+            : ""
+        }
+        confirmLabel="立即登录"
+        cancelLabel="取消"
+        onConfirm={() => void handleConfirmLoginAndInstall()}
+        onCancel={() => setLoginPromptEntry(null)}
+      />
+
+      {/* 按需内嵌账号授权 WebView：仅在点击「安装」且当前账号尚未获权时弹出 */}
+      <MembershipSheet
+        visible={membershipEntry !== null}
+        pluginName={membershipEntry?.name}
+        onClose={() => setMembershipEntry(null)}
+        onLoginRequested={async () => {
+          await session.login();
+        }}
+        onAuthorized={() => {
+          const target = membershipEntry;
+          setMembershipEntry(null);
+          if (target) {
+            void performMarketInstall(target);
+          }
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  headerRightRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+  },
+  regionButton: {
+    height: size.button,
+    paddingHorizontal: space(2.5),
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1),
+  },
+  regionButtonText: {
+    ...text("micro"),
+    fontWeight: "700",
+  },
   headButton: {
     width: size.button,
     height: size.button,
@@ -692,25 +1211,36 @@ const styles = StyleSheet.create({
   },
   busy: { opacity: 0.6 },
   body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(3) },
-  hint: { ...text("small") },
-  source: { ...text("micro"), marginTop: space(0.5) },
-  licenseBody: {
+  mirrorBanner: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
     paddingHorizontal: space(3.5),
-    paddingBottom: space(2.5),
-    gap: space(1),
-  },
-  licenseText: { ...text("small") },
-  licenseHint: { ...text("micro") },
-  syncButton: {
-    borderRadius: radius.chip,
-    paddingHorizontal: space(2.5),
-    paddingVertical: space(1),
-    minWidth: space(14),
-    minHeight: size.chip,
+    paddingVertical: space(2.5),
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    gap: space(2.5),
   },
-  syncText: { ...text("small"), fontWeight: "700" },
+  mirrorBannerTextWrap: {
+    flex: 1,
+    gap: space(0.5),
+  },
+  mirrorBannerTitle: {
+    ...text("small"),
+    fontWeight: "700",
+  },
+  mirrorBannerSub: {
+    ...text("micro"),
+  },
+  sectionStack: {
+    gap: space(2.5),
+  },
+  sectionHeading: {
+    ...text("micro"),
+    fontWeight: "700",
+    paddingHorizontal: space(1),
+  },
+  hint: { ...text("small") },
   progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },
   progressTrack: { flex: 1, height: 6, borderRadius: radius.chip, overflow: "hidden" },
   progressFill: { height: 6, borderRadius: radius.chip },
@@ -722,7 +1252,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
     padding: space(4),
-    gap: space(2),
+    gap: space(1.5),
   },
   emptyTitle: { ...text("body"), fontWeight: "700" },
   card: {
@@ -742,5 +1272,41 @@ const styles = StyleSheet.create({
   primaryButton: { minWidth: space(24) },
   rowRight: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
   footnote: { ...text("micro") },
-  delistedIntro: { paddingHorizontal: space(3.5), paddingVertical: space(2) },
+  sheetForm: {
+    gap: space(2.5),
+    paddingHorizontal: space(4),
+    paddingBottom: space(3),
+  },
+  input: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+    ...text("small"),
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space(2),
+    paddingVertical: space(1),
+  },
+  checkboxBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  checkboxLabel: {
+    ...text("small"),
+    flex: 1,
+  },
+  sheetActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: space(2),
+    marginTop: space(1),
+  },
 });

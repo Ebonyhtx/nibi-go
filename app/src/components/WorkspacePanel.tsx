@@ -233,14 +233,24 @@ export function WorkspacePanel({
     return { transform: [{ translateX: 10 * (1 - p) }] };
   });
   // 展开后在面板上往右拖 = 跟手关闭；保留松手初速、过阈轻触感、异常取消自动复位。
+  // 必须在 onStart（跨过 activeOffsetX 真正成拖动）才置 dragging=1，否则面板内点按钮
+  // 会触发 onBegin → 抹掉玻璃模糊并在 onFinalize 里把 progress 重置回 -1。
   const crossed = useSharedValue(0);
+  const panActive = useSharedValue(0);
   const closeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX([-14, 14])
+        .enabled(visible)
+        .activeOffsetX([-20, 20])
         .failOffsetY([-16, 16])
         .onBegin(() => {
           "worklet";
+          panActive.value = 0;
+          crossed.value = 0;
+        })
+        .onStart(() => {
+          "worklet";
+          panActive.value = 1;
           dragging.value = 1;
           crossed.value = 0;
         })
@@ -268,13 +278,16 @@ export function WorkspacePanel({
         })
         .onFinalize((_event, success) => {
           "worklet";
-          dragging.value = 0;
-          if (!success) {
-            progress.value = withSpring(-1, SIDE_SPRING_CONFIG);
+          if (panActive.value === 1) {
+            panActive.value = 0;
+            dragging.value = 0;
+            if (!success) {
+              progress.value = withSpring(-1, SIDE_SPRING_CONFIG);
+            }
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [visible],
   );
 
   // 收起动画期间**不换内容**：打开时才复位会在面板滑入的第一帧先画旧内容再切 hub

@@ -18,7 +18,7 @@ import {
 } from "@nibi-go/plugin-contract";
 import type { KernelMcpServer } from "@nibi-go/kernel-session";
 
-import { BUNDLED_PLUGINS, MANIFEST_FILE } from "./samples";
+import { BUNDLED_PLUGINS, MANIFEST_FILE, RETIRED_SAMPLE_DIRS } from "./samples";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
 import { paidPluginIds } from "./paid";
 
@@ -211,10 +211,18 @@ async function writeIfChanged(file: File, content: string): Promise<void> {
   await file.write(content);
 }
 
-/** 首次使用时把内置插件落盘；幂等，失败的 Promise 不缓存（下次重试）。 */
+/** 首次使用时把内置插件落盘，并清理已退役的旧版示例插件目录；幂等。 */
 async function ensurePluginFiles(): Promise<void> {
   if (!prepared) {
     prepared = (async () => {
+      for (const retired of RETIRED_SAMPLE_DIRS) {
+        try {
+          const oldDir = new Directory(Paths.document, PLUGINS_DIR, retired);
+          if (oldDir.exists) oldDir.delete();
+        } catch {
+          // 清理失败不阻断启动。
+        }
+      }
       for (const plugin of BUNDLED_PLUGINS) {
         const dir = new Directory(Paths.document, PLUGINS_DIR, plugin.dir);
         dir.create({ intermediates: true, idempotent: true });

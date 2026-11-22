@@ -9,9 +9,9 @@ import { PressableScale } from "../../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
-export type ButtonSize = "md" | "lg";
+export type ButtonSize = "sm" | "md" | "lg";
 
-const HEIGHT: Record<ButtonSize, number> = { md: size.button, lg: size.buttonLg };
+const HEIGHT: Record<ButtonSize, number> = { sm: 32, md: size.button, lg: size.buttonLg };
 
 export function PillButton({
   label,

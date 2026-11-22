@@ -11,7 +11,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -21,6 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Icon } from "../../components/Icon";
 import { MonogramAvatar } from "../../components/ProviderAvatar";
 import { ProviderLogo } from "../../components/ProviderLogo";
@@ -261,30 +261,28 @@ export default function SettingsScreen() {
     }
   };
 
+  const [confirmRemove, setConfirmRemove] = useState<ProviderSummary | null>(null);
+
   const remove = (provider: ProviderSummary) => {
-    Alert.alert("删除供应商", `删除「${provider.name}」？`, [
-      { text: "取消", style: "cancel" },
-      {
-        text: "删除",
-        style: "destructive",
-        onPress: () => {
-          setBusy(`remove:${provider.id}`);
-          void (async () => {
-            try {
-              await removeProvider(client(), provider.id);
-              await removeProviderKey(provider.id);
-              await pushProviderKeys(client());
-              setNote("已删除");
-              await reload();
-            } catch (cause) {
-              setNote(cause instanceof Error ? cause.message : String(cause));
-            } finally {
-              setBusy(null);
-            }
-          })();
-        },
-      },
-    ]);
+    setConfirmRemove(provider);
+  };
+
+  const executeRemove = (provider: ProviderSummary) => {
+    setConfirmRemove(null);
+    setBusy(`remove:${provider.id}`);
+    void (async () => {
+      try {
+        await removeProvider(client(), provider.id);
+        await removeProviderKey(provider.id);
+        await pushProviderKeys(client());
+        setNote("已删除");
+        await reload();
+      } catch (cause) {
+        setNote(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(null);
+      }
+    })();
   };
 
   const usableSelection = (
@@ -703,16 +701,18 @@ export default function SettingsScreen() {
 
                 <Divider />
 
-                <View style={styles.actions}>
+                <View style={styles.providerActions}>
                   <PillButton
                     label={busy === `test:${provider.id}` ? "测试中…" : "测试"}
                     variant="secondary"
+                    buttonSize="sm"
                     onPress={() => test(provider)}
                     disabled={busy !== null}
                   />
                   <PillButton
                     label={busy === `default:${provider.id}` ? "设置中…" : "设为默认"}
                     variant="secondary"
+                    buttonSize="sm"
                     onPress={() => makeDefault(provider)}
                     disabled={busy !== null}
                   />
@@ -721,12 +721,14 @@ export default function SettingsScreen() {
                       <PillButton
                         label="编辑"
                         variant="secondary"
+                        buttonSize="sm"
                         onPress={() => beginEdit(provider)}
                         disabled={busy !== null}
                       />
                       <PillButton
                         label="删除"
                         variant="danger"
+                        buttonSize="sm"
                         onPress={() => remove(provider)}
                         disabled={busy !== null}
                       />
@@ -798,6 +800,18 @@ export default function SettingsScreen() {
           return saveModel(modelEditor.provider, modelId, config);
         }}
       />
+
+      <ConfirmDialog
+        visible={confirmRemove !== null}
+        title="删除模型服务？"
+        message={`将从本机移除「${confirmRemove?.name ?? ""}」及其保存的 API Key。`}
+        confirmLabel="删除"
+        danger
+        onCancel={() => setConfirmRemove(null)}
+        onConfirm={() => {
+          if (confirmRemove) executeRemove(confirmRemove);
+        }}
+      />
     </View>
   );
 }
@@ -853,6 +867,14 @@ const styles = StyleSheet.create({
     gap: space(2),
     flexWrap: "wrap",
   },
+  providerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: space(1.5),
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
+  },
   // —— 协议 chip ——
   chips: { flexDirection: "row", flexWrap: "wrap", gap: space(2) },
   chip: {
@@ -867,14 +889,21 @@ const styles = StyleSheet.create({
   providerHead: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space(2),
+    gap: space(2.5),
     paddingHorizontal: space(3.5),
     paddingVertical: space(3),
   },
-  titleColumn: { flex: 1, paddingRight: space(2) },
+  titleColumn: { flex: 1, minWidth: 0, paddingRight: space(1) },
   cardTitle: { ...text("heading"), fontWeight: "600" },
   sub: { ...text("small"), marginTop: space(0.5) },
-  badges: { flexDirection: "row", gap: space(1), flexWrap: "wrap", justifyContent: "flex-end" },
+  badges: {
+    flexDirection: "row",
+    gap: space(1),
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    flexShrink: 0,
+    maxWidth: 148,
+  },
   pill: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.5) },
   pillText: { ...text("micro"), fontWeight: "600" },
   modelList: {

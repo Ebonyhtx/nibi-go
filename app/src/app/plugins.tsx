@@ -34,7 +34,7 @@ import { radius, space, text, useNibiTheme } from "../theme";
 function statusOf(plugin: LoadedPlugin): { label: string; tone: "ok" | "warn" | "danger" | "muted" } {
   if (plugin.parsed.status === "invalid") return { label: "清单有误", tone: "danger" };
   if (plugin.parsed.status === "incompatible") return { label: "不兼容", tone: "warn" };
-  if (plugin.licenseBlocked) return { label: "需会员", tone: "warn" };
+  if (plugin.licenseBlocked) return { label: "待授权", tone: "warn" };
   if (!plugin.parsed.slotsAvailable) return { label: "已降级", tone: "warn" };
   if (!plugin.enabled) return { label: "已停用", tone: "muted" };
   return { label: "可用", tone: "ok" };

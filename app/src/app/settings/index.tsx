@@ -89,7 +89,7 @@ export default function SettingsHomeScreen() {
   }
 
   function logout() {
-    Alert.alert("退出 NIBI 账号？", "配对凭据会保留；本机已同步的付费授权也会保留到过期。", [
+    Alert.alert("退出 NIBI 账号？", "配对凭据与本机已同步的设备授权会保留。", [
       { text: "取消", style: "cancel" },
       {
         text: "退出登录",
@@ -175,7 +175,7 @@ export default function SettingsHomeScreen() {
                   ? `已登录${snapshot.displayName ? `：${snapshot.displayName}` : ""}`
                   : "登录 NIBI 账号"
               }
-              detail={snapshot.loggedIn ? "切换账号" : "设备配对与付费授权"}
+              detail={snapshot.loggedIn ? "切换账号" : "远控设备配对与云端同步"}
               onPress={() => void login(snapshot.loggedIn)}
             />
             {snapshot.loggedIn ? (

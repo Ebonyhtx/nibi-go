@@ -29,7 +29,35 @@ import { useMemoryPreferences } from "../../memory/useMemoryPreferences";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 function percent(value: number | null): string {
-  return value === null ? "—" : `${Math.round(value * 100)}%`;
+  if (value === null || !Number.isFinite(value)) return "—";
+  const clamped = Math.max(0, Math.min(1, value));
+  return `${Math.round(clamped * 100)}%`;
+}
+
+/**
+ * 内核 `Usage.input_tokens` 存的是「未命中缓存的新输入」（OpenAI 适配器已做 `input - cached` 归一化，
+ * 与 Anthropic 口径一致），因此单轮真实总输入 = `inputTokens + cachedInputTokens + cachedWriteInputTokens`。
+ * 旧 `session/debug` 直接用 `cached / uncachedInput` 会算出 >100%（如 2242%），这里按真实总输入归一。
+ */
+function roundTotalInputOf(usage: {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cachedWriteInputTokens?: number;
+}): number {
+  return (
+    Math.max(0, usage.inputTokens) +
+    Math.max(0, usage.cachedInputTokens) +
+    Math.max(0, usage.cachedWriteInputTokens ?? 0)
+  );
+}
+
+function roundHitRateOf(usage: {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cachedWriteInputTokens?: number;
+}): number | null {
+  const total = roundTotalInputOf(usage);
+  return total > 0 ? Math.min(1, Math.max(0, usage.cachedInputTokens) / total) : null;
 }
 
 function formatBytes(bytes: number): string {
@@ -114,16 +142,34 @@ export default function DiagnosticsScreen() {
     return tone === "bad" || tone === "warn";
   });
   const lastRound = rounds[rounds.length - 1];
+  const totalCacheWriteTokens = rounds.reduce(
+    (sum, r) => sum + Math.max(0, r.usage.cachedWriteInputTokens ?? 0),
+    0,
+  );
+  const cumulativeTotalInput = cache
+    ? Math.max(0, cache.totalInputTokens) +
+      Math.max(0, cache.totalCacheReadTokens) +
+      totalCacheWriteTokens
+    : 0;
+  const cumulativeHitRate =
+    cache && cumulativeTotalInput > 0
+      ? Math.min(1, Math.max(0, cache.totalCacheReadTokens) / cumulativeTotalInput)
+      : null;
   const cacheTone =
-    cache?.hitRate === null || cache?.hitRate === undefined
+    cumulativeHitRate === null
       ? th.inkFaint
-      : cache.hitRate >= 0.7
+      : cumulativeHitRate >= 0.7
         ? th.ok
-        : cache.hitRate >= 0.4
+        : cumulativeHitRate >= 0.4
           ? th.amber
           : th.red;
   const warnings: string[] = [];
-  if (preferences.enabled && rounds.length >= 2 && cache?.hitRate !== null && cache?.hitRate !== undefined && cache.hitRate < 0.5) {
+  if (
+    preferences.enabled &&
+    rounds.length >= 2 &&
+    cumulativeHitRate !== null &&
+    cumulativeHitRate < 0.5
+  ) {
     warnings.push(
       "缓存命中率偏低：先确认这是同一会话的连续对话；如果记忆/系统提示每轮都在变，前缀缓存会反复失效。",
     );
@@ -268,18 +314,18 @@ export default function DiagnosticsScreen() {
                 <Text style={[styles.kvKey, { color: th.inkFaint }]}>累计命中率</Text>
                 {/* 大号百分比用 title 字阶，色相随命中档位走。 */}
                 <Text style={[styles.bigValue, { color: cacheTone }]}>
-                  {percent(cache?.hitRate ?? null)}
+                  {percent(cumulativeHitRate)}
                 </Text>
               </View>
               <Text style={[styles.detail, { color: th.inkFaint }]}>
                 {cache
-                  ? `${cache.hitRateRequestCount} 轮 · 输入 ${cache.totalInputTokens} · 命中 ${cache.totalCacheReadTokens}`
+                  ? `${cache.hitRateRequestCount} 轮 · 总输入 ${cumulativeTotalInput}（新输入 ${cache.totalInputTokens}） · 缓存命中 ${cache.totalCacheReadTokens}`
                   : "暂无数据"}
               </Text>
               {lastRound ? (
                 <Text style={[styles.detail, { color: th.inkFaint }]}>
-                  最近一轮：输入 {lastRound.usage.inputTokens} · 输出 {lastRound.usage.outputTokens} ·
-                  缓存读 {lastRound.usage.cachedInputTokens} · 命中 {percent(lastRound.hitRate)}
+                  最近一轮：总输入 {roundTotalInputOf(lastRound.usage)} · 输出 {lastRound.usage.outputTokens} ·
+                  缓存读 {lastRound.usage.cachedInputTokens} · 命中 {percent(roundHitRateOf(lastRound.usage))}
                 </Text>
               ) : null}
             </View>
@@ -299,7 +345,7 @@ export default function DiagnosticsScreen() {
                     <View key={round.eventKey} style={styles.roundRow}>
                       <Text style={[styles.roundIndex, { color: th.inkFaint }]}>#{round.requestIndex}</Text>
                       <Text style={[styles.roundCell, { color: th.inkSub }]}>
-                        入 {round.usage.inputTokens}
+                        入 {roundTotalInputOf(round.usage)}
                       </Text>
                       <Text style={[styles.roundCell, { color: th.inkSub }]}>
                         出 {round.usage.outputTokens}
@@ -307,7 +353,9 @@ export default function DiagnosticsScreen() {
                       <Text style={[styles.roundCell, { color: th.inkSub }]}>
                         缓存读 {round.usage.cachedInputTokens}
                       </Text>
-                      <Text style={[styles.roundRate, { color: th.ink }]}>{percent(round.hitRate)}</Text>
+                      <Text style={[styles.roundRate, { color: th.ink }]}>
+                        {percent(roundHitRateOf(round.usage))}
+                      </Text>
                     </View>
                   ))
               )}

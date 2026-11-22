@@ -221,7 +221,7 @@ export function licenseSummary(): {
     return {
       activated: false,
       grace: false,
-      reason: "这台设备还没有付费插件授权",
+      reason: "这台设备还没有同步账号授权",
       plan: snapshot.plan,
       expiresAt: snapshot.expiresAt,
     };
