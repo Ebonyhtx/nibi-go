@@ -223,6 +223,8 @@ export const toolCallRowSchema = z.object({
   progress: toolProgressSchema.optional(),
   // continuous/replayable 共用的有界 Bash 内容，终态或后台移交时清除。
   outputPreview: executionOutputPreviewSchema.optional(),
+  // Agent 工具产生的子会话（spawn 结局载荷提升上来）：界面靠它下钻子代理消息流。
+  childSessionId: z.string().optional(),
   // status=pendingApproval 时指向 pendingInteractions 项。
   approvalInteractionId: z.string().optional(),
   backgrounded: z.literal(true).optional(),

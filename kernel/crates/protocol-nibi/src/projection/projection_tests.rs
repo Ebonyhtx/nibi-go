@@ -290,6 +290,38 @@ fn a_permission_ask_marks_the_tool_and_lists_the_interaction() {
 }
 
 #[test]
+fn agent_tool_done_lifts_child_session_id_to_the_row() {
+    // Agent spawn 的结局载荷是 {agent:{childSessionId,...}}：没有 kind 的 display 会被
+    // 判别联合挡掉，childSessionId 必须提升到行上——NIBI-GO 右侧面板靠它下钻子代理消息流。
+    let mut feed = Feed::new();
+    feed.apply(KernelEvent::TurnStarted {
+        execution_kind: None,
+        input_source: None,
+        origin_meta: None,
+        workflow_launch: None,
+        turn: TurnId::new("turn_1"),
+        command: None,
+    });
+    feed.apply(KernelEvent::ToolStarted {
+        tool_use: ToolUseId::new("toolu_agent"),
+        name: "Agent".into(),
+        input: json!({"subagent_type": "Explore"}),
+    });
+    let done = feed.apply(KernelEvent::ToolDone {
+        tool_use: ToolUseId::new("toolu_agent"),
+        output: nibi_kernel_api::tool::ToolOutput {
+            content: vec![ToolResultContent::Text { text: "done".into() }],
+            is_error: false,
+            display: json!({"agent": {"agentId": "agent_1", "childSessionId": "child_sess_1", "agentType": "Explore"}}),
+        },
+    });
+    assert_eq!(done[0]["row"]["childSessionId"], "child_sess_1");
+    assert_eq!(done[0]["row"]["status"], "success");
+    // 没有 kind 的 display 不进行（原有语义不变）。
+    assert!(done[0]["row"].get("display").is_none());
+}
+
+#[test]
 fn an_interrupted_turn_cancels_running_tools() {
     let mut feed = Feed::new();
     feed.apply(KernelEvent::TurnStarted {

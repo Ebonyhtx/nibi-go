@@ -270,6 +270,8 @@ export class KernelSessionClient {
   private readonly clientId: string;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly listeners = new Set<(notification: KernelNotification) => void>();
+  /** 只读订阅表：topic → connectionId（面板子会话流；与主订阅槽隔离）。 */
+  private readonly readOnlySubscriptions = new Map<string, string>();
   private readonly offLine: () => void;
   private nextId = 1;
   private sendSeq = 1;
@@ -827,6 +829,33 @@ export class KernelSessionClient {
       subscriptionId: current.subscriptionId,
       forceSnapshot: force,
     });
+  }
+
+  /**
+   * 只读管道订阅（面板里看子会话消息流）：独立 connectionId，**不覆盖**
+   * `subscribed` 主订阅槽——主会话的对账/续订不受影响。帧按 topic 路由。
+   */
+  async subscribeReadOnly(sessionId: string): Promise<{ topic: string; connectionId: string }> {
+    const topic = `conversation/${sessionId}`;
+    const existing = this.readOnlySubscriptions.get(topic);
+    if (existing) return { topic, connectionId: existing };
+    const connectionId = `nibi-go-ro-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    await this.request(KERNEL_METHODS.conversationSubscribe, {
+      topic,
+      connectionId,
+      clientMode: "desktop-continuous",
+    });
+    this.readOnlySubscriptions.set(topic, connectionId);
+    return { topic, connectionId };
+  }
+
+  /** 取消某条只读订阅（按 topic 定向，不动主订阅）。 */
+  async unsubscribeReadOnly(sessionId: string): Promise<void> {
+    const topic = `conversation/${sessionId}`;
+    const connectionId = this.readOnlySubscriptions.get(topic);
+    if (!connectionId) return;
+    this.readOnlySubscriptions.delete(topic);
+    await this.request(KERNEL_METHODS.conversationUnsubscribe, { topic, connectionId });
   }
 
   /** 取消订阅（同一 connectionId）。 */

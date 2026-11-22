@@ -23,6 +23,9 @@ export interface ConversationFeedClient {
     options?: { connectionId?: string; clientMode?: string },
   ): Promise<{ topic: string; connectionId: string; subscriptionId: string | null }>;
   unsubscribeConversation(): Promise<void>;
+  /** 只读管道订阅（面板里看子会话消息流）：独立 connectionId，不占主订阅槽。 */
+  subscribeReadOnly?(sessionId: string): Promise<{ topic: string; connectionId: string }>;
+  unsubscribeReadOnly?(sessionId: string): Promise<void>;
   /** 对账：base 有效则续传缺失增量，force 一律重发快照（帧丢失后的恢复路径）。 */
   resyncConversation(force?: boolean): Promise<void>;
   onNotification(listener: (notification: KernelNotification) => void): () => void;
@@ -31,6 +34,8 @@ export interface ConversationFeedClient {
 interface WireLike {
   logicalFrameId?: unknown;
   kind?: unknown;
+  /** 帧信封自带 topic（`conversation/<sessionId>`）：多订阅时按它路由。 */
+  topic?: unknown;
 }
 
 /**
@@ -85,6 +90,8 @@ export class ConversationFeed {
   private pluginSlotsValue: PluginSlotData = {};
   private disposed = false;
   private sessionId: string | null = null;
+  /** 只读订阅模式（子会话消息流）：start 走 readOnly 通道、stop 定向取消。 */
+  private readOnly = false;
   /** 最后一次成功 apply 的帧时间：运行中的看门狗用它判「流是否还在动」。 */
   private lastAppliedAt: number | null = null;
   private resyncing = false;
@@ -110,10 +117,17 @@ export class ConversationFeed {
     return () => this.listeners.delete(listener);
   }
 
-  /** 订阅某个会话；首帧快照到达时 `snapshot` 就有了。 */
-  async start(sessionId: string): Promise<void> {
+  /** 订阅某个会话；首帧快照到达时 `snapshot` 就有了。
+   * readOnly：给面板里的子会话消息流用——独立 connectionId，不动主订阅槽。 */
+  async start(sessionId: string, options?: { readOnly?: boolean }): Promise<void> {
     this.sessionId = sessionId;
     this.lastAppliedAt = null;
+    this.readOnly = options?.readOnly === true;
+    if (this.readOnly && this.client.subscribeReadOnly) {
+      await this.client.subscribeReadOnly(sessionId);
+      return;
+    }
+    this.readOnly = false;
     await this.client.subscribeConversation(sessionId);
   }
 
@@ -125,7 +139,11 @@ export class ConversationFeed {
     this.pendingSince.clear();
     this.listeners.clear();
     try {
-      await this.client.unsubscribeConversation();
+      if (this.readOnly && this.sessionId && this.client.unsubscribeReadOnly) {
+        await this.client.unsubscribeReadOnly(this.sessionId);
+      } else {
+        await this.client.unsubscribeConversation();
+      }
     } catch {
       // 连接已断开时取消订阅失败不影响本地状态。
     }
@@ -157,6 +175,15 @@ export class ConversationFeed {
     if (this.disposed) return;
     if (notification.method !== KERNEL_METHODS.conversationFrame) return;
     const wire = notification.params as WireLike;
+    // 多订阅（主会话 + 面板里的只读子会话）时按 topic 路由：没有这层过滤，
+    // 子会话的帧会混进主会话的重组器把行状态污染掉。
+    if (
+      this.sessionId !== null &&
+      typeof wire.topic === "string" &&
+      wire.topic !== `conversation/${this.sessionId}`
+    ) {
+      return;
+    }
     const id = typeof wire.logicalFrameId === "string" ? wire.logicalFrameId : "unknown";
     const buffered = this.pendingWires.get(id) ?? [];
     buffered.push(wire);

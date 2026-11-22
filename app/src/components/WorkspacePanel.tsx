@@ -1,8 +1,8 @@
 // 工作区右侧面板：手机主界面横向滑呼出（index.tsx 接线，中部滑动即可，跟手）。
 // 结构对齐 NIBI 客户端右侧面板（运营者 2026-11-22 定）：**先看到胶囊入口卡片**——
 //   1. 文件 → 工作区文件树（懒展开/搜索）→ 点文件进查看器（md/html/svg/图片/文本）；
-//   2. 辅助对话 → 由主线开一个与主对话并行的会话；
-//   3. 子智能体 → 本会话的瓦片脸列表 → 点有子会话的项回主线打开它的消息流。
+//   2. 子智能体 → 本会话的瓦片脸列表 → 点有子会话的项**在面板内直接看消息流**
+//      （只读订阅子会话 topic，不占主会话订阅槽；运营者明确要求在面板里看）。
 // 动效与结构对齐 GoDrawer（slide/dim 两段 timing + 轻视差），方向从右、宽一档；
 // 暴露 WorkspacePanelHandle 供主界面中部横向手势跟手拖动。
 import {
@@ -10,6 +10,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type ComponentRef,
@@ -40,6 +41,8 @@ import { WebView } from "react-native-webview";
 import { AgentFace } from "./AgentFace";
 import { Icon } from "./Icon";
 import { MessageMarkdown } from "./MessageMarkdown";
+import { ConversationFeed, deriveRows, type ChatRow } from "@nibi-go/kernel-session";
+import { currentKernelClient } from "../kernel/kernelRegistry";
 import { fileUriOf } from "../kernel/workspace";
 import { PressableScale } from "../motion/PressableScale";
 import { easingStandard } from "../motion/easing";
@@ -190,27 +193,17 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
   /** 当前项目的绝对目录；null 时整块内容显示空态。 */
   workspacePath: string | null;
   subagents: readonly WorkspaceSubagent[];
-  /** 辅助对话：开一个与主对话并行的会话（主线负责创建/切换）。 */
-  onSideChat?: () => void;
-  /** 子智能体下行：打开它的子会话消息流（主线用 openSession）。 */
-  onOpenAgent?: (sessionId: string) => void;
-}>(function WorkspacePanel(
-  {
-    visible,
-    onClose,
-    workspacePath,
-    subagents,
-    onSideChat,
-    onOpenAgent,
-  },
-  ref,
-) {
+  /** 中部手势拖出后的停靠回调（父级把 visible 置 true）——缺了它面板会卡在半开。 */
+  onSwipeOpen?: () => void;
+}>(function WorkspacePanel({ visible, onClose, workspacePath, subagents, onSwipeOpen }, ref) {
   const t = useNibiTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(360, Math.round(width * 0.88));
   // 一级入口；打开面板回到 hub（每次进来先选入口）。
   const [mode, setMode] = useState<WorkspaceMode>("hub");
+  // 面板内正在查看的子智能体（有子会话的行点进来直接看消息流）。
+  const [transcriptAgent, setTranscriptAgent] = useState<WorkspaceSubagent | null>(null);
 
   const slide = useRef(new Animated.Value(0)).current;
   const dim = useRef(new Animated.Value(0)).current;
@@ -256,11 +249,11 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
       },
       endDrag: (velocityX: number) => {
         const open = dragProgress.current > 0.35 || velocityX < -0.5;
-        if (!open) settleClosed();
-        // open 时父级 setVisible(true) 会把 slide 动画到 1（生效于 visible effect）。
+        if (open) onSwipeOpen?.();
+        else settleClosed();
       },
     }),
-    [slide, dim],
+    [slide, dim, onSwipeOpen],
   );
   useEffect(() => {
     // 面板是「大件」，走 slow 320 + standard 曲线（动效契约）；遮罩快一档跟手。
@@ -278,6 +271,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
     }).start();
     if (visible) {
       setMode("hub");
+      setTranscriptAgent(null);
       content.setValue(0);
       Animated.timing(content, {
         toValue: 1,
@@ -608,19 +602,29 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
               <PressableScale
                 scaleTo={0.94}
                 onPress={() => {
+                  if (transcriptAgent) {
+                    setTranscriptAgent(null);
+                    return;
+                  }
                   setMode("hub");
                   setViewer(null);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="返回入口"
+                accessibilityLabel={transcriptAgent ? "返回子智能体列表" : "返回入口"}
                 hitSlop={6}
                 style={styles.headBack}
               >
                 <Icon name="chevron-left" size={16} color={t.inkSub} />
               </PressableScale>
             )}
-            <Text style={[styles.headTitle, { color: t.ink }]}>
-              {mode === "files" ? "文件" : mode === "agents" ? "子智能体" : "工作区"}
+            <Text style={[styles.headTitle, { color: t.ink }]} numberOfLines={1}>
+              {transcriptAgent
+                ? transcriptAgent.name
+                : mode === "files"
+                  ? "文件"
+                  : mode === "agents"
+                    ? "子智能体"
+                    : "工作区"}
             </Text>
             <PressableScale
               scaleTo={0.94}
@@ -651,27 +655,6 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
                   <Text style={[styles.capsuleTitle, { color: t.ink }]}>文件</Text>
                   <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
                     浏览工作区文件，点开即看内容
-                  </Text>
-                </View>
-                <Icon name="chevron-right" size={14} color={t.inkGhost} />
-              </PressableScale>
-              <PressableScale
-                scaleTo={0.97}
-                onPress={() => {
-                  onClose();
-                  onSideChat?.();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="开一个辅助对话"
-                style={[styles.capsule, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
-              >
-                <View style={[styles.capsuleIcon, { backgroundColor: t.panel }]}>
-                  <Icon name="comment" size={18} color={t.inkSub} />
-                </View>
-                <View style={styles.capsuleCol}>
-                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>辅助对话</Text>
-                  <Text style={[styles.capsuleDetail, { color: t.inkFaint }]}>
-                    开一个并行的会话，主对话留在列表里
                   </Text>
                 </View>
                 <Icon name="chevron-right" size={14} color={t.inkGhost} />
@@ -861,8 +844,14 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
               ) : null}
             </View>
             )
+          ) : transcriptAgent ? (
+            /* 子会话消息流：面板内只读订阅（独立 connectionId，不占主订阅槽）。 */
+            <SubagentTranscript
+              sessionId={transcriptAgent.childSessionId as string}
+              agentName={transcriptAgent.name}
+            />
           ) : (
-            /* 子智能体：瓦片脸列表；有子会话的行点进去回主线看它的消息流。 */
+            /* 子智能体：瓦片脸列表；有子会话的行点进来**在面板内**看消息流。 */
             <ScrollView
               style={styles.flex1}
               contentContainerStyle={styles.scroll}
@@ -874,7 +863,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
                 </Text>
               ) : (
                 subagents.map((agent) => {
-                  const openable = Boolean(agent.childSessionId && onOpenAgent);
+                  const openable = Boolean(agent.childSessionId);
                   const row = (
                     <>
                       <AgentFace name={agent.name} status={agent.status} size={22} badge />
@@ -905,10 +894,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
                     <PressableScale
                       key={agent.key}
                       scaleTo={0.97}
-                      onPress={() => {
-                        onClose();
-                        onOpenAgent?.(agent.childSessionId as string);
-                      }}
+                      onPress={() => setTranscriptAgent(agent)}
                       accessibilityRole="button"
                       accessibilityLabel={`查看 ${agent.name} 的消息流`}
                       style={styles.agentRow}
@@ -930,8 +916,144 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, {
   );
 });
 
+/** 子会话消息流（只读）：独立 Topic 订阅，主会话的订阅/对账完全不受影响。 */
+function SubagentTranscript({
+  sessionId,
+  agentName,
+}: {
+  sessionId: string;
+  agentName: string;
+}) {
+  const t = useNibiTheme();
+  const [rows, setRows] = useState<ChatRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const client = currentKernelClient();
+    if (!client) {
+      setError("内核还没就绪：先回首页打开一个会话。");
+      return;
+    }
+    const feed = new ConversationFeed(client);
+    const off = feed.subscribe(() => {
+      const snapshot = feed.snapshot;
+      if (alive && snapshot) setRows(deriveRows(snapshot));
+    });
+    void feed
+      .start(sessionId, { readOnly: true })
+      .catch((cause: unknown) => {
+        if (alive) {
+          setError(`读取子会话失败：${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      });
+    return () => {
+      alive = false;
+      off();
+      void feed.stop();
+    };
+  }, [sessionId]);
+
+  // process 折叠与工具组摊平：面板里不做折叠交互，按时间顺序直出。
+  const flat = useMemo(() => {
+    const out: ChatRow[] = [];
+    const walk = (list: readonly ChatRow[]) => {
+      for (const row of list) {
+        if (row.kind === "process") walk(row.rows);
+        else if (row.kind === "toolGroup") out.push(...row.tools);
+        else out.push(row);
+      }
+    };
+    walk(rows);
+    return out;
+  }, [rows]);
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      style={styles.flex1}
+      contentContainerStyle={styles.transcript}
+      showsVerticalScrollIndicator={false}
+      onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+    >
+      {error ? (
+        <Text style={[styles.emptyText, { color: t.red }]}>{error}</Text>
+      ) : flat.length === 0 ? (
+        <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+          {agentName} 还没有消息
+        </Text>
+      ) : (
+        flat.map((row) => {
+          if (row.kind === "user") {
+            return (
+              <View
+                key={row.key}
+                style={[styles.transcriptUser, { backgroundColor: t.brandSoft }]}
+              >
+                <Text style={[styles.transcriptText, { color: t.ink }]}>{row.text}</Text>
+              </View>
+            );
+          }
+          if (row.kind === "assistant") {
+            if (row.text.trim().length === 0) return null;
+            return (
+              <View key={row.key} style={styles.transcriptAssistant}>
+                <MessageMarkdown text={row.text} />
+              </View>
+            );
+          }
+          if (row.kind === "tool") {
+            return (
+              <View key={row.key} style={styles.transcriptTool}>
+                <Icon name="wrench" size={11} color={t.inkGhost} />
+                <Text numberOfLines={1} style={[styles.transcriptToolText, { color: t.inkFaint }]}>
+                  {row.name}
+                  {row.status === "error" ? " · 失败" : ""}
+                </Text>
+              </View>
+            );
+          }
+          if (row.kind === "subagent") {
+            return (
+              <View key={row.key} style={styles.transcriptTool}>
+                <AgentFace name={row.subagentType} status="completed" size={14} />
+                <Text numberOfLines={1} style={[styles.transcriptToolText, { color: t.inkFaint }]}>
+                  子智能体 · {row.subagentType}
+                </Text>
+              </View>
+            );
+          }
+          if (row.kind === "notice") {
+            return (
+              <Text key={row.key} style={[styles.transcriptNote, { color: t.inkFaint }]}>
+                {row.text}
+              </Text>
+            );
+          }
+          // turn 脚注/审批卡等在只读面板里不渲染。
+          return null;
+        })
+      )}
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
+  transcript: { paddingHorizontal: space(3.5), paddingVertical: space(2), gap: space(2) },
+  transcriptUser: {
+    alignSelf: "flex-end",
+    maxWidth: "90%",
+    borderRadius: radius.card,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+  },
+  transcriptText: { ...text("small") },
+  transcriptAssistant: { gap: space(1) },
+  transcriptTool: { flexDirection: "row", alignItems: "center", gap: space(1.5) },
+  transcriptToolText: { flexShrink: 1, ...text("micro") },
+  transcriptNote: { ...text("micro") },
   headBack: {
     width: 28,
     height: 28,

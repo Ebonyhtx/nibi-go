@@ -720,6 +720,16 @@ impl Projection {
                         if display.get("kind").and_then(Value::as_str).is_some() {
                             row.insert("display".into(), display.clone());
                         }
+                        // Agent 工具结局载荷（kernel-api agents::subagent_link）带子会话：
+                        // 它没有 kind、会被上面的判别联合挡掉——把 childSessionId 提升成
+                        // 行的一等字段，界面靠它下钻子代理消息流（NIBI-GO 右侧面板）。
+                        if let Some(child) = display
+                            .get("agent")
+                            .and_then(|value| value.get("childSessionId"))
+                            .and_then(Value::as_str)
+                        {
+                            row.insert("childSessionId".into(), json!(child));
+                        }
                     },
                     &mut out,
                 );

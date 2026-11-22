@@ -103,7 +103,7 @@ describe("入口接线（防回归）", () => {
       leaveFor.indexOf("searchRef.current?.blur()"),
     );
     // dismiss 必须走可见性守卫：百度输入法对「已收起时的再次 dismiss」会反转弹出。
-    expect(leaveFor).toContain("dismiss: dismissKeyboardIfShown");
+    expect(leaveFor).toContain("dismissKeyboardOnce");
   });
 
   it("抽屉关掉时清搜索焦点、复位激活态，且不再重复 dismiss（双重 dismiss 会反转弹出）", () => {

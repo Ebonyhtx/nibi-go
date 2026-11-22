@@ -64,6 +64,8 @@ export interface ChatToolRow {
   output?: string;
   error?: string;
   display?: ChatToolDisplay;
+  /** Agent 工具产生的子会话 id（消息流/面板下钻子代理消息流用）。 */
+  childSessionId?: string;
   /** TodoWrite 的最新待办清单（其余工具不解析；悬浮工具卡用）。 */
   todos?: readonly ChatTodoItem[];
 }
@@ -305,6 +307,7 @@ function toolRow(row: ProtocolToolCall): ChatToolRow {
     ...(output ? { output } : {}),
     ...(row.error ? { error: row.error.message } : {}),
     ...(display ? { display } : {}),
+    ...(row.childSessionId ? { childSessionId: row.childSessionId } : {}),
     ...(todos ? { todos } : {}),
   };
 }

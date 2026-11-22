@@ -44,7 +44,7 @@ import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 import { motion, radius, size, space, text, useNibiTheme } from "../theme";
 import { filterSessionsByTitle, groupSessionsByDay } from "./sessionGroups";
 import { formatBytes } from "../kernel/sessionArchive";
-import { leaveComposerForNavigation } from "../composer/leave";
+import { dismissKeyboardOnce, leaveComposerForNavigation } from "../composer/leave";
 import { PressableScale } from "../motion/PressableScale";
 import { AppearIn, staggerDelay } from "../motion/appear";
 import { easingStandard } from "../motion/easing";
@@ -192,7 +192,7 @@ export function GoNavContent({
         onBeforeNavigate?.();
         searchRef.current?.blur();
       },
-      dismiss: dismissKeyboardIfShown,
+      dismiss: () => dismissKeyboardOnce(() => dismissKeyboardIfShown()),
       navigate: () => {
         onNavigate?.();
         // 抽屉关闭动画走完再 push（320ms + 余量），转场期间不再碰键盘 API。

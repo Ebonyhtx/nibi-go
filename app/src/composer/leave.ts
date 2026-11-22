@@ -31,6 +31,22 @@ export function leaveComposerForNavigation({
   navigate();
 }
 
+/**
+ * 节流收键盘：ColorOS 的百度输入法对「键盘已收起时的再次 dismiss」会反转成弹出。
+ * 800ms 窗口内只下发一次——抽屉/面板的多个收键盘入口共用这一层。
+ */
+let lastDismissAt = 0;
+export function dismissKeyboardOnce(dismiss: () => void): void {
+  const now = Date.now();
+  if (now - lastDismissAt < 800) return;
+  lastDismissAt = now;
+  try {
+    dismiss();
+  } catch {
+    // 输入法未连接时忽略。
+  }
+}
+
 /** 目标页 focus 时的兜底：只收键盘，不碰其它状态。 */
 export function dismissKeyboardOnFocus(dismiss: () => void): void {
   try {

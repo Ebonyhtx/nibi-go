@@ -85,7 +85,7 @@ import {
   type ComposerAttachment,
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
-import { leaveComposerForNavigation } from "../composer/leave";
+import { dismissKeyboardOnce, leaveComposerForNavigation } from "../composer/leave";
 import { createProject, setActiveProject, useProjects } from "../kernel/projects";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
@@ -318,7 +318,7 @@ export default function GoHomeScreen() {
   // 用这一招正面压制）。推送完成后定时解锁。
   const [composerLocked, setComposerLocked] = useState(false);
   const blurComposer = () => {
-    if (composerFocusedRef.current) blurComposer();
+    if (composerFocusedRef.current) composerInputRef.current?.blur();
   };
 
   const pluginContext: PluginActionContext = {
@@ -985,6 +985,7 @@ export default function GoHomeScreen() {
               name,
               status: runningByTool.has(row.key) ? "running" : faceStatus(row.status),
               fromRow: false,
+              ...(row.childSessionId ? { childSessionId: row.childSessionId } : {}),
             });
           }
           if (row.name === "TodoWrite" && row.todos) {
@@ -1051,7 +1052,7 @@ export default function GoHomeScreen() {
       // 开抽屉前就 blur：抽屉本身会收键盘，但焦点还在输入框，点设置时输入法会闪。
       leaveComposerForNavigation({
         blur: blurComposer,
-        dismiss: Keyboard.dismiss,
+        dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
         navigate: () => setDrawerOpen(true),
       });
     }
@@ -1128,7 +1129,7 @@ export default function GoHomeScreen() {
             onMenu={() => {
               leaveComposerForNavigation({
                 blur: blurComposer,
-                dismiss: Keyboard.dismiss,
+                dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
                 navigate: () => setSidebarOpen(true),
               });
             }}
@@ -1136,14 +1137,14 @@ export default function GoHomeScreen() {
             onSettings={() => {
               leaveComposerForNavigation({
                 blur: blurComposer,
-                dismiss: Keyboard.dismiss,
+                dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
                 navigate: () => router.push("/settings"),
               });
             }}
             onPlugins={() => {
               leaveComposerForNavigation({
                 blur: blurComposer,
-                dismiss: Keyboard.dismiss,
+                dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
                 navigate: () => router.push("/plugins"),
               });
             }}
@@ -1256,7 +1257,7 @@ export default function GoHomeScreen() {
                     ? () => {
                         leaveComposerForNavigation({
                           blur: blurComposer,
-                          dismiss: Keyboard.dismiss,
+                          dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
                           navigate: () => router.push("/settings/provider"),
                         });
                       }
@@ -1539,7 +1540,13 @@ export default function GoHomeScreen() {
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          onSwipeOpen={() => setDrawerOpen(true)}
+          onSwipeOpen={() => {
+            // 中部手势开抽屉也要先收输入框/键盘：键盘浮层会压在抽屉上层，
+            // 一直可见到导航时才缩回——看起来就是「键盘闪一下」（运营者反馈）。
+            blurComposer();
+            dismissKeyboardOnce(Keyboard.dismiss);
+            setDrawerOpen(true);
+          }}
           petState={petState}
           sessions={conversation.sessions}
           archivedSessions={conversation.archivedSessions}
@@ -1573,13 +1580,10 @@ export default function GoHomeScreen() {
             ...(entry.childSessionId ? { childSessionId: entry.childSessionId } : {}),
           }),
         )}
-        onSideChat={() => {
-          // 辅助对话：开一个与主对话并行的会话（同一项目）；主对话在抽屉里可切回。
-          setDraft("");
-          void conversation.newSession(projects.activeProjectId ?? undefined);
-        }}
-        onOpenAgent={(sessionId) => {
-          void conversation.openSession(sessionId);
+        onSwipeOpen={() => {
+          blurComposer();
+          dismissKeyboardOnce(Keyboard.dismiss);
+          setWorkspacePanelOpen(true);
         }}
       />
 
@@ -1731,7 +1735,7 @@ export default function GoHomeScreen() {
         onManage={() => {
           leaveComposerForNavigation({
             blur: blurComposer,
-            dismiss: Keyboard.dismiss,
+            dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
             navigate: () => router.push("/settings/projects"),
           });
         }}
