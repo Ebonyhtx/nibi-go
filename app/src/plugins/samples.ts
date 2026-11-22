@@ -1144,52 +1144,73 @@ const TOOLS = [
   }
 ];
 
-function escPdf(str) {
-  return String(str ?? "").replace(/\\\\/g, "\\\\\\\\").replace(/\\(/g, "\\\\(").replace(/\\)/g, "\\\\)");
+function toPdfUtf16Hex(str) {
+  const text = String(str ?? "");
+  let hex = "";
+  for (let i = 0; i < text.length; i++) {
+    hex += text.charCodeAt(i).toString(16).toUpperCase().padStart(4, "0");
+  }
+  return "<" + hex + ">";
 }
 
 function createPdf(args) {
   const outPath = resolve(String(args?.file_path || "document.pdf"));
   const title = String(args?.title || "PDF Document");
-  const lines = Array.isArray(args?.lines) ? args.lines.map(String) : [];
+  const rawLines = Array.isArray(args?.lines) ? args.lines.map(String) : [];
 
-  const streamLines = [
-    "BT",
-    "/F1 18 Tf",
-    "54 770 Td",
-    "(" + escPdf(title) + ") Tj",
-    "/F1 11 Tf",
-    "0 -28 Td"
-  ];
-  for (const line of lines.slice(0, 36)) {
-    streamLines.push("(" + escPdf(line) + ") Tj");
-    streamLines.push("0 -18 Td");
+  const pages = [];
+  const firstCap = 34;
+  const nextCap = 38;
+  pages.push({ title, lines: rawLines.slice(0, firstCap) });
+  for (let offset = firstCap; offset < rawLines.length; offset += nextCap) {
+    pages.push({ title: null, lines: rawLines.slice(offset, offset + nextCap) });
   }
-  streamLines.push("ET");
-  const streamContent = streamLines.join("\\n");
 
+  const pageObjIds = pages.map((_, idx) => 5 + idx * 2);
   const objects = [
     "1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\nendobj\\n",
-    "2 0 obj\\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\\nendobj\\n",
-    "3 0 obj\\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\\nendobj\\n",
-    "4 0 obj\\n<< /Length " + Buffer.byteLength(streamContent, "utf8") + " >>\\nstream\\n" + streamContent + "\\nendstream\\nendobj\\n",
-    "5 0 obj\\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\\nendobj\\n"
+    "2 0 obj\\n<< /Type /Pages /Kids [" + pageObjIds.map((id) => id + " 0 R").join(" ") + "] /Count " + pages.length + " >>\\nendobj\\n",
+    "3 0 obj\\n<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UTF16-H /DescendantFonts [4 0 R] >>\\nendobj\\n",
+    "4 0 obj\\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /DW 1000 /W [1 [500] 32 126 500] >>\\nendobj\\n"
   ];
+
+  pages.forEach((page, idx) => {
+    const pageId = 5 + idx * 2;
+    const contentId = pageId + 1;
+    const streamLines = ["BT"];
+    if (page.title !== null) {
+      streamLines.push("/F1 18 Tf", "54 770 Td", toPdfUtf16Hex(page.title) + " Tj", "/F1 11 Tf", "0 -28 Td");
+    } else {
+      streamLines.push("/F1 11 Tf", "54 776 Td");
+    }
+    for (const line of page.lines) {
+      streamLines.push(toPdfUtf16Hex(line) + " Tj");
+      streamLines.push("0 -18 Td");
+    }
+    streamLines.push("ET");
+    const streamContent = streamLines.join("\\n");
+    objects.push(
+      pageId + " 0 obj\\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents " + contentId + " 0 R /Resources << /Font << /F1 3 0 R >> >> >>\\nendobj\\n"
+    );
+    objects.push(
+      contentId + " 0 obj\\n<< /Length " + Buffer.byteLength(streamContent, "ascii") + " >>\\nstream\\n" + streamContent + "\\nendstream\\nendobj\\n"
+    );
+  });
 
   let pdf = "%PDF-1.4\\n";
   const offsets = [0];
   for (const obj of objects) {
-    offsets.push(Buffer.byteLength(pdf, "utf8"));
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
     pdf += obj;
   }
-  const xrefPos = Buffer.byteLength(pdf, "utf8");
+  const xrefPos = Buffer.byteLength(pdf, "ascii");
   pdf += "xref\\n0 " + (objects.length + 1) + "\\n0000000000 65535 f \\n";
   for (let i = 1; i < offsets.length; i++) {
     pdf += String(offsets[i]).padStart(10, "0") + " 00000 n \\n";
   }
   pdf += "trailer\\n<< /Size " + (objects.length + 1) + " /Root 1 0 R >>\\nstartxref\\n" + xrefPos + "\\n%%EOF\\n";
 
-  const buf = Buffer.from(pdf, "utf8");
+  const buf = Buffer.from(pdf, "ascii");
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, buf);
 
@@ -1197,9 +1218,19 @@ function createPdf(args) {
     fileName: basename(outPath),
     filePath: outPath,
     title,
-    summary: "1 页 · " + lines.length + " 行正文",
+    summary: pages.length + " 页 · " + rawLines.length + " 行正文",
     badge: "PDF · " + Math.max(1, Math.round(buf.length / 1024)) + " KB"
   };
+}
+
+function decodeHexUtf16(hex) {
+  const clean = hex.replace(/\\s+/g, "");
+  const start = clean.startsWith("FEFF") || clean.startsWith("feff") ? 4 : 0;
+  let out = "";
+  for (let i = start; i + 3 < clean.length; i += 4) {
+    out += String.fromCharCode(parseInt(clean.slice(i, i + 4), 16));
+  }
+  return out;
 }
 
 function inspectPdf(args) {
@@ -1208,7 +1239,17 @@ function inspectPdf(args) {
   const raw = buf.toString("latin1");
   const pageMatches = raw.match(/\\/Type\\s*\\/Page\\b/g);
   const pageCount = pageMatches ? pageMatches.length : 1;
-  const textMatches = [...raw.matchAll(/\\(([^()]{2,200})\\)\\s*Tj/g)].map((m) => m[1]).slice(0, 40);
+  const textMatches = [];
+  for (const m of raw.matchAll(/<([0-9a-fA-F\\s]{4,})>\\s*Tj|\\(([^()]{1,400})\\)\\s*Tj/g)) {
+    if (m[1]) {
+      const s = decodeHexUtf16(m[1]).trim();
+      if (s) textMatches.push(s);
+    } else if (m[2]) {
+      const s = Buffer.from(m[2], "latin1").toString("utf8").trim();
+      if (s) textMatches.push(s);
+    }
+    if (textMatches.length >= 60) break;
+  }
   return {
     fileName: basename(inPath),
     filePath: inPath,

@@ -21,6 +21,7 @@ import { rubberBandProgress, SIDE_BLEED, SIDE_SPRING_CONFIG } from "../motion/si
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,7 +47,14 @@ import { currentKernelClient } from "../kernel/kernelRegistry";
 import { fileUriOf } from "../kernel/workspace";
 import { PressableScale } from "../motion/PressableScale";
 import { easingStandard } from "../motion/easing";
-import { motion, radius, size, space, text, useNibiTheme } from "../theme";
+import { radius, size, space, text, useNibiScheme, useNibiTheme } from "../theme";
+import {
+  isLikelyBinaryText,
+  OFFICE_KIND_LABEL,
+  officeKindOf,
+  renderOfficeBase64ToHtml,
+  type OfficeDocKind,
+} from "../workspace/officePreview";
 
 /** 子智能体行（状态集与 AgentFaceStatus 同形；主线从会话行派生后传入）。 */
 export interface WorkspaceSubagent {
@@ -67,18 +75,20 @@ interface FileNode {
   size?: number;
 }
 
-/** 查看层状态：content 只在非图片类型下读；aspect 是图片宽高比（onLoad 前 null）。 */
+/** 查看层状态：content 存文本或 Office/PDF 渲染后的 HTML；aspect 是图片宽高比（onLoad 前 null）。 */
 interface ViewerState {
   node: FileNode;
   content: string | null;
   truncated: boolean;
+  binaryNotice: boolean;
   error: string | null;
   aspect: number | null;
 }
 
-type ViewerKind = "md" | "html" | "svg" | "image" | "text";
+type ViewerKind = "md" | "html" | "svg" | "image" | OfficeDocKind | "text";
 
-const MAX_VIEWER_BYTES = 512 * 1024; // 超过的文件拒绝进查看层（手机上读不动也没法读）
+const MAX_TEXT_VIEWER_BYTES = 512 * 1024; // 纯文本文件上限（超过在手机上读不动）
+const MAX_RICH_VIEWER_BYTES = 10 * 1024 * 1024; // Office / PDF / 图片上限 10MB
 const MAX_TEXT_CHARS = 100 * 1024; // 等宽文本层最多渲染的字符数（超出截断）
 const SEARCH_MAX = 200; // 搜索最多收集的命中数（防全仓爆走）
 const SEARCH_DEPTH = 10; // 搜索下钻深度上限
@@ -101,6 +111,7 @@ const KIND_LABEL: Record<ViewerKind, string> = {
   html: "HTML",
   svg: "SVG",
   image: "图片",
+  ...OFFICE_KIND_LABEL,
   text: "文本",
 };
 
@@ -118,7 +129,17 @@ function kindOf(name: string): ViewerKind {
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
   if (lower.endsWith(".svg")) return "svg";
   if (/\.(?:png|jpe?g|webp|gif)$/u.test(lower)) return "image";
+  const office = officeKindOf(name);
+  if (office) return office;
   return "text";
+}
+
+function isOfficeKind(kind: ViewerKind): kind is OfficeDocKind {
+  return kind === "docx" || kind === "xlsx" || kind === "pptx" || kind === "pdf";
+}
+
+function isWebViewerKind(kind: ViewerKind): boolean {
+  return kind === "html" || kind === "svg" || isOfficeKind(kind);
 }
 
 /** svg 包一层离线可渲染的页面壳（viewport + 白底 + svg 自适应宽）。 */
@@ -210,6 +231,7 @@ export function WorkspacePanel({
   subagents: readonly WorkspaceSubagent[];
 }) {
   const t = useNibiTheme();
+  const scheme = useNibiScheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(360, Math.round(width * 0.88));
@@ -308,6 +330,7 @@ export function WorkspacePanel({
         setMode("hub");
         setTranscriptAgent(null);
         setViewer(null);
+        setViewerFullscreen(false);
         setSearch("");
         setSearchFocused(false);
         setSearchResults(null);
@@ -339,6 +362,7 @@ export function WorkspacePanel({
 
   // ── 查看层状态 ──────────────────────────────────────────────────────────
   const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const [viewerFullscreen, setViewerFullscreen] = useState(false);
   const viewerNode = viewer?.node ?? null;
 
   // 换工作区：清缓存、收起、关查看层（面板关闭不清现场，重开还是原样）。
@@ -348,6 +372,7 @@ export function WorkspacePanel({
     setChildrenMap({});
     setExpanded(new Set());
     setViewer(null);
+    setViewerFullscreen(false);
     setSearch("");
     setSearchResults(null);
     setSearching(false);
@@ -448,18 +473,53 @@ export function WorkspacePanel({
     };
   }, [search, workspacePath, visible]);
 
-  // 查看层内容：非图片类型读全文（UTF8）；文本超 100KB 截断标记。
+  // 查看层内容：
+  // - Office/PDF（.docx/.xlsx/.pptx/.pdf）按 Base64 读原始字节，内存中解析渲染为排版 HTML；
+  // - 文本/Markdown/HTML/SVG 按 UTF-8 读全文；未知二进制内容自动拦截，不打印乱码。
   useEffect(() => {
-    if (!viewerNode || kindOf(viewerNode.name) === "image") return;
+    if (!viewerNode) return;
+    const kind = kindOf(viewerNode.name);
+    if (kind === "image") return;
     let alive = true;
     (async () => {
       try {
+        if (isOfficeKind(kind)) {
+          const base64 = await readAsStringAsync(viewerNode.absPath, {
+            encoding: EncodingType.Base64,
+          });
+          if (!alive) return;
+          const html = renderOfficeBase64ToHtml(
+            kind,
+            viewerNode.name,
+            base64,
+            scheme === "dark",
+          );
+          setViewer((prev) =>
+            prev && prev.node.relPath === viewerNode.relPath
+              ? { ...prev, content: html, truncated: false, binaryNotice: false }
+              : prev,
+          );
+          return;
+        }
         const raw = await readAsStringAsync(viewerNode.absPath, { encoding: EncodingType.UTF8 });
         if (!alive) return;
+        if (kind === "text" && isLikelyBinaryText(raw)) {
+          setViewer((prev) =>
+            prev && prev.node.relPath === viewerNode.relPath
+              ? { ...prev, content: "", truncated: false, binaryNotice: true }
+              : prev,
+          );
+          return;
+        }
         const truncated = raw.length > MAX_TEXT_CHARS;
         setViewer((prev) =>
           prev && prev.node.relPath === viewerNode.relPath
-            ? { ...prev, content: truncated ? raw.slice(0, MAX_TEXT_CHARS) : raw, truncated }
+            ? {
+                ...prev,
+                content: truncated ? raw.slice(0, MAX_TEXT_CHARS) : raw,
+                truncated,
+                binaryNotice: false,
+              }
             : prev,
         );
       } catch (error) {
@@ -474,7 +534,7 @@ export function WorkspacePanel({
     return () => {
       alive = false;
     };
-  }, [viewerNode]);
+  }, [viewerNode, scheme]);
 
   // 图片：预取宽高算 aspectRatio（自适应宽高，不撑变形）。
   useEffect(() => {
@@ -541,14 +601,25 @@ export function WorkspacePanel({
   };
 
   const openFile = (node: FileNode) => {
-    if (typeof node.size === "number" && node.size > MAX_VIEWER_BYTES) {
+    const kind = kindOf(node.name);
+    const limit =
+      kind === "image" || isOfficeKind(kind) ? MAX_RICH_VIEWER_BYTES : MAX_TEXT_VIEWER_BYTES;
+    if (typeof node.size === "number" && node.size > limit) {
       Alert.alert(
         "文件过大",
-        `${node.name} 有 ${formatSize(node.size)}，超过 512KB 打不开；回桌面看完整内容。`,
+        `${node.name} 有 ${formatSize(node.size)}，超过 ${formatSize(limit)} 预览上限；可在桌面查看完整内容。`,
       );
       return;
     }
-    setViewer({ node, content: null, truncated: false, error: null, aspect: null });
+    setViewerFullscreen(false);
+    setViewer({
+      node,
+      content: null,
+      truncated: false,
+      binaryNotice: false,
+      error: null,
+      aspect: null,
+    });
   };
 
   // 子智能体状态词的语义色（running/waiting 同色：都是「还在路上」）。
@@ -671,6 +742,7 @@ export function WorkspacePanel({
                   }
                   setMode("hub");
                   setViewer(null);
+                  setViewerFullscreen(false);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={transcriptAgent ? "返回子智能体列表" : "返回入口"}
@@ -888,74 +960,121 @@ export function WorkspacePanel({
               </ScrollView>
 
               {/* 2. 查看层：点文件后覆盖整个内容区（水平轻滑入 + 顶栏返回 + 文件名 + 按类型渲染）。 */}
-              {viewer ? (
-                <Animated.View
-                  entering={FadeInRight.duration(180)}
-                  style={[styles.viewerLayer, { backgroundColor: t.card }]}
-                >
-                  <View style={[styles.viewerHead, { borderBottomColor: t.hairline }]}>
-                    <PressableScale
-                      scaleTo={0.94}
-                      onPress={() => setViewer(null)}
-                      accessibilityRole="button"
-                      accessibilityLabel="返回文件列表"
-                      hitSlop={6}
-                      style={styles.viewerBack}
-                    >
-                      <Icon name="chevron-left" size={15} color={t.inkSub} />
-                    </PressableScale>
-                    <Text numberOfLines={1} style={[styles.viewerTitle, { color: t.ink }]}>
-                      {viewer.node.name}
-                    </Text>
-                    <Text style={[styles.viewerKind, { color: t.inkFaint }]}>
-                      {KIND_LABEL[kindOf(viewer.node.name)]}
-                    </Text>
-                  </View>
-                  <View style={styles.viewerBody}>
-                    {viewer.error ? (
-                      <Text style={[styles.viewerHint, { color: t.red }]}>
-                        读不出来：{viewer.error}
+              {viewer ? (() => {
+                const viewerKind = kindOf(viewer.node.name);
+                const canMaximize =
+                  isWebViewerKind(viewerKind) &&
+                  viewer.content !== null &&
+                  !viewer.error &&
+                  !viewer.binaryNotice;
+                const webHtml =
+                  viewer.content === null
+                    ? ""
+                    : viewerKind === "svg"
+                      ? svgHtml(viewer.content)
+                      : viewer.content;
+                return (
+                  <Animated.View
+                    entering={FadeInRight.duration(180)}
+                    style={[styles.viewerLayer, { backgroundColor: t.card }]}
+                  >
+                    <View style={[styles.viewerHead, { borderBottomColor: t.hairline }]}>
+                      <PressableScale
+                        scaleTo={0.94}
+                        onPress={() => {
+                          setViewerFullscreen(false);
+                          setViewer(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="返回文件列表"
+                        hitSlop={6}
+                        style={styles.viewerBack}
+                      >
+                        <Icon name="chevron-left" size={15} color={t.inkSub} />
+                      </PressableScale>
+                      <Text numberOfLines={1} style={[styles.viewerTitle, { color: t.ink }]}>
+                        {viewer.node.name}
                       </Text>
-                    ) : kindOf(viewer.node.name) === "image" ? (
-                      <View style={styles.imageWrap}>
-                        <Image
-                          source={{ uri: fileUriOf(viewer.node.absPath) }}
-                          style={{
-                            width: "100%",
-                            aspectRatio: viewer.aspect ?? 4 / 3,
-                          }}
-                          resizeMode="contain"
-                        />
-                      </View>
-                    ) : viewer.content === null ? (
-                      <Text style={[styles.viewerHint, { color: t.inkFaint }]}>读取中…</Text>
-                    ) : kindOf(viewer.node.name) === "md" ? (
-                      <ScrollView
-                        contentContainerStyle={styles.mdWrap}
-                        showsVerticalScrollIndicator={false}
-                      >
-                        <MessageMarkdown text={viewer.content} />
-                      </ScrollView>
-                    ) : kindOf(viewer.node.name) === "html" ? (
-                      <WebView source={{ html: viewer.content }} style={styles.viewerWeb} />
-                    ) : kindOf(viewer.node.name) === "svg" ? (
-                      <WebView source={{ html: svgHtml(viewer.content) }} style={styles.viewerWeb} />
-                    ) : (
-                      <ScrollView
-                        contentContainerStyle={styles.mdWrap}
-                        showsVerticalScrollIndicator={false}
-                      >
-                        <Text selectable style={[styles.textBody, { color: t.ink }]}>
-                          {viewer.content}
-                          {viewer.truncated
-                            ? "\n\n——已截断：文件超过 100KB，只显示前 100KB。"
-                            : ""}
+                      <Text style={[styles.viewerKind, { color: t.inkFaint }]}>
+                        {KIND_LABEL[viewerKind]}
+                      </Text>
+                      {canMaximize ? (
+                        <PressableScale
+                          scaleTo={0.94}
+                          onPress={() => setViewerFullscreen(true)}
+                          accessibilityRole="button"
+                          accessibilityLabel="全屏查看文档"
+                          hitSlop={6}
+                          style={[
+                            styles.viewerAction,
+                            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                          ]}
+                        >
+                          <Icon name="maximize" size={13} color={t.inkSub} />
+                        </PressableScale>
+                      ) : null}
+                    </View>
+                    <View style={styles.viewerBody}>
+                      {viewer.error ? (
+                        <Text style={[styles.viewerHint, { color: t.red }]}>
+                          读不出来：{viewer.error}
                         </Text>
-                      </ScrollView>
-                    )}
-                  </View>
-                </Animated.View>
-              ) : null}
+                      ) : viewerKind === "image" ? (
+                        <View style={styles.imageWrap}>
+                          <Image
+                            source={{ uri: fileUriOf(viewer.node.absPath) }}
+                            style={{
+                              width: "100%",
+                              aspectRatio: viewer.aspect ?? 4 / 3,
+                            }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      ) : viewer.content === null ? (
+                        <Text style={[styles.viewerHint, { color: t.inkFaint }]}>读取中…</Text>
+                      ) : viewer.binaryNotice ? (
+                        <View style={styles.binaryWrap}>
+                          <Icon name="doc" size={28} color={t.inkGhost} />
+                          <Text style={[styles.binaryTitle, { color: t.inkSub }]}>
+                            二进制文件，不支持纯文本预览
+                          </Text>
+                          <Text style={[styles.binaryDetail, { color: t.inkFaint }]}>
+                            支持直接预览 Word (.docx)、Excel (.xlsx)、PPT (.pptx)、PDF、Markdown、HTML、SVG、图片与纯文本文件。
+                          </Text>
+                        </View>
+                      ) : viewerKind === "md" ? (
+                        <ScrollView
+                          contentContainerStyle={styles.mdWrap}
+                          showsVerticalScrollIndicator={false}
+                        >
+                          <MessageMarkdown text={viewer.content} />
+                        </ScrollView>
+                      ) : isWebViewerKind(viewerKind) ? (
+                        <WebView
+                          originWhitelist={["*"]}
+                          source={{ html: webHtml }}
+                          style={[
+                            styles.viewerWeb,
+                            isOfficeKind(viewerKind) ? { backgroundColor: t.card } : null,
+                          ]}
+                        />
+                      ) : (
+                        <ScrollView
+                          contentContainerStyle={styles.mdWrap}
+                          showsVerticalScrollIndicator={false}
+                        >
+                          <Text selectable style={[styles.textBody, { color: t.ink }]}>
+                            {viewer.content}
+                            {viewer.truncated
+                              ? "\n\n——已截断：文件超过 100KB，只显示前 100KB。"
+                              : ""}
+                          </Text>
+                        </ScrollView>
+                      )}
+                    </View>
+                  </Animated.View>
+                );
+              })() : null}
             </View>
             )
           ) : transcriptAgent ? (
@@ -1052,6 +1171,62 @@ export function WorkspacePanel({
         </Animated.View>
       </Animated.View>
       </GestureDetector>
+
+      {/* 文档/网页全屏预览（便于手机横滑看宽表格、长文档与幻灯片）。 */}
+      {viewer && viewerFullscreen && viewer.content !== null && isWebViewerKind(kindOf(viewer.node.name)) ? (
+        <Modal
+          visible
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => setViewerFullscreen(false)}
+        >
+          <View
+            style={[
+              styles.fullscreenRoot,
+              {
+                backgroundColor: t.card,
+                paddingTop: insets.top,
+                paddingBottom: insets.bottom,
+              },
+            ]}
+          >
+            <View style={[styles.viewerHead, { borderBottomColor: t.hairline }]}>
+              <Text numberOfLines={1} style={[styles.viewerTitle, { color: t.ink }]}>
+                {viewer.node.name}
+              </Text>
+              <Text style={[styles.viewerKind, { color: t.inkFaint }]}>
+                {KIND_LABEL[kindOf(viewer.node.name)]}
+              </Text>
+              <PressableScale
+                scaleTo={0.94}
+                onPress={() => setViewerFullscreen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="退出全屏预览"
+                hitSlop={6}
+                style={[
+                  styles.viewerAction,
+                  { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                ]}
+              >
+                <Icon name="x" size={14} color={t.inkSub} />
+              </PressableScale>
+            </View>
+            <WebView
+              originWhitelist={["*"]}
+              source={{
+                html:
+                  kindOf(viewer.node.name) === "svg"
+                    ? svgHtml(viewer.content)
+                    : viewer.content,
+              }}
+              style={[
+                styles.viewerWeb,
+                isOfficeKind(kindOf(viewer.node.name)) ? { backgroundColor: t.card } : null,
+              ]}
+            />
+          </View>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -1339,9 +1514,27 @@ const styles = StyleSheet.create({
   },
   viewerTitle: { flex: 1, ...text("small"), fontWeight: "700" },
   viewerKind: { ...text("micro") },
+  viewerAction: {
+    width: size.chip,
+    height: size.chip,
+    borderRadius: radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   viewerBody: { flex: 1 },
   viewerWeb: { flex: 1, backgroundColor: "#ffffff" },
   viewerHint: { ...text("small"), padding: space(3.5) },
+  binaryWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space(5),
+    gap: space(2),
+  },
+  binaryTitle: { ...text("body"), fontWeight: "600", textAlign: "center" },
+  binaryDetail: { ...text("micro"), textAlign: "center", lineHeight: 18 },
+  fullscreenRoot: { flex: 1 },
   mdWrap: { padding: space(3.5), paddingBottom: space(6) },
   textBody: { ...text("small"), fontFamily: "monospace" },
   imageWrap: {
