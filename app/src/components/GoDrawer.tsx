@@ -18,7 +18,6 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { BlurView } from "expo-blur";
 import {
   Alert,
   Image,
@@ -28,7 +27,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   useWindowDimensions,
   View,
   type AlertButton,
@@ -162,29 +160,37 @@ export function GoNavContent({
   }, []);
   // 抽屉滑走时搜索框仍是 IME 的 served view：不主动清焦点，键盘会一直留在首页上。
   const wasActive = useRef(active);
-  // 入场 stagger 的重播计数：GoNavContent 常驻挂载（GoDrawer 关闭不卸载），
-  // 所以「关→开」沿计数 +1，给列表子树换 key 强制重挂载；数据变化不重播。
-  // GoSidebar 没有开合概念（active 恒 true），只在首次挂载播一次。
-  const [staggerTick, setStaggerTick] = useState(0);
+  // 收起动画期间**不换内容**：以前关闭时立刻 setSearchArmed(false)，搜索框在滑出
+  // 途中突然变回占位行；展开时又给列表换 key 重播 stagger——两次都表现为「内容闪
+  // 一下」。现在只在滑出完成后复位（450ms > 300ms 动画），重开则取消复位。
+  const closingRef = useRef(false);
+  closingRef.current = !active;
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (wasActive.current && !active) {
-      // 只复位状态，不再重复 Keyboard.dismiss()：leaveFor / onMenu 已经在导航前
-      // 收过键盘，ColorOS 的输入法对同一时刻的第二次 dismiss 会反转成弹出
-      // （真机采样：点设置/插件时键盘闪一下又缩回）。
-      searchRef.current?.blur();
-      setSearchArmed(false);
+    if (resetTimer.current) {
+      clearTimeout(resetTimer.current);
+      resetTimer.current = null;
     }
-    if (!wasActive.current && active) {
-      setStaggerTick((n) => n + 1);
-      // 抽屉出现时系统可能把焦点自动给搜索框（首次可聚焦输入），再点设置/插件
-      // 就会出现「键盘闪一下」——运营者反馈过多次的复发点。开场立刻压掉焦点。
-      requestAnimationFrame(() => {
-        searchRef.current?.blur();
-        Keyboard.dismiss();
-      });
+    if (wasActive.current && !active) {
+      // 只 blur，不改内容；也不重复 Keyboard.dismiss()（ColorOS 的输入法对同一时刻
+      // 的第二次 dismiss 会反转成弹出——点设置/插件时键盘闪一下的根因）。
+      searchRef.current?.blur();
+      resetTimer.current = setTimeout(() => {
+        resetTimer.current = null;
+        setSearchArmed(false);
+        setSearchFocused(false);
+        setSearch("");
+        setProjectFilter(null);
+      }, 450);
     }
     wasActive.current = active;
   }, [active]);
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
   const leaveFor = (path: "/settings" | "/settings/projects" | "/plugins") => {
     // 先关抽屉、收键盘，等抽屉滑出（~320ms）后再 push：导航转场和 IME 收起
     // 同一帧发生会让键盘在新页面上闪一下（运营者反馈多次的复发点）。
@@ -400,7 +406,8 @@ export function GoNavContent({
             onFocus={() => setSearchFocused(true)}
             onBlur={() => {
               setSearchFocused(false);
-              if (search.length === 0) setSearchArmed(false);
+              // 抽屉正在收起时先别拆输入框（会在滑出途中闪成占位行），交给复位计时器。
+              if (search.length === 0 && !closingRef.current) setSearchArmed(false);
             }}
           />
           {search.length > 0 ? (
@@ -497,9 +504,9 @@ export function GoNavContent({
         keyboardShouldPersistTaps="handled"
       >
         {view === "sessions" ? (
-          /* key=staggerTick：抽屉每次展开重挂列表子树，分组头/行重播入场 stagger；
-             平时的数据变化不换 key，不会闪。 */
-          <Fragment key={staggerTick}>
+          /* 不随开合重挂列表：面板在滑，内容不该再播一次入场动画（stagger 与滑动叠加
+             = 运营者看到的「闪一下」）。入场动画只在首次挂载（离屏时）播一次。 */
+          <Fragment>
             {archivedSessions.length > 0 ? (
               <AppearIn delay={staggerDelay(staggerIndex++, 24, 240)}>
                 <PressableScale
@@ -740,7 +747,6 @@ export function GoDrawer({
   open,
   onClose,
   progress,
-  blurTarget,
   petState,
   onlineDevices,
   sessions,
@@ -760,8 +766,6 @@ export function GoDrawer({
   onClose: () => void;
   /** 侧栏进度（父级 index 的共享值，中部手势在 UI 线程直接写它）。 */
   progress: SharedValue<number>;
-  /** 玻璃模糊目标（主内容包在 BlurTargetView 里）。 */
-  blurTarget?: React.RefObject<ComponentRef<typeof View> | null>;
   petState?: PetStateId;
   onlineDevices?: number;
   sessions?: readonly KernelSessionSummary[];
@@ -790,8 +794,6 @@ export function GoDrawer({
   const insets = useSafeAreaInsets();
   const panelWidth = Math.min(300, Math.round(width * 0.8));
   const panelWidthSV = useSharedValue(panelWidth);
-  const colorScheme = useColorScheme();
-  const themeScheme = colorScheme === "dark" ? "dark" : "light";
   panelWidthSV.value = panelWidth;
 
   // 进度 → 位移/遮罩/视差（全部在 UI 线程按共享值插值，跟手零桥接）。
@@ -803,10 +805,6 @@ export function GoDrawer({
     const p = Math.min(1, Math.max(0, progress.value));
     return { transform: [{ translateX: -10 * (1 - p) }] };
   });
-  const dimStyle = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.max(0, progress.value)),
-  }));
-
   // 展开后在面板上往左拖 = 跟手关闭；松手过 30% 或甩动方向对就收。
   const closeGesture = useMemo(
     () =>
@@ -836,19 +834,7 @@ export function GoDrawer({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* 玻璃模糊 + 渐暗：豆包式层次（模糊层常驻，透明度跟进度走）。 */}
-      <Animated.View style={[styles.dim, dimStyle]} pointerEvents={open ? "auto" : "none"}>
-        <BlurView
-          blurTarget={blurTarget}
-          intensity={26}
-          tint={themeScheme === "dark" ? "dark" : "light"}
-          experimentalBlurMethod="dimezisBlurView"
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.backdrop, opacity: 0.35 }]} pointerEvents="none" />
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭抽屉" />
-      </Animated.View>
+      {/* 玻璃模糊/压暗由 index 的 SideBackdrop 统一渲染（左右两栏共用一层）。 */}
       <GestureDetector gesture={closeGesture}>
       <Animated.View
         pointerEvents={open ? "auto" : "none"}
@@ -1029,14 +1015,6 @@ export function GoRail({
 
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
-  dim: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 19,
-  },
   panel: {
     position: "absolute",
     left: 0,

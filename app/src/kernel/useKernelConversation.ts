@@ -461,11 +461,30 @@ export function useKernelConversation(): KernelConversation {
           )
           .map(({ source, chars }: { source: string; chars: number }) => ({ source, chars }))
       : [];
-    setContextUsage({
+    const next = {
       usedTokens: usage.usedTokens,
       maxTokens: usage.maxTokens,
       cacheHitRate: usage.cache?.hitRate ?? fallbackHitRate,
       breakdown,
+    };
+    // 流式增量每帧都会重算用量；数值没变就不要换对象引用——右侧悬浮环的弧线
+    // 动画以 usage 为依赖，引用一换就从零重播，看起来一直在抖。
+    setContextUsage((prev) => {
+      if (!prev) return next;
+      if (
+        prev.usedTokens === next.usedTokens &&
+        prev.maxTokens === next.maxTokens &&
+        prev.cacheHitRate === next.cacheHitRate &&
+        prev.breakdown.length === next.breakdown.length &&
+        prev.breakdown.every(
+          (item, index) =>
+            item.source === next.breakdown[index]?.source &&
+            item.chars === next.breakdown[index]?.chars,
+        )
+      ) {
+        return prev;
+      }
+      return next;
     });
   }, []);
 
@@ -520,13 +539,25 @@ export function useKernelConversation(): KernelConversation {
 
     const feed = new ConversationFeed(client);
     const controller = new ConversationController(feed);
-    controller.subscribe(() => {
+    // 一帧只提交一次：内核一帧可能推好几个增量帧，逐帧 setState 会让消息流按
+    // 增量次数重渲染（长会话里每个 token 都全量 reconcile）。合并到下一帧，
+    // 视觉上仍是逐帧增长，React 只提交一次。切会话后 controllerRef 变了，
+    // 迟到的 flush 会自行放弃。
+    let flushScheduled = false;
+    const flush = () => {
+      flushScheduled = false;
+      if (controllerRef.current !== controller) return;
       setRows([...controller.rows]);
       setTurn(controller.turn);
       setPluginSlotData(controller.pluginSlots);
       syncContextUsage(controller);
       syncPending(controller);
       syncTurnChanges(controller);
+    };
+    controller.subscribe(() => {
+      if (flushScheduled) return;
+      flushScheduled = true;
+      requestAnimationFrame(flush);
     });
     feedRef.current = feed;
     controllerRef.current = controller;

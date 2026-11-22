@@ -5,7 +5,7 @@
 // avatarColor 同一算法）。状态定义表情（眼型），运行中每 1.6s 眨一次眼。
 // 桌面是 SVG；这里用 Skia 画近似几何（20 格网格，眼在 cx 7/13，宽 4），
 // 表情用直线折线近似（视觉读感一致，避免椭圆弧的平台差异）。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Canvas,
   Circle,
@@ -193,7 +193,7 @@ function StatusBadge({
  * badge=true 时右下角画状态徽标（完成勾/失败叉/运行脉动点）——小尺寸下
  * 只靠眼型读不出完成与否，徽标让状态一眼可辨。
  */
-export function AgentFace({
+export const AgentFace = memo(function AgentFace({
   name,
   status,
   size = 20,
@@ -242,4 +242,4 @@ export function AgentFace({
       {badge ? <StatusBadge status={status} size={size} pulse={pulse} /> : null}
     </Canvas>
   );
-}
+});

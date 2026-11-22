@@ -9,7 +9,7 @@ import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { resolveText, type ViewTone } from "@nibi-go/plugin-contract";
 import { AgentFace, type AgentFaceStatus } from "./AgentFace";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   PanResponder,
@@ -180,12 +180,13 @@ function ContextRing({
   );
 }
 
-export function SideStatus({
+function SideStatusImpl({
   plugins,
   usage,
   bottom,
   slotData,
   session,
+  paused = false,
 }: {
   plugins: readonly LoadedPlugin[];
   usage: ContextUsage | null;
@@ -194,6 +195,8 @@ export function SideStatus({
   slotData?: Record<string, Record<string, unknown>>;
   /** 会话工具卡的状态面（子代理/待办）；缺省时只显示上下文。 */
   session?: SessionToolState;
+  /** 侧栏展开时暂停环的呼吸/轮播：它在遮罩后面看不见，却会让模糊层每帧重算。 */
+  paused?: boolean;
 }) {
   const t = useNibiTheme();
   const insets = useSafeAreaInsets();
@@ -238,7 +241,7 @@ export function SideStatus({
   );
 
   useEffect(() => {
-    if (strips.length <= 1) {
+    if (paused || strips.length <= 1) {
       setIndex(0);
       return;
     }
@@ -249,6 +252,11 @@ export function SideStatus({
   }, [strips.length]);
 
   useEffect(() => {
+    if (paused) {
+      breathe.stopAnimation();
+      breathe.setValue(0);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(breathe, {
@@ -265,7 +273,7 @@ export function SideStatus({
     );
     loop.start();
     return () => loop.stop();
-  }, [breathe]);
+  }, [breathe, paused]);
 
   useEffect(() => {
     Animated.spring(expand, {
@@ -538,6 +546,9 @@ export function SideStatus({
     </View>
   );
 }
+
+/** 抽屉/面板开合等父级状态变化不该重渲染悬浮卡（Skia 环 + 子代理列表）。 */
+export const SideStatus = memo(SideStatusImpl);
 
 const styles = StyleSheet.create({
   dock: {

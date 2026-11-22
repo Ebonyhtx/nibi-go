@@ -1,0 +1,118 @@
+diff --git a/android/src/main/java/expo/modules/blur/BlurModule.kt b/android/src/main/java/expo/modules/blur/BlurModule.kt
+index 9a6fc1c2a5a479516d067315fc043f610b0488d7..ee19af82888d020815bc7fd95f0104236f6c12b1 100644
+--- a/android/src/main/java/expo/modules/blur/BlurModule.kt
++++ b/android/src/main/java/expo/modules/blur/BlurModule.kt
+@@ -28,6 +28,10 @@ class BlurModule : Module() {
+         view.applyBlurReduction(blurReductionFactor)
+       }
+ 
++      Prop("blurAutoUpdate") { view: ExpoBlurView, blurAutoUpdate: Boolean ->
++        view.setBlurAutoUpdate(blurAutoUpdate)
++      }
++
+       Prop("borderRadii") { view: ExpoBlurView, borderRadii: FloatArray? ->
+         view.setBorderRadii(borderRadii ?: FloatArray(8))
+       }
+diff --git a/android/src/main/java/expo/modules/blur/ExpoBlurView.kt b/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
+index 213c076bec9cc11e92d6e8c711d30635de0f37cb..df49822438954474623eb34725988d568bba22b1 100644
+--- a/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
++++ b/android/src/main/java/expo/modules/blur/ExpoBlurView.kt
+@@ -73,6 +73,16 @@ class ExpoBlurView(context: Context, appContext: AppContext) : ExpoView(context,
+     configureBlurView()
+   }
+ 
++  /**
++   * NIBI patch: allow freezing the blur snapshot. With auto-update on, the blur is
++   * recomputed on every frame (the library invalidates itself), costing 6-10ms per
++   * frame on mid-range devices. Turning it off after the first draw keeps the
++   * frosted look while letting the slide/interaction run at 60fps.
++   */
++  fun setBlurAutoUpdate(enabled: Boolean) {
++    blurView.setBlurAutoUpdate(enabled)
++  }
++
+   fun setBlurRadius(radius: Float) {
+     blurRadius = radius
+ 
+diff --git a/build/BlurView.js b/build/BlurView.js
+index 14dd8557edd4f37337783767cdfc5e18093e01fd..7ce5592e7b9fbda924dffd09b114241198dc6d20 100644
+--- a/build/BlurView.js
++++ b/build/BlurView.js
+@@ -66,7 +66,7 @@ export default class BlurView extends React.Component {
+         return providedMethod ?? 'none';
+     }
+     render() {
+-        const { tint = 'default', intensity = 50, blurReductionFactor = 4, style, children, ...props } = this.props;
++        const { tint = 'default', intensity = 50, blurReductionFactor = 4, blurAutoUpdate = true, style, children, ...props } = this.props;
+         const nativeBlurViewRadiusStyle = getNativeBlurViewRadiusStyle(style);
+         const nativeBlurViewStyle = nativeBlurViewRadiusStyle ? [
+             StyleSheet.absoluteFill,
+@@ -89,6 +89,7 @@ export default class BlurView extends React.Component {
+                     tint: tint,
+                     intensity: intensity,
+                     blurReductionFactor: blurReductionFactor,
++                    blurAutoUpdate: blurAutoUpdate,
+                     blurMethod: this._getBlurMethod(),
+                     style: nativeBlurViewStyle
+                 }),
+diff --git a/build/BlurView.types.d.ts b/build/BlurView.types.d.ts
+index 8d3627761da3d90e0638e1f98e15d4dd6fdc0311..514137baf54c9ce0d33a6019327079dba4a04ce2 100644
+--- a/build/BlurView.types.d.ts
++++ b/build/BlurView.types.d.ts
+@@ -66,6 +66,15 @@ export type BlurViewProps = {
+      * @platform android
+      */
+     blurMethod?: BlurMethod;
++    /**
++     * NIBI patch: whether the blur snapshot updates automatically every frame.
++     * Turn it off after the first draw to keep the frosted look without paying
++     * a full-screen blur recomputation on every frame.
++     *
++     * @default true
++     * @platform android
++     */
++    blurAutoUpdate?: boolean;
+ } & ViewProps;
+ export type BlurTargetViewProps = {
+     ref?: Ref<ComponentRef<typeof View>>;
+diff --git a/src/BlurView.tsx b/src/BlurView.tsx
+index 71ee482251235d382317aaddd55d91cf6aeeb6b1..8b3b4572663b105a06ea8d023ecee8f795746a72 100644
+--- a/src/BlurView.tsx
++++ b/src/BlurView.tsx
+@@ -100,6 +100,7 @@ export default class BlurView extends React.Component<BlurViewProps, BlurViewSta
+       tint = 'default',
+       intensity = 50,
+       blurReductionFactor = 4,
++      blurAutoUpdate = true,
+       style,
+       children,
+       ...props
+@@ -122,6 +123,7 @@ export default class BlurView extends React.Component<BlurViewProps, BlurViewSta
+           tint={tint}
+           intensity={intensity}
+           blurReductionFactor={blurReductionFactor}
++          blurAutoUpdate={blurAutoUpdate}
+           blurMethod={this._getBlurMethod()}
+           style={nativeBlurViewStyle}
+         />
+diff --git a/src/BlurView.types.ts b/src/BlurView.types.ts
+index 1ebc1a1bb8040078e0d48c62d4dc346a885c7f52..c388f62acec30b3ac83b147c8e6d26314300d3ae 100644
+--- a/src/BlurView.types.ts
++++ b/src/BlurView.types.ts
+@@ -71,6 +71,16 @@ export type BlurViewProps = {
+    * @platform android
+    */
+   blurMethod?: BlurMethod;
++
++  /**
++   * NIBI patch: whether the blur snapshot updates automatically every frame.
++   * Turn it off after the first draw to keep the frosted look without paying
++   * a full-screen blur recomputation on every frame.
++   *
++   * @default true
++   * @platform android
++   */
++  blurAutoUpdate?: boolean;
+ } & ViewProps;
+ 
+ export type BlurTargetViewProps = {

@@ -15,7 +15,7 @@
 // 全部图集一次性预加载：useImage 跟着 state 走时，换状态新图未解码会返回 null，
 // 宠物会先消失半拍再出现（"一卡一卡"的来源之一）。
 // 省电/无障碍：系统开启"降低动画"时只画静态帧，不持续重绘。
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, PixelRatio, StyleSheet, View } from "react-native";
 import {
   Canvas,
@@ -213,7 +213,12 @@ export interface PetViewProps {
   crop?: number;
 }
 
-export function PetView({ state, targetSize = 96, animated = true, crop = 1 }: PetViewProps) {
+export const PetView = memo(function PetView({
+  state,
+  targetSize = 96,
+  animated = true,
+  crop = 1,
+}: PetViewProps) {
   // 图集按当前色板选（墨夜套已随 assets 快照）；useImage 在换源时重新解码一次。
   const scheme = useNibiScheme();
   const sheets = useAllSheets(scheme === "dark" ? SHEET_SOURCES_DARK : SHEET_SOURCES);
@@ -295,7 +300,7 @@ export function PetView({ state, targetSize = 96, animated = true, crop = 1 }: P
       </Canvas>
     </View>
   );
-}
+});
 
 /** 素材基线（脚线 y=58，所有状态共用）——跨状态摆放时对齐用。 */
 export const PET_BASELINE = BASELINE;

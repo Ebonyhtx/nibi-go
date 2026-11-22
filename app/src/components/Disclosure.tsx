@@ -36,7 +36,7 @@ export function Disclosure({
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         hitSlop={6}
-        style={styles.header}
+        style={({ pressed }) => [styles.header, pressed ? { opacity: 0.62 } : null]}
       >
         {icon ? <View style={styles.icon}>{icon}</View> : null}
         <View style={styles.title}>

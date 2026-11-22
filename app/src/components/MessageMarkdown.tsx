@@ -4,7 +4,7 @@
 //      不再把整段 HTML 摊在消息里（运营者 2026-11-22：桌面端能看图表，GO 只能看到源码）。
 // 流式中的消息不进这里：每帧全量重排太重，落定后才升级富排版（ConversationList 分流）。
 import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { WebView } from "react-native-webview";
 
@@ -126,13 +126,14 @@ export function ArtifactCard({ artifact }: { artifact: VisualArtifact }) {
 }
 
 /** 助手消息的 markdown 渲染（纯排版）；html/svg 围栏由调用方先摘出来单独渲染
- * ArtifactCard（要放在消息长按 Pressable 之外，见 ArtifactCard 注释）。 */
-export function MessageMarkdown({ text }: { text: string }) {
+ * ArtifactCard（要放在消息长按 Pressable 之外，见 ArtifactCard 注释）。
+ * memo：流式增量会让整条列表重渲染，但已落定消息的 text 没变，不该每帧重新
+ * 解析一遍 markdown（解析器是纯 JS，长消息在手机上很贵）。 */
+export const MessageMarkdown = memo(function MessageMarkdown({ text }: { text: string }) {
   const th = useNibiTheme();
-  return (
-    <Markdown style={markdownStyle(th)}>{text}</Markdown>
-  );
-}
+  const style = useMemo(() => markdownStyle(th), [th]);
+  return <Markdown style={style}>{text}</Markdown>;
+});
 
 function markdownStyle(th: ReturnType<typeof useNibiTheme>): MarkdownStyleMap {
   return {

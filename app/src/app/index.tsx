@@ -43,12 +43,11 @@ import { BlurTargetView } from "expo-blur";
 import Reanimated, {
   Easing as REasing,
   runOnJS,
-  useAnimatedStyle,
   useSharedValue,
   withTiming,
-  type SharedValue,
 } from "react-native-reanimated";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
+import { SideBackdrop } from "../components/SideBackdrop";
 import { Dot, Icon, type IconName } from "../components/Icon";
 import { PetView, type PetStateId } from "../components/PetView";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
@@ -677,6 +676,47 @@ export default function GoHomeScreen() {
   };
   const annotationCountFor = (messageKey: string): number =>
     annotations.filter((annotation) => annotation.messageKey === messageKey).length;
+
+  // 稳定引用桥：抽屉/面板开合会让首页整体重渲染，若给消息流的回调每次都换引用，
+  // ConversationList 的 memo 就永远命中不了——整条消息流会跟着侧栏动画一起重排，
+  // 这就是「滑动时不够丝滑」的一大来源。回调身份固定，内部始终调最新闭包。
+  const latestHandlers = useRef({
+    openSession: conversation.openSession,
+    retryTurn: conversation.retryTurn,
+    openMessagePopup,
+    annotationCountFor,
+    onPluginAction,
+    showHint,
+  });
+  latestHandlers.current = {
+    openSession: conversation.openSession,
+    retryTurn: conversation.retryTurn,
+    openMessagePopup,
+    annotationCountFor,
+    onPluginAction,
+    showHint,
+  };
+  const stableOpenSession = useCallback((sessionId: string) => {
+    void latestHandlers.current.openSession(sessionId);
+  }, []);
+  const stableRetryTurn = useCallback((target: { rowId: number; entityId: string }) => {
+    void latestHandlers.current.retryTurn(target).then((error) => {
+      if (error) latestHandlers.current.showHint(error);
+    });
+  }, []);
+  const stableOpenMessagePopup = useCallback(
+    (messageKey: string, message: string, anchor: PopupAnchor, role: "user" | "assistant") => {
+      latestHandlers.current.openMessagePopup(messageKey, message, anchor, role);
+    },
+    [],
+  );
+  const stableAnnotationCountFor = useCallback(
+    (messageKey: string) => latestHandlers.current.annotationCountFor(messageKey),
+    [],
+  );
+  const stablePluginAction = useCallback<PluginActionHandler>((plugin, action) => {
+    latestHandlers.current.onPluginAction(plugin, action);
+  }, []);
   const sendDraft = () => {
     // 编辑重发：只发改写文本（内核 editUserQuery 截断历史后重发），不走普通发送链路。
     if (editTarget) {
@@ -915,8 +955,9 @@ export default function GoHomeScreen() {
   const blurTargetRef = useRef<ComponentRef<typeof View> | null>(null);
   const SIDE_TIMING = { duration: 300, easing: REasing.out(REasing.cubic) };
   const openDrawerSide = () => {
+    // 只 blur（有焦点才会真的收键盘）；不再补一次 Keyboard.dismiss——百度输入法
+    // 对「已经收起时的再次 dismiss」会反转成弹出，这是键盘闪现反复复发的根因。
     blurComposer();
-    dismissKeyboardOnce(Keyboard.dismiss);
     setDrawerOpen(true);
     side.value = withTiming(1, SIDE_TIMING);
   };
@@ -926,7 +967,6 @@ export default function GoHomeScreen() {
   };
   const openPanelSide = () => {
     blurComposer();
-    dismissKeyboardOnce(Keyboard.dismiss);
     setWorkspacePanelOpen(true);
     side.value = withTiming(-1, SIDE_TIMING);
   };
@@ -943,10 +983,12 @@ export default function GoHomeScreen() {
           "worklet";
           const mode = sideMode.value;
           if (mode === 0) {
+            // 拖动期最多到 0.99：进度只要摸到 1，SideBackdrop 就会判定「停稳」并
+            // 挂上真模糊，手指还在动就会掉帧。松手后的 timing 才补到最后 1%。
             side.value =
               event.translationX > 0
-                ? Math.min(1, event.translationX / drawerW.value)
-                : Math.max(-1, event.translationX / panelW.value);
+                ? Math.min(0.99, event.translationX / drawerW.value)
+                : Math.max(-0.99, event.translationX / panelW.value);
           } else if (mode === 1) {
             // 抽屉已开：往左滑按比例收起（往右到顶不回弹过界）。
             side.value = Math.min(1, Math.max(0, 1 + event.translationX / drawerW.value));
@@ -983,10 +1025,13 @@ export default function GoHomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const stageGestureStyle = useAnimatedStyle(() => ({
-    // 拖动时舞台轻微反向视差（层次感；纯 transform，不触发重排）。
-    transform: [{ translateX: side.value === 0 ? 0 : side.value * 6 }],
-  }));  const [atBottom, setAtBottom] = useState(true);
+  // 舞台不再做反向视差：它会每帧移动模糊目标，逼着 BlurView 每帧重算一张全屏
+  // 模糊。背景保持不动、只有侧栏浮在上面，既省帧也更接近豆包的层次。
+  const closeSide = () => {
+    if (drawerOpen) closeDrawerSide();
+    else if (workspacePanelOpen) closePanelSide();
+  };
+  const [atBottom, setAtBottom] = useState(true);
   const [jumpSignal, setJumpSignal] = useState(0);
   // 键盘取证：侧栏开着时如果 IME 还是弹出来，把调用栈打进 logcat（排查复发用）。
   const sideOpenRef = useRef({ drawer: false, panel: false });
@@ -1364,7 +1409,6 @@ export default function GoHomeScreen() {
                 styles.stage,
                 conversation.rows.length > 0 && styles.stageList,
                 layout.landscapeCompact && styles.stageLandscape,
-                stageGestureStyle,
               ]}
             >
               {conversation.rows.length > 0 ? (
@@ -1372,21 +1416,17 @@ export default function GoHomeScreen() {
                   rows={conversation.rows}
                   onRespond={conversation.respondInteraction}
                   turnChanges={conversation.turnChanges}
-                  onOpenSession={(sessionId) => void conversation.openSession(sessionId)}
+                  onOpenSession={stableOpenSession}
                   plugins={plugins.enabled}
-                  onPluginAction={onPluginAction}
+                  onPluginAction={stablePluginAction}
                   bottomInset={petTarget + (annotations.length > 0 ? space(10) : 0)}
-                  onMessageLongPress={openMessagePopup}
-                  annotationCountFor={annotationCountFor}
+                  onMessageLongPress={stableOpenMessagePopup}
+                  annotationCountFor={stableAnnotationCountFor}
                   showReasoning={conversationPrefs.showReasoning}
                   showTools={conversationPrefs.showTools}
                   autoCollapseThinking={conversationPrefs.autoCollapseReasoning}
                   autoCollapseTools={conversationPrefs.autoCollapseTools}
-                  onRetryTurn={(target) => {
-                    void conversation.retryTurn(target).then((error) => {
-                      if (error) showHint(error);
-                    });
-                  }}
+                  onRetryTurn={stableRetryTurn}
                   onAtBottomChange={setAtBottom}
                   jumpSignal={jumpSignal}
                 />
@@ -1465,7 +1505,13 @@ export default function GoHomeScreen() {
                       }}
                     >
                       <View pointerEvents="none">
-                        <PetView state={petState} targetSize={petTarget} />
+                        <PetView
+                          state={petState}
+                          targetSize={petTarget}
+                          // 侧栏展开时宠物被遮罩盖住；停掉它的逐帧重绘，避免每帧
+                          // 把 BlurTargetView 弄脏、逼磨砂层全屏重算。
+                          animated={!drawerOpen && !workspacePanelOpen}
+                        />
                       </View>
                     </Pressable>
                   </View>
@@ -1598,9 +1644,16 @@ export default function GoHomeScreen() {
         </View>
       </BlurTargetView>
 
+      {/* 左右两栏共用的一层玻璃遮罩（模糊/压暗/关闭热区）。 */}
+      <SideBackdrop
+        progress={side}
+        open={drawerOpen || workspacePanelOpen}
+        onClose={closeSide}
+        blurTarget={blurTargetRef}
+      />
+
       {!inShell ? (
         <GoDrawer
-          blurTarget={blurTargetRef}
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
           progress={side}
@@ -1625,7 +1678,6 @@ export default function GoHomeScreen() {
       ) : null}
 
       <WorkspacePanel
-        blurTarget={blurTargetRef}
         visible={workspacePanelOpen}
         progress={side}
         onClose={closePanelSide}
@@ -1667,6 +1719,7 @@ export default function GoHomeScreen() {
         slotData={conversation.pluginSlotData}
         session={sessionTools}
         bottom={statusBottom}
+        paused={drawerOpen || workspacePanelOpen}
       />
 
       <PluginPopup

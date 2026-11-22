@@ -47,24 +47,31 @@ export function AppearIn({
     };
   }, []);
   const reduced = systemReduced || !motionEnabled;
+  // 入场参数只认挂载时的第一份：父级每次渲染都会重新算 delay（stagger 序号），
+  // 若把 delay 放进依赖，任何一次父级重渲染都会把入场动画从头重播——列表看着
+  // 就是一闪一闪。动画只跟「是否关动效」走。
+  const initialDelay = useRef(delay);
+  const initialDuration = useRef(duration);
   useEffect(() => {
     if (reduced) {
       progress.setValue(1);
       return;
     }
+    const startDelay = initialDelay.current;
+    const runDuration = initialDuration.current;
     // 兜底：动画窗口结束（含 delay）后无论成败都钉在终态，清掉中途冻结的可能。
-    const settle = setTimeout(() => progress.setValue(1), delay + duration + 400);
+    const settle = setTimeout(() => progress.setValue(1), startDelay + runDuration + 400);
     Animated.timing(progress, {
       toValue: 1,
-      delay,
-      duration,
+      delay: startDelay,
+      duration: runDuration,
       easing: easingStandard,
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (!finished) progress.setValue(1);
     });
     return () => clearTimeout(settle);
-  }, [reduced, progress, delay, duration]);
+  }, [reduced, progress]);
   if (reduced) return <Animated.View style={style}>{children}</Animated.View>;
   return (
     <Animated.View

@@ -2,5 +2,8 @@ packages:
   - packages/*
   - app
   - app/modules/*
+patchedDependencies:
+  expo-blur@58.0.6: patches/expo-blur@58.0.6.patch
+
 # 历史参考仓已移出本工作区；保留这条说明，
 # 防止以后把带独立 package.json 的参考检出误纳入 workspace。

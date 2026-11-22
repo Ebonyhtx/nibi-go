@@ -7,6 +7,7 @@ import type { ChatFileChange, ChatRow } from "@nibi-go/kernel-session";
 import { resolveText, resolveView } from "@nibi-go/plugin-contract";
 import type { AttachmentRef, ConversationSelectionText } from "@nibi-go/shared-extract";
 import {
+  memo,
   type ComponentRef,
   type ReactNode,
   useEffect,
@@ -252,7 +253,7 @@ function rowNumericId(row: ChatRow): number | null {
   return match ? Number(match[1]) : null;
 }
 
-export function ConversationList({
+function ConversationListImpl({
   rows,
   onRespond,
   turnChanges,
@@ -571,10 +572,11 @@ export function ConversationList({
                 delayLongPress={350}
                 accessibilityRole="button"
                 accessibilityLabel="用户消息，长按添加注释"
-                style={[
+                style={({ pressed }) => [
                   styles.bubble,
                   hasQuotes && styles.bubbleWide,
                   { backgroundColor: th.brandSoft, borderColor: "transparent" },
+                  pressed ? { opacity: 0.88 } : null,
                 ]}
               >
                 <MessageAttachments attachments={row.attachments ?? []} />
@@ -998,6 +1000,10 @@ export function ConversationList({
     </View>
   );
 }
+
+/** 抽屉开合、键盘高度、贴底状态等父级状态变化不该重渲染整条消息流：
+ *  props 全部不变时直接跳过（流式增量的重渲染由 rows 变化正常触发）。 */
+export const ConversationList = memo(ConversationListImpl);
 
 /** 单个工具行：折叠只有一行（图标 + 名称 + 状态词 + 目标），展开才是原有详情。 */
 function ToolRowView({

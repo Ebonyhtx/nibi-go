@@ -15,17 +15,14 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { BlurView } from "expo-blur";
 import {
   Alert,
   Image,
-  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -192,7 +189,6 @@ export function WorkspacePanel({
   visible,
   onClose,
   progress,
-  blurTarget,
   workspacePath,
   subagents,
 }: {
@@ -200,8 +196,6 @@ export function WorkspacePanel({
   onClose: () => void;
   /** 侧栏进度（index 的共享值：+1 左抽屉 / -1 右面板 / 0 收起）。 */
   progress: SharedValue<number>;
-  /** 玻璃模糊目标（主内容包在 BlurTargetView 里）。 */
-  blurTarget?: React.RefObject<ComponentRef<typeof View> | null>;
   /** 当前项目的绝对目录；null 时整块内容显示空态。 */
   workspacePath: string | null;
   subagents: readonly WorkspaceSubagent[];
@@ -212,7 +206,6 @@ export function WorkspacePanel({
   const panelWidth = Math.min(360, Math.round(width * 0.88));
   const panelWidthSV = useSharedValue(panelWidth);
   panelWidthSV.value = panelWidth;
-  const colorScheme = useColorScheme();
   // 一级入口；打开面板回到 hub（每次进来先选入口）。
   const [mode, setMode] = useState<WorkspaceMode>("hub");
   // 面板内正在查看的子智能体（有子会话的行点进来直接看消息流）。
@@ -228,10 +221,6 @@ export function WorkspacePanel({
     const p = Math.min(1, Math.max(0, -progress.value));
     return { transform: [{ translateX: 10 * (1 - p) }] };
   });
-  const dimStyle = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.max(0, -progress.value)),
-  }));
-
   // 展开后在面板上往右拖 = 跟手关闭。
   const closeGesture = useMemo(
     () =>
@@ -255,16 +244,37 @@ export function WorkspacePanel({
     [],
   );
 
-  // 打开时复位现场；收起时清掉搜索焦点。
+  // 收起动画期间**不换内容**：打开时才复位会在面板滑入的第一帧先画旧内容再切 hub
+  // （运营者看到的「内容闪一下」）。复位放到滑出完成之后（450ms > 300ms 动画），
+  // 重开则取消计时器，整个滑动过程内容一动不动。
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (visible) {
-      setMode("hub");
-      setTranscriptAgent(null);
-    } else {
+    if (resetTimer.current) {
+      clearTimeout(resetTimer.current);
+      resetTimer.current = null;
+    }
+    if (!visible) {
+      // 只 blur 面板自己的搜索框（有焦点才会收起 IME）；不再补 Keyboard.dismiss：
+      // 百度输入法对已收起时的再次 dismiss 会反转成弹出。
       searchRef.current?.blur();
-      Keyboard.dismiss();
+      resetTimer.current = setTimeout(() => {
+        resetTimer.current = null;
+        setMode("hub");
+        setTranscriptAgent(null);
+        setViewer(null);
+        setSearch("");
+        setSearchFocused(false);
+        setSearchResults(null);
+        setSearching(false);
+      }, 450);
     }
   }, [visible]);
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
 
   // ── 文件树状态 ──────────────────────────────────────────────────────────
   const [rootNodes, setRootNodes] = useState<FileNode[] | null>(null);
@@ -298,22 +308,32 @@ export function WorkspacePanel({
   }, [workspacePath]);
 
   // 面板展开（或刷新）时读 workspace 根；重新打开会重读一遍，保持文件列表新鲜。
+  // 首次展开的那次读取延到滑入动画之后：目录内容若在滑动途中被替换，看上去也是
+  // 「内容闪一下」。刷新按钮（reloadTick）在面板里手点，不必等。
+  const wasVisible = useRef(false);
   useEffect(() => {
+    const justOpened = visible && !wasVisible.current;
+    wasVisible.current = visible;
     if (!visible || !workspacePath) return;
     let alive = true;
-    setRootError(null);
-    (async () => {
-      try {
-        const nodes = await listChildren(fileUriOf(workspacePath), "");
-        if (!alive) return;
-        setChildrenMap((prev) => ({ ...prev, "": nodes }));
-        setRootNodes(nodes);
-      } catch (error) {
-        if (alive) setRootError(error instanceof Error ? error.message : String(error));
-      }
-    })();
+    const run = () => {
+      setRootError(null);
+      (async () => {
+        try {
+          const nodes = await listChildren(fileUriOf(workspacePath), "");
+          if (!alive) return;
+          setChildrenMap((prev) => ({ ...prev, "": nodes }));
+          setRootNodes(nodes);
+        } catch (error) {
+          if (alive) setRootError(error instanceof Error ? error.message : String(error));
+        }
+      })();
+    };
+    const timer = justOpened ? setTimeout(run, 320) : null;
+    if (!justOpened) run();
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
     };
   }, [visible, workspacePath, reloadTick]);
 
@@ -553,18 +573,7 @@ export function WorkspacePanel({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Animated.View style={[styles.dim, dimStyle]} pointerEvents={visible ? "auto" : "none"}>
-        <BlurView
-          blurTarget={blurTarget}
-          intensity={26}
-          tint={colorScheme === "dark" ? "dark" : "light"}
-          experimentalBlurMethod="dimezisBlurView"
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.backdrop, opacity: 0.35 }]} pointerEvents="none" />
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭工作区" />
-      </Animated.View>
+      {/* 玻璃模糊/压暗由 index 的 SideBackdrop 统一渲染（左右两栏共用一层）。 */}
       <GestureDetector gesture={closeGesture}>
       <Animated.View
         pointerEvents={visible ? "auto" : "none"}
@@ -1071,14 +1080,6 @@ const styles = StyleSheet.create({
   capsuleCol: { flex: 1, minWidth: 0, gap: 2 },
   capsuleTitle: { ...text("body"), fontWeight: "700" },
   capsuleDetail: { ...text("micro") },
-  dim: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 19,
-  },
   // 右缘贴边的抽屉：左边一条发丝线（与 GoDrawer 的右缘线镜像）。
   panel: {
     position: "absolute",
