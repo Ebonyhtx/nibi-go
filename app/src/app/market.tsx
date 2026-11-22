@@ -1,8 +1,9 @@
-// 插件市场：分为「NIBI / 公开 / 个人」三个子页，顶部支持一键切换「国内源 / 国外源」。
+// 插件市场（NIBI-GO 手机独立市场，与桌面端 CDN/索引彻底隔离）：
+// 分为「NIBI / 公开 / 个人」三个子页，顶部支持一键切换「国内源 / 国外源」。
 //
-// - NIBI：NIBI-GO 官方原生插件套件（Word / Excel / PPT / PDF 文档四件套、图表与可视化、写作与办公助手）及官方扩展；
-// - 公开：来自公开镜像源（国内 jsDelivr + npmmirror / 国外 GitHub Raw + npmjs）的开源与社区插件；
-// - 个人：用户自定义添加的插件包直链 / 镜像地址，或从手机本地导入的 .zip 插件包。
+// - NIBI：本机随包内置的手机轻量官方套件 + 远端手机市场官方扩展；
+// - 公开：实时搜索 npm 公共源（按地区走 npmmirror / npmjs）+ nibi-go-market 签名目录与开源推荐；
+// - 个人：直接输入 npm 包名安装纯 JS MCP、从直链安装标准 ZIP（.nibi-plugin/.claude-plugin/.codex-plugin/skills）或本地导入。
 //
 // 界面静态零「付费 / 会员」字样：所有未安装插件统一展示「安装」；
 // 仅在点击「安装」且该插件需要账号授权时，才按需校验登录态与授权，未获权时弹出应用内嵌 handoff WebView。
@@ -15,6 +16,7 @@ import { strToU8, zipSync } from "fflate";
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   ScrollView,
   StyleSheet,
   Switch,
@@ -39,6 +41,7 @@ import { AppearIn, staggerDelay } from "../motion/appear";
 import { PressableScale } from "../motion/PressableScale";
 import {
   installMarketPlugin,
+  installPersonalNpmPlugin,
   installPersonalUrlPlugin,
   installPluginArchiveBytes,
   readInstalledManifest,
@@ -63,6 +66,11 @@ import {
   type MarketSnapshotFile,
   type PersonalPluginSource,
 } from "../plugins/marketStore";
+import {
+  npmPluginIdFor,
+  searchNpmPackages,
+  type NpmSearchHit,
+} from "../plugins/npmRegistry";
 import { BUNDLED_PLUGINS } from "../plugins/samples";
 import { usePlugins } from "../plugins/usePlugins";
 import { useSession } from "../relay/useSession";
@@ -148,7 +156,7 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
           version: "1.0.0",
           description: "快速构造 REST / GraphQL 请求参数、解析响应结构并生成接口联调诊断报告。",
           minApp: "0.1.0",
-          accent: "steel",
+          accent: "sub",
           caps: ["view.v1", "slots.v1", "effects.v1"],
           skills: [
             {
@@ -191,7 +199,7 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
           version: "1.0.0",
           description: "辅助设计数据库表结构、编写复杂聚合查询并分析索引与慢查询瓶颈。",
           minApp: "0.1.0",
-          accent: "amber",
+          accent: "warn",
           caps: ["view.v1", "slots.v1", "effects.v1"],
           skills: [
             {
@@ -264,6 +272,42 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
   },
 ];
 
+interface FeaturedNpmMcp {
+  id: string;
+  packageName: string;
+  name: string;
+  publisher: string;
+  description: string;
+}
+
+/**
+ * 精选纯 JS 开源 npm MCP（通过内置 Node/npm 实时从 npmmirror / npmjs 安装；
+ * 若远端签名索引已收录同 id 条目，则自动去重、以签名索引为准）。
+ */
+const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
+  {
+    id: npmPluginIdFor("@modelcontextprotocol/server-sequential-thinking"),
+    packageName: "@modelcontextprotocol/server-sequential-thinking",
+    name: "顺序思考（Sequential Thinking）",
+    publisher: "Model Context Protocol · npm",
+    description: "官方纯 JS 分步推理 MCP 服务器，辅助复杂问题的多步拆解、修订与分支验证。",
+  },
+  {
+    id: npmPluginIdFor("@modelcontextprotocol/server-memory"),
+    packageName: "@modelcontextprotocol/server-memory",
+    name: "知识图谱记忆（Memory）",
+    publisher: "Model Context Protocol · npm",
+    description: "官方纯 JS 实体与关系知识图谱 MCP，支持在本地持久记录与检索结构化记忆。",
+  },
+];
+
+const NPM_QUICK_QUERIES = [
+  { label: "MCP 工具", query: "mcp-server" },
+  { label: "顺序思考", query: "server-sequential-thinking" },
+  { label: "记忆图谱", query: "server-memory" },
+  { label: "高德地图", query: "amap-maps-mcp-server" },
+] as const;
+
 function describeFailure(kind: string, detail: string): string {
   switch (kind) {
     case "fetch":
@@ -319,14 +363,26 @@ function MarketRow({
   const hasUpdate =
     installedVersion !== null && comparePluginVersions(entry.version, installedVersion) > 0;
   const action = installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
+  const formatTag =
+    entry.package.format === "npm"
+      ? "npm MCP"
+      : entry.kind === "skill"
+        ? "技能包"
+        : "标准 ZIP";
+  const sourceDetail =
+    entry.package.format === "npm"
+      ? `${entry.package.name} · v${entry.version}`
+      : `v${entry.version}${entry.publisher ? ` · ${entry.publisher}` : ""}`;
   return (
     <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
       <View style={styles.cardHead}>
         <View style={styles.cardTitleWrap}>
-          <Text style={[styles.name, { color: t.ink }]}>{entry.name}</Text>
-          <Text style={[styles.meta, { color: t.inkFaint }]}>
-            v{entry.version}
-            {entry.publisher ? ` · ${entry.publisher}` : ""}
+          <View style={styles.titleBadgeRow}>
+            <Text style={[styles.name, { color: t.ink }]}>{entry.name}</Text>
+            <StatusPill bg={t.brandSoft} color={t.brand} label={formatTag} />
+          </View>
+          <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
+            {sourceDetail}
           </Text>
         </View>
         {installedVersion === null ? (
@@ -395,12 +451,34 @@ export default function MarketScreen() {
   const [loginPromptEntry, setLoginPromptEntry] = useState<MarketPluginEntry | null>(null);
   const [membershipEntry, setMembershipEntry] = useState<MarketPluginEntry | null>(null);
 
-  // 「个人」子页添加源 Sheet 状态
+  // 「个人」子页添加 ZIP 源 Sheet 状态
   const [addPersonalOpen, setAddPersonalOpen] = useState(false);
   const [personalNameInput, setPersonalNameInput] = useState("");
   const [personalUrlInput, setPersonalUrlInput] = useState("");
   const [personalRiskAccepted, setPersonalRiskAccepted] = useState(false);
   const [addingPersonal, setAddingPersonal] = useState(false);
+
+  // 「个人」子页添加 npm MCP Sheet 状态
+  const [addNpmOpen, setAddNpmOpen] = useState(false);
+  const [personalNpmNameInput, setPersonalNpmNameInput] = useState("");
+  const [personalNpmSpecInput, setPersonalNpmSpecInput] = useState("");
+  const [personalNpmRiskAccepted, setPersonalNpmRiskAccepted] = useState(false);
+  const [addingNpm, setAddingNpm] = useState(false);
+
+  // 「公开」子页实时搜索 npm 公共源状态
+  const [npmQuery, setNpmQuery] = useState("");
+  const [npmHits, setNpmHits] = useState<NpmSearchHit[]>([]);
+  const [npmSearching, setNpmSearching] = useState(false);
+  const [npmSearchRegistry, setNpmSearchRegistry] = useState<string | null>(null);
+  const [npmSearchError, setNpmSearchError] = useState<string | null>(null);
+  const [npmHasSearched, setNpmHasSearched] = useState(false);
+  const [pendingNpmConfirm, setPendingNpmConfirm] = useState<{
+    packageName: string;
+    version?: string;
+    displayName: string;
+    description?: string;
+    origin: "npm-search" | "personal";
+  } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -410,6 +488,9 @@ export default function MarketScreen() {
       next[entry.id] = readInstalledManifest(entry.id)?.version ?? null;
     }
     for (const item of CURATED_PUBLIC_PLUGINS) {
+      next[item.id] = readInstalledManifest(item.id)?.version ?? null;
+    }
+    for (const item of FEATURED_NPM_MCPS) {
       next[item.id] = readInstalledManifest(item.id)?.version ?? null;
     }
     setVersions(next);
@@ -489,13 +570,25 @@ export default function MarketScreen() {
     const controller = new AbortController();
     abortRef.current = controller;
     setBusyId(entry.id);
-    setProgress({ loaded: 0, total: entry.package.size });
-    setMessage(`正在通过${marketRegionLabel(region)}下载并校验 ${entry.name} v${entry.version}…`);
+    if (entry.package.format === "zip") {
+      setProgress({ loaded: 0, total: entry.package.size });
+      setMessage(`正在通过${marketRegionLabel(region)}下载并校验 ${entry.name} v${entry.version}…`);
+    } else {
+      setProgress(null);
+      setMessage(
+        `正在通过${marketRegionLabel(region)}内置 npm 安装 ${entry.package.name}@${entry.version}…`,
+      );
+    }
     try {
       const outcome = await installMarketPlugin(entry, {
         region,
         signal: controller.signal,
-        onProgress: (loaded, total) => setProgress({ loaded, total: total ?? entry.package.size }),
+        onProgress: (loaded, total) => {
+          if (entry.package.format === "zip") {
+            setProgress({ loaded, total: total ?? entry.package.size });
+          }
+        },
+        onStatus: (statusText) => setMessage(statusText),
       });
       if (!outcome.ok) {
         setMessage(
@@ -505,7 +598,7 @@ export default function MarketScreen() {
       }
       setVersions((current) => ({ ...current, [entry.id]: outcome.manifest.version }));
       await plugins.reload();
-      setMessage(`${entry.name} v${outcome.manifest.version} 已安装`);
+      setMessage(`${entry.name} v${outcome.manifest.version} 已安装并启用`);
     } finally {
       abortRef.current = null;
       setBusyId(null);
@@ -607,6 +700,116 @@ export default function MarketScreen() {
     }
   }
 
+  async function handleSearchNpm(overrideQuery?: string) {
+    const q = (overrideQuery ?? npmQuery).trim();
+    if (!q || npmSearching) return;
+    if (overrideQuery !== undefined) setNpmQuery(q);
+    Keyboard.dismiss();
+    setNpmSearching(true);
+    setNpmSearchError(null);
+    setNpmHasSearched(true);
+    try {
+      const res = await searchNpmPackages(q, region, { size: 15 });
+      if (!res.ok) {
+        setNpmSearchError(res.reason);
+        setNpmHits([]);
+        return;
+      }
+      setNpmHits(res.hits);
+      setNpmSearchRegistry(res.registry);
+      setVersions((current) => {
+        const next = { ...current };
+        for (const hit of res.hits) {
+          const id = npmPluginIdFor(hit.name);
+          next[id] = readInstalledManifest(id)?.version ?? null;
+        }
+        return next;
+      });
+    } finally {
+      setNpmSearching(false);
+    }
+  }
+
+  async function executeNpmCommunityInstall(target: {
+    packageName: string;
+    version?: string;
+    displayName: string;
+    description?: string;
+    origin: "npm-search" | "personal";
+  }) {
+    if (busyId) return;
+    const id = npmPluginIdFor(target.packageName);
+    const spec = target.version ? `${target.packageName}@${target.version}` : target.packageName;
+    setBusyId(id);
+    setMessage(`正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`);
+    try {
+      const outcome = await installPersonalNpmPlugin(spec, {
+        displayName: target.displayName,
+        description: target.description,
+        region,
+        origin: target.origin,
+        onStatus: (statusText) => setMessage(statusText),
+      });
+      if (!outcome.ok) {
+        setMessage(`${target.displayName} 安装失败：${outcome.reason}`);
+        return;
+      }
+      setVersions((current) => ({ ...current, [outcome.dir]: outcome.manifest.version }));
+      await plugins.reload();
+      const warnSuffix =
+        outcome.warnings && outcome.warnings.length > 0 ? `（${outcome.warnings[0]}）` : "";
+      setMessage(`${outcome.manifest.name} v${outcome.manifest.version} 已安装并启用${warnSuffix}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleAddPersonalNpm() {
+    const spec = personalNpmSpecInput.trim();
+    if (!spec || !personalNpmRiskAccepted || addingNpm) return;
+    Keyboard.dismiss();
+    setAddingNpm(true);
+    setMessage(`正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`);
+    try {
+      const outcome = await installPersonalNpmPlugin(spec, {
+        displayName: personalNpmNameInput.trim() || undefined,
+        region,
+        origin: "personal",
+        onStatus: (statusText) => setMessage(statusText),
+      });
+      if (!outcome.ok) {
+        setMessage(`npm 安装失败：${outcome.reason}`);
+        return;
+      }
+      const sourceUrl = `npm:${spec}`;
+      const sourceEntry: PersonalPluginSource = {
+        id: `npm-${Date.now()}`,
+        name: personalNpmNameInput.trim() || outcome.manifest.name,
+        url: sourceUrl,
+        kind: "npm",
+        addedAt: new Date().toISOString(),
+        installedPluginId: outcome.manifest.id,
+      };
+      const next = [
+        sourceEntry,
+        ...personalSources.filter(
+          (item) => item.url !== sourceUrl && item.installedPluginId !== outcome.manifest.id,
+        ),
+      ];
+      setPersonalSources(next);
+      await savePersonalSources(next);
+      setVersions((current) => ({ ...current, [outcome.manifest.id]: outcome.manifest.version }));
+      await plugins.reload();
+      setAddNpmOpen(false);
+      setPersonalNpmNameInput("");
+      setPersonalNpmSpecInput("");
+      setPersonalNpmRiskAccepted(false);
+      setMessage(`已通过 npm 安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+    } finally {
+      setAddingNpm(false);
+    }
+  }
+
   async function handleAddPersonalUrl() {
     const url = personalUrlInput.trim();
     if (!url || !personalRiskAccepted || addingPersonal) return;
@@ -699,9 +902,18 @@ export default function MarketScreen() {
     [allRemoteEntries],
   );
 
+  // 精选推荐 npm MCP 自动与远端签名索引按 id 去重
+  const visibleFeaturedNpmMcps = useMemo(() => {
+    const remoteIds = new Set(allRemoteEntries.map((item) => item.id));
+    return FEATURED_NPM_MCPS.filter((item) => !remoteIds.has(item.id));
+  }, [allRemoteEntries]);
+
   // 本地已安装的个人/第三方插件（既不是内置插件，也不在公开策展和远端公开索引中）
   const localPersonalPlugins = useMemo(() => {
-    const curatedIds = new Set(CURATED_PUBLIC_PLUGINS.map((item) => item.id));
+    const curatedIds = new Set([
+      ...CURATED_PUBLIC_PLUGINS.map((item) => item.id),
+      ...FEATURED_NPM_MCPS.map((item) => item.id),
+    ]);
     const remoteIds = new Set(allRemoteEntries.map((item) => item.id));
     return plugins.plugins.filter(
       (plugin) =>
@@ -765,6 +977,7 @@ export default function MarketScreen() {
       />
 
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
       >
         <AppearIn delay={staggerDelay(0, 28, 200)}>
@@ -779,12 +992,12 @@ export default function MarketScreen() {
           <View style={[styles.mirrorBanner, { backgroundColor: t.card, borderColor: t.hairline }]}>
             <View style={styles.mirrorBannerTextWrap}>
               <Text style={[styles.mirrorBannerTitle, { color: t.ink }]}>
-                当前镜像：{marketRegionLabel(region)}
+                NIBI-GO 独立市场 · {marketRegionLabel(region)}
               </Text>
               <Text style={[styles.mirrorBannerSub, { color: t.inkFaint }]}>
                 {region === "cn"
-                  ? "优先走 jsDelivr / Fastly 公共镜像与 npmmirror 国内源，无需消耗自有 CDN"
-                  : "优先走 GitHub Raw 与 registry.npmjs.org 全球官方源，jsDelivr 自动兜底"}
+                  ? "目录源：nibi-go-market（jsDelivr / Fastly 验签）· npm 源：npmmirror"
+                  : "目录源：nibi-go-market（GitHub Raw 验签）· npm 源：registry.npmjs.org"}
               </Text>
             </View>
             <PillButton
@@ -835,7 +1048,7 @@ export default function MarketScreen() {
         {tab === "nibi" ? (
           <>
             <AppearIn delay={staggerDelay(2, 28, 200)}>
-              <SectionCard label="NIBI-GO 官方套件（本机就绪）">
+              <SectionCard label="随包内置（手机轻量专属 · 开箱即用）">
                 {BUNDLED_PLUGINS.map((bundled, idx) => {
                   const installed = plugins.plugins.find((item) => item.dir === bundled.dir);
                   const manifest = installed?.parsed.manifest;
@@ -849,7 +1062,7 @@ export default function MarketScreen() {
                         title={manifest?.name ?? bundled.dir}
                         detail={
                           manifest?.description ??
-                          "NIBI-GO 官方内置套件，支持本地 MCP 工具与快捷技能"
+                          "NIBI-GO 手机端轻量内置套件，支持本地 MCP 工具与快捷技能"
                         }
                         right={
                           <Switch
@@ -870,7 +1083,7 @@ export default function MarketScreen() {
               <AppearIn delay={staggerDelay(3, 28, 200)}>
                 <View style={styles.sectionStack}>
                   <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                    NIBI 官方扩展包
+                    NIBI 手机市场官方扩展
                   </Text>
                   {nibiRemoteEntries.map((entry) => (
                     <MarketRow
@@ -891,24 +1104,306 @@ export default function MarketScreen() {
 
         {tab === "public" ? (
           <>
+            {/* 实时搜索 npm 公共源（按当前国内/国外源走 npmmirror 或 npmjs） */}
+            <AppearIn delay={staggerDelay(2, 28, 200)}>
+              <View style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}>
+                <View style={styles.cardHead}>
+                  <View style={styles.cardTitleWrap}>
+                    <Text style={[styles.name, { color: t.ink }]}>实时搜索 npm 公共源</Text>
+                    <Text style={[styles.meta, { color: t.inkFaint }]}>
+                      直接检索 {region === "cn" ? "npmmirror" : "npmjs.org"} 上的开源纯 JS MCP 包（安装自动禁脚本并拦截原生二进制）
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.searchRow}>
+                  <View
+                    style={[
+                      styles.searchInputWrap,
+                      { borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+                    ]}
+                  >
+                    <Icon name="search" size={14} color={t.inkFaint} />
+                    <TextInput
+                      value={npmQuery}
+                      onChangeText={setNpmQuery}
+                      onSubmitEditing={() => void handleSearchNpm()}
+                      placeholder="搜 npm 包名或关键词（如 mcp-server）"
+                      placeholderTextColor={t.inkGhost}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                      style={[styles.searchInput, { color: t.ink }]}
+                    />
+                    {npmQuery.length > 0 ? (
+                      <PressableScale
+                        onPress={() => {
+                          setNpmQuery("");
+                          setNpmHits([]);
+                          setNpmSearchError(null);
+                          setNpmHasSearched(false);
+                        }}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="清空搜索词"
+                      >
+                        <Icon name="x" size={14} color={t.inkFaint} />
+                      </PressableScale>
+                    ) : null}
+                  </View>
+                  <PillButton
+                    label={npmSearching ? "搜索中…" : "搜索"}
+                    variant="primary"
+                    buttonSize="sm"
+                    disabled={npmSearching || !npmQuery.trim()}
+                    onPress={() => void handleSearchNpm()}
+                  />
+                </View>
+
+                <View style={styles.quickChipRow}>
+                  {NPM_QUICK_QUERIES.map((chip) => (
+                    <PressableScale
+                      key={chip.query}
+                      onPress={() => void handleSearchNpm(chip.query)}
+                      style={[
+                        styles.quickChip,
+                        { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`搜索 ${chip.label}`}
+                    >
+                      <Text style={[styles.quickChipText, { color: t.inkSub }]}>{chip.label}</Text>
+                    </PressableScale>
+                  ))}
+                </View>
+
+                {npmSearching ? (
+                  <View style={styles.searchStatusRow}>
+                    <ActivityIndicator color={t.brand} size="small" />
+                    <Text style={[styles.hint, { color: t.inkFaint }]}>
+                      正在检索 {region === "cn" ? "npmmirror" : "npmjs.org"}…
+                    </Text>
+                  </View>
+                ) : null}
+
+                {npmSearchError ? (
+                  <Text style={[styles.hint, { color: t.red }]}>{npmSearchError}</Text>
+                ) : null}
+
+                {npmHasSearched && !npmSearching && !npmSearchError && npmHits.length === 0 ? (
+                  <Text style={[styles.hint, { color: t.inkFaint }]}>
+                    未找到匹配的 npm 包，换个关键词或直接去「个人」页输入完整包名安装。
+                  </Text>
+                ) : null}
+
+                {npmHits.length > 0 ? (
+                  <View style={styles.searchResults}>
+                    <Text style={[styles.meta, { color: t.inkFaint }]}>
+                      共找到 {npmHits.length} 个结果（源：{npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"} · 社区包未经官方审核）
+                    </Text>
+                    {npmHits.map((hit) => {
+                      const pluginId = npmPluginIdFor(hit.name);
+                      const installedVer =
+                        versions[pluginId] ?? readInstalledManifest(pluginId)?.version ?? null;
+                      const isBusy = busyId === pluginId;
+                      return (
+                        <View
+                          key={hit.name}
+                          style={[
+                            styles.searchHitCard,
+                            { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
+                          ]}
+                        >
+                          <View style={styles.cardHead}>
+                            <View style={styles.cardTitleWrap}>
+                              <View style={styles.titleBadgeRow}>
+                                <Text
+                                  style={[styles.hitName, { color: t.ink }]}
+                                  numberOfLines={1}
+                                >
+                                  {hit.name}
+                                </Text>
+                                {hit.looksLikeMcp ? (
+                                  <StatusPill bg={t.brandSoft} color={t.brand} label="MCP" />
+                                ) : null}
+                              </View>
+                              <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
+                                v{hit.version} · {hit.author} · 社区未审
+                              </Text>
+                            </View>
+                            {installedVer ? (
+                              <StatusPill
+                                bg={t.okSoft}
+                                color={t.ok}
+                                label={`已安装 v${installedVer}`}
+                              />
+                            ) : null}
+                          </View>
+                          {hit.description ? (
+                            <Text
+                              style={[styles.description, { color: t.inkSub }]}
+                              numberOfLines={2}
+                            >
+                              {hit.description}
+                            </Text>
+                          ) : null}
+                          <View style={styles.actions}>
+                            <PillButton
+                              label={
+                                isBusy
+                                  ? "安装中…"
+                                  : installedVer === null
+                                    ? "安装"
+                                    : "重新安装"
+                              }
+                              variant="primary"
+                              buttonSize="sm"
+                              disabled={isBusy || busyId !== null}
+                              onPress={() =>
+                                setPendingNpmConfirm({
+                                  packageName: hit.name,
+                                  version: hit.version,
+                                  displayName: hit.name,
+                                  description: hit.description,
+                                  origin: "npm-search",
+                                })
+                              }
+                            />
+                            {installedVer !== null && !isBusy ? (
+                              <PillButton
+                                label="卸载"
+                                variant="danger"
+                                buttonSize="sm"
+                                onPress={() => void uninstall(pluginId, hit.name)}
+                              />
+                            ) : null}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            </AppearIn>
+
             {loading ? (
               <View style={styles.loading}>
                 <ActivityIndicator color={t.brand} />
-                <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开插件列表…</Text>
+                <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开市场目录…</Text>
               </View>
             ) : (
               <View style={styles.sectionStack}>
+                {publicRemoteEntries.length > 0 ? (
+                  <>
+                    <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                      已审核公开市场（nibi-go-market 验签收录）
+                    </Text>
+                    {publicRemoteEntries.map((entry, idx) => (
+                      <AppearIn key={entry.id} delay={staggerDelay(idx + 3, 28, 200)}>
+                        <MarketRow
+                          entry={entry}
+                          installedVersion={versions[entry.id] ?? null}
+                          busy={busyId === entry.id}
+                          onInstall={() => void handleInstallPress(entry)}
+                          onUninstall={() => void uninstall(entry.id, entry.name)}
+                          onCancel={cancelInstall}
+                        />
+                      </AppearIn>
+                    ))}
+                  </>
+                ) : null}
+
+                {visibleFeaturedNpmMcps.length > 0 ? (
+                  <>
+                    <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                      推荐纯 JS 开源 MCP（从 npm 实时安装）
+                    </Text>
+                    {visibleFeaturedNpmMcps.map((item, idx) => {
+                      const installedVer = versions[item.id] ?? null;
+                      const isBusy = busyId === item.id;
+                      return (
+                        <AppearIn key={item.id} delay={staggerDelay(idx + 3, 28, 200)}>
+                          <View
+                            style={[
+                              styles.card,
+                              { backgroundColor: t.card, borderColor: t.hairline },
+                            ]}
+                          >
+                            <View style={styles.cardHead}>
+                              <View style={styles.cardTitleWrap}>
+                                <View style={styles.titleBadgeRow}>
+                                  <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
+                                  <StatusPill bg={t.brandSoft} color={t.brand} label="npm MCP" />
+                                </View>
+                                <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
+                                  {item.packageName} · {item.publisher}
+                                </Text>
+                              </View>
+                              {installedVer === null ? (
+                                <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
+                              ) : (
+                                <StatusPill
+                                  bg={t.okSoft}
+                                  color={t.ok}
+                                  label={`已安装 v${installedVer}`}
+                                />
+                              )}
+                            </View>
+                            <Text style={[styles.description, { color: t.inkSub }]}>
+                              {item.description}
+                            </Text>
+                            <View style={styles.actions}>
+                              <PillButton
+                                label={
+                                  isBusy
+                                    ? "安装中…"
+                                    : installedVer === null
+                                      ? "安装"
+                                      : "重新安装"
+                                }
+                                variant="primary"
+                                disabled={isBusy || busyId !== null}
+                                onPress={() =>
+                                  void executeNpmCommunityInstall({
+                                    packageName: item.packageName,
+                                    displayName: item.name,
+                                    description: item.description,
+                                    origin: "npm-search",
+                                  })
+                                }
+                                style={styles.primaryButton}
+                              />
+                              {installedVer !== null && !isBusy ? (
+                                <PillButton
+                                  label="卸载"
+                                  variant="danger"
+                                  onPress={() => void uninstall(item.id, item.name)}
+                                />
+                              ) : null}
+                            </View>
+                          </View>
+                        </AppearIn>
+                      );
+                    })}
+                  </>
+                ) : null}
+
+                <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
+                  精选开源技能包（离线可用）
+                </Text>
                 {CURATED_PUBLIC_PLUGINS.map((item, idx) => {
                   const installedVer = versions[item.id] ?? null;
                   const isBusy = busyId === item.id;
                   return (
-                    <AppearIn key={item.id} delay={staggerDelay(idx + 2, 28, 200)}>
+                    <AppearIn key={item.id} delay={staggerDelay(idx + 5, 28, 200)}>
                       <View
                         style={[styles.card, { backgroundColor: t.card, borderColor: t.hairline }]}
                       >
                         <View style={styles.cardHead}>
                           <View style={styles.cardTitleWrap}>
-                            <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
+                            <View style={styles.titleBadgeRow}>
+                              <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
+                              <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="技能包" />
+                            </View>
                             <Text style={[styles.meta, { color: t.inkFaint }]}>
                               v{item.version} · {item.publisher}
                             </Text>
@@ -930,7 +1425,7 @@ export default function MarketScreen() {
                           <PillButton
                             label={installedVer === null ? "安装" : "重新安装"}
                             variant="primary"
-                            disabled={isBusy}
+                            disabled={isBusy || busyId !== null}
                             onPress={() => void installCuratedPublic(item)}
                             style={styles.primaryButton}
                           />
@@ -946,22 +1441,6 @@ export default function MarketScreen() {
                     </AppearIn>
                   );
                 })}
-
-                {publicRemoteEntries.map((entry, idx) => (
-                  <AppearIn
-                    key={entry.id}
-                    delay={staggerDelay(CURATED_PUBLIC_PLUGINS.length + idx + 2, 28, 200)}
-                  >
-                    <MarketRow
-                      entry={entry}
-                      installedVersion={versions[entry.id] ?? null}
-                      busy={busyId === entry.id}
-                      onInstall={() => void handleInstallPress(entry)}
-                      onUninstall={() => void uninstall(entry.id, entry.name)}
-                      onCancel={cancelInstall}
-                    />
-                  </AppearIn>
-                ))}
               </View>
             )}
           </>
@@ -972,18 +1451,26 @@ export default function MarketScreen() {
             <View style={styles.sectionStack}>
               <SectionCard label="添加个人插件">
                 <Row
-                  icon="globe"
+                  icon="terminal"
                   tone="brand"
-                  title="从链接或镜像源安装 (.zip)"
-                  detail="支持 GitHub Raw、jsDelivr、npmmirror 或任意 HTTPS 插件包直链"
+                  title="从 npm 安装纯 JS MCP 包"
+                  detail="输入包名（如 @modelcontextprotocol/server-sequential-thinking），强制禁脚本并拦截原生二进制"
+                  onPress={() => setAddNpmOpen(true)}
+                />
+                <Divider />
+                <Row
+                  icon="globe"
+                  tone="steel"
+                  title="从链接安装标准插件包 (.zip)"
+                  detail="支持 GitHub Releases / Raw / jsDelivr 上的 .nibi-plugin、.claude-plugin、.codex-plugin 或纯 skills 包"
                   onPress={() => setAddPersonalOpen(true)}
                 />
                 <Divider />
                 <Row
                   icon="folder"
-                  tone="steel"
+                  tone="plain"
                   title="从手机本地导入插件包 (.zip)"
-                  detail="选择本机含 nibi-go.plugin.json 清单的 .zip 插件压缩包安装"
+                  detail="支持标准 .nibi-plugin/.claude-plugin/.codex-plugin、skills/SKILL.md 或 nibi-go.plugin.json 压缩包"
                   onPress={() => void handleImportLocalZip()}
                 />
               </SectionCard>
@@ -1061,7 +1548,7 @@ export default function MarketScreen() {
                     还没有添加个人插件
                   </Text>
                   <Text style={[styles.hint, { color: t.inkFaint }]}>
-                    你可以粘贴 GitHub / jsDelivr / npmmirror 上的插件包直链，或直接从手机文件选择器导入本地 .zip 插件包。
+                    你可以直接输入 npm 包名安装纯 JS MCP，粘贴 GitHub Releases / jsDelivr 上的标准插件包直链，或从手机本地导入 .zip 插件包。
                   </Text>
                 </View>
               )}
@@ -1076,15 +1563,103 @@ export default function MarketScreen() {
         ) : null}
       </ScrollView>
 
+      {/* 添加个人 npm MCP 包 Sheet */}
+      <Sheet
+        visible={addNpmOpen}
+        onClose={() => setAddNpmOpen(false)}
+        title="从 npm 安装纯 JS MCP 包"
+      >
+        <View style={styles.sheetForm}>
+          <Text style={[styles.hint, { color: t.inkSub }]}>
+            支持输入 npm 包名、精确版本（如 @scope/pkg@1.0.0）或 npmjs.com 链接，将按当前所选「{marketRegionLabel(region)}」（{region === "cn" ? "npmmirror" : "npmjs.org"}）通过随包内置 npm 以 --ignore-scripts 模式隔离安装。
+          </Text>
+          <TextInput
+            value={personalNpmNameInput}
+            onChangeText={setPersonalNpmNameInput}
+            placeholder="显示名称（可选，留空自动取 npm 包名）"
+            placeholderTextColor={t.inkGhost}
+            style={[
+              styles.input,
+              { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+            ]}
+          />
+          <TextInput
+            value={personalNpmSpecInput}
+            onChangeText={setPersonalNpmSpecInput}
+            placeholder="@modelcontextprotocol/server-sequential-thinking"
+            placeholderTextColor={t.inkGhost}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[
+              styles.input,
+              { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft },
+            ]}
+          />
+          <PressableScale
+            onPress={() => setPersonalNpmRiskAccepted((prev) => !prev)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: personalNpmRiskAccepted }}
+            style={styles.checkboxRow}
+          >
+            <View
+              style={[
+                styles.checkboxBox,
+                {
+                  borderColor: personalNpmRiskAccepted ? t.brand : t.inkFaint,
+                  backgroundColor: personalNpmRiskAccepted ? t.brand : "transparent",
+                },
+              ]}
+            >
+              {personalNpmRiskAccepted ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
+            </View>
+            <Text style={[styles.checkboxLabel, { color: t.inkSub }]}>
+              我了解该 npm 包来自公共社区且未经 NIBI 官方审核，并确认在手机端禁用安装脚本的沙箱中运行。
+            </Text>
+          </PressableScale>
+          <View style={styles.sheetActions}>
+            <PillButton
+              label="取消"
+              variant="secondary"
+              onPress={() => setAddNpmOpen(false)}
+            />
+            <PillButton
+              label={addingNpm ? "正在安装…" : "校验并安装"}
+              variant="primary"
+              disabled={!personalNpmSpecInput.trim() || !personalNpmRiskAccepted || addingNpm}
+              onPress={() => void handleAddPersonalNpm()}
+            />
+          </View>
+        </View>
+      </Sheet>
+
+      {/* 社区实时搜索 npm 包安装前安全确认 */}
+      <ConfirmDialog
+        visible={pendingNpmConfirm !== null}
+        title="安装 npm 公共社区包"
+        message={
+          pendingNpmConfirm
+            ? `「${pendingNpmConfirm.packageName}${pendingNpmConfirm.version ? `@${pendingNpmConfirm.version}` : ""}」来自 npm 公共源，未经 NIBI 官方审核。\n\n安装器将强制跳过所有安装脚本（--ignore-scripts）并拦截原生二进制文件。确认继续安装？`
+            : ""
+        }
+        confirmLabel="确认安装"
+        cancelLabel="取消"
+        onConfirm={() => {
+          const target = pendingNpmConfirm;
+          setPendingNpmConfirm(null);
+          if (target) void executeNpmCommunityInstall(target);
+        }}
+        onCancel={() => setPendingNpmConfirm(null)}
+      />
+
       {/* 添加个人插件源 Sheet */}
       <Sheet
         visible={addPersonalOpen}
         onClose={() => setAddPersonalOpen(false)}
-        title="添加个人插件包地址"
+        title="添加标准插件包地址 (.zip)"
       >
         <View style={styles.sheetForm}>
           <Text style={[styles.hint, { color: t.inkSub }]}>
-            支持填写 GitHub Raw、jsDelivr、npmmirror 或个人服务器上的插件包（.zip）HTTPS 地址，下载时将自动按当前所选「{marketRegionLabel(region)}」加速。
+            支持填写 GitHub Releases / Raw、jsDelivr 或个人服务器上的标准插件包（.nibi-plugin / .claude-plugin / .codex-plugin / skills / nibi-go.plugin.json）HTTPS 地址，下载时自动按当前「{marketRegionLabel(region)}」加速。
           </Text>
           <TextInput
             value={personalNameInput}
@@ -1263,8 +1838,38 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: "row", alignItems: "flex-start", gap: space(2) },
   cardTitleWrap: { flex: 1, gap: space(0.5) },
+  titleBadgeRow: { flexDirection: "row", alignItems: "center", gap: space(1.5), flexWrap: "wrap" },
   name: { ...text("bodyLg"), fontWeight: "700" },
+  hitName: { ...text("body"), fontWeight: "700", flexShrink: 1 },
   meta: { ...text("micro"), marginTop: space(0.5) },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: space(2) },
+  searchInputWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(1.5),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    paddingHorizontal: space(2.5),
+    height: size.button,
+  },
+  searchInput: { flex: 1, ...text("small"), paddingVertical: 0 },
+  quickChipRow: { flexDirection: "row", flexWrap: "wrap", gap: space(1.5) },
+  quickChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.chip,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(1),
+  },
+  quickChipText: { ...text("micro"), fontWeight: "600" },
+  searchStatusRow: { flexDirection: "row", alignItems: "center", gap: space(2), paddingVertical: space(1) },
+  searchResults: { gap: space(2), marginTop: space(0.5) },
+  searchHitCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.control,
+    padding: space(2.5),
+    gap: space(1.5),
+  },
   description: { ...text("small") },
   pill: { borderRadius: radius.chip, paddingHorizontal: space(2), paddingVertical: space(0.75) },
   pillText: { ...text("micro"), fontWeight: "700" },

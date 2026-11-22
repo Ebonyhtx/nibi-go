@@ -74,13 +74,12 @@ const files = [
   { local: path.join(dir, "index.json.sig"), remote: "index.json.sig" },
 ];
 for (const plugin of index.plugins ?? []) {
+  // 标准 npm 包与外部 HTTPS Release ZIP 不存放在市场仓中，只需镜像 index.json / .sig。
+  if (plugin.package?.format === "npm") continue;
   const url = plugin.package?.url ?? "";
-  const marker = "/main/";
-  const relative = url.includes(marker) ? url.slice(url.indexOf(marker) + marker.length) : "";
-  if (!relative) {
-    console.error(`${plugin.id} 的包地址不在市场仓 main 下：${url}`);
-    process.exit(1);
-  }
+  const rawPrefix = "https://raw.githubusercontent.com/Ebonyhtx/nibi-go-market/main/";
+  if (!url.startsWith(rawPrefix)) continue;
+  const relative = url.slice(rawPrefix.length);
   const local = path.join(dir, relative);
   if (!fs.existsSync(local)) {
     console.error(`${plugin.id} 的包文件不存在：${relative}`);

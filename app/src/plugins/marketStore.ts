@@ -39,7 +39,9 @@ export interface MarketSnapshotFile {
 export interface PersonalPluginSource {
   id: string;
   name: string;
+  /** zip 直链地址或 `npm:<packageName[@version]>` 标识。 */
   url: string;
+  kind?: "zip" | "npm";
   addedAt: string;
   installedPluginId?: string;
 }

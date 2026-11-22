@@ -20,7 +20,22 @@ import type { KernelMcpServer } from "@nibi-go/kernel-session";
 
 import { BUNDLED_PLUGINS, MANIFEST_FILE, RETIRED_SAMPLE_DIRS } from "./samples";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
+import {
+  STANDARD_MANIFEST_PATHS,
+  synthesizeHostManifestFromStandard,
+} from "./packageFiles";
 import { paidPluginIds } from "./paid";
+
+export interface LoadedPluginSourceMeta {
+  kind: "nibi-go" | "standard" | "skill-bundle" | "npm";
+  kernelName?: string;
+  npmPackage?: string;
+  npmVersion?: string;
+  integrity?: string;
+  registry?: string;
+  origin?: "market" | "personal" | "npm-search" | "local-zip";
+  installedAt?: string;
+}
 
 export interface LoadedPlugin {
   /** 插件目录名（稳定）。 */
@@ -30,8 +45,12 @@ export interface LoadedPlugin {
   parsed: ParsedPlugin;
   /** 用户启停状态；incompatible/invalid 恒为 false。 */
   enabled: boolean;
-  /** 随包内置（NIBI 官方样例）；未来用户安装的插件为 false。 */
+  /** 随包内置（NIBI 官方套件）；市场或个人安装为 false。 */
   bundled: boolean;
+  /** 内核标准清单里的名称（用于精确匹配 `enabledPlugins["<kernelName>@inline"]`）。 */
+  kernelName?: string;
+  /** 安装来源元数据（npm / standard / skill-bundle / nibi-go）。 */
+  sourceMeta?: LoadedPluginSourceMeta;
   /** 付费插件缺少授权时的原因（有值即视为不可启用）。 */
   licenseBlocked?: string;
   /** MCP 入口的绝对路径（没有 runtime 时为 undefined）。 */
@@ -188,6 +207,23 @@ function kernelManifest(manifest: Record<string, unknown>, fallbackName: string)
     ...(skills.length > 0 ? { skills: `./${KERNEL_SKILLS_DIR}` } : {}),
   };
   return `${JSON.stringify(body, null, 2)}\n`;
+}
+
+/** 从一份 `nibi-go.plugin.json` 生成内核可发现的 `.nibi-plugin/plugin.json`、commands 与 skills 文件。 */
+export function synthesizeKernelFilesForManifest(
+  manifest: Record<string, unknown>,
+  fallbackName: string,
+): Array<{ path: string; content: string }> {
+  const files: Array<{ path: string; content: string }> = [
+    { path: `${KERNEL_MANIFEST_DIR}/plugin.json`, content: kernelManifest(manifest, fallbackName) },
+  ];
+  for (const command of kernelCommands(manifest)) {
+    files.push({ path: `${KERNEL_COMMANDS_DIR}/${command.name}.md`, content: commandFile(command) });
+  }
+  for (const skill of kernelSkills(manifest)) {
+    files.push({ path: `${KERNEL_SKILLS_DIR}/${skill.id}/SKILL.md`, content: skillFile(skill) });
+  }
+  return files;
 }
 
 export function appVersion(): string {
@@ -378,7 +414,36 @@ function pluginDirs(): Array<{ dir: string; bundled: boolean }> {
   return [...bundled, ...installed];
 }
 
-/** 读全部插件（内置 + 市场安装；含 incompatible/invalid，插件中心要能解释为什么不可用）。 */
+const SOURCE_META_FILE = ".nibi-go-source.json";
+
+function readStandardManifestFromDir(dir: Directory): Record<string, unknown> | null {
+  for (const rel of STANDARD_MANIFEST_PATHS) {
+    try {
+      const file = new File(dir, rel);
+      if (!file.exists) continue;
+      const parsed: unknown = JSON.parse(file.textSync());
+      const obj = record(parsed);
+      if (obj) return obj;
+    } catch {
+      // 继续尝试下一个标准清单路径
+    }
+  }
+  return null;
+}
+
+function readSourceMetaFromDir(dir: Directory): LoadedPluginSourceMeta | undefined {
+  try {
+    const file = new File(dir, SOURCE_META_FILE);
+    if (!file.exists) return undefined;
+    const obj = record(JSON.parse(file.textSync()));
+    if (!obj || typeof obj.kind !== "string") return undefined;
+    return obj as unknown as LoadedPluginSourceMeta;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 读全部插件（内置 + 市场/个人安装；含标准 .nibi-plugin/.claude-plugin/.codex-plugin 目录）。 */
 export async function loadPlugins(): Promise<LoadedPlugin[]> {
   await ensurePluginFiles();
   const disabled = await readDisabled();
@@ -388,10 +453,26 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
   const paid = await paidPluginIds();
   return pluginDirs().map(({ dir: pluginDir, bundled }) => {
     const dir = new Directory(Paths.document, PLUGINS_DIR, pluginDir);
+    const standardRaw = readStandardManifestFromDir(dir);
+    const sourceMeta = readSourceMetaFromDir(dir);
     let parsed: ParsedPlugin;
+    let kernelName: string | undefined =
+      (typeof standardRaw?.name === "string" && standardRaw.name.trim()) ||
+      sourceMeta?.kernelName ||
+      undefined;
     try {
-      const input: unknown = JSON.parse(new File(dir, MANIFEST_FILE).textSync());
-      parsed = readPluginManifest(input, profile, pluginDir);
+      const goFile = new File(dir, MANIFEST_FILE);
+      if (goFile.exists) {
+        const input: unknown = JSON.parse(goFile.textSync());
+        parsed = readPluginManifest(input, profile, pluginDir);
+      } else if (standardRaw) {
+        // 标准跨端插件目录无 nibi-go.plugin.json 时，按需合成宿主展示清单，不拒绝加载。
+        const synth = synthesizeHostManifestFromStandard(standardRaw, { fallbackId: pluginDir });
+        kernelName = synth.kernelName;
+        parsed = readPluginManifest(JSON.parse(synth.manifestJson), profile, pluginDir);
+      } else {
+        parsed = readPluginManifest(null, profile, pluginDir);
+      }
     } catch (error) {
       console.warn(`[nibigo] 插件清单读取失败：${pluginDir}`, error);
       parsed = readPluginManifest(null, profile, pluginDir);
@@ -409,6 +490,8 @@ export async function loadPlugins(): Promise<LoadedPlugin[]> {
       parsed,
       enabled: parsed.status === "ready" && !disabled.has(manifestId) && !licenseBlocked,
       bundled,
+      ...(kernelName ? { kernelName } : {}),
+      ...(sourceMeta ? { sourceMeta } : {}),
       settings: effectiveSettings(parsed.manifest, stored[manifestId]),
       ...(entryPath ? { entryPath } : {}),
       ...(licenseBlocked ? { licenseBlocked } : {}),
@@ -446,14 +529,24 @@ export function pluginMcpServers(plugins: readonly LoadedPlugin[]): KernelMcpSer
     if (!runtime || !plugin.entryPath || seen.has(runtime.serverName)) continue;
     seen.add(runtime.serverName);
     const keys = Object.keys(plugin.settings);
+    const env: Array<{ name: string; value: string }> = [];
+    if (keys.length > 0) {
+      env.push({ name: "NIBIGO_SETTINGS", value: JSON.stringify(plugin.settings) });
+    }
+    // 标准 npm MCP 的环境变量映射（仅注入非空值）。
+    if (runtime.envMap) {
+      for (const [settingId, envName] of Object.entries(runtime.envMap)) {
+        const value = plugin.settings[settingId];
+        if (value === undefined) continue;
+        const asText = String(value).trim();
+        if (asText.length > 0) env.push({ name: envName, value: asText });
+      }
+    }
     servers.push({
       name: runtime.serverName,
       command: "node",
-      args: [plugin.entryPath],
-      // 设置随启动 env 给 MCP 子进程（不含凭据；值来自插件中心）。
-      ...(keys.length > 0
-        ? { env: [{ name: "NIBIGO_SETTINGS", value: JSON.stringify(plugin.settings) }] }
-        : {}),
+      args: [plugin.entryPath, ...(runtime.args ?? [])],
+      ...(env.length > 0 ? { env } : {}),
       alwaysLoad: runtime.alwaysLoad ?? true,
       ...(runtime.timeoutMs === undefined ? {} : { timeoutMs: runtime.timeoutMs }),
     });
@@ -480,13 +573,14 @@ export async function syncKernelPluginConfig(
   }
   const section = record(current.plugins) ?? {};
   // `plugins.dirs` 是**插件目录本身**的列表，不是父目录：内核把每一项当候选，
-  // 在它下面找 `.nibi-plugin/plugin.json`。写父目录会让所有插件都被跳过。
+  // 在它下面找 `.nibi-plugin/.claude-plugin/.codex-plugin/plugin.json`。
   const dirs = plugins.map((plugin) => plugin.root);
   const enabledPlugins = record(section.enabledPlugins) ?? {};
   for (const plugin of plugins) {
     const id = plugin.parsed.manifest.id;
-    const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
-    enabledPlugins[`${name}@${KERNEL_PLUGIN_MARKETPLACE}`] = plugin.enabled;
+    const fallbackName = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
+    const kName = plugin.kernelName ?? fallbackName;
+    enabledPlugins[`${kName}@${KERNEL_PLUGIN_MARKETPLACE}`] = plugin.enabled;
   }
   const next = {
     ...current,
@@ -519,8 +613,8 @@ export interface PluginCapability {
 
 export function pluginKernelId(plugin: LoadedPlugin): string {
   const id = plugin.parsed.manifest.id;
-  const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
-  return `${name}@${KERNEL_PLUGIN_MARKETPLACE}`;
+  const fallbackName = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(id) ? id : plugin.dir;
+  return `${plugin.kernelName ?? fallbackName}@${KERNEL_PLUGIN_MARKETPLACE}`;
 }
 
 export function pluginCapability(plugin: LoadedPlugin): PluginCapability {

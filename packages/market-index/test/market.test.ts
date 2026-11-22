@@ -20,18 +20,20 @@ import { verifyMarketIndexBytes } from "../src/verify";
 
 const encoder = new TextEncoder();
 
+const DEFAULT_ZIP_PKG = {
+  url: "https://example.com/weather-1.0.0.zip",
+  sha256: "a".repeat(64),
+  size: 1024,
+  format: "zip" as const,
+};
+
 function makePlugin(overrides: Partial<MarketPluginEntry> = {}): MarketPluginEntry {
   return {
     id: "nibi.weather",
     name: "Weather",
     version: "1.0.0",
     caps: ["mcp.v1"],
-    package: {
-      url: "https://example.com/weather-1.0.0.zip",
-      sha256: "a".repeat(64),
-      size: 1024,
-      format: "zip",
-    },
+    package: { ...DEFAULT_ZIP_PKG },
     ...overrides,
   };
 }
@@ -207,7 +209,7 @@ describe("checkPluginPins", () => {
     const before = makeIndex();
     const after = makeIndex({
       revision: 2,
-      plugins: [makePlugin({ package: { ...makePlugin().package, sha256: "d".repeat(64) } })],
+      plugins: [makePlugin({ package: { ...DEFAULT_ZIP_PKG, sha256: "d".repeat(64) } })],
     });
     expect(checkPluginPins(before, after)).toMatchObject({
       ok: false,
@@ -228,7 +230,7 @@ describe("checkPluginPins", () => {
     const before = makeIndex();
     const after = makeIndex({
       revision: 2,
-      plugins: [makePlugin({ version: "1.0.1", package: { ...makePlugin().package, sha256: "e".repeat(64) } })],
+      plugins: [makePlugin({ version: "1.0.1", package: { ...DEFAULT_ZIP_PKG, sha256: "e".repeat(64) } })],
     });
     expect(checkPluginPins(before, after)).toEqual({ ok: true });
   });
@@ -362,7 +364,7 @@ describe("refreshMarketIndex", () => {
     const { key, seed } = keypair();
     const next = makeIndex({
       revision: 2,
-      plugins: [makePlugin({ package: { ...makePlugin().package, sha256: "f".repeat(64) } })],
+      plugins: [makePlugin({ package: { ...DEFAULT_ZIP_PKG, sha256: "f".repeat(64) } })],
     });
     const { bytes, signature } = signed(next, seed);
     const result = await refreshMarketIndex(fetcherFor(bytes, signature), {
@@ -467,5 +469,66 @@ describe("refreshMarketIndexFromSources", () => {
       throw new Error("down");
     }, { indexUrls: [dl, raw], previous: null, previousIndex: null });
     expect(result).toMatchObject({ ok: false, kind: "fetch", detail: "down" });
+  });
+
+  it("接受含标准 npm 包条目的签名索引并拦截同版本 integrity 篡改", async () => {
+    const { key, seed } = keypair();
+    const npmEntry = makePlugin({
+      id: "mcp.memory",
+      name: "知识图谱记忆",
+      version: "0.6.3",
+      kind: "mcp",
+      runtime: "node",
+      package: {
+        format: "npm",
+        name: "@modelcontextprotocol/server-memory",
+        version: "0.6.3",
+        integrity: "sha512-validIntegrityHash==",
+      },
+    });
+    const firstIdx = makeIndex({ revision: 2, plugins: [npmEntry] });
+    const firstSigned = signed(firstIdx, seed);
+    const first = await refreshMarketIndex(
+      multiFetcher({
+        [raw]: signedFor(firstSigned.bytes, firstSigned.signature),
+        [`${raw}.sig`]: signedFor(encoder.encode(firstSigned.signature), ""),
+      }),
+      {
+        indexUrl: raw,
+        previous: null,
+        previousIndex: null,
+        keys: [key],
+      },
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const tamperedIdx = makeIndex({
+      revision: 3,
+      plugins: [
+        {
+          ...npmEntry,
+          package: { ...npmEntry.package, integrity: "sha512-tamperedHash==" } as typeof npmEntry.package,
+        },
+      ],
+    });
+    const tamperedSigned = signed(tamperedIdx, seed);
+    const second = await refreshMarketIndex(
+      multiFetcher({
+        [raw]: signedFor(tamperedSigned.bytes, tamperedSigned.signature),
+        [`${raw}.sig`]: signedFor(encoder.encode(tamperedSigned.signature), ""),
+      }),
+      {
+        indexUrl: raw,
+        previous: first.state,
+        previousIndex: first.index,
+        keys: [key],
+      },
+    );
+    expect(second).toMatchObject({
+      ok: false,
+      kind: "pins",
+      conflicts: [{ id: "mcp.memory", version: "0.6.3", reason: "digest-changed" }],
+    });
   });
 });

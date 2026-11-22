@@ -1,14 +1,19 @@
-// 插件市场公开源配置：全面采用 GitHub Raw / jsDelivr 公共镜像与 npm / npmmirror 公共源，
-// 不再依赖自有 dl.nibistudio.cn（ESA + OSS）CDN。
+// 插件市场公开源配置（NIBI-GO 手机独立市场，与桌面端 CDN/索引彻底隔离）：
 //
 // 用户可在市场顶部一键切换「国内源 / 国外源」：
-// - 国内源（cn）：优先走 jsDelivr / Fastly 公共镜像与淘宝 npmmirror（registry.npmmirror.com），GitHub Raw 兜底；
-// - 国外源（global）：优先走 GitHub Raw 与官方 npm（registry.npmjs.org），jsDelivr 兜底。
-// 无论走哪个镜像源，索引仍须通过内置 Ed25519 公钥验签，插件包仍须通过 SHA-256 校验。
+// - 国内源（cn）：
+//   * 目录索引（Ebonyhtx/nibi-go-market）：优先 jsDelivr / Fastly 公共镜像，GitHub Raw 兜底；
+//   * 标准 npm MCP 包：优先淘宝 npmmirror（registry.npmmirror.com），官方 npmjs 兜底；
+// - 国外源（global）：
+//   * 目录索引：优先 GitHub Raw，jsDelivr 兜底；
+//   * 标准 npm MCP 包：优先官方 npm（registry.npmjs.org），npmmirror 兜底。
+// 无论走哪个镜像源，索引仍须通过内置 Ed25519 公钥验签，ZIP 包验 SHA-256，npm 包验 SRI integrity。
 
 import { File, Paths } from "expo-file-system";
 
-export type MarketRegion = "cn" | "global";
+import { npmRegistriesForRegion, type NpmMarketRegion } from "./npmRegistry";
+
+export type MarketRegion = NpmMarketRegion;
 
 export const CN_MARKET_INDEX_URLS = [
   "https://cdn.jsdelivr.net/gh/Ebonyhtx/nibi-go-market@main/index.json",
@@ -30,8 +35,10 @@ export function marketIndexUrlsForRegion(region: MarketRegion): readonly string[
 }
 
 export function npmRegistryForRegion(region: MarketRegion): string {
-  return region === "cn" ? "https://registry.npmmirror.com" : "https://registry.npmjs.org";
+  return npmRegistriesForRegion(region)[0]!;
 }
+
+export { npmRegistriesForRegion };
 
 export function marketRegionLabel(region: MarketRegion): string {
   return region === "cn" ? "国内源" : "国外源";
@@ -49,7 +56,7 @@ export function resolvePackageDownloadUrls(url: string, region: MarketRegion): s
   // 1) 旧 dl.nibistudio.cn/nibi-go-market/<path> 映射到公开仓库路径
   const legacyCdnMatch = /^https?:\/\/dl\.nibistudio\.cn\/nibi-go-market\/(.+)$/i.exec(trimmed);
   if (legacyCdnMatch) {
-    const relPath = legacyCdnMatch[1];
+    const relPath = legacyCdnMatch[1]!;
     return buildGithubCandidateUrls("Ebonyhtx", "nibi-go-market", "main", relPath, region);
   }
 
@@ -59,7 +66,7 @@ export function resolvePackageDownloadUrls(url: string, region: MarketRegion): s
   );
   if (ghRawMatch) {
     const [, owner, repo, ref, relPath] = ghRawMatch;
-    return buildGithubCandidateUrls(owner, repo, ref, relPath, region);
+    return buildGithubCandidateUrls(owner!, repo!, ref!, relPath!, region);
   }
 
   // 3) jsDelivr GitHub: https://(cdn|fastly).jsdelivr.net/gh/<owner>/<repo>@<ref>/<path>
@@ -67,7 +74,7 @@ export function resolvePackageDownloadUrls(url: string, region: MarketRegion): s
     /^https?:\/\/(?:cdn|fastly)\.jsdelivr\.net\/gh\/([^/]+)\/([^/@]+)@([^/]+)\/(.+)$/i.exec(trimmed);
   if (jsdMatch) {
     const [, owner, repo, ref, relPath] = jsdMatch;
-    return buildGithubCandidateUrls(owner, repo, ref, relPath, region);
+    return buildGithubCandidateUrls(owner!, repo!, ref!, relPath!, region);
   }
 
   // 4) npm / npmmirror tarball

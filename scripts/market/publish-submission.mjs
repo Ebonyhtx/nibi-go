@@ -63,16 +63,18 @@ if (!submissionParsed.success) {
 }
 const submission = submissionParsed.data;
 
-// 包文件与摘要：以市场仓里的字节为准。
-const packagePath = path.join(repo, submission.package.file);
-if (!fs.existsSync(packagePath)) fail(`包不存在：${submission.package.file}`);
-const bytes = fs.readFileSync(packagePath);
-const digest = createHash("sha256").update(bytes).digest("hex");
-if (digest !== submission.package.sha256) {
-  fail(`包摘要不一致（实际 ${digest}，提交 ${submission.package.sha256}）`);
-}
-if (bytes.length !== submission.package.size) {
-  fail(`包大小不一致（实际 ${bytes.length}，提交 ${submission.package.size}）`);
+// 包文件与摘要校验：仓内 zip 按本地文件核对；外部 zip 与标准 npm 由 CI/registry 校验 integrity/sha256。
+if ("file" in submission.package) {
+  const packagePath = path.join(repo, submission.package.file);
+  if (!fs.existsSync(packagePath)) fail(`包不存在：${submission.package.file}`);
+  const bytes = fs.readFileSync(packagePath);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (digest !== submission.package.sha256) {
+    fail(`包摘要不一致（实际 ${digest}，提交 ${submission.package.sha256}）`);
+  }
+  if (bytes.length !== submission.package.size) {
+    fail(`包大小不一致（实际 ${bytes.length}，提交 ${submission.package.size}）`);
+  }
 }
 
 const applied = applySubmission(indexParsed.data, submission);

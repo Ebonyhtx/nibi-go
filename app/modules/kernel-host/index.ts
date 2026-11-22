@@ -17,6 +17,17 @@ export type KernelRestartEvent = {
   attempt: number;
 };
 
+export interface NpmInstallNativeResult {
+  ok: boolean;
+  error?: string;
+  packageJson?: string;
+  resolvedVersion?: string;
+  resolvedIntegrity?: string;
+  fileCount?: number;
+  totalBytes?: number;
+  output?: string;
+}
+
 interface NibiKernelHostNativeModule {
   isAvailable(): boolean;
   loadError(): string | null;
@@ -26,6 +37,13 @@ interface NibiKernelHostNativeModule {
   stop(): boolean;
   destroy(): void;
   killKernelForTest(): void;
+  installNpmPackage?(
+    packageName: string,
+    version: string,
+    registry: string,
+    targetDir: string,
+    expectedIntegrity?: string | null,
+  ): Promise<NpmInstallNativeResult>;
   addListener(
     event: "onKernelLine",
     listener: (payload: KernelLineEvent) => void,
@@ -135,6 +153,40 @@ export function destroyKernelHost(): void {
     module.destroy();
   } catch {
     // 已释放/不可用：忽略。
+  }
+}
+
+/**
+ * 调用随包内置的 Node/npm 安装标准纯 JS npm MCP 包到隔离目录。
+ * 原生侧强制 `--ignore-scripts --omit=dev --omit=optional`，并拦截原生二进制与核验 integrity。
+ */
+export async function installNpmPackageNative(params: {
+  packageName: string;
+  version: string;
+  registry: string;
+  targetDir: string;
+  expectedIntegrity?: string;
+}): Promise<NpmInstallNativeResult> {
+  const module = getNative();
+  if (!module || typeof module.installNpmPackage !== "function") {
+    return {
+      ok: false,
+      error: "当前运行环境不支持内置 npm 安装（需 Android ARM64 真机安装包）",
+    };
+  }
+  try {
+    return await module.installNpmPackage(
+      params.packageName,
+      params.version,
+      params.registry,
+      params.targetDir,
+      params.expectedIntegrity ?? null,
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

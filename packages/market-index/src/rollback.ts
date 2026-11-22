@@ -3,7 +3,7 @@
 //
 // 另外校验插件级不变量：同一个 id 的版本只能前进；同一 (id, version) 的包摘要不可变
 // （版本不可变，重新打包必须发新版本）。
-import type { MarketIndex } from "./types";
+import { packagePinDigest, type MarketIndex } from "./types";
 
 /** 客户端持久化的“上次接受的快照”。 */
 export interface MarketSnapshotState {
@@ -97,7 +97,10 @@ export function checkPluginPins(
       conflicts.push({ id: plugin.id, version: plugin.version, reason: "version-regressed" });
       continue;
     }
-    if (plugin.version === before.version && plugin.package.sha256 !== before.package.sha256) {
+    if (
+      plugin.version === before.version &&
+      packagePinDigest(plugin.package) !== packagePinDigest(before.package)
+    ) {
       conflicts.push({ id: plugin.id, version: plugin.version, reason: "digest-changed" });
     }
   }

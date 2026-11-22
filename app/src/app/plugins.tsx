@@ -40,6 +40,16 @@ function statusOf(plugin: LoadedPlugin): { label: string; tone: "ok" | "warn" | 
   return { label: "可用", tone: "ok" };
 }
 
+function sourceBadgeOf(plugin: LoadedPlugin): string {
+  if (plugin.bundled) return "NIBI 内置";
+  if (plugin.sourceMeta?.kind === "npm") {
+    return plugin.sourceMeta.npmPackage ? `npm · ${plugin.sourceMeta.npmPackage}` : "npm MCP";
+  }
+  if (plugin.sourceMeta?.kind === "standard") return "标准插件";
+  if (plugin.sourceMeta?.kind === "skill-bundle") return "技能包";
+  return "已安装";
+}
+
 function PluginCard({
   plugin,
   onToggle,
@@ -101,7 +111,7 @@ function PluginCard({
     <SectionCard>
       <Row
         title={manifest.name}
-        detail={`v${manifest.version}`}
+        detail={`v${manifest.version} · ${sourceBadgeOf(plugin)}`}
         right={
           <View style={styles.headRight}>
             <View style={[styles.status, { backgroundColor: toneSoft }]}>

@@ -409,4 +409,35 @@ describe("readPluginManifest", () => {
     expect(plugin.manifest.settings).toHaveLength(8);
     expect(plugin.issues.some((issue) => issue.path === "/settings")).toBe(true);
   });
+
+  it("runtime 支持 args 与 envMap 并拒绝越界 entry 路径", () => {
+    const ok = readPluginManifest(
+      manifest({
+        runtime: {
+          type: "mcp",
+          serverName: "amap_maps",
+          entry: "node_modules/@amap/amap-maps-mcp-server/build/index.js",
+          args: ["--stdio"],
+          envMap: { api_key: "AMAP_MAPS_API_KEY" },
+        },
+      }),
+      profile,
+    );
+    expect(ok.status).toBe("ready");
+    expect(ok.manifest.runtime?.args).toEqual(["--stdio"]);
+    expect(ok.manifest.runtime?.envMap).toEqual({ api_key: "AMAP_MAPS_API_KEY" });
+
+    const bad = readPluginManifest(
+      manifest({
+        runtime: {
+          type: "mcp",
+          serverName: "bad_entry",
+          entry: "../outside.js",
+        },
+      }),
+      profile,
+    );
+    expect(bad.manifest.runtime).toBeUndefined();
+    expect(bad.issues.some((issue) => issue.path === "/runtime")).toBe(true);
+  });
 });

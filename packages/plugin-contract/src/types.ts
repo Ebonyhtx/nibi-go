@@ -222,6 +222,10 @@ export interface PluginRuntime {
   serverName: string;
   /** 相对插件根目录的入口脚本。 */
   entry: string;
+  /** 可选额外启动参数（标准 npm MCP 常需要传标志位或子命令）。 */
+  args?: string[];
+  /** 插件设置项 id → MCP 子进程环境变量名的映射（例如 `{ api_key: "AMAP_MAPS_API_KEY" }`）。 */
+  envMap?: Record<string, string>;
   alwaysLoad?: boolean;
   timeoutMs?: number;
 }

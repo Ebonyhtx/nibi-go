@@ -285,6 +285,8 @@ function readActions(
   return { actions, issues };
 }
 
+const ENV_VAR_RE = /^[A-Z][A-Z0-9_]{1,63}$/u;
+
 function readRuntime(raw: unknown): { runtime?: PluginRuntime; issues: ContractIssue[] } {
   if (raw === undefined) return { issues: [] };
   // 复用顶层 schema 的形状校验；这里只需要把 zod 的输出收窄成 PluginRuntime。
@@ -292,7 +294,19 @@ function readRuntime(raw: unknown): { runtime?: PluginRuntime; issues: ContractI
     .object({
       type: z.literal("mcp"),
       serverName: z.string().regex(SERVER_RE),
-      entry: z.string().min(1).max(160),
+      entry: z
+        .string()
+        .min(1)
+        .max(260)
+        .refine(
+          (value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."),
+          "entry 必须是插件目录内的相对路径",
+        ),
+      args: z
+        .array(z.string().min(1).max(200).refine((value) => !value.includes("\0"), "args 含非法字符"))
+        .max(16)
+        .optional(),
+      envMap: z.record(z.string().regex(ID_RE), z.string().regex(ENV_VAR_RE)).optional(),
       alwaysLoad: z.boolean().optional(),
       timeoutMs: z.number().int().positive().max(120_000).optional(),
     })

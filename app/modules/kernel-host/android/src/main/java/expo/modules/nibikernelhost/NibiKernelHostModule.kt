@@ -86,6 +86,27 @@ class NibiKernelHostModule : Module() {
       serviceClient?.killForTest()
     }
 
+    /**
+     * 严格受限的内置 npm 安装桥：只安装纯 JS 标准 npm MCP 包到 filesDir/plugins/ 下，
+     * 强制 --ignore-scripts --omit=dev --omit=optional 并拦截原生二进制与校验 integrity。
+     */
+    AsyncFunction("installNpmPackage") {
+      packageName: String,
+      version: String,
+      registry: String,
+      targetDir: String,
+      expectedIntegrity: String? ->
+      val context = appContext.reactContext ?: throw IllegalStateException("缺少 Android Context")
+      NpmPluginInstaller.install(
+        context = context.applicationContext,
+        packageName = packageName,
+        version = version,
+        registry = registry,
+        targetDir = targetDir,
+        expectedIntegrity = expectedIntegrity,
+      )
+    }
+
     OnDestroy {
       // React context 销毁只解绑：内核进程 + 前台服务继续跑（D20.2），下次绑定接回。
       serviceClient?.dispose()
