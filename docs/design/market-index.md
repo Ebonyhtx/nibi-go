@@ -153,34 +153,13 @@ pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因" [--versio
 
 ## 7. 已验证
 
-- 单测 60 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
-  坏 schema（带路径）、http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、
-  插件版本不变量、刷新判决（accept/unchanged/fetch/verify/rollback/pins）、
-  `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥；
-  提交合并（版本前进/同版本摘要不可变/包地址约定）与撤回记录（移除/版本不一致拒绝/
-  重复撤回/revision 递增/更高版本回归）。
-- license 单测 12 项（`packages/plugin-license`）：JWS 验签、payload 篡改、未知 kid、
-  错误 iss、claims 形状、覆盖范围/通配、过期、设备不匹配、无凭证、坏凭证。
-- CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
-- **市场分发定案（2026-11-24）**：插件市场不再镜像到自有 CDN，改为 GitHub 仓 + jsDelivr/Fastly 公共镜像；服务器上的市场同步任务已停用（脚本保留作应急）。此前 2026-11-20 的服务器自动镜像实测（每 10 分钟拉取、验签、增量上传、revision 倒退拒绝）作为历史记录保留，不再是现役链路。
-- **revision 10（2026-11-24）**：移除联调 demo `nibi.market.hello` 及其 zip；新增顶层 `bundledPlugins`，收录 6 个随包内置插件；索引重新签名并发布。
-- **真机（2026-11-24，PHK110，0.1.9/10）**：市场刷新到 revision 10；NIBI 页显示「官方签名目录 revision 10 · 随包内置 6 项」，`hello` 不再出现；首次刷新遇到镜像/网络抖动，切回国内源重试成功。
-- **撤回工具（2026-11-20 实跑）**：在临时市场仓副本执行 `pnpm market:yank`，revision 5 → 6，
-  条目移除、签名回读验签通过、`yanked.json` 追加记录；市场仓 `check-yanks.mjs` 对
-  「索引仍含被撤回版本」「重复撤回」「revision 不递增」三种夹具均报红，正常记录通过；
-  对已移除的 id 再次撤回被拒绝。
-- **真机（历史联调；PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建；`hello` demo 已于 revision 10 移除）**：
-  - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
-  - 安装 `nibi.market.hello` 0.1.0：下载 → sha256 校验 → 解包 → 清单 id/version 校验 →
-    落盘；插件中心出现「市场示例 / 可用」；
-  - 真实模型回合调用 `mcp__market_hello__hello`，内核从插件目录启动 Node MCP 子进程，
-    返回「你好，NIBI！这是来自市场插件 market_hello 的问候。」；
-  - 发布 revision 3（0.1.1）后刷新显示「可更新」，点更新后徽标变为「已安装 v0.1.1」，
-    再次调用工具返回 v0.1.1 文案（证明包与进程都换成了新版本）；
-  - 付费门禁：临时发布 revision 4（`paid`）→ 市场页显示「付费/需会员」且安装按钮禁用、
-    插件中心该插件变为「需会员」且开关关闭；新会话里模型确认 `mcp__market_hello__hello`
-    不存在（工具面被裁剪）。恢复 revision 5（免费）后自动回到「可用」；
-  - 网络（历史）：raw.githubusercontent.com 在手机侧出现「200 后 body 卡住/超时」；当时曾镜像到自有 CDN 的同一路径验证多源回退。2026-11-24 起市场不再使用自有 CDN，国内源依赖 jsDelivr/Fastly，GitHub Raw 仅作最后兜底。
+- 单测 60 项（`packages/market-index`）+ 12 项（`packages/plugin-license`）通过；
+  CLI `sign-index.mjs` 签名/篡改冒烟通过。
+- **市场分发定案（2026-11-24）**：GitHub 仓 + jsDelivr/Fastly 公共镜像；服务器市场同步任务已停用，不接自有 CDN。
+- **revision 10（2026-11-24）**：移除 `nibi.market.hello` 及 zip，新增 `bundledPlugins` 6 个随包内置，签名发布。
+  真机 0.1.9/10 刷新到 revision 10，NIBI 页显示官方目录且无 `hello`；首次刷新遇到镜像/网络抖动，切回国内源重试成功。
+- **撤回工具**：`pnpm market:yank` 实跑 revision 5→6，`check-yanks.mjs` 三种异常夹具均按预期报红。
+- 历史联调（0.1.2 的 hello 安装/升级/付费门禁）已由 git 历史保留，不再作为现役说明。
 
 ## 8. 付费门禁（C2-4，客户端侧）
 
