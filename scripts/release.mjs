@@ -69,7 +69,9 @@ function run(command, args, options = {}) {
     if (options.capture) console.error(`${result.stdout ?? ""}${result.stderr ?? ""}`);
     throw new ReleaseError(`${command} 执行失败（退出码 ${result.status}）`);
   }
-  return options.capture ? `${result.stdout ?? ""}`.trim() : "";
+  if (!options.capture) return "";
+  const stdout = `${result.stdout ?? ""}`;
+  return options.trim === false ? stdout : stdout.trim();
 }
 
 function readPassphrase() {
@@ -130,13 +132,14 @@ function uploadOss(relative) {
 function verifyOss(relative, expectedSha256) {
   const sudo = CDN_SUDO ? "sudo -n " : "";
   const verifyFile = `${CDN_REMOTE_DIR}/verify.bin`;
-  const output = sshRun(
-    `${sudo}ossutil cp -f ${CDN_OSS_PREFIX}/${relative} ${verifyFile} --config-file ${CDN_OSS_CONF} && sha256sum ${verifyFile}`,
-    { capture: true },
+  // ossutil 的进度摘要也走 stdout，不能把 cp 和 sha256sum 合并后取第一个 token。
+  sshRun(
+    `${sudo}ossutil cp -f ${CDN_OSS_PREFIX}/${relative} ${verifyFile} --config-file ${CDN_OSS_CONF}`,
   );
-  const actual = output.trim().split(/\s+/u)[0]?.toLowerCase();
-  if (actual !== expectedSha256.toLowerCase()) {
-    throw new ReleaseError(`CDN 回读摘要不一致：${relative}\n  本地 ${expectedSha256}\n  远端 ${actual}`);
+  const output = sshRun(`sha256sum ${verifyFile}`, { capture: true });
+  const actual = /^([0-9a-f]{64})\b/im.exec(output)?.[1]?.toLowerCase();
+  if (!actual || actual !== expectedSha256.toLowerCase()) {
+    throw new ReleaseError(`CDN 回读摘要不一致：${relative}\n  本地 ${expectedSha256}\n  远端 ${actual ?? "(解析失败)"}`);
   }
   sshRun(`${sudo}rm -f ${verifyFile}`);
 }
@@ -210,6 +213,8 @@ function publishCdn({ version, versionCode, notes, digest, size }) {
   const publicManifest = run("curl", ["-fsS", `${manifestUrl}${cacheBust}`], {
     capture: true,
     shell: false,
+    // 签名覆盖包含结尾换行的原始字节；这里不能 trim。
+    trim: false,
   });
   const publicSignature = run("curl", ["-fsS", `${manifestUrl}.sig${cacheBust}`], {
     capture: true,
