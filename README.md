@@ -6,7 +6,7 @@
   <p>
     <strong>简体中文</strong> ·
     <a href="README.en.md">English</a> ·
-    <a href="https://nibistudio.cn">官网下载</a> ·
+    <a href="https://nibistudio.top">官网下载</a> ·
     <a href="https://github.com/Ebonyhtx/nibi-go-market">官方插件市场</a> ·
     <a href="docs/README.md">架构与设计文档</a>
   </p>

@@ -6,7 +6,7 @@
   <p>
     <a href="README.md">简体中文</a> ·
     <strong>English</strong> ·
-    <a href="https://nibistudio.cn">Website</a> ·
+    <a href="https://nibistudio.top">Website</a> ·
     <a href="https://github.com/Ebonyhtx/nibi-go-market">Official Plugin Market</a> ·
     <a href="docs/README.md">Docs &amp; ADRs</a>
   </p>
