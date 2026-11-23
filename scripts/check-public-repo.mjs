@@ -90,9 +90,18 @@ export const ALLOWED_SNIPPETS = [
   "/c/Users/dev",
   "/c/Users/x",
   "C:\\Users\\dev",
+  "C:\\Users\\Dev",
+  "c:\\Users\\dev",
   "C:\\Users\\me",
   "C:\\Users\\x",
+  "C:\\Users\\system",
   "D:\\work",
+  // 上游 kernel 单测夹具里的合成 Anthropic key 与离线测试 JWT（均非真实凭据）。
+  "sk-ant-api03-abcdefghijklmnop",
+  "sk-ant-test-0123456789abcdefghij",
+  "sk-ant-0123456789abcdefghijklmn",
+  "eyJpc3MiOiJuaWJpLWxpY2Vuc2UiLCJzdWIiOiJ1c2VyLTEi",
+  "eyJpc3MiOiJ6Y29kZSIsInN1YiI6InVzZXItMSIsInVpZCI6InVzZXItMSI",
 ];
 
 export const RULES = [
@@ -102,9 +111,9 @@ export const RULES = [
     re: /https?:\/\/(?!127\.|0\.0\.0\.0|localhost|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.|203\.0\.113\.|198\.51\.100\.|192\.0\.2\.)\d{1,3}(?:\.\d{1,3}){3}/i,
   },
   {
-    // 本机绝对路径（NIBI-GO / NIBI 工作区、用户主目录）。
+    // 本机绝对路径（Windows Users、NIBI 工作区、macOS/Linux 用户主目录）。
     name: "workspace absolute path",
-    re: /(?:[A-Za-z]:[\\/]NIBI|\/Users\/|\/home\/[A-Za-z])/,
+    re: /(?:[A-Za-z]:[\\/]Users[\\/]|[A-Za-z]:[\\/]NIBI|\/Users\/|\/home\/[A-Za-z])/,
   },
   {
     name: "private key material",
@@ -127,21 +136,40 @@ export const RULES = [
     re: /\bsk-[A-Za-z0-9]{32,}\b/,
   },
   {
+    name: "anthropic-style key",
+    re: /\bsk-ant-[A-Za-z0-9_-]{24,}\b/,
+  },
+  {
     name: "AWS access key",
     re: /\bAKIA[0-9A-Z]{16}\b/,
   },
   {
-    // 内部基础设施标识（对象存储桶、ossutil 配置、生产机 SSH 别名、站点根目录）。
+    name: "Alibaba Cloud access key",
+    re: /\bLTAI[A-Za-z0-9]{16,24}\b/,
+  },
+  {
+    name: "signed JWT token",
+    re: /\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/,
+  },
+  {
+    name: "release keystore filename",
+    re: /\bnibi-go-release\.p12\b/i,
+  },
+  {
+    // 内部基础设施与测试设备标识（对象存储桶、ossutil 配置、生产机 SSH 别名、站点根目录、私有机序列号）。
     // 公开仓只出现占位符（<ssh-alias> / <oss://bucket/prefix>），不写真实值。
     // 规则字面量本身不落盘：用 base64 存词表，避免门禁脚本自己把标识公开。
-    name: "internal infra identifier",
+    name: "internal infra or device identifier",
     re: (() => {
-      const terms = Buffer.from(
-        "bmliaS1kaXN0LWh6Cm5pYmktcGFpZC1oegpuaWJpLWJhY2t1cC1oegpuaWJpLWZlZWRiYWNrLWh6Cm5pYmktbG9ncy1oegpvc3N1dGlsLXB1Ymxpc2gKbmliaS1jbgpuaWJpLWdvLW9wcwpuaWJpLWdvLW1hcmtldC1zeW5jCmtleS1wYXNzcGhyYXNlCi9zcnYvbmliaS1zaXRlCi9vcHQvbmliaS0Ka2V5c3RvcmUvbmliaS1nby1tYXJrZXQ=",
-        "base64",
-      )
-        .toString("utf8")
-        .split("\n");
+      const terms = [
+        ...Buffer.from(
+          "bmliaS1kaXN0LWh6Cm5pYmktcGFpZC1oegpuaWJpLWJhY2t1cC1oegpuaWJpLWZlZWRiYWNrLWh6Cm5pYmktbG9ncy1oegpvc3N1dGlsLXB1Ymxpc2gKbmliaS1jbgpuaWJpLWdvLW9wcwpuaWJpLWdvLW1hcmtldC1zeW5jCmtleS1wYXNzcGhyYXNlCi9zcnYvbmliaS1zaXRlCi9vcHQvbmliaS0Ka2V5c3RvcmUvbmliaS1nby1tYXJrZXQ=",
+          "base64",
+        )
+          .toString("utf8")
+          .split("\n"),
+        Buffer.from("ODA3OWZlNTk=", "base64").toString("utf8"),
+      ].filter(Boolean);
       const words = terms.filter((term) => !term.includes("/"));
       const paths = terms
         .filter((term) => term.includes("/"))
@@ -311,6 +339,90 @@ function checkRepoHygiene(trackedFiles, violations) {
   }
 }
 
+function checkImageMetadata(trackedFiles, violations) {
+  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const MAX_DOC_ASSET_BYTES = 5 * 1024 * 1024;
+  for (const file of trackedFiles) {
+    const ext = extname(file).toLowerCase();
+    if (ext !== ".png" && ext !== ".gif") continue;
+    let buf;
+    try {
+      buf = readFileSync(join(ROOT, file));
+    } catch {
+      continue;
+    }
+    if (file.startsWith("docs/assets/") && buf.length > MAX_DOC_ASSET_BYTES) {
+      violations.push({
+        file,
+        line: 0,
+        rule: "doc image exceeds 5 MiB limit",
+        text: `${buf.length} bytes`,
+      });
+    }
+    if (ext === ".png" && buf.length >= 8 && buf.subarray(0, 8).equals(PNG_SIG)) {
+      let offset = 8;
+      while (offset + 12 <= buf.length) {
+        const len = buf.readUInt32BE(offset);
+        const type = buf.subarray(offset + 4, offset + 8).toString("ascii");
+        const dataStart = offset + 8;
+        const dataEnd = dataStart + len;
+        if (dataEnd + 4 > buf.length) break;
+        if (type === "eXIf") {
+          violations.push({
+            file,
+            line: 0,
+            rule: "PNG contains EXIF metadata (strip before committing)",
+            text: "eXIf chunk",
+          });
+        } else if (type === "tEXt" || type === "iTXt") {
+          const text = buf.subarray(dataStart, dataEnd).toString("utf8").replace(/\0/g, " ");
+          if (!isAllowed(text)) {
+            for (const rule of RULES) {
+              if (rule.re.test(text)) {
+                violations.push({
+                  file,
+                  line: 0,
+                  rule: `PNG ${type} metadata matched ${rule.name}`,
+                  text: text.trim().slice(0, 160),
+                });
+                break;
+              }
+            }
+          }
+        }
+        offset = dataEnd + 4;
+      }
+    } else if (ext === ".gif") {
+      // Scan GIF Comment Extensions (0x21 0xFE <sub-blocks> 0x00)
+      for (let i = 0; i + 2 < buf.length; i += 1) {
+        if (buf[i] === 0x21 && buf[i + 1] === 0xfe) {
+          let p = i + 2;
+          const parts = [];
+          while (p < buf.length && buf[p] > 0) {
+            const subLen = buf[p];
+            parts.push(buf.subarray(p + 1, Math.min(buf.length, p + 1 + subLen)));
+            p += 1 + subLen;
+          }
+          const comment = Buffer.concat(parts).toString("utf8");
+          if (comment && !isAllowed(comment)) {
+            for (const rule of RULES) {
+              if (rule.re.test(comment)) {
+                violations.push({
+                  file,
+                  line: 0,
+                  rule: `GIF comment metadata matched ${rule.name}`,
+                  text: comment.trim().slice(0, 160),
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 function main() {
   const trackedFiles = listTrackedFiles();
   const files = trackedFiles.filter(isTextFile);
@@ -347,6 +459,7 @@ function main() {
   violations.push(...checkRequiredFiles());
   checkKeyFiles(trackedFiles, violations);
   checkRepoHygiene(trackedFiles, violations);
+  checkImageMetadata(trackedFiles, violations);
 
   const unique = [];
   const seen = new Set();

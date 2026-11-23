@@ -1,153 +1,149 @@
 # NIBI-GO
 
-[简体中文](README.md) | English
+<div align="center">
+  <img src="docs/assets/hero-banner-en.png" alt="NIBI-GO — An on-device AI workbench, in your pocket" width="100%" />
 
-NIBI-GO is the **mobile client** of the NIBI ecosystem. NIBI-GO is the default
-app body (an on-device AGENT):
+  <p>
+    <a href="README.md">简体中文</a> ·
+    <strong>English</strong> ·
+    <a href="https://nibistudio.cn">Website</a> ·
+    <a href="https://github.com/Ebonyhtx/nibi-go-market">Official Plugin Market</a> ·
+    <a href="docs/README.md">Docs &amp; ADRs</a>
+  </p>
+</div>
 
-- **NIBI-GO (default body)**: on-device AGENT; its plugin ecosystem is separate
-  from the desktop plugin system (D13);
-- **NIBI-WORK (entry)**: desktop remote control entered from the GO body
-  (Relay V2 end-to-end channel with conversation, approval and task
-  projection). It is no longer a parallel primary product.
+**NIBI-GO** is the **Android mobile client** of the NIBI ecosystem. It packs a native Rust kernel, bundled command-line runtimes, a local workspace explorer, subagents, an Office/PDF document suite, and a cryptographically signed plugin ecosystem into your phone — so real engineering and document work continues away from your desk.
 
-This repository is the public source of NIBI-GO (Android client, pure-TS
-protocol layers, native modules, Android kernel adaptation). The on-device
-kernel and Android native runtime ship with the app and are built in this
-repository; see [`docs/`](docs/README.md) for architecture decisions and
-implementation status.
+- **NIBI-GO (default app body)**: an on-device Android AI agent workbench — rootless, PRoot-free, local-first, with an independent mobile plugin ecosystem.
+- **NIBI-WORK (built-in remote entry)**: one tap from the drawer to connect to desktop [NIBI](https://github.com/Ebonyhtx/nibi-client) over an end-to-end encrypted Relay V2 channel to monitor long-running tasks, answer prompts, and approve actions.
 
-## Open-source scope
+---
 
-Included:
+## Paper Bird Companion · Live Agent States at a Glance
 
-- `app/` — Expo / React Native application (login, QR pairing, connection
-  status, chat, approvals, notifications, keep-alive, in-app updates)
-- `app/modules/` — local Expo native modules (kernel host, foreground KeepAlive
-  service, APK installer)
-- `kernel/` — Android kernel adaptation (ships with the app)
-- `packages/kernel-session`, `packages/relay-client`, `packages/chat-core`,
-  `packages/shared-extract`, `packages/phone-tools` — pure-TS protocol layers
-- `docs/` — public architecture decisions (D1–D25) and design specs (plans, tickets, research and checklists live in the private engineering repository)
-- `scripts/` — architecture and public-repository gates
+Both the in-app pixel companion and the off-app floating overlay bird share a single `64×64` sprite sheet source (with matched Light Paper and Ink Night palettes). Driven directly on the UI thread with zero React re-renders during steady loops, the bird reflects every state — idle, thinking, working, carrying queued annotations, flying while dragged, and done.
 
-Not included:
+<div align="center">
+  <img src="docs/assets/nibi-bird-showcase.gif" alt="NIBI-GO pixel Paper Bird animated states: Idle, Thinking, Working, Done" width="96%" />
+</div>
 
-- release signing material, release pipelines and operator services;
-- any private deployment details or credentials (see [SECURITY.md](SECURITY.md)).
+---
 
-The historical reference archive has been moved out of this repository; it is
-not part of any build, and `reference/` no longer exists here.
+## Real-Device Walkthrough
 
-## Plugin market
+<div align="center">
+  <img src="docs/assets/showcase-scenes-en.png" alt="NIBI-GO real-device screenshots: On-Device Chat & Pet, Workspace & Subagents, Live Bilingual & Ink Night, Docs Suite & Marketplace" width="100%" />
+</div>
 
-The official plugin market lives in a separate public repository,
-[nibi-go-market](https://github.com/Ebonyhtx/nibi-go-market). The client accepts only the
-officially signed index and verifies every package against its `sha256`. Third-party plugins
-are submitted via pull request; the submission format and review criteria are documented in
-that repository's
-[CONTRIBUTING](https://github.com/Ebonyhtx/nibi-go-market/blob/main/CONTRIBUTING.md).
+<br />
 
-Plugins are **code that runs**: installing a third-party plugin runs software provided by its
-author. Review reduces risk but is not a guarantee; install only entries you trust. Index
-format, signature verification and rollback protection are described in
-[`docs/design/market-index.md`](docs/design/market-index.md).
+<div align="center">
+  <img src="docs/assets/showcase-landscape.png" alt="NIBI-GO landscape & tablet adaptive layout and off-app floating pixel bird bubble" width="100%" />
+</div>
 
-## Requirements
+---
 
-- Node.js **24.22.2**
-- pnpm **10.33.2**
-- Git
+## Key Capabilities
 
-Versions are pinned in [mise.toml](mise.toml). Android development additionally
-needs the Android SDK (platform 35 / build-tools 35.0.0 / emulator) and JDK 17;
-the Windows CMake short-path requirement is handled by
-`app/plugins/withCmakeVersion.js`.
+| Area | What you can do |
+|---|---|
+| **On-Device Rust Kernel & Bundled Runtime** | Runs self-built `libnibi.so` in-process (targetSdk 36, rootless) alongside bundled `bash`, `busybox`, `git`, `Node.js`, `Python`, `ripgrep`, and `jq` for real local workspace inspection and command execution. |
+| **Readable Message Flow & Interactive Previews** | Streaming Markdown, code blocks, interactive HTML/SVG artifact cards with fullscreen preview, plus multi-paragraph / custom-trim annotations that preserve drafts if sending fails. |
+| **Workspace Panel & In-Panel Subagents** | Center-swipe frosted-glass side panels for browsing workspace files, clean native preview of `docx / xlsx / pptx / pdf / md / html / images`, and live read-only subagent transcripts without leaving your main thread. |
+| **Pixel Companion & Floating Status Bird** | Skia nearest-neighbor rendering on the UI thread (auto-paused in background); when you leave NIBI-GO or run phone tasks, the native `StatusBubble` pixel bird floats alongside you, flaps when dragged, and brings you right back on tap. |
+| **Office Suite & Signed Plugin Market** | Ships with built-in Word / Excel / PowerPoint / PDF and Charts plugins; connects to [nibi-go-market](https://github.com/Ebonyhtx/nibi-go-market) for Ed25519-signed standard ZIP plugins and pure-JS npm MCP servers with automatic env-var detection and CN/Global mirror switching. |
+| **Landscape, Tablet & Live Bilingual UI** | Material 3 adaptive breakpoints (safe-area aware phone landscape, persistent tablet sidebar/rail, centered wide sheets); real-time Simplified Chinese / English switching and Light Paper / Ink Night dark themes. |
+| **NIBI-WORK Desktop Remote Control** | QR pairing with desktop NIBI over Relay V2 E2E encryption, foreground keep-alive service, and push notifications for approvals and completed tasks. |
+| **Opt-in Phone Control (Dual Explicit Toggles)** | Off by default; enable Accessibility screen-read/tap (Toggle 1) and Shizuku advanced shell mode (Toggle 2) independently with explicit approval prompts. |
 
-## Quick start
+---
 
-```bash
-pnpm install
-pnpm -r test
-node scripts/check-boundaries.mjs
-node scripts/check-public-repo.mjs
-```
+## Product Principles
 
-Mobile development:
+- **Local-first**: conversations, workspaces, per-project memory, and provider configs stay on your device by default; remote control and account login are always explicit actions.
+- **Inspectable outcomes**: tool calls, file changes, subagent logs, and generated documents can all be inspected directly instead of trusting a summary alone.
+- **Explicit capability boundaries**: shell/runtime tools, phone automation, and third-party plugins require explicit opt-in; provider API keys remain in the kernel/keystore and never leak into child-process environments.
+- **Verifiable distribution**: the official plugin index is Ed25519-signed, every ZIP and npm MCP package is verified by `sha256` / SRI digest, and release APKs verify against the release signing certificate fingerprint.
 
-```bash
-cd app
-pnpm exec expo start          # Metro (Expo Go)
-pnpm exec expo run:android    # dev-client build + install
-```
+---
 
-Login requires an OIDC native app registered in the NIBI account center with the
-`nibigo://login` callback, injected via `EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID`.
-Without it, login fails loudly instead of degrading silently.
+## Plugin Ecosystem & Security Note
 
-## Repository layout
+The official plugin marketplace lives in [nibi-go-market](https://github.com/Ebonyhtx/nibi-go-market). The client accepts only the Ed25519-signed official index and verifies every package digest before installation. Third-party authors submit via pull request; see [CONTRIBUTING.md](https://github.com/Ebonyhtx/nibi-go-market/blob/main/CONTRIBUTING.md).
+
+> Plugins are **executable code**: installing a third-party plugin runs software provided by its author on your device. Automated static scanning and human review reduce risk but are not an absolute guarantee — install only entries you trust. See [`docs/design/market-index.md`](docs/design/market-index.md) for signature verification and anti-rollback details.
+
+---
+
+## Open-Source Scope & Repository Layout
+
+This repository contains all buildable public source code for NIBI-GO. Release signing keys, operator services, and internal engineering checklists are not kept here (see [SECURITY.md](SECURITY.md)).
 
 | Directory | Responsibility |
 |---|---|
-| `app/` | Expo SDK 58 app (expo-router routes in `src/app/`) |
-| `app/modules/nibi-keepalive` | Foreground service keep-alive (Spike 2: Android kills background sockets) |
-| `app/modules/nibi-updater` | APK installer (FileProvider + PackageInstaller, SHA-256 verified) |
-| `packages/relay-client` | Relay V2 terminal client: state machine, pairing, workspace bridge, E2E envelope |
-| `packages/chat-core` | Chat state machines: V4 reducer host, replay/gap, approvals, AgentPulse |
-| `packages/shared-extract` | Protocol contracts extracted from nibi-client (source headers, see [NOTICE.md](NOTICE.md)) |
-| `packages/phone-tools` | Phone tool interface (multi-platform adapters; former B0, now part of the Phase C prerequisite) |
-| `app/modules/kernel-host` | Kernel JNI layer (Phase C; before D24 Phase 0 it still fetches upstream `4.1.0` `libnibi.so`; after Phase 0 it uses this repo's `kernel/`) |
-| `docs/` | Public decision ledger and design specs (entry: [docs/README.md](docs/README.md)) |
-| `scripts/` | Architecture gate, public-repo check, extraction scripts |
+| `app/` | Expo SDK 58 / React Native 0.88 application (`src/app/` expo-router screens, `src/i18n/` live bilingual engine) |
+| `app/modules/kernel-host` | Kernel host: Expo native module, thin C JNI layer, and dedicated `:kernel` Service |
+| `app/modules/nibi-phone` | Phone native module: floating pixel bird bubble (`StatusBubble.kt`), Accessibility bridge, Shizuku adapter |
+| `app/modules/nibi-keepalive` | Foreground keep-alive service for background tasks and remote sessions |
+| `app/modules/nibi-updater` | In-app APK installer (FileProvider + PackageInstaller + SHA-256 check) |
+| `kernel/` | Maintained Android kernel fork (Rust workspace building 16 KB-aligned `libnibi.so` and `nibi-rs`) |
+| `packages/kernel-session` | On-device session client: snapshot/delta projection, read-only subagent feeds, tool row derivation |
+| `packages/relay-client` | Relay V2 remote-control client: state machine, QR pairing, E2E envelope |
+| `packages/chat-core` | Pure-TS chat state machine: V4 reducer host, replay/gap recovery, approvals (no RN dependency) |
+| `packages/shared-extract` | Protocol contracts extracted from [nibi-client](https://github.com/Ebonyhtx/nibi-client) (see [NOTICE.md](NOTICE.md)) |
+| `packages/phone-tools` | Platform-neutral phone tool interface contracts |
+| `packages/market-index`, `packages/plugin-contract`, `packages/plugin-license` | Pure-TS plugin manifest schemas, Ed25519 index verifier, and device license verifier |
+| `docs/` | Public architecture decision ledger (D1–D25) and design specs ([docs/README.md](docs/README.md)) |
+| `scripts/` | Architecture boundary gate, public-repo leak & image metadata gate, kernel/runtime build tools |
 
-## Development and verification
+---
+
+## Building & Verification
+
+### Requirements
+
+- Node.js **24.22.2**, pnpm **10.33.2**, Git (pinned in [mise.toml](mise.toml))
+- Android SDK, NDK, and JDK 17 for native Android builds (Windows CMake short-path notes in [AGENTS.md](AGENTS.md))
+
+### Gates & Tests
 
 ```bash
-pnpm -r test                        # all tests (relay-client / chat-core run on Node)
-pnpm -r typecheck                   # type checking
-node scripts/check-boundaries.mjs   # layer boundaries (protocol layers: no RN/expo imports)
-node scripts/check-public-repo.mjs  # public-tree policy
+pnpm install
+pnpm -r typecheck                   # Workspace TypeScript check
+pnpm test                           # Full test suite (pure-TS layers run on Node)
+node scripts/check-boundaries.mjs   # Layer boundary allowlist (no RN/Expo in protocol layers)
+node scripts/check-public-repo.mjs  # Public-tree leak & PNG/GIF metadata gate
 ```
 
-Run these before submitting. Public CI runs the same gates on GitHub-hosted
-runners only.
+### Mobile Development
 
-## Configuration
+```bash
+cd app
+pnpm exec expo start          # Start Metro bundler
+pnpm exec expo run:android    # Build and install on device or emulator
+```
+
+### Optional Environment Variables
+
+See [app/.env.example](app/.env.example):
 
 | Variable | Purpose |
 |---|---|
-| `EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID` | OIDC native app client id for NIBI-GO |
-| `EXPO_PUBLIC_NIBI_ENDPOINT_ORIGIN` | endpoint origin override (self-hosted testing) |
-| `EXPO_PUBLIC_NIBI_RELAY_WS_URL` | relay ws2 endpoint override |
-| `EXPO_PUBLIC_NIBI_RELEASE_REPO` | release repository for in-app updates (`owner/repo`) |
-| `NIBIGO_CXX_STAGING` / `NIBIGO_CMAKE_VERSION` | Android native build dir / CMake version overrides |
+| `EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID` | OIDC native app client id for NIBI account login (`nibigo://login`) |
+| `EXPO_PUBLIC_NIBI_ENDPOINT_ORIGIN` | Endpoint origin override for self-hosted testing |
+| `EXPO_PUBLIC_NIBI_RELAY_WS_URL` | Relay V2 WebSocket URL override |
+| `EXPO_PUBLIC_NIBI_RELEASE_REPO` | GitHub release repository (`owner/repo`) for in-app update checks |
+| `NIBIGO_CXX_STAGING` / `NIBIGO_CMAKE_VERSION` | Windows CMake build directory / version overrides |
 
-See [app/.env.example](app/.env.example).
+---
 
-## Roadmap
+## Contributing & Security
 
-- **Phase A** (code-complete): NIBI-GO app body and the NIBI-WORK remote-control
-  entry. Zero kernel coupling.
-- **Phase B** (cancelled, D6): phone-control routing for the WORK form
-  (nibi-phone-bridge); the B0 tool surface (`packages/phone-tools`) moved to the
-  Phase C prerequisite.
-- **Phase C** (C0 completed, verified on device 2026-11-15): on-device kernel (`libnibi.so`, in-process, D19).
-  D24/D25 fixed: the kernel is forked into this repo and the Android native runtime is rolled out in phases; see
-  [ADR-INDEX D24/D25](docs/decisions/ADR-INDEX.md) and `docs/design/android-native-runtime.md`.
-  Trigger conditions in [ADR-INDEX D12](docs/decisions/ADR-INDEX.md).
-
-## Contributing
-
-- Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-- Report security issues privately per [SECURITY.md](SECURITY.md).
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) and pass all local gates before opening a pull request.
+- Report security issues privately via [SECURITY.md](SECURITY.md); do not open public issues.
 - Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-- Architecture and design docs: [docs/README.md](docs/README.md).
+- Architecture & design specs: [docs/README.md](docs/README.md).
 
-## License and provenance
+## License & Provenance
 
-Released under the **Apache License 2.0**. Protocol contracts in
-`packages/shared-extract/` are extracted from
-[nibi-client](https://github.com/Ebonyhtx/nibi-client) (Apache-2.0); upstream
-lineage and third-party notices are in [NOTICE.md](NOTICE.md),
-[LICENSING.md](LICENSING.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-See [TRADEMARKS.md](TRADEMARKS.md) for names and marks.
+Released under the **[Apache License 2.0](LICENSE)**. Protocol contracts in `packages/shared-extract/` are extracted from [nibi-client](https://github.com/Ebonyhtx/nibi-client) (Apache-2.0). See [NOTICE.md](NOTICE.md), [LICENSING.md](LICENSING.md), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [TRADEMARKS.md](TRADEMARKS.md).
