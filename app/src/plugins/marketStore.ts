@@ -139,9 +139,12 @@ export function isOfficialNibiMarketEntry(entry: MarketPluginEntry): boolean {
   return pub.includes("nibi") || entry.id.startsWith("nibi.") || entry.id.startsWith("nibigo-");
 }
 
-/** 当前索引里的远端插件条目（签名索引已经过滤了联调 demo，这里不再维护隐藏名单）。 */
+/** 历史联调 demo：即使设备上残留旧快照，也不再展示。 */
+const HIDDEN_MARKET_IDS = new Set(["nibi.market.hello"]);
+
+/** 当前索引里的远端插件条目。 */
 export function visibleMarketEntries(snapshot: MarketSnapshotFile | null): MarketPluginEntry[] {
-  return snapshot?.index.plugins ?? [];
+  return (snapshot?.index.plugins ?? []).filter((entry) => !HIDDEN_MARKET_IDS.has(entry.id));
 }
 
 export async function loadPersonalSources(): Promise<PersonalPluginSource[]> {

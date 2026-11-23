@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Directory, File, Paths } from "expo-file-system";
 
 import { getCachedDevicePreferences } from "../settings/devicePreferences";
-import { checkForUpdate } from "./updater";
+import { checkForUpdate, currentAppVersionCode } from "./updater";
 import type { UpdateInfo } from "./updater-core";
 
 const DIRECTORY = ".nibi";
@@ -63,6 +63,11 @@ export async function loadUpdateStatus(): Promise<UpdateStatus> {
     if (file.exists) cached = normalize(JSON.parse(await file.text()));
   } catch {
     cached = { ...EMPTY };
+  }
+  // 刚更新完时，旧快照里的 pending 可能已经不新了；按当前 versionCode 清掉，避免残留红点。
+  const currentCode = currentAppVersionCode();
+  if (cached.pending && currentCode > 0 && (cached.pending.versionCode ?? 0) <= currentCode) {
+    cached = { ...cached, pending: null };
   }
   loaded = true;
   notify();

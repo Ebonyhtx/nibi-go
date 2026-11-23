@@ -238,6 +238,7 @@ export async function downloadUpdate(
       throw new Error(pickText("更新下载已取消", "Update download cancelled"));
     }
     // 原生模块缺失时退回 JS 下载；网络/校验失败也会走到这里，逐个源重试。
+    if (__DEV__) console.warn("[nibigo] native update download failed", error);
     return downloadUpdateFallback(urls, target, info, options);
   }
 }
@@ -262,8 +263,8 @@ async function downloadUpdateFallback(
       if (!actual) {
         throw new Error(
           pickText(
-            "无法校验更新包（原生模块缺失）",
-            "Unable to verify update package (native module missing)",
+            "无法校验更新包（文件不可读）",
+            "Unable to verify update package (file unreadable)",
           ),
         );
       }

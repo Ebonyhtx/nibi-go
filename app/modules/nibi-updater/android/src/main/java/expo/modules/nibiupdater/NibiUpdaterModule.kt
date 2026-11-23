@@ -1,6 +1,7 @@
 package expo.modules.nibiupdater
 
 import android.content.Intent
+import android.net.Uri
 import androidx.core.content.FileProvider
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -28,13 +29,18 @@ class NibiUpdaterModule : Module() {
   @Volatile
   private var activeConnection: HttpURLConnection? = null
 
+  /** RN 的 FileSystem 返回 file:// URI；原生 File 需要普通路径。 */
+  private fun pathOf(raw: String): String {
+    return if (raw.startsWith("file://")) Uri.parse(raw).path ?: raw else raw
+  }
+
   override fun definition() = ModuleDefinition {
     Name("NibiUpdater")
 
     Events("onDownloadProgress")
 
     Function("sha256File") { path: String ->
-      val file = File(path)
+      val file = File(pathOf(path))
       if (!file.exists() || !file.isFile) return@Function null
       try {
         sha256Of(file)
@@ -45,7 +51,7 @@ class NibiUpdaterModule : Module() {
 
     Function("installApk") { path: String ->
       val context = appContext.reactContext ?: return@Function false
-      val file = File(path)
+      val file = File(pathOf(path))
       if (!file.exists()) return@Function false
       try {
         val uri = FileProvider.getUriForFile(
@@ -86,7 +92,7 @@ class NibiUpdaterModule : Module() {
         if (!sha256.matches(Regex("^[0-9a-fA-F]{64}$"))) throw IOException("SHA-256 格式不合法")
         val size = expectedSize.toLong()
         if (size < 0L) throw IOException("APK 大小不合法")
-        val target = File(destination).canonicalFile
+        val target = File(pathOf(destination)).canonicalFile
         val roots = listOf(context.cacheDir.canonicalFile, context.filesDir.canonicalFile)
         if (roots.none { target.path.startsWith(it.path + File.separator) }) {
           throw IOException("下载目标必须位于应用缓存或文件目录")
