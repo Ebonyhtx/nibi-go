@@ -164,6 +164,7 @@ pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因" [--versio
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
 - **市场分发定案（2026-11-24）**：插件市场不再镜像到自有 CDN，改为 GitHub 仓 + jsDelivr/Fastly 公共镜像；服务器上的市场同步任务已停用（脚本保留作应急）。此前 2026-11-20 的服务器自动镜像实测（每 10 分钟拉取、验签、增量上传、revision 倒退拒绝）作为历史记录保留，不再是现役链路。
 - **revision 10（2026-11-24）**：移除联调 demo `nibi.market.hello` 及其 zip；新增顶层 `bundledPlugins`，收录 6 个随包内置插件；索引重新签名并发布。
+- **真机（2026-11-24，PHK110，0.1.9/10）**：市场刷新到 revision 10；NIBI 页显示「官方签名目录 revision 10 · 随包内置 6 项」，`hello` 不再出现；首次刷新遇到镜像/网络抖动，切回国内源重试成功。
 - **撤回工具（2026-11-20 实跑）**：在临时市场仓副本执行 `pnpm market:yank`，revision 5 → 6，
   条目移除、签名回读验签通过、`yanked.json` 追加记录；市场仓 `check-yanks.mjs` 对
   「索引仍含被撤回版本」「重复撤回」「revision 不递增」三种夹具均报红，正常记录通过；

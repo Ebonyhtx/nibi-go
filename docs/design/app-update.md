@@ -161,3 +161,22 @@ NIBI_RELEASE_MIN_VERSION_CODE # 可选，强制升级下限
 - 不默认自动下载；
 - 不在 GitHub 存 OSS 长期凭据或使用 OIDC；
 - 不把插件市场搬进这套 CDN 链路（市场仍走 GitHub + jsDelivr/Fastly）。
+
+## 12. 真机验收（2026-11-24）
+
+用 0.1.8/9 测试构建（清单指向测试 CDN）与 0.1.9/10 候选构建在 PHK110 上验收：
+
+- 启动自动检查 5 秒后拉到签名清单，弹出“需要更新 NIBI-GO”强制更新提示；
+- 设置页显示“有新版本 0.1.9”红点；检查更新弹窗显示 110 MB、来源“国内源”、不可取消；
+- 下载走原生断点续传，完成后 SHA-256 校验通过并调起系统 PackageInstaller；
+- 系统安装确认需要设备锁屏密码；用 `adb install -r` 完成安装后，版本变为 0.1.9/10，原有会话与项目保留；
+- 更新后设置页不再残留“有新版本”红点；手动检查走生产清单 404 → GitHub 兜底，显示“已是最新版本（0.1.9）”；
+- 自动检查开关可关闭/开启；
+- 市场页刷新到 revision 10，NIBI 页显示官方签名目录 + 6 个随包内置，`hello` demo 不再出现。
+
+## 13. 实现注意
+
+- RN 的 `FileSystem.cacheDirectory` / `downloadAsync` 返回 `file://` URI；原生 `File` 需要普通路径，`nibi-updater` 统一用 `pathOf()` 归一化。
+- 升级完成后本地 `nibi-update-state.json` 里的旧 `pending` 可能仍指向刚装上的版本；`loadUpdateStatus()` 会按当前 versionCode 清掉，避免残留红点。
+- 客户端仍对历史 demo id 做兜底隐藏；即使设备上残留旧市场快照，也不会重新显示 `hello`。
+- 市场刷新在真机首次尝试时出现过一次镜像/网络抖动（jsDelivr 超时、raw 验签失败），切换源/重试后成功；市场仍保持 GitHub + 公共镜像，不引入自有 CDN。
