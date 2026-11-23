@@ -3,6 +3,8 @@
 //
 // 用法：
 //   node scripts/release.mjs 0.1.1 [--notes "说明"] [--dry-run]
+//   node scripts/release.mjs 0.1.1 --no-bump          # 版本号已单独提交
+//   node scripts/release.mjs 0.1.1 --cdn-only         # GitHub 已发布，补发 CDN 清单
 //
 // 前提（一次性）：node scripts/keystore.mjs init 已执行，或从私有保管仓恢复过工作副本。
 // 口令来源：环境变量 NIBI_KEYSTORE_PASS → ~/.nibi/keystore/passphrase.txt。
@@ -232,7 +234,9 @@ const notesIndex = args.indexOf("--notes");
 const notes = notesIndex >= 0 ? args[notesIndex + 1] : undefined;
 
 if (!version) {
-  console.error('用法：node scripts/release.mjs <X.Y.Z> [--notes "说明"] [--dry-run]');
+  console.error(
+    '用法：node scripts/release.mjs <X.Y.Z> [--notes "说明"] [--dry-run] [--no-bump] [--cdn-only]',
+  );
   process.exit(1);
 }
 
@@ -241,6 +245,8 @@ const config = JSON.parse(original);
 const current = config.expo.version;
 const currentCode = Number(config.expo.android?.versionCode ?? 0);
 const cdnOnly = args.includes("--cdn-only");
+// 版本号已经单独提交时使用：不再 bump app.json，直接构建并发布当前版本。
+const noBump = args.includes("--no-bump");
 
 // 仅补发 CDN：GitHub Release 已经存在时，重新上传 APK + 签名清单，不重新构建。
 if (cdnOnly) {
@@ -287,23 +293,35 @@ if (cdnOnly) {
   }
 }
 
-if (version === current) {
-  console.error(`错误：版本号未变化（当前 ${current}）。`);
+if (noBump) {
+  if (version !== current) {
+    console.error(`错误：--no-bump 只发布当前 app.json 版本（当前 ${current}，参数 ${version}）。`);
+    process.exit(1);
+  }
+} else if (version === current) {
+  console.error(`错误：版本号未变化（当前 ${current}）。如需发布已提交的版本号，加 --no-bump。`);
   process.exit(1);
 }
 
-const nextCode = currentCode + 1;
-console.log(`发版 ${current} → ${version}（versionCode ${currentCode} → ${nextCode}）`);
+const nextCode = noBump ? currentCode : currentCode + 1;
+console.log(
+  noBump
+    ? `发版 ${version}（versionCode ${nextCode}，--no-bump）`
+    : `发版 ${current} → ${version}（versionCode ${currentCode} → ${nextCode}）`,
+);
 if (dryRun) {
   console.log("dry-run：只打印计划，不修改文件、不构建、不发布。");
   process.exit(0);
 }
 validateCdnConfig();
 
-// 1) 版本号：version 与 versionCode 必须同时前进（Android 只认 versionCode）
-config.expo.version = version;
-config.expo.android = { ...config.expo.android, versionCode: nextCode };
-fs.writeFileSync(APP_JSON, `${JSON.stringify(config, null, 2)}\n`);
+// 1) 版本号：默认同时 bump version 与 versionCode（Android 只认 versionCode）；
+//    --no-bump 时版本号已经由调用方提交，不再改 app.json。
+if (!noBump) {
+  config.expo.version = version;
+  config.expo.android = { ...config.expo.android, versionCode: nextCode };
+  fs.writeFileSync(APP_JSON, `${JSON.stringify(config, null, 2)}\n`);
+}
 
 let releasePublished = false;
 try {
@@ -416,10 +434,13 @@ try {
   if (manifestUrl) console.log(`  更新清单 ${manifestUrl}`);
   console.log("\n本机工作副本仍保留。清理：node scripts/keystore.mjs wipe --yes");
 } catch (error) {
-  if (!releasePublished) {
+  if (!releasePublished && !noBump) {
     fs.writeFileSync(APP_JSON, original);
     console.error(`\n错误：${error.message}`);
     console.error(`app.json 已回滚到 ${current}。`);
+  } else if (!releasePublished && noBump) {
+    console.error(`\n错误：${error.message}`);
+    console.error("--no-bump：app.json 保持不变。");
   } else {
     console.error(`\n错误：${error.message}`);
     console.error(
