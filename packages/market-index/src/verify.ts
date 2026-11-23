@@ -45,19 +45,26 @@ function matchSignature(
   return null;
 }
 
+/** 通用 detached Ed25519 验签：返回命中的 key；格式错误/验签失败返回 null。 */
+export function verifyDetachedSignature(
+  bytes: Uint8Array,
+  signatureHex: string,
+  keys: readonly MarketKey[] = NIBI_MARKET_KEYS,
+): MarketKey | null {
+  const signature = hexToBytes(signatureHex.trim().toLowerCase());
+  if (!signature || signature.length !== 64) return null;
+  return matchSignature(bytes, signature, keys);
+}
+
 /** 验签 + 形状校验；任何一步失败都不返回 index。 */
 export function verifyMarketIndexBytes(
   bytes: Uint8Array,
   signatureHex: string,
   options: MarketVerifyOptions = {},
 ): MarketVerifyResult {
-  const signature = hexToBytes(signatureHex.trim().toLowerCase());
-  if (!signature || signature.length !== 64) {
-    return { ok: false, error: "bad-signature", detail: "签名必须是 128 位 hex" };
-  }
   const keys = options.keys ?? NIBI_MARKET_KEYS;
   if (keys.length === 0) return { ok: false, error: "unknown-key" };
-  const key = matchSignature(bytes, signature, keys);
+  const key = verifyDetachedSignature(bytes, signatureHex, keys);
   if (!key) return { ok: false, error: "bad-signature" };
 
   let raw: unknown;

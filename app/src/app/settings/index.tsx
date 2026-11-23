@@ -10,8 +10,10 @@ import {
   Keyboard,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
+  type AlertButton,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -33,9 +35,11 @@ import { useSession } from "../../relay/useSession";
 import { previewAgentSound, syncNotificationChannel } from "../../relay/notifications";
 import {
   checkForUpdate,
+  currentAppVersionCode,
   downloadUpdate,
   installUpdate,
 } from "../../relay/updater";
+import { saveUpdateStatus, useUpdateStatus } from "../../relay/updateStatus";
 import {
   updateDevicePreferences,
   useDevicePreferences,
@@ -55,6 +59,7 @@ export default function SettingsHomeScreen() {
   const { session, snapshot } = useSession();
   const appearanceMode = useAppearanceMode();
   const device = useDevicePreferences();
+  const updateState = useUpdateStatus();
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -135,47 +140,86 @@ export default function SettingsHomeScreen() {
     setUpdateMessage(pick("正在检查…", "Checking…"));
     let handedToDialog = false;
     try {
-      const info = await checkForUpdate();
-      if (!info) {
-        setUpdateMessage(pick(`已是最新版本（${version}）`, `Up to date (${version})`));
+      const result = await checkForUpdate();
+      const checkedAt = Date.now();
+      if (result.status === "error") {
+        setUpdateMessage(result.reason);
+        void saveUpdateStatus({ lastCheckAt: checkedAt });
         return;
       }
+      if (result.status === "none") {
+        setUpdateMessage(pick(`已是最新版本（${version}）`, `Up to date (${version})`));
+        void saveUpdateStatus({ lastCheckAt: checkedAt, pending: null });
+        return;
+      }
+      const info = result.info;
+      void saveUpdateStatus({ lastCheckAt: checkedAt, pending: info });
       const sizeLabel = info.size
         ? pick(`，${Math.round(info.size / 1024 / 1024)} MB`, `, ${Math.round(info.size / 1024 / 1024)} MB`)
         : "";
+      const sourceLabel = result.source === "cdn" ? pick("国内源", "NIBI CDN") : "GitHub";
+      const currentCode = currentAppVersionCode();
+      const forced =
+        currentCode > 0 &&
+        info.minVersionCode !== undefined &&
+        currentCode < info.minVersionCode;
       setUpdateMessage(null);
       handedToDialog = true;
-      Alert.alert(
-        pick(`发现新版本 ${info.version}`, `Update available: ${info.version}`),
-        pick(
-          `当前 ${version} → 新版 ${info.version}${sizeLabel}。下载完成后会校验摘要并调起安装。`,
-          `Current ${version} → New ${info.version}${sizeLabel}. Checksum will be verified before installing.`,
-        ),
-        [
-          { text: pick("取消", "Cancel"), style: "cancel", onPress: () => setUpdateBusy(false) },
-          {
-            text: pick("下载并安装", "Download & install"),
-            onPress: () => {
-              setUpdateMessage(pick(`正在下载 ${info.version}…`, `Downloading ${info.version}…`));
-              void downloadUpdate(info)
-                .then(({ apkPath }) => {
-                  setUpdateMessage(null);
-                  return installUpdate(apkPath).then((launched) => {
-                    if (!launched) {
-                      setUpdateMessage(
-                        pick("无法调起安装器，请手动安装", "Unable to launch installer. Install manually."),
-                      );
-                    }
-                  });
-                })
-                .catch((error: unknown) => {
-                  setUpdateMessage(error instanceof Error ? error.message : String(error));
-                })
-                .finally(() => setUpdateBusy(false));
+      const downloadButton: AlertButton = {
+        text: pick("下载并安装", "Download & install"),
+        onPress: () => {
+          setUpdateMessage(pick(`正在下载 ${info.version}…`, `Downloading ${info.version}…`));
+          void downloadUpdate(info, {
+            onProgress: ({ loaded, total }) => {
+              if (!total || total <= 0) return;
+              const percent = Math.min(100, Math.round((loaded * 100) / total));
+              setUpdateMessage(
+                pick(
+                  `正在下载 ${info.version}… ${percent}%`,
+                  `Downloading ${info.version}… ${percent}%`,
+                ),
+              );
             },
-          },
-        ],
-        { cancelable: true, onDismiss: () => setUpdateBusy(false) },
+          })
+            .then(({ apkPath }) => {
+              setUpdateMessage(null);
+              return installUpdate(apkPath).then((launched) => {
+                if (!launched) {
+                  setUpdateMessage(
+                    pick("无法调起安装器，请手动安装", "Unable to launch installer. Install manually."),
+                  );
+                }
+              });
+            })
+            .catch((error: unknown) => {
+              setUpdateMessage(error instanceof Error ? error.message : String(error));
+            })
+            .finally(() => setUpdateBusy(false));
+        },
+      };
+      Alert.alert(
+        forced
+          ? pick(`必须更新到 ${info.version}`, `Update required: ${info.version}`)
+          : pick(`发现新版本 ${info.version}`, `Update available: ${info.version}`),
+        pick(
+          forced
+            ? `当前 ${version} → 新版 ${info.version}${sizeLabel}（${sourceLabel}）。此版本为强制更新。`
+            : `当前 ${version} → 新版 ${info.version}${sizeLabel}（${sourceLabel}）。下载完成后会校验摘要并调起安装。`,
+          forced
+            ? `Current ${version} → New ${info.version}${sizeLabel} (${sourceLabel}). This update is required.`
+            : `Current ${version} → New ${info.version}${sizeLabel} (${sourceLabel}). Checksum will be verified before installing.`,
+        ),
+        forced
+          ? [downloadButton]
+          : [
+              {
+                text: pick("取消", "Cancel"),
+                style: "cancel",
+                onPress: () => setUpdateBusy(false),
+              },
+              downloadButton,
+            ],
+        forced ? { cancelable: false } : { cancelable: true, onDismiss: () => setUpdateBusy(false) },
       );
     } catch (error: unknown) {
       setUpdateMessage(error instanceof Error ? error.message : String(error));
@@ -463,10 +507,45 @@ export default function SettingsHomeScreen() {
             <Row
               icon="download"
               tone="steel"
+              title={pick("自动检查更新", "Auto-check for updates")}
+              detail={pick(
+                "开启后静默检查并显示红点，不自动下载",
+                "Silent check with a badge; never auto-downloads",
+              )}
+              right={
+                <Switch
+                  value={device.autoCheckUpdate}
+                  onValueChange={(value) => {
+                    void updateDevicePreferences({ autoCheckUpdate: value });
+                    if (!value) void saveUpdateStatus({ pending: null });
+                  }}
+                  trackColor={{ false: th.surfaceSoft, true: th.brand }}
+                  thumbColor="#FFFFFF"
+                />
+              }
+            />
+            <Divider />
+            <Row
+              icon="download"
+              tone="steel"
               title={pick("检查更新", "Check for updates")}
-              detail={updateMessage ?? pick("从 GitHub Releases 检查新版本", "Check GitHub Releases for updates")}
+              detail={
+                updateMessage ??
+                (updateState.pending
+                  ? pick(
+                      `有新版本 ${updateState.pending.version}`,
+                      `Update available: ${updateState.pending.version}`,
+                    )
+                  : pick("国内源优先，GitHub 兜底", "CN source first, GitHub fallback"))
+              }
               onPress={() => void checkUpdate()}
-              right={updateBusy ? <ActivityIndicator color={th.brand} size="small" /> : undefined}
+              right={
+                updateBusy ? (
+                  <ActivityIndicator color={th.brand} size="small" />
+                ) : updateState.pending ? (
+                  <View style={[styles.updateDot, { backgroundColor: th.red }]} />
+                ) : undefined
+              }
             />
           </SectionCard>
         </AppearIn>
@@ -495,4 +574,6 @@ const styles = StyleSheet.create({
   },
   accountMessageText: { flex: 1, ...text("small") },
   segWrap: { padding: space(2) },
+  // 有未安装更新时在「检查更新」行右侧显示的红点。
+  updateDot: { width: 8, height: 8, borderRadius: 4 },
 });

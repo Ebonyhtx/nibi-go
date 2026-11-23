@@ -85,7 +85,7 @@
 | `app/modules/kernel-host` | 内核宿主：Expo 原生模块、C JNI 薄层与 `:kernel` 独立进程 Service |
 | `app/modules/nibi-phone` | 手机能力原生模块：像素宠物悬浮气泡（`StatusBubble.kt`）、无障碍桥与 Shizuku 适配 |
 | `app/modules/nibi-keepalive` | 前台保活服务（保障后台长任务与远控连接不被系统查杀） |
-| `app/modules/nibi-updater` | 应用内更新安装器（FileProvider + PackageInstaller + SHA-256 校验） |
+| `app/modules/nibi-updater` | 应用内更新：签名清单校验、断点续传下载、FileProvider + PackageInstaller |
 | `kernel/` | Android 内核独立维护 fork（Rust workspace，构建 16 KB 对齐的 `libnibi.so` 与 `nibi-rs`） |
 | `packages/kernel-session` | 本机内核会话客户端：快照/增量投影、只读子会话订阅、工具行派生 |
 | `packages/relay-client` | Relay V2 远控客户端：状态机、扫码配对、E2E 加密信封 |

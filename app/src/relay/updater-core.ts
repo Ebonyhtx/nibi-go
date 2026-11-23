@@ -21,10 +21,145 @@ export interface GitHubRelease {
 
 export interface UpdateInfo {
   version: string;
+  /** Android versionCode；GitHub Release 路径可能没有。 */
+  versionCode?: number;
+  /** 低于该 versionCode 的客户端必须升级。 */
+  minVersionCode?: number;
   notes?: string;
+  /** 第一个下载地址（兼容旧调用点）；完整候选见 urls。 */
   apkUrl: string;
+  urls: string[];
   sha256?: string;
   size?: number;
+}
+
+/** 签名清单 `update.json`：dl 主源与 GitHub 兜底共用同一份权威版本信息。 */
+export interface UpdateManifest {
+  schemaVersion: 1;
+  kind: "nibi-go-app-update";
+  generatedAt: string;
+  version: string;
+  versionCode: number;
+  minVersionCode?: number;
+  notes?: string;
+  apk: {
+    sha256: string;
+    size: number;
+    urls: string[];
+  };
+}
+
+export type UpdateManifestParse =
+  | { ok: true; manifest: UpdateManifest }
+  | { ok: false; reason: string };
+
+const SHA256_RE = /^[0-9a-fA-F]{64}$/u;
+const MAX_APK_BYTES = 300 * 1024 * 1024;
+const MAX_MANIFEST_URLS = 8;
+const MAX_URL_LENGTH = 2048;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function failManifest(reason: string): UpdateManifestParse {
+  return { ok: false, reason };
+}
+
+/** 解析并校验签名清单形状；网络/验签在调用方完成。 */
+export function parseUpdateManifest(raw: unknown): UpdateManifestParse {
+  if (!isRecord(raw)) return failManifest("清单不是 JSON 对象");
+  if (raw.schemaVersion !== 1) return failManifest("schemaVersion 必须是 1");
+  if (raw.kind !== "nibi-go-app-update") return failManifest("清单 kind 不匹配");
+  if (typeof raw.version !== "string" || !parseVersion(raw.version)) {
+    return failManifest("version 不是合法语义化版本");
+  }
+  if (!Number.isInteger(raw.versionCode) || (raw.versionCode as number) <= 0) {
+    return failManifest("versionCode 必须是正整数");
+  }
+  if (
+    raw.minVersionCode !== undefined &&
+    (!Number.isInteger(raw.minVersionCode) || (raw.minVersionCode as number) <= 0)
+  ) {
+    return failManifest("minVersionCode 必须是正整数");
+  }
+  if (raw.notes !== undefined && (typeof raw.notes !== "string" || raw.notes.length > 8000)) {
+    return failManifest("notes 过长或不是字符串");
+  }
+  if (!isRecord(raw.apk)) return failManifest("缺少 apk 对象");
+  const apk = raw.apk;
+  if (typeof apk.sha256 !== "string" || !SHA256_RE.test(apk.sha256)) {
+    return failManifest("apk.sha256 必须是 64 位 hex");
+  }
+  if (
+    !Number.isInteger(apk.size) ||
+    (apk.size as number) <= 0 ||
+    (apk.size as number) > MAX_APK_BYTES
+  ) {
+    return failManifest("apk.size 不合法");
+  }
+  if (!Array.isArray(apk.urls) || apk.urls.length === 0 || apk.urls.length > MAX_MANIFEST_URLS) {
+    return failManifest("apk.urls 必须是 1–8 个地址");
+  }
+  const urls: string[] = [];
+  for (const item of apk.urls) {
+    if (typeof item !== "string" || item.length > MAX_URL_LENGTH) {
+      return failManifest("apk.urls 含非法地址");
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(item);
+    } catch {
+      return failManifest("apk.urls 含非法地址");
+    }
+    if (parsed.protocol !== "https:") return failManifest("apk.urls 只接受 https");
+    if (!urls.includes(item)) urls.push(item);
+  }
+  return {
+    ok: true,
+    manifest: {
+      schemaVersion: 1,
+      kind: "nibi-go-app-update",
+      generatedAt: typeof raw.generatedAt === "string" ? raw.generatedAt : "",
+      version: raw.version,
+      versionCode: raw.versionCode as number,
+      ...(raw.minVersionCode !== undefined
+        ? { minVersionCode: raw.minVersionCode as number }
+        : {}),
+      ...(typeof raw.notes === "string" && raw.notes ? { notes: raw.notes } : {}),
+      apk: {
+        sha256: apk.sha256.toLowerCase(),
+        size: apk.size as number,
+        urls,
+      },
+    },
+  };
+}
+
+/** 签名清单 → UpdateInfo；versionCode 未前进（或开发环境下的 semver 未前进）返回 null。 */
+export function resolveManifestUpdate(
+  manifest: UpdateManifest,
+  currentVersion: string,
+  currentVersionCode = 0,
+): UpdateInfo | null {
+  if (manifest.versionCode <= currentVersionCode) return null;
+  // 开发/未知 versionCode 时再要求 semver 前进，避免把同版本重签当成更新。
+  if (currentVersionCode <= 0) {
+    const comparison = compareVersions(manifest.version, currentVersion);
+    if (comparison === null || comparison <= 0) return null;
+  }
+  return {
+    version: manifest.version,
+    versionCode: manifest.versionCode,
+    ...(manifest.minVersionCode !== undefined
+      ? { minVersionCode: manifest.minVersionCode }
+      : {}),
+    ...(manifest.notes ? { notes: manifest.notes } : {}),
+    apkUrl: manifest.apk.urls[0]!,
+    urls: manifest.apk.urls,
+    sha256: manifest.apk.sha256,
+    size: manifest.apk.size,
+  };
 }
 
 /** 解析 "v1.2.3" / "1.2.3" / "1.2.3-beta.1" → 数值段 + 预发布标记。 */
@@ -77,6 +212,7 @@ export function resolveUpdate(
     version: release.tag_name.replace(/^v/, ""),
     ...(release.body ? { notes: release.body } : {}),
     apkUrl: asset.browser_download_url,
+    urls: [asset.browser_download_url],
     ...(asset.digest?.startsWith("sha256:")
       ? { sha256: asset.digest.slice("sha256:".length).toLowerCase() }
       : {}),

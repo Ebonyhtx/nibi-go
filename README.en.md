@@ -85,7 +85,7 @@ This repository contains all buildable public source code for NIBI-GO. Release s
 | `app/modules/kernel-host` | Kernel host: Expo native module, thin C JNI layer, and dedicated `:kernel` Service |
 | `app/modules/nibi-phone` | Phone native module: floating pixel bird bubble (`StatusBubble.kt`), Accessibility bridge, Shizuku adapter |
 | `app/modules/nibi-keepalive` | Foreground keep-alive service for background tasks and remote sessions |
-| `app/modules/nibi-updater` | In-app APK installer (FileProvider + PackageInstaller + SHA-256 check) |
+| `app/modules/nibi-updater` | In-app updates: signed manifest, resumable download, FileProvider + PackageInstaller |
 | `kernel/` | Maintained Android kernel fork (Rust workspace building 16 KB-aligned `libnibi.so` and `nibi-rs`) |
 | `packages/kernel-session` | On-device session client: snapshot/delta projection, read-only subagent feeds, tool row derivation |
 | `packages/relay-client` | Relay V2 remote-control client: state machine, QR pairing, E2E envelope |

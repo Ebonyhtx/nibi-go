@@ -3,10 +3,32 @@ import { describe, expect, it } from "vitest";
 import {
   compareVersions,
   digestMatches,
+  parseUpdateManifest,
   parseVersion,
+  resolveManifestUpdate,
   resolveUpdate,
   selectApkAsset,
+  type UpdateManifest,
 } from "../src/relay/updater-core";
+
+function manifest(overrides: Partial<UpdateManifest> = {}): UpdateManifest {
+  return {
+    schemaVersion: 1,
+    kind: "nibi-go-app-update",
+    generatedAt: "2026-11-25T00:00:00.000Z",
+    version: "0.1.9",
+    versionCode: 10,
+    apk: {
+      sha256: "a".repeat(64),
+      size: 1234,
+      urls: [
+        "https://cdn.example.com/nibi-go-10.apk",
+        "https://github.com/example/releases/download/v0.1.9/app.apk",
+      ],
+    },
+    ...overrides,
+  };
+}
 
 describe("updater-core（应用内更新纯函数）", () => {
   it("版本解析与比较（含预发布）", () => {
@@ -60,6 +82,7 @@ describe("updater-core（应用内更新纯函数）", () => {
       version: "0.2.0",
       notes: "新版本说明",
       apkUrl: "https://example.com/a.apk",
+      urls: ["https://example.com/a.apk"],
       sha256: "abcdef",
       size: 1234,
     });
@@ -75,5 +98,60 @@ describe("updater-core（应用内更新纯函数）", () => {
     expect(digestMatches("abcd", "abce")).toBe(false);
     expect(digestMatches(undefined, "anything")).toBe(false);
     expect(digestMatches("", "anything")).toBe(false);
+  });
+});
+
+describe("update.json 签名清单", () => {
+  it("解析合法清单并去重 URL", () => {
+    const parsed = parseUpdateManifest(
+      manifest({
+        apk: {
+          sha256: "b".repeat(64),
+          size: 2048,
+          urls: ["https://cdn.example.com/a.apk", "https://cdn.example.com/a.apk"],
+        },
+      }),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.manifest.versionCode).toBe(10);
+    expect(parsed.manifest.apk.urls).toEqual(["https://cdn.example.com/a.apk"]);
+  });
+
+  it("拒绝错误 kind、versionCode、摘要与非 https 地址", () => {
+    expect(parseUpdateManifest({ ...manifest(), kind: "other" }).ok).toBe(false);
+    expect(parseUpdateManifest({ ...manifest(), versionCode: 0 }).ok).toBe(false);
+    expect(
+      parseUpdateManifest({
+        ...manifest(),
+        apk: { ...manifest().apk, sha256: "zz" },
+      }).ok,
+    ).toBe(false);
+    expect(
+      parseUpdateManifest({
+        ...manifest(),
+        apk: { ...manifest().apk, urls: ["http://cdn.example.com/a.apk"] },
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("resolveManifestUpdate 以 versionCode 为主", () => {
+    const info = resolveManifestUpdate(manifest(), "0.1.8", 9);
+    expect(info).toMatchObject({
+      version: "0.1.9",
+      versionCode: 10,
+      apkUrl: "https://cdn.example.com/nibi-go-10.apk",
+      urls: [
+        "https://cdn.example.com/nibi-go-10.apk",
+        "https://github.com/example/releases/download/v0.1.9/app.apk",
+      ],
+    });
+    expect(resolveManifestUpdate(manifest(), "0.1.9", 10)).toBeNull();
+    expect(resolveManifestUpdate(manifest(), "0.1.10", 11)).toBeNull();
+  });
+
+  it("开发环境 versionCode=0 时要求 semver 前进", () => {
+    expect(resolveManifestUpdate(manifest(), "0.1.8", 0)).not.toBeNull();
+    expect(resolveManifestUpdate(manifest(), "0.1.9", 0)).toBeNull();
   });
 });

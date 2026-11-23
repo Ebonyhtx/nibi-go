@@ -1,16 +1,26 @@
 import { Stack, router } from "expo-router";
+import { Alert } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { loadAppearancePreferences } from "../appearance/preferences";
-import { loadLanguagePreferences } from "../i18n";
+import { loadLanguagePreferences, pickText } from "../i18n";
 import { loadProjects } from "../kernel/projects";
-import { loadDevicePreferences } from "../settings/devicePreferences";
+import {
+  loadDevicePreferences,
+  useDevicePreferences,
+} from "../settings/devicePreferences";
 import { useNibiScheme } from "../theme";
 import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/notifications";
+import { currentAppVersionCode } from "../relay/updater";
+import {
+  loadUpdateStatus,
+  useUpdateAutoCheck,
+  useUpdateStatus,
+} from "../relay/updateStatus";
 
 // 根导航（A0 骨架）：首屏 = GO 主体（D2 修订）；WORK 是抽屉里的目的地。
 // A4：应用启动即初始化通知渠道/权限与点击路由（不依赖某个屏先被访问）。
@@ -19,6 +29,36 @@ import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/noti
 export default function RootLayout() {
   const [appearanceReady, setAppearanceReady] = useState(false);
   const scheme = useNibiScheme();
+  const device = useDevicePreferences();
+  const updateStatus = useUpdateStatus();
+  const forcedPrompted = useRef(false);
+  const pendingUpdate = updateStatus.pending;
+  const currentCode = currentAppVersionCode();
+  const mustUpdate =
+    currentCode > 0 &&
+    pendingUpdate?.minVersionCode !== undefined &&
+    currentCode < pendingUpdate.minVersionCode;
+
+  useUpdateAutoCheck(appearanceReady && device.autoCheckUpdate);
+
+  useEffect(() => {
+    if (!appearanceReady || !mustUpdate || forcedPrompted.current || !pendingUpdate) return;
+    forcedPrompted.current = true;
+    Alert.alert(
+      pickText("需要更新 NIBI-GO", "NIBI-GO update required"),
+      pickText(
+        `当前版本过低，需要安装 ${pendingUpdate.version}。`,
+        `This version is no longer supported. Install ${pendingUpdate.version}.`,
+      ),
+      [
+        {
+          text: pickText("去更新", "Update"),
+          onPress: () => router.push("/settings" as never),
+        },
+      ],
+      { cancelable: false },
+    );
+  }, [appearanceReady, mustUpdate, pendingUpdate]);
 
   useEffect(() => {
     const unsubscribe = subscribeNotificationTap((route) => router.push(route as never));
@@ -31,6 +71,7 @@ export default function RootLayout() {
       loadLanguagePreferences(),
       loadDevicePreferences(),
       loadProjects(),
+      loadUpdateStatus(),
     ]).finally(() => {
       void ensureNotificationSetup();
       if (alive) setAppearanceReady(true);

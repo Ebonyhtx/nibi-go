@@ -8,7 +8,7 @@
 // 口令来源：环境变量 NIBI_KEYSTORE_PASS → ~/.nibi/keystore/passphrase.txt。
 // 口令只传给 gradle 子进程，不打印、不写盘、不进日志。
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +23,23 @@ const KEYSTORE =
 const PASSFILE = path.join(os.homedir(), ".nibi", "keystore", "passphrase.txt");
 const APK = path.join(ROOT, "app", "android", "app", "build", "outputs", "apk", "release", "app-release.apk");
 
+// 国内 CDN 发布（可选但推荐）：环境变量全部从本机/运维注入，公开仓不写主机、桶或凭据。
+// 上传路径：本机 → SSH 目标临时目录 → ossutil cp → OSS；客户端只从 CDN/GitHub 下载，不经过中转机。
+const CDN_BASE = (process.env.NIBI_RELEASE_CDN_BASE?.trim() || "https://dl.nibistudio.cn").replace(/\/+$/u, "");
+const CDN_PREFIX = (process.env.NIBI_RELEASE_CDN_PREFIX?.trim() || "nibi-go-app").replace(/^\/+|\/+$/gu, "");
+const CDN_SSH = process.env.NIBI_RELEASE_CDN_SSH?.trim() || "";
+const CDN_REMOTE_DIR = (process.env.NIBI_RELEASE_CDN_REMOTE_DIR?.trim() || "/tmp/nibi-go-release").replace(/\/+$/u, "");
+const CDN_OSS_PREFIX = (process.env.NIBI_RELEASE_CDN_OSS_PREFIX?.trim() || "").replace(/\/+$/u, "");
+const CDN_OSS_CONF = process.env.NIBI_RELEASE_CDN_OSS_CONF?.trim() || "";
+const CDN_SUDO = process.env.NIBI_RELEASE_CDN_SUDO === "1";
+const CDN_REQUESTED = Boolean(CDN_SSH || CDN_OSS_PREFIX || CDN_OSS_CONF);
+const CDN_READY = Boolean(CDN_SSH && CDN_OSS_PREFIX && CDN_OSS_CONF);
+const MANIFEST_KEY_ID = process.env.NIBI_RELEASE_MANIFEST_KEY?.trim() || "nibi-go-market-2026-11";
+// 与 packages/market-index/src/keys.ts 的 nibi-go-market-2026-11 公钥同步（公开值）。
+const MANIFEST_PUBLIC_KEY_HEX = "90c6acbb9a020d1d567807620250a56e5822e70324b894bbc3a03fe3a6a2fd04";
+const MIN_VERSION_CODE_RAW = process.env.NIBI_RELEASE_MIN_VERSION_CODE?.trim();
+const MIN_VERSION_CODE = MIN_VERSION_CODE_RAW ? Number(MIN_VERSION_CODE_RAW) : null;
+
 class ReleaseError extends Error {}
 
 function step(message) {
@@ -30,10 +47,16 @@ function step(message) {
 }
 
 function run(command, args, options = {}) {
+  const stdio = options.input
+    ? ["pipe", options.capture ? "pipe" : "inherit", options.capture ? "pipe" : "inherit"]
+    : options.capture
+      ? "pipe"
+      : "inherit";
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? ROOT,
     env: { ...process.env, ...options.env },
-    stdio: options.capture ? "pipe" : "inherit",
+    stdio,
+    input: options.input,
     encoding: "utf8",
     // Windows 上 pnpm/gradlew.bat 是 .cmd，必须经 shell；gh.exe/git 这类真 exe 显式关掉，
     // 否则 spawnSync(shell:true) 只是把参数拼成命令行，带空格的 --notes 会被拆成多个资产路径。
@@ -60,6 +83,148 @@ function sha256File(file) {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
+function sha256Buffer(buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function validateCdnConfig() {
+  if (CDN_REQUESTED && !CDN_READY) {
+    throw new ReleaseError(
+      "CDN 发布环境变量不完整：需要 NIBI_RELEASE_CDN_SSH、NIBI_RELEASE_CDN_OSS_PREFIX、NIBI_RELEASE_CDN_OSS_CONF。",
+    );
+  }
+  if (CDN_READY && !CDN_OSS_PREFIX.endsWith(`/${CDN_PREFIX}`)) {
+    throw new ReleaseError(
+      `CDN 前缀不一致：NIBI_RELEASE_CDN_OSS_PREFIX 必须以 /${CDN_PREFIX} 结尾。`,
+    );
+  }
+  if (MIN_VERSION_CODE_RAW && (!Number.isInteger(MIN_VERSION_CODE) || MIN_VERSION_CODE <= 0)) {
+    throw new ReleaseError("NIBI_RELEASE_MIN_VERSION_CODE 必须是正整数。");
+  }
+}
+
+function sshRun(command, options = {}) {
+  return run("ssh", [CDN_SSH, command], { shell: false, ...options });
+}
+
+function scpToRemote(localPath, relative) {
+  const rel = path.relative(ROOT, localPath);
+  if (rel.startsWith("..")) {
+    throw new ReleaseError("待上传文件不在仓库目录内，无法用相对路径 scp。");
+  }
+  run("scp", [rel, `${CDN_SSH}:${CDN_REMOTE_DIR}/${relative}`], {
+    shell: false,
+    cwd: ROOT,
+  });
+}
+
+function uploadOss(relative) {
+  const sudo = CDN_SUDO ? "sudo -n " : "";
+  sshRun(
+    `${sudo}ossutil cp -f ${CDN_REMOTE_DIR}/${relative} ${CDN_OSS_PREFIX}/${relative} --config-file ${CDN_OSS_CONF}`,
+  );
+}
+
+function verifyOss(relative, expectedSha256) {
+  const sudo = CDN_SUDO ? "sudo -n " : "";
+  const verifyFile = `${CDN_REMOTE_DIR}/verify.bin`;
+  const output = sshRun(
+    `${sudo}ossutil cp -f ${CDN_OSS_PREFIX}/${relative} ${verifyFile} --config-file ${CDN_OSS_CONF} && sha256sum ${verifyFile}`,
+    { capture: true },
+  );
+  const actual = output.trim().split(/\s+/u)[0]?.toLowerCase();
+  if (actual !== expectedSha256.toLowerCase()) {
+    throw new ReleaseError(`CDN 回读摘要不一致：${relative}\n  本地 ${expectedSha256}\n  远端 ${actual}`);
+  }
+  sshRun(`${sudo}rm -f ${verifyFile}`);
+}
+
+function manifestPublicKey() {
+  const spki = Buffer.concat([
+    Buffer.from("302a300506032b6570032100", "hex"),
+    Buffer.from(MANIFEST_PUBLIC_KEY_HEX, "hex"),
+  ]);
+  return createPublicKey({ key: spki, format: "der", type: "spki" });
+}
+
+function signManifest(bytes) {
+  const keyFile = path.join(os.homedir(), ".nibi", "market", `${MANIFEST_KEY_ID}.json`);
+  if (!fs.existsSync(keyFile)) {
+    throw new ReleaseError(`找不到更新清单私钥：${keyFile}`);
+  }
+  const { privateJwk } = JSON.parse(fs.readFileSync(keyFile, "utf8"));
+  const privateKey = createPrivateKey({ key: privateJwk, format: "jwk" });
+  const signature = sign(null, bytes, privateKey).toString("hex");
+  if (!verify(null, bytes, manifestPublicKey(), Buffer.from(signature, "hex"))) {
+    throw new ReleaseError("更新清单签名自检失败：私钥与内置公钥不匹配。");
+  }
+  return signature;
+}
+
+function buildUpdateManifest({ version, versionCode, notes, digest, size }) {
+  const apkName = `nibi-go-${versionCode}-${version}.apk`;
+  return {
+    schemaVersion: 1,
+    kind: "nibi-go-app-update",
+    generatedAt: new Date().toISOString(),
+    version,
+    versionCode,
+    ...(MIN_VERSION_CODE ? { minVersionCode: MIN_VERSION_CODE } : {}),
+    ...(notes ? { notes: notes.slice(0, 8000) } : {}),
+    apk: {
+      sha256: digest,
+      size,
+      urls: [
+        `${CDN_BASE}/${CDN_PREFIX}/apk/${apkName}`,
+        `https://github.com/${RELEASE_REPO}/releases/download/v${version}/app-release.apk`,
+      ],
+    },
+  };
+}
+
+function publishCdn({ version, versionCode, notes, digest, size }) {
+  step("上传 APK 到国内 CDN（经中转机 → OSS）");
+  sshRun(`mkdir -p ${CDN_REMOTE_DIR}/apk`);
+  const apkRelative = `apk/nibi-go-${versionCode}-${version}.apk`;
+  scpToRemote(APK, apkRelative);
+  uploadOss(apkRelative);
+  verifyOss(apkRelative, digest);
+
+  step("生成并签名 update.json");
+  const manifest = buildUpdateManifest({ version, versionCode, notes, digest, size });
+  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const signature = signManifest(manifestBytes);
+  const signatureBytes = Buffer.from(`${signature}\n`, "utf8");
+  sshRun(`cat > ${CDN_REMOTE_DIR}/update.json.sig`, { input: signatureBytes });
+  sshRun(`cat > ${CDN_REMOTE_DIR}/update.json`, { input: manifestBytes });
+  uploadOss("update.json.sig");
+  uploadOss("update.json");
+  verifyOss("update.json.sig", sha256Buffer(signatureBytes));
+  verifyOss("update.json", sha256Buffer(manifestBytes));
+
+  step("校验 CDN 上的公开清单");
+  const manifestUrl = `${CDN_BASE}/${CDN_PREFIX}/update.json`;
+  const cacheBust = `?_=${Date.now()}`;
+  const publicManifest = run("curl", ["-fsS", `${manifestUrl}${cacheBust}`], {
+    capture: true,
+    shell: false,
+  });
+  const publicSignature = run("curl", ["-fsS", `${manifestUrl}.sig${cacheBust}`], {
+    capture: true,
+    shell: false,
+  }).trim();
+  if (!verify(null, Buffer.from(publicManifest, "utf8"), manifestPublicKey(), Buffer.from(publicSignature, "hex"))) {
+    throw new ReleaseError("CDN 公开清单验签失败。");
+  }
+  const parsed = JSON.parse(publicManifest);
+  if (parsed.versionCode !== versionCode || parsed.version !== version) {
+    throw new ReleaseError("CDN 公开清单版本与本次发布不一致。");
+  }
+
+  sshRun(`rm -f ${CDN_REMOTE_DIR}/${apkRelative} ${CDN_REMOTE_DIR}/update.json ${CDN_REMOTE_DIR}/update.json.sig`);
+  return manifestUrl;
+}
+
 const args = process.argv.slice(2);
 const version = args.find((arg) => /^\d+\.\d+\.\d+$/.test(arg));
 const dryRun = args.includes("--dry-run");
@@ -75,23 +240,72 @@ const original = fs.readFileSync(APP_JSON, "utf8");
 const config = JSON.parse(original);
 const current = config.expo.version;
 const currentCode = Number(config.expo.android?.versionCode ?? 0);
+const cdnOnly = args.includes("--cdn-only");
+
+// 仅补发 CDN：GitHub Release 已经存在时，重新上传 APK + 签名清单，不重新构建。
+if (cdnOnly) {
+  if (version !== current) {
+    console.error(`错误：--cdn-only 只补发当前 app.json 版本（当前 ${current}）。`);
+    process.exit(1);
+  }
+  try {
+    validateCdnConfig();
+    if (!CDN_READY) {
+      throw new ReleaseError("--cdn-only 需要完整的 NIBI_RELEASE_CDN_* 环境变量。");
+    }
+    if (!fs.existsSync(KEYSTORE)) throw new ReleaseError(`签名密钥库不存在：${KEYSTORE}`);
+    if (!fs.existsSync(APK)) throw new ReleaseError(`APK 不存在：${APK}`);
+    run("node", ["scripts/keystore.mjs", "verify", APK]);
+    const digest = sha256File(APK);
+    const releaseNotes =
+      notes ??
+      run("git", ["log", "--pretty=format:- %s", "-n", "20"], { capture: true })
+        .split("\n")
+        .filter(Boolean)
+        .join("\n");
+    const assetDigest = run(
+      "gh",
+      ["api", `repos/${RELEASE_REPO}/releases/tags/v${version}`, "-q", ".assets[0].digest"],
+      { capture: true, shell: false },
+    );
+    if (!assetDigest.startsWith("sha256:") ||
+        assetDigest.slice("sha256:".length).toLowerCase() !== digest) {
+      throw new ReleaseError("GitHub Release 不存在或资产摘要与本地 APK 不一致。");
+    }
+    const manifestUrl = publishCdn({
+      version,
+      versionCode: currentCode,
+      notes: releaseNotes,
+      digest,
+      size: fs.statSync(APK).size,
+    });
+    console.log(`\nCDN 补发完成：${manifestUrl}`);
+    process.exit(0);
+  } catch (error) {
+    console.error(`\n错误：${error.message}`);
+    process.exit(1);
+  }
+}
 
 if (version === current) {
   console.error(`错误：版本号未变化（当前 ${current}）。`);
   process.exit(1);
 }
 
-console.log(`发版 ${current} → ${version}（versionCode ${currentCode} → ${currentCode + 1}）`);
+const nextCode = currentCode + 1;
+console.log(`发版 ${current} → ${version}（versionCode ${currentCode} → ${nextCode}）`);
 if (dryRun) {
   console.log("dry-run：只打印计划，不修改文件、不构建、不发布。");
   process.exit(0);
 }
+validateCdnConfig();
 
 // 1) 版本号：version 与 versionCode 必须同时前进（Android 只认 versionCode）
 config.expo.version = version;
-config.expo.android = { ...config.expo.android, versionCode: currentCode + 1 };
+config.expo.android = { ...config.expo.android, versionCode: nextCode };
 fs.writeFileSync(APP_JSON, `${JSON.stringify(config, null, 2)}\n`);
 
+let releasePublished = false;
 try {
   // 2) 门禁 + 测试 + 类型检查
   step("门禁与测试");
@@ -160,6 +374,8 @@ try {
     "--notes",
     releaseNotes,
   ], { shell: false });
+  // 从这里开始版本已经对外可见，后续失败不能回滚 app.json。
+  releasePublished = true;
 
   // 8) 发布后校验：GitHub 必须为资产算出 digest，否则客户端 fail-closed 拒绝更新
   step("校验发布资产的 SHA-256 摘要");
@@ -177,14 +393,39 @@ try {
     throw new ReleaseError(`本地摘要与 GitHub digest 不一致：\n  本地 ${digest}\n  远端 ${assetDigest}`);
   }
 
-  console.log(`\n完成：v${version}`);
-  console.log(`  APK    ${APK}`);
-  console.log(`  SHA256 ${digest}`);
-  console.log(`  发布   https://github.com/${RELEASE_REPO}/releases/tag/v${version}`);
+  // 9) 国内 CDN：APK + 签名 update.json；GitHub 已经发布，清单最后上传。
+  let manifestUrl = "";
+  if (CDN_READY) {
+    manifestUrl = publishCdn({
+      version,
+      versionCode: nextCode,
+      notes: releaseNotes,
+      digest,
+      size: fs.statSync(APK).size,
+    });
+  } else {
+    console.warn(
+      "\n警告：未配置 NIBI_RELEASE_CDN_*，本次只发布了 GitHub Release；客户端会回退到 GitHub API 检查更新。",
+    );
+  }
+
+  console.log(`\n完成：v${version}（versionCode ${nextCode}）`);
+  console.log(`  APK      ${APK}`);
+  console.log(`  SHA256   ${digest}`);
+  console.log(`  GitHub   https://github.com/${RELEASE_REPO}/releases/tag/v${version}`);
+  if (manifestUrl) console.log(`  更新清单 ${manifestUrl}`);
   console.log("\n本机工作副本仍保留。清理：node scripts/keystore.mjs wipe --yes");
 } catch (error) {
-  fs.writeFileSync(APP_JSON, original);
-  console.error(`\n错误：${error.message}`);
-  console.error(`app.json 已回滚到 ${current}。`);
+  if (!releasePublished) {
+    fs.writeFileSync(APP_JSON, original);
+    console.error(`\n错误：${error.message}`);
+    console.error(`app.json 已回滚到 ${current}。`);
+  } else {
+    console.error(`\n错误：${error.message}`);
+    console.error(
+      `GitHub Release v${version} 已发布，app.json 保持 ${version}（不回滚）。` +
+        `修复后运行 node scripts/release.mjs ${version} --cdn-only 补发 CDN 清单。`,
+    );
+  }
   process.exit(1);
 }

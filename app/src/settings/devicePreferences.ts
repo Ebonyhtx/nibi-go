@@ -20,6 +20,8 @@ export interface DevicePreferences {
   hapticsEnabled: boolean;
   /** 后台状态气泡：后台会话/手机操控时悬浮提醒（需悬浮窗权限）。 */
   statusBubble: boolean;
+  /** 自动检查应用更新：开启后仅静默检查并显示红点，不自动下载。 */
+  autoCheckUpdate: boolean;
 }
 
 export const DEVICE_DEFAULTS: DevicePreferences = {
@@ -30,6 +32,7 @@ export const DEVICE_DEFAULTS: DevicePreferences = {
   motionEnabled: true,
   hapticsEnabled: true,
   statusBubble: true,
+  autoCheckUpdate: true,
 };
 
 const FILE_NAME = "nibi-device.json";
@@ -57,6 +60,7 @@ function normalize(raw: unknown): DevicePreferences {
     motionEnabled: bool("motionEnabled", DEVICE_DEFAULTS.motionEnabled),
     hapticsEnabled: bool("hapticsEnabled", DEVICE_DEFAULTS.hapticsEnabled),
     statusBubble: bool("statusBubble", DEVICE_DEFAULTS.statusBubble),
+    autoCheckUpdate: bool("autoCheckUpdate", DEVICE_DEFAULTS.autoCheckUpdate),
   };
 }
 
