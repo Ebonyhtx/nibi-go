@@ -3,7 +3,7 @@
 | 目录/文件 | 内容 |
 |---|---|
 | [decisions/ADR-INDEX.md](decisions/ADR-INDEX.md) | 架构决策台账（D1–D25 + 决议追加）——**权威索引** |
-| [design/](design/) | 设计规格：[Android 原生内核与运行时（fork 方案）](design/android-native-runtime.md)、[手机操控/双开关](design/phone-control.md)、[插件市场索引与验签](design/market-index.md)、[relay-client 接口草案](design/relay-client-interface-draft.md)、[E2E 信封与握手 v1](design/e2e-envelope-v1.md) |
+| [design/](design/) | 设计规格：[Android 原生内核与运行时（fork 方案）](design/android-native-runtime.md)、[UI/UX 2.0 设计说明](design/go-uiux-2.0.html)、[手机操控/双开关](design/phone-control.md)、[插件市场索引与验签](design/market-index.md)、[relay-client 接口草案](design/relay-client-interface-draft.md)、[E2E 信封与握手 v1](design/e2e-envelope-v1.md) |
 | [NIBI-GO架构总览.html](NIBI-GO架构总览.html) | 架构可视化历史快照（浏览器打开；现行决策见 ADR-INDEX） |
 
 ## 公开仓与私有仓的分工（不要混用）

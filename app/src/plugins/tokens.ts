@@ -49,7 +49,7 @@ export interface ParsedComposerText {
   body: string;
 }
 
-const PLUGIN_LINK = /\[@((?:\\.|[^\]])*)\]\(plugin:\/\/([A-Za-z0-9][A-Za-z0-9._@-]{0,255})\)/gu;
+const PLUGIN_LINK = /\[@((?:\\.|[^\]\\])*)\]\(plugin:\/\/([A-Za-z0-9][A-Za-z0-9._@-]{0,255})\)/gu;
 const COMMAND_TAGS =
   /^\s*<command-message>([\s\S]*?)<\/command-message>\s*<command-name>\/?([^<]+)<\/command-name>(?:\s*<command-args>([\s\S]*?)<\/command-args>)?/u;
 const COMMAND_HEAD = /^\/([a-z0-9][a-z0-9._-]{0,63})(?:\s+|$)/u;

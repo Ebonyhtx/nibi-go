@@ -4,6 +4,7 @@ name: Android runtime
 # 与 `Android kernel` 分开：运行时主要用 NDK + autotools，ripgrep 需 cargo 交叉编译。
 on:
   push:
+    branches: [main]
     paths:
       - "scripts/android-runtime/**"
       - ".github/workflows/android-runtime.yml"
@@ -12,6 +13,9 @@ on:
       - "scripts/android-runtime/**"
       - ".github/workflows/android-runtime.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: android-runtime-${{ github.ref }}

@@ -105,6 +105,9 @@ describe("Relay V2 wire 契约（抽取件）", () => {
     expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "https://auth.local.example/" })).toBe(
       "https://auth.local.example",
     );
+    expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "https://auth.local.example///" })).toBe(
+      "https://auth.local.example",
+    );
     expect(resolveNibiAuthOrigin({ NIBI_AUTH_ORIGIN: "  " })).toBe("https://auth.nibistudio.cn");
   });
 });

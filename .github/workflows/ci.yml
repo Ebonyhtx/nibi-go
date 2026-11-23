@@ -7,14 +7,21 @@ name: CI
 # 新增提交还要过一遍历史门禁（check-public-history），防止把基础设施/凭据写进历史。
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gates-and-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -51,7 +58,7 @@ jobs:
         run: node scripts/check-boundaries.mjs
 
       - name: 全仓测试
-        run: pnpm -r --if-present run test
+        run: pnpm test
 
       - name: 类型检查（纯 TS 层）
         run: pnpm -r --if-present run typecheck

@@ -51,5 +51,7 @@ export function resolveNibiAuthOrigin(
   env: Record<string, string | undefined> = {},
 ): string {
   const configured = env.NIBI_AUTH_ORIGIN?.trim();
-  return (configured || NIBI_AUTH_ORIGIN).replace(/\/+$/u, "");
+  let origin = configured || NIBI_AUTH_ORIGIN;
+  while (origin.endsWith("/")) origin = origin.slice(0, -1);
+  return origin;
 }

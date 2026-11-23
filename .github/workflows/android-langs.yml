@@ -18,6 +18,9 @@ on:
           - python
           - both
 
+permissions:
+  contents: read
+
 concurrency:
   group: android-langs-${{ github.ref }}
   cancel-in-progress: false
