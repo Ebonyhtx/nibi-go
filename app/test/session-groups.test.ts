@@ -1,6 +1,6 @@
 // 抽屉会话列表的日历分组与标题搜索。
 // 规则来源 dsh-Go app/lib/state/drawer_view_state.dart：今天 / 昨天 / 本周（周一起）/ 更早。
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 
 import {
@@ -8,6 +8,15 @@ import {
   groupSessionsByDay,
   sessionDayOf,
 } from "../src/components/sessionGroups";
+import { resetLanguagePreferencesForTest, setLanguageMode } from "../src/i18n";
+
+beforeEach(async () => {
+  await setLanguageMode("zh-CN");
+});
+
+afterEach(() => {
+  resetLanguagePreferencesForTest();
+});
 
 // 2026-11-15 是周日；本周一 = 11-09。
 const now = new Date(2026, 10, 15, 12, 0, 0);

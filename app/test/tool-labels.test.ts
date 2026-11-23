@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { APP_CAPABILITIES, readPluginManifest } from "@nibi-go/plugin-contract";
 
@@ -7,7 +7,16 @@ import {
   friendlyToolName,
   friendlyToolTarget,
 } from "../src/conversation/toolLabels";
+import { resetLanguagePreferencesForTest, setLanguageMode } from "../src/i18n";
 import { BUNDLED_PLUGINS, RETIRED_SAMPLE_DIRS } from "../src/plugins/samples";
+
+beforeEach(async () => {
+  await setLanguageMode("zh-CN");
+});
+
+afterEach(() => {
+  resetLanguagePreferencesForTest();
+});
 
 describe("toolLabels 用户口径中文化", () => {
   it("将 mcp__phone__* 工具名映射为自然中文动作", () => {

@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { APP_CAPABILITIES, readPluginManifest } from "@nibi-go/plugin-contract";
 
+import { resetLanguagePreferencesForTest, setLanguageMode } from "../src/i18n";
 import {
   buildNpmPluginManifest,
   classifyNpmHit,
@@ -21,6 +22,14 @@ import {
   searchNpmPackages,
   validatePluginEnvName,
 } from "../src/plugins/npmRegistry";
+
+beforeEach(async () => {
+  await setLanguageMode("zh-CN");
+});
+
+afterEach(() => {
+  resetLanguagePreferencesForTest();
+});
 
 describe("parseNpmSpec", () => {
   it("解析普通包名、scoped 包名、精确版本与 npmjs 网页链接", () => {

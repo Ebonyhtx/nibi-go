@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { strToU8, zipSync, zlibSync } from "fflate";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resetLanguagePreferencesForTest, setLanguageMode } from "../src/i18n";
 import { BUNDLED_PLUGINS } from "../src/plugins/samples";
 import {
   base64ToBytes,
@@ -16,6 +17,14 @@ import {
   renderPdfBytes,
   renderXlsxBytes,
 } from "../src/workspace/officePreview";
+
+beforeEach(async () => {
+  await setLanguageMode("zh-CN");
+});
+
+afterEach(() => {
+  resetLanguagePreferencesForTest();
+});
 
 function runBundledMcpCall(
   pluginDir: string,

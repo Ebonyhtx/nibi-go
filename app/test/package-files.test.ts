@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resetLanguagePreferencesForTest, setLanguageMode } from "../src/i18n";
 import { inspectPluginArchive, isSafeArchivePath, MANIFEST_FILE } from "../src/plugins/packageFiles";
+
+beforeEach(async () => {
+  await setLanguageMode("zh-CN");
+});
+
+afterEach(() => {
+  resetLanguagePreferencesForTest();
+});
 
 const encoder = new TextEncoder();
 
