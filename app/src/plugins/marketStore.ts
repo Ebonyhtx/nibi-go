@@ -26,9 +26,6 @@ const SNAPSHOT_FILE = "nibi-market.json";
 const PERSONAL_FILE = "nibi-market-personal.json";
 const INDEX_MAX_BYTES = 2 * 1024 * 1024;
 
-/** 早期链路联调专用的最小示例 id，不在正式市场面向用户展示。 */
-const HIDDEN_MARKET_IDS = new Set(["nibi.market.hello"]);
-
 export interface MarketSnapshotFile {
   version: 1;
   fetchedAt: string;
@@ -142,10 +139,9 @@ export function isOfficialNibiMarketEntry(entry: MarketPluginEntry): boolean {
   return pub.includes("nibi") || entry.id.startsWith("nibi.") || entry.id.startsWith("nibigo-");
 }
 
-/** 过滤掉联调测试条目后的可见索引条目。 */
+/** 当前索引里的远端插件条目（签名索引已经过滤了联调 demo，这里不再维护隐藏名单）。 */
 export function visibleMarketEntries(snapshot: MarketSnapshotFile | null): MarketPluginEntry[] {
-  if (!snapshot) return [];
-  return snapshot.index.plugins.filter((entry) => !HIDDEN_MARKET_IDS.has(entry.id));
+  return snapshot?.index.plugins ?? [];
 }
 
 export async function loadPersonalSources(): Promise<PersonalPluginSource[]> {

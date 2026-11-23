@@ -133,16 +133,27 @@ pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因" [--versio
 
 ### 6.2 客户端多源分发与防回滚仲裁
 
-客户端（`app/src/plugins/marketSource.ts`）直接面向公共镜像源，顶部支持一键切换「国内源 / 国外源」：
+**2026-11-24 定案：插件市场不走自有国内 CDN。** 清单与包体统一走 GitHub 仓和公共镜像源，自有 CDN 不再镜像 `nibi-go-market`，服务器上的市场同步任务已停用。理由是市场产物很小（索引 KB 级、包体 KB–MB 级），为它维护 OSS/ESA 镜像不划算。
+
+客户端（`app/src/plugins/marketSource.ts`）顶部仍支持一键切换「国内源 / 国外源」：
 
 - **国内源（默认）**：索引依次尝试 `cdn.jsdelivr.net` → `fastly.jsdelivr.net` → `raw.githubusercontent.com`；npm 包优先 `registry.npmmirror.com`、回退 `registry.npmjs.org`；
 - **国外源**：索引依次尝试 `raw.githubusercontent.com` → `cdn.jsdelivr.net`；npm 包优先 `registry.npmjs.org`、回退 `registry.npmmirror.com`。
 
-刷新判决（`refreshMarketIndexFromSources`）：对所有候选源拉取带 cache-bust 的 `index.json` 与 `.sig` → 逐源验签与 schema 校验 → **取 `revision` 最大的一份**（同 `revision` 不同字节直接报 `revision-conflict`）→ 与本地快照做防回滚和 `checkPluginPins` 校验 → 通过后原子替换 `filesDir/nibi-market.json`。因此某个 CDN 节点缓存短暂滞后不会把客户端降级。
+刷新判决（`refreshMarketIndexFromSources`）：对所有候选源拉取 `index.json` 与 `.sig` → 逐源验签与 schema 校验 → **取 `revision` 最大的一份**（同 `revision` 不同字节直接报 `revision-conflict`）→ 与本地快照做防回滚和 `checkPluginPins` 校验 → 通过后原子替换 `filesDir/nibi-market.json`。某个镜像缓存短暂滞后不会把客户端降级；代价是 jsDelivr 的 `@main` 缓存可能让新 revision 延迟数小时生效，紧急撤回没有自有 CDN 那样的实时性。
+
+### 6.3 随包内置插件的官方目录
+
+签名索引新增可选的顶层 `bundledPlugins` 数组，只放随 APK 内置的 NIBI 官方插件元数据（`id`/`name`/`version`/`description`/`minApp`/`publisher`），不产生可下载包体：
+
+- 老客户端不认识该字段会被 schema 剥离，不影响验签和刷新；
+- 新客户端在 NIBI 页把它与 `BUNDLED_PLUGINS` 合并展示，标注「NIBI 官方 · 随包内置」；
+- 市场安装器仍然禁止市场包覆盖内置插件目录（`installPluginArchiveBytes` 的 `BUNDLED_PLUGINS` 冲突检查），因此内置插件目前只做目录收录，不做独立更新；
+- 真正的官方市场扩展仍放在 `plugins[]`，按正常 ZIP/npm 流程发布。
 
 ## 7. 已验证
 
-- 单测 55 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
+- 单测 60 项（`packages/market-index`）：正确签名、篡改、坏签名格式、无公钥、坏 JSON、
   坏 schema（带路径）、http 地址、重复 id、包摘要校验、回滚/同 revision 冲突/市场不一致、
   插件版本不变量、刷新判决（accept/unchanged/fetch/verify/rollback/pins）、
   `node:crypto` 签名与客户端验签互通、本机生产私钥签出的索引能通过内置公钥；
@@ -151,15 +162,13 @@ pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因" [--versio
 - license 单测 12 项（`packages/plugin-license`）：JWS 验签、payload 篡改、未知 kid、
   错误 iss、claims 形状、覆盖范围/通配、过期、设备不匹配、无凭证、坏凭证。
 - CLI 冒烟：`sign-index.mjs` 签出的 `index.json.sig` 用内置公钥验签为 `true`，改一个字节后为 `false`。
-- **CDN 自动镜像（2026-11-20 部署）**：服务器定时任务每 10 分钟拉取市场仓 main，
-  `openssl pkeyutl` 验签 + 包 sha256/大小 + revision/版本不变量，只上传变化的文件；
-  先包后索引，状态文件原子更新。实测：首次全量上传、第二次「已是最新」、cron 连续两分钟
-  成功执行；把状态 revision 人为调高后运行被「revision 倒退」拒绝（未覆盖索引）。
+- **市场分发定案（2026-11-24）**：插件市场不再镜像到自有 CDN，改为 GitHub 仓 + jsDelivr/Fastly 公共镜像；服务器上的市场同步任务已停用（脚本保留作应急）。此前 2026-11-20 的服务器自动镜像实测（每 10 分钟拉取、验签、增量上传、revision 倒退拒绝）作为历史记录保留，不再是现役链路。
+- **revision 10（2026-11-24）**：移除联调 demo `nibi.market.hello` 及其 zip；新增顶层 `bundledPlugins`，收录 6 个随包内置插件；索引重新签名并发布。
 - **撤回工具（2026-11-20 实跑）**：在临时市场仓副本执行 `pnpm market:yank`，revision 5 → 6，
   条目移除、签名回读验签通过、`yanked.json` 追加记录；市场仓 `check-yanks.mjs` 对
   「索引仍含被撤回版本」「重复撤回」「revision 不递增」三种夹具均报红，正常记录通过；
   对已移除的 id 再次撤回被拒绝。
-- **真机（PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建）**：
+- **真机（历史联调；PHK110 / Android 16，2026-11-20，signed release 0.1.2 测试构建；`hello` demo 已于 revision 10 移除）**：
   - 市场页首次打开自动拉取 revision 2（GitHub raw），验签通过并显示条目；
   - 安装 `nibi.market.hello` 0.1.0：下载 → sha256 校验 → 解包 → 清单 id/version 校验 →
     落盘；插件中心出现「市场示例 / 可用」；
@@ -170,8 +179,7 @@ pnpm market:yank ../nibi-go-market <插件 id> --reason "撤回原因" [--versio
   - 付费门禁：临时发布 revision 4（`paid`）→ 市场页显示「付费/需会员」且安装按钮禁用、
     插件中心该插件变为「需会员」且开关关闭；新会话里模型确认 `mcp__market_hello__hello`
     不存在（工具面被裁剪）。恢复 revision 5（免费）后自动回到「可用」；
-  - 网络：raw.githubusercontent.com 在手机侧出现「200 后 body 卡住/超时」；镜像到
-    `dl.nibistudio.cn/nibi-go-market/` 后同一份字节 2.7s 拉通，客户端多源回退生效。
+  - 网络（历史）：raw.githubusercontent.com 在手机侧出现「200 后 body 卡住/超时」；当时曾镜像到自有 CDN 的同一路径验证多源回退。2026-11-24 起市场不再使用自有 CDN，国内源依赖 jsDelivr/Fastly，GitHub Raw 仅作最后兜底。
 
 ## 8. 付费门禁（C2-4，客户端侧）
 

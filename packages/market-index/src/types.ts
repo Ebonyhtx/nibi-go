@@ -99,6 +99,16 @@ export const marketPluginSchema = z.object({
   paid: z.object({ priceId: z.string().max(64) }).optional(),
 });
 
+/** 随包内置插件的官方目录元数据：只用于展示与官方归属，不产生可下载包体。 */
+export const bundledPluginSchema = z.object({
+  id: z.string().regex(ID_RE),
+  name: z.string().min(1).max(64),
+  version: z.string().regex(VERSION_RE),
+  description: z.string().max(280).optional(),
+  minApp: z.string().max(32).optional(),
+  publisher: z.string().max(64).optional(),
+});
+
 export const marketIndexSchema = z.object({
   schemaVersion: z.literal(MARKET_SCHEMA_VERSION),
   market: z.literal(MARKET_ID),
@@ -107,6 +117,8 @@ export const marketIndexSchema = z.object({
   /** ISO 时间，仅用于展示与排查；不参与新鲜度判断。 */
   generatedAt: z.string().max(40),
   plugins: z.array(marketPluginSchema).max(500),
+  /** 可选：随 APK 内置的 NIBI 官方插件目录；旧客户端会忽略未知字段。 */
+  bundledPlugins: z.array(bundledPluginSchema).max(64).optional(),
 });
 
 export type ZipMarketPluginPackage = z.infer<typeof zipPackageSchema>;
@@ -114,6 +126,7 @@ export type NpmMarketPluginPackage = z.infer<typeof npmPackageSchema>;
 export type NpmEnvSpec = z.infer<typeof npmEnvSpecSchema>;
 export type MarketPluginPackage = z.infer<typeof packageSchema>;
 export type MarketPluginEntry = z.infer<typeof marketPluginSchema>;
+export type BundledPluginEntry = z.infer<typeof bundledPluginSchema>;
 export type MarketIndex = z.infer<typeof marketIndexSchema>;
 
 /** 统一包不可变指纹：用于防同版本替换内容（zip 与 npm 共用）。 */

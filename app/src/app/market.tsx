@@ -86,6 +86,9 @@ import { radius, size, space, text, useNibiTheme } from "../theme";
 
 type MarketTab = "nibi" | "public" | "personal";
 
+/** 本地市场快照超过这个时间就静默刷新一次；缺少 bundledPlugins 的旧快照也立即刷新。 */
+const MARKET_SNAPSHOT_STALE_MS = 6 * 60 * 60 * 1000;
+
 interface CuratedPublicPlugin {
   id: string;
   name: string;
@@ -752,7 +755,13 @@ export default function MarketScreen() {
       let alive = true;
       void loadLocal().then(({ local, savedRegion }) => {
         if (!alive) return;
-        if (local === null) void doRefresh(true, savedRegion);
+        const fetchedAt = local ? Date.parse(local.fetchedAt) : Number.NaN;
+        const stale =
+          !local ||
+          !local.index.bundledPlugins ||
+          !Number.isFinite(fetchedAt) ||
+          Date.now() - fetchedAt > MARKET_SNAPSHOT_STALE_MS;
+        if (stale) void doRefresh(true, savedRegion);
       });
       return () => {
         alive = false;
@@ -1381,6 +1390,10 @@ export default function MarketScreen() {
   }
 
   const allRemoteEntries = useMemo(() => visibleMarketEntries(snapshot), [snapshot]);
+  const bundledCatalogById = useMemo(
+    () => new Map((snapshot?.index.bundledPlugins ?? []).map((entry) => [entry.id, entry])),
+    [snapshot],
+  );
   const nibiRemoteEntries = useMemo(
     () => allRemoteEntries.filter((entry) => isOfficialNibiMarketEntry(entry)),
     [allRemoteEntries],
@@ -2017,13 +2030,25 @@ export default function MarketScreen() {
             <AppearIn delay={staggerDelay(2, 28, 200)}>
               <SectionCard
                 label={pick(
-                  "随包内置（手机轻量专属 · 开箱即用）",
-                  "Bundled with NIBI-GO (mobile-ready)",
+                  "NIBI 官方 · 随包内置（手机轻量专属）",
+                  "NIBI Official · Bundled (mobile-ready)",
                 )}
               >
+                <Text style={[styles.catalogNote, { color: t.inkFaint }]}>
+                  {snapshot
+                    ? pick(
+                        `官方签名目录 revision ${snapshot.index.revision} · 随包内置 ${BUNDLED_PLUGINS.length} 项`,
+                        `Signed official catalog revision ${snapshot.index.revision} · ${BUNDLED_PLUGINS.length} bundled`,
+                      )
+                    : pick(
+                        "官方签名目录尚未同步，当前展示随包内置项",
+                        "Official signed catalog not synced yet; showing bundled items",
+                      )}
+                </Text>
                 {BUNDLED_PLUGINS.map((bundled, idx) => {
                   const installed = plugins.plugins.find((item) => item.dir === bundled.dir);
                   const manifest = installed?.parsed.manifest;
+                  const catalog = bundledCatalogById.get(bundled.dir);
                   const enabled = installed?.enabled ?? true;
                   return (
                     <Fragment key={bundled.dir}>
@@ -2033,11 +2058,12 @@ export default function MarketScreen() {
                         tone="brand"
                         title={pluginDisplayName(
                           manifest?.id ?? bundled.dir,
-                          manifest?.name ?? bundled.dir,
+                          manifest?.name ?? catalog?.name ?? bundled.dir,
                         )}
                         detail={pluginDisplayDescription(
                           manifest?.id ?? bundled.dir,
                           manifest?.description ??
+                            catalog?.description ??
                             pick(
                               "NIBI-GO 手机端轻量内置套件，支持本地 MCP 工具与快捷技能",
                               "Built-in lightweight NIBI-GO mobile suite with local MCP tools & skills",
@@ -2077,7 +2103,14 @@ export default function MarketScreen() {
                   ))}
                 </View>
               </AppearIn>
-            ) : null}
+            ) : (
+              <Text style={[styles.catalogNote, { color: t.inkFaint }]}>
+                {pick(
+                  "暂无额外官方扩展；随包内置已由官方签名目录收录。",
+                  "No additional official extensions yet; bundled plugins are covered by the signed catalog.",
+                )}
+              </Text>
+            )}
           </>
         ) : null}
 
@@ -3098,6 +3131,11 @@ const styles = StyleSheet.create({
     ...text("micro"),
     fontWeight: "700",
     paddingHorizontal: space(1),
+  },
+  catalogNote: {
+    ...text("micro"),
+    paddingHorizontal: space(3.5),
+    paddingBottom: space(1),
   },
   hint: { ...text("small") },
   progressWrap: { flexDirection: "row", alignItems: "center", gap: space(2) },

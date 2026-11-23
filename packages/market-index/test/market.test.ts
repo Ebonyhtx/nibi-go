@@ -148,6 +148,41 @@ describe("verifyMarketIndexBytes", () => {
       error: "duplicate-plugin",
     });
   });
+
+  it("接受并保留随包官方目录元数据", () => {
+    const { key, seed } = keypair();
+    const index = makeIndex({
+      revision: 10,
+      bundledPlugins: [
+        {
+          id: "nibigo-documents",
+          name: "Word 文档",
+          version: "1.0.0",
+          description: "创建与解析 Word 文档。",
+          minApp: "0.1.0",
+          publisher: "NIBI Studio",
+        },
+      ],
+    });
+    const { bytes, signature } = signed(index, seed);
+    const result = verifyMarketIndexBytes(bytes, signature, { keys: [key] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.index.bundledPlugins).toHaveLength(1);
+    expect(result.index.bundledPlugins?.[0]?.id).toBe("nibigo-documents");
+  });
+
+  it("随包官方目录条目形状非法被拒绝", () => {
+    const { key, seed } = keypair();
+    const index = makeIndex({
+      bundledPlugins: [{ id: "Not Valid", name: "x", version: "1.0.0" }],
+    });
+    const { bytes, signature } = signed(index, seed);
+    expect(verifyMarketIndexBytes(bytes, signature, { keys: [key] })).toMatchObject({
+      ok: false,
+      error: "bad-schema",
+    });
+  });
 });
 
 describe("verifyPackageDigest", () => {
