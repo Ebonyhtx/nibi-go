@@ -12,6 +12,7 @@ import { Icon } from "./Icon";
 import { PillButton } from "./ui/PillButton";
 import { Sheet } from "./ui/Sheet";
 import { ThinkingRail, thinkingLevelLabel } from "./ThinkingRail";
+import { useI18n } from "../i18n";
 import type { ProviderModelConfig, ProviderSummary } from "../kernel/providerSettings";
 import { PressableScale } from "../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../theme";
@@ -58,6 +59,7 @@ export function ModelPickerSheet({
   onManage: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick, locale } = useI18n();
   const [providerId, setProviderId] = useState(selection?.providerId ?? "");
 
   useEffect(() => {
@@ -74,7 +76,8 @@ export function ModelPickerSheet({
   const levels = levelsOf(currentConfig);
   const effort = useMemo(
     () => levels.map((value) => ({ value, label: thinkingLevelLabel(value) })),
-    [levels],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [levels, locale],
   );
 
   return (
@@ -82,16 +85,16 @@ export function ModelPickerSheet({
       <View style={styles.sheet}>
         <View style={styles.head}>
           <View style={styles.headTextCol}>
-            <Text style={[styles.title, { color: t.ink }]}>选择模型</Text>
+            <Text style={[styles.title, { color: t.ink }]}>{pick("选择模型", "Select model")}</Text>
             <Text style={[styles.sub, { color: t.inkSub }]}>
-              选择只作用于下一条消息
+              {pick("选择只作用于下一条消息", "Applies to your next message")}
             </Text>
           </View>
           <PressableScale
             onPress={onClose}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="关闭"
+            accessibilityLabel={pick("关闭", "Close")}
             style={[
               styles.close,
               { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
@@ -103,8 +106,10 @@ export function ModelPickerSheet({
 
         {providers.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyText, { color: t.inkSub }]}>还没有可用的模型服务。</Text>
-            <PillButton label="去设置模型" onPress={onManage} />
+            <Text style={[styles.emptyText, { color: t.inkSub }]}>
+              {pick("还没有可用的模型服务。", "No model providers available yet.")}
+            </Text>
+            <PillButton label={pick("去设置模型", "Configure models")} onPress={onManage} />
           </View>
         ) : (
           <>
@@ -135,7 +140,7 @@ export function ModelPickerSheet({
                       }
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`模型服务 ${entry.name}`}
+                    accessibilityLabel={pick(`模型服务 ${entry.name}`, `Provider ${entry.name}`)}
                     style={({ pressed }) => [
                       styles.providerChip,
                       {
@@ -169,7 +174,10 @@ export function ModelPickerSheet({
             <ScrollView style={styles.models} nestedScrollEnabled showsVerticalScrollIndicator={false}>
               {provider?.models.length === 0 ? (
                 <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                  这个服务还没有模型；在设置里添加模型 ID。
+                  {pick(
+                    "这个服务还没有模型；在设置里添加模型 ID。",
+                    "No models for this provider yet; add a model ID in Settings.",
+                  )}
                 </Text>
               ) : null}
               {provider?.models.map((modelId) => {
@@ -237,7 +245,9 @@ export function ModelPickerSheet({
                                 { backgroundColor: t.card, borderColor: t.hairline },
                               ]}
                             >
-                              <Text style={[styles.metaText, { color: t.steel }]}>视觉</Text>
+                              <Text style={[styles.metaText, { color: t.steel }]}>
+                                {pick("视觉", "Vision")}
+                              </Text>
                             </View>
                           ) : null}
                         </View>
@@ -266,8 +276,12 @@ export function ModelPickerSheet({
             ) : null}
 
             <View style={styles.foot}>
-              <PillButton variant="secondary" label="管理模型" onPress={onManage} />
-              <PillButton label="完成" onPress={onClose} />
+              <PillButton
+                variant="secondary"
+                label={pick("管理模型", "Manage models")}
+                onPress={onManage}
+              />
+              <PillButton label={pick("完成", "Done")} onPress={onClose} />
             </View>
           </>
         )}
@@ -283,6 +297,7 @@ const styles = StyleSheet.create({
     paddingTop: space(1.5),
     paddingBottom: space(3),
     gap: space(2.5),
+    flexShrink: 1,
   },
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headTextCol: { flex: 1, gap: 2 },

@@ -8,6 +8,8 @@ import * as ImagePicker from "expo-image-picker";
 
 import type { KernelAttachmentRef } from "@nibi-go/kernel-session";
 
+import { pickText } from "../i18n";
+
 export interface ComposerAttachment {
   id: string;
   uri: string;
@@ -27,7 +29,7 @@ function stripScheme(uri: string): string {
 
 function fallbackName(uri: string): string {
   const part = uri.split(/[\\/]/u).filter(Boolean).at(-1);
-  return part && part.length > 0 ? decodeURIComponent(part) : "附件";
+  return part && part.length > 0 ? decodeURIComponent(part) : pickText("附件", "Attachment");
 }
 
 function guessMime(name: string, kind: "image" | "file"): string {

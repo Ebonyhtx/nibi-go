@@ -26,6 +26,7 @@ import {
   type TerminalTransportErrorKind,
 } from "@nibi-go/relay-client";
 
+import { pickText } from "../i18n";
 import { ENDPOINT_ORIGIN, relayWsUrlFor } from "./config";
 import { NibiAuthProvider } from "./auth";
 import { ChatSession } from "./chat";
@@ -47,13 +48,28 @@ export interface SessionSnapshot {
   error: SessionError | null;
 }
 
-const ERROR_TEXT: Record<string, string> = {
-  "auth-required": "需要登录 NIBI 账号",
-  "device-not-owned": "该设备不属于当前账号",
-  "invalid-mobile-connection": "连接参数无效，请扫描桌面端最新二维码",
-  "session-conflict": "已在其他设备连接此桌面（会话冲突）",
-  "relay-unavailable": "中继服务暂不可用",
-};
+function errorTextFor(kind: string): string {
+  switch (kind) {
+    case "auth-required":
+      return pickText("需要登录 NIBI 账号", "NIBI account sign-in required");
+    case "device-not-owned":
+      return pickText("该设备不属于当前账号", "This device does not belong to the current account");
+    case "invalid-mobile-connection":
+      return pickText(
+        "连接参数无效，请扫描桌面端最新二维码",
+        "Invalid connection parameters. Please scan the latest QR code on desktop.",
+      );
+    case "session-conflict":
+      return pickText(
+        "已在其他设备连接此桌面（会话冲突）",
+        "Another device is already connected to this desktop (session conflict)",
+      );
+    case "relay-unavailable":
+      return pickText("中继服务暂不可用", "Relay service temporarily unavailable");
+    default:
+      return kind;
+  }
+}
 
 export class RelaySession {
   private readonly auth: NibiAuthProvider;
@@ -137,7 +153,11 @@ export class RelaySession {
       this.update({ loggedIn: true, displayName: tokens.displayName, error: null });
     } catch (error) {
       this.update({
-        error: { kind: "login-failed", message: error instanceof Error ? error.message : "登录失败" },
+        error: {
+          kind: "login-failed",
+          message:
+            error instanceof Error ? error.message : pickText("登录失败", "Sign-in failed"),
+        },
       });
     }
   }
@@ -154,7 +174,13 @@ export class RelaySession {
     const origin = qrEndpointOrigin(raw);
     if (!qr?.deviceSid || !origin) {
       this.update({
-        error: { kind: "invalid-qr", message: "二维码无效，请扫描桌面端最新二维码" },
+        error: {
+          kind: "invalid-qr",
+          message: pickText(
+            "二维码无效，请扫描桌面端最新二维码",
+            "Invalid QR code. Scan the latest QR code on desktop.",
+          ),
+        },
       });
       return;
     }
@@ -261,10 +287,13 @@ export class RelaySession {
           this.secure?.begin();
           // A4 KeepAlive：连接期间前台服务保活（Spike 2：无它切后台即断）
           startKeepAlive(
-            "NIBI-GO 已连接",
+            pickText("NIBI-GO 已连接", "NIBI-GO connected"),
             this.snapshot.credential?.deviceName
-              ? `已连接 ${this.snapshot.credential.deviceName}`
-              : "保持与桌面的远程连接",
+              ? pickText(
+                  `已连接 ${this.snapshot.credential.deviceName}`,
+                  `Connected to ${this.snapshot.credential.deviceName}`,
+                )
+              : pickText("保持与桌面的远程连接", "Keeping remote connection to desktop active"),
           );
         } else if (state !== "paired" && this.paired) {
           this.paired = false;
@@ -283,7 +312,7 @@ export class RelaySession {
         this.update({
           error: {
             kind: error.kind,
-            message: ERROR_TEXT[error.kind] ?? error.kind,
+            message: errorTextFor(error.kind),
           },
         }),
     });

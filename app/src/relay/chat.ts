@@ -29,6 +29,7 @@ import type {
   SessionsIndexTopicFrame,
 } from "@nibi-go/shared-extract";
 
+import { pickText } from "../i18n";
 import { notifyAgent } from "./notifications";
 import { applySessionsFrame } from "./sessions-index";
 
@@ -149,7 +150,9 @@ export class ChatSession {
         })),
       });
       const workspacePath = this.pickWorkspace(bootstrap);
-      if (!workspacePath) throw new Error("桌面没有可用的工作区");
+      if (!workspacePath) {
+        throw new Error(pickText("桌面没有可用的工作区", "No available workspace on desktop"));
+      }
       this.update({ phase: "opening-workspace", workspacePath });
       const info = await this.bridge.openWorkspace({ workspaceKey: workspacePath });
       const target: BridgeWorkspaceTarget = {
@@ -170,7 +173,7 @@ export class ChatSession {
     } catch (error) {
       this.update({
         phase: "error",
-        error: error instanceof Error ? error.message : "桥接失败",
+        error: error instanceof Error ? error.message : pickText("桥接失败", "Bridge failed"),
       });
     }
   }
@@ -299,15 +302,18 @@ export class ChatSession {
     switch (pulse.kind) {
       case "approval-requested":
         void notifyAgent({
-          title: "需要审批",
-          body: "桌面 AGENT 正在等待你的审批",
+          title: pickText("需要审批", "Approval needed"),
+          body: pickText(
+            "桌面 AGENT 正在等待你的审批",
+            "Desktop agent is waiting for your approval",
+          ),
           route: "/chat",
         });
         return;
       case "question-asked":
         void notifyAgent({
-          title: "有一个问题",
-          body: "桌面 AGENT 在等你回答",
+          title: pickText("有一个问题", "Question"),
+          body: pickText("桌面 AGENT 在等你回答", "Desktop agent is waiting for your reply"),
           route: "/chat",
         });
         return;
@@ -315,11 +321,11 @@ export class ChatSession {
         void notifyAgent({
           title:
             pulse.outcome === "success"
-              ? "任务完成"
+              ? pickText("任务完成", "Task completed")
               : pulse.outcome === "cancelled"
-                ? "任务已中断"
-                : "任务失败",
-          body: "点按查看会话详情",
+                ? pickText("任务已中断", "Task interrupted")
+                : pickText("任务失败", "Task failed"),
+          body: pickText("点按查看会话详情", "Tap to view conversation"),
           route: "/chat",
         });
         return;
@@ -340,7 +346,10 @@ export class ChatSession {
         this.board.present({
           requestId: interaction.interactionId,
           generation: this.epoch,
-          title: payload.summary?.trim() || payload.toolName?.trim() || "工具调用",
+          title:
+            payload.summary?.trim() ||
+            payload.toolName?.trim() ||
+            pickText("工具调用", "Tool call"),
         });
       } else if (interaction.kind === "userInput") {
         // 提问：只发通知（A4），回答 UI 留后续切片
@@ -386,7 +395,10 @@ export class ChatSession {
       } catch (error) {
         this.update({
           phase: "error",
-          error: error instanceof Error ? error.message : "会话重同步失败",
+          error:
+            error instanceof Error
+              ? error.message
+              : pickText("会话重同步失败", "Session resync failed"),
         });
       }
     })();

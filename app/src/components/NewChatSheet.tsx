@@ -6,6 +6,7 @@ import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-nati
 import { Icon } from "./Icon";
 import { Sheet } from "./ui/Sheet";
 import { PillButton } from "./ui/PillButton";
+import { useI18n } from "../i18n";
 import type { ProjectEntry } from "../kernel/projects";
 import { projectWorkspacePath } from "../kernel/workspace";
 import { PressableScale } from "../motion/PressableScale";
@@ -32,6 +33,7 @@ export function NewChatSheet({
   activeProjectId: string | null;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [folder, setFolder] = useState("");
@@ -68,7 +70,10 @@ export function NewChatSheet({
     onCreateProject(trimmedName, trimmedFolder)
       .then(resetForm)
       .catch((error: unknown) => {
-        Alert.alert("创建失败", error instanceof Error ? error.message : String(error));
+        Alert.alert(
+          pick("创建失败", "Create failed"),
+          error instanceof Error ? error.message : String(error),
+        );
       })
       .finally(() => setBusy(false));
   };
@@ -81,9 +86,12 @@ export function NewChatSheet({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.head}>
-          <Text style={[styles.title, { color: th.ink }]}>新建对话</Text>
+          <Text style={[styles.title, { color: th.ink }]}>{pick("新建对话", "New chat")}</Text>
           <Text style={[styles.subtitle, { color: th.inkSub }]}>
-            选择归属：项目是共享工作区，会话文件与记忆按项目分开
+            {pick(
+              "选择归属：项目是共享工作区，会话文件与记忆按项目分开",
+              "Choose where to start: projects share a workspace while keeping files and memory separate",
+            )}
           </Text>
         </View>
 
@@ -94,7 +102,7 @@ export function NewChatSheet({
             onPick(undefined);
           }}
           accessibilityRole="button"
-          accessibilityLabel="新建独立会话"
+          accessibilityLabel={pick("新建独立会话", "New standalone chat")}
           style={({ pressed }) => [
             styles.row,
             {
@@ -112,9 +120,11 @@ export function NewChatSheet({
             <Icon name="pen" size={15} color={th.inkSub} />
           </View>
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: th.ink }]}>独立会话</Text>
+            <Text style={[styles.rowLabel, { color: th.ink }]}>
+              {pick("独立会话", "Standalone chat")}
+            </Text>
             <Text style={[styles.rowDetail, { color: th.inkFaint }]}>
-              不归属任何项目，文件放默认目录
+              {pick("不归属任何项目，文件放默认目录", "Not in any project; files use the default folder")}
             </Text>
           </View>
           <Icon name="chevron-right" size={14} color={th.inkFaint} />
@@ -131,7 +141,10 @@ export function NewChatSheet({
                 onPick(project.id);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`新建到项目 ${project.name}`}
+              accessibilityLabel={pick(
+                `新建到项目 ${project.name}`,
+                `New chat in project ${project.name}`,
+              )}
               style={({ pressed }) => [
                 styles.row,
                 {
@@ -176,7 +189,9 @@ export function NewChatSheet({
                         { backgroundColor: th.card, borderColor: th.brand },
                       ]}
                     >
-                      <Text style={[styles.activeBadgeText, { color: th.brand }]}>当前</Text>
+                      <Text style={[styles.activeBadgeText, { color: th.brand }]}>
+                        {pick("当前", "Active")}
+                      </Text>
                     </View>
                   ) : null}
                 </View>
@@ -206,7 +221,7 @@ export function NewChatSheet({
                 setName(value);
                 if (!touchedFolder) setFolder(slugOf(value));
               }}
-              placeholder="项目名称"
+              placeholder={pick("项目名称", "Project name")}
               placeholderTextColor={th.inkFaint}
               autoFocus
               style={[
@@ -220,7 +235,7 @@ export function NewChatSheet({
                 setFolder(value);
                 setTouchedFolder(true);
               }}
-              placeholder="文件夹名（a-z、0-9、-）"
+              placeholder={pick("文件夹名（a-z、0-9、-）", "Folder name (a-z, 0-9, -)")}
               placeholderTextColor={th.inkFaint}
               autoCapitalize="none"
               autoCorrect={false}
@@ -230,9 +245,9 @@ export function NewChatSheet({
               ]}
             />
             <View style={styles.formActions}>
-              <PillButton label="取消" variant="secondary" onPress={resetForm} />
+              <PillButton label={pick("取消", "Cancel")} variant="secondary" onPress={resetForm} />
               <PillButton
-                label={busy ? "创建中…" : "创建并开会话"}
+                label={busy ? pick("创建中…", "Creating…") : pick("创建并开会话", "Create & start chat")}
                 variant="primary"
                 disabled={busy || !name.trim() || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(folder.trim())}
                 onPress={submitProject}
@@ -244,7 +259,7 @@ export function NewChatSheet({
             scaleTo={0.98}
             onPress={() => setCreating(true)}
             accessibilityRole="button"
-            accessibilityLabel="新建项目"
+            accessibilityLabel={pick("新建项目", "New project")}
             style={({ pressed }) => [
               styles.row,
               {
@@ -262,9 +277,11 @@ export function NewChatSheet({
               <Icon name="plus" size={15} color={th.brand} />
             </View>
             <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: th.ink }]}>新建项目…</Text>
+              <Text style={[styles.rowLabel, { color: th.ink }]}>
+                {pick("新建项目…", "New project…")}
+              </Text>
               <Text style={[styles.rowDetail, { color: th.inkFaint }]}>
-                建完立即在它里面开新会话
+                {pick("建完立即在它里面开新会话", "Start a new chat inside right away")}
               </Text>
             </View>
             <Icon name="chevron-right" size={14} color={th.inkFaint} />
@@ -280,7 +297,7 @@ export function NewChatSheet({
             onManage();
           }}
           accessibilityRole="button"
-          accessibilityLabel="管理项目"
+          accessibilityLabel={pick("管理项目", "Manage projects")}
           style={({ pressed }) => [
             styles.row,
             {
@@ -298,7 +315,9 @@ export function NewChatSheet({
             <Icon name="folder" size={15} color={th.inkSub} />
           </View>
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: th.ink }]}>管理项目…</Text>
+            <Text style={[styles.rowLabel, { color: th.ink }]}>
+              {pick("管理项目…", "Manage projects…")}
+            </Text>
           </View>
           <Icon name="chevron-right" size={14} color={th.inkFaint} />
         </PressableScale>

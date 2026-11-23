@@ -9,6 +9,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Icon } from "./Icon";
 import { MenuRow } from "./ui/MenuRow";
 import { Sheet } from "./ui/Sheet";
+import { useI18n } from "../i18n";
 import { PressableScale } from "../motion/PressableScale";
 import { space, text, useNibiTheme } from "../theme";
 
@@ -32,6 +33,7 @@ export function PluginActionSheet({
   onClose: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
 
   return (
     <Sheet visible={visible} onClose={onClose} maxHeightRatio={0.7}>
@@ -41,14 +43,16 @@ export function PluginActionSheet({
           onPress={onClose}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="关闭"
+          accessibilityLabel={pick("关闭", "Close")}
           style={styles.close}
         >
           <Icon name="x" size={18} color={t.inkFaint} />
         </PressableScale>
       </View>
       {items.length === 0 ? (
-        <Text style={[styles.empty, { color: t.inkFaint }]}>没有可用的插件动作。</Text>
+        <Text style={[styles.empty, { color: t.inkFaint }]}>
+          {pick("没有可用的插件动作。", "No plugin actions available.")}
+        </Text>
       ) : (
         <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
           {items.map((item) => (

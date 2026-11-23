@@ -32,7 +32,9 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Row } from "../../components/ui/Row";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
+import { useI18n } from "../../i18n";
 import { currentKernelClient } from "../../kernel/kernelRegistry";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { haptic } from "../../motion/haptics";
 import { PressableScale } from "../../motion/PressableScale";
@@ -74,19 +76,26 @@ type ConfirmAction =
 function memoryProjectLabel(
   dirName: string,
   projects: readonly { id: string; name: string }[],
+  defaultWorkspaceLabel: string,
 ): string {
   const match = /^(.*)-[0-9a-f]{16}$/u.exec(dirName);
   const slug = match?.[1] ?? dirName;
   const project = projects.find((entry) => entry.id === slug);
   if (project) return project.name;
-  if (slug === "project") return "默认工作区";
+  if (slug === "project") return defaultWorkspaceLabel;
   return slug.length > 24 ? `${slug.slice(0, 24)}…` : slug;
 }
 
 export default function MemorySettingsScreen() {
   const th = useNibiTheme();
+  const { pick, locale } = useI18n();
   const projects = useProjects();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const { preferences, setEnabled } = useMemoryPreferences();
   const [entries, setEntries] = useState<MemoryUsageEntry[]>([]);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
@@ -109,6 +118,7 @@ export default function MemorySettingsScreen() {
   const [batchMode, setBatchMode] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(() => new Set());
   const [confirmTarget, setConfirmTarget] = useState<ConfirmAction | null>(null);
+  const defaultWorkspaceLabel = pick("默认工作区", "Default workspace");
 
   /** 扫 HOME/.nibi/cli/memories/projects/<slug>-<hash>/memory/*.md（口径见 kernel memory/root.rs）。 */
   const refreshMemoryFiles = useCallback(async (): Promise<MemoryProjectEntry[]> => {
@@ -136,7 +146,7 @@ export default function MemorySettingsScreen() {
           const projectBytes = files.reduce((sum, item) => sum + item.size, 0);
           projectsFound.push({
             key: entry.name,
-            label: memoryProjectLabel(entry.name, projects.projects),
+            label: memoryProjectLabel(entry.name, projects.projects, defaultWorkspaceLabel),
             files,
             totalBytes: projectBytes,
           });
@@ -161,7 +171,7 @@ export default function MemorySettingsScreen() {
     } finally {
       setFilesLoading(false);
     }
-  }, [projects.projects]);
+  }, [defaultWorkspaceLabel, projects.projects]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -208,7 +218,7 @@ export default function MemorySettingsScreen() {
   const openMemoryFile = useCallback((projectKey: string, file: MemoryFileEntry) => {
     void (async () => {
       if (file.size > 512 * 1024) {
-        setMessage("文件超过 512KB，暂不打开。");
+        setMessage(pick("文件超过 512KB，暂不打开。", "File exceeds 512 KB and cannot be opened here."));
         return;
       }
       try {
@@ -235,10 +245,11 @@ export default function MemorySettingsScreen() {
           draft: content,
         });
       } catch (error) {
-        setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`);
+        const detail = error instanceof Error ? error.message : String(error);
+        setMessage(pick(`读取失败：${detail}`, `Failed to read: ${detail}`));
       }
     })();
-  }, []);
+  }, [pick]);
 
   const saveViewingFile = useCallback(async () => {
     if (!viewing) return;
@@ -263,14 +274,15 @@ export default function MemorySettingsScreen() {
         text: viewing.draft,
         editing: false,
       });
-      setMessage(`已保存 ${viewing.name}`);
+      setMessage(pick(`已保存 ${viewing.name}`, `Saved ${viewing.name}`));
       await refresh();
     } catch (error) {
-      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+      const detail = error instanceof Error ? error.message : String(error);
+      setMessage(pick(`保存失败：${detail}`, `Failed to save: ${detail}`));
     } finally {
       setBusy(false);
     }
-  }, [refresh, viewing]);
+  }, [pick, refresh, viewing]);
 
   const toggleFileSelection = (name: string) => {
     haptic("tick");
@@ -342,7 +354,12 @@ export default function MemorySettingsScreen() {
         setSelectedProject(null);
         await refresh();
         setMessage(
-          released > 0 ? `已清空全部本机记忆（释放 ${formatBytes(released)}）` : "已清空全部本机记忆",
+          released > 0
+            ? pick(
+                `已清空全部本机记忆（释放 ${formatBytes(released)}）`,
+                `Cleared all local memory (freed ${formatBytes(released)})`,
+              )
+            : pick("已清空全部本机记忆", "Cleared all local memory"),
         );
         return;
       }
@@ -364,7 +381,10 @@ export default function MemorySettingsScreen() {
         setSelectedFiles(new Set());
         await refresh();
         setMessage(
-          `已清空「${action.projectLabel}」的 ${action.count} 个记忆文件（释放 ${formatBytes(released)}）`,
+          pick(
+            `已清空「${action.projectLabel}」的 ${action.count} 个记忆文件（释放 ${formatBytes(released)}）`,
+            `Cleared ${action.count} memory file(s) for "${action.projectLabel}" (freed ${formatBytes(released)})`,
+          ),
         );
         return;
       }
@@ -423,11 +443,18 @@ export default function MemorySettingsScreen() {
       await refresh();
       setMessage(
         deletedCount > 1
-          ? `已批量删除 ${deletedCount} 个记忆文件（释放 ${formatBytes(released)}）`
-          : `已删除 ${targetNames[0] ?? "记忆文件"}（释放 ${formatBytes(released)}）`,
+          ? pick(
+              `已批量删除 ${deletedCount} 个记忆文件（释放 ${formatBytes(released)}）`,
+              `Deleted ${deletedCount} memory files (freed ${formatBytes(released)})`,
+            )
+          : pick(
+              `已删除 ${targetNames[0] ?? "记忆文件"}（释放 ${formatBytes(released)}）`,
+              `Deleted ${targetNames[0] ?? "memory file"} (freed ${formatBytes(released)})`,
+            ),
       );
     } catch (error) {
-      setMessage(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+      const detail = error instanceof Error ? error.message : String(error);
+      setMessage(pick(`删除失败：${detail}`, `Failed to delete: ${detail}`));
     } finally {
       setBusy(false);
     }
@@ -449,12 +476,15 @@ export default function MemorySettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="记忆" onBack={() => router.back()} />
+      <ScreenHeader title={pick("记忆", "Memory")} onBack={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+      <ScrollView contentContainerStyle={bodyStyle}>
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: th.inkSub }]}>
-            记忆按会话的工作区（项目）分开保存：回合结束后内核自动抽取写入 Markdown 文件，可在此按条查看、编辑、批量删除或按项目清理。
+            {pick(
+              "记忆按会话的工作区（项目）分开保存：回合结束后内核自动抽取写入 Markdown 文件，可在此按条查看、编辑、批量删除或按项目清理。",
+              "Memories are stored per project workspace. After each turn, the kernel automatically extracts notes into Markdown files that you can inspect, edit, or delete here.",
+            )}
           </Text>
         </AppearIn>
 
@@ -463,14 +493,22 @@ export default function MemorySettingsScreen() {
             <Row
               icon="sparkles"
               tone="brand"
-              title="启用本机记忆"
-              detail="关闭后新会话不再读写记忆"
+              title={pick("启用本机记忆", "Enable local memory")}
+              detail={pick(
+                "关闭后新会话不再读写记忆",
+                "New sessions won't read or write memories when turned off",
+              )}
               right={
                 <Switch
                   value={preferences.enabled}
                   onValueChange={(enabled) => {
                     setEnabled(enabled);
-                    setMessage("记忆设置已保存；对下一个新会话生效。");
+                    setMessage(
+                      pick(
+                        "记忆设置已保存；对下一个新会话生效。",
+                        "Memory setting saved; applies to the next new session.",
+                      ),
+                    );
                   }}
                   trackColor={{ false: th.surfaceSoft, true: th.brandSoft }}
                   thumbColor={preferences.enabled ? th.brand : th.inkFaint}
@@ -482,20 +520,26 @@ export default function MemorySettingsScreen() {
         </AppearIn>
 
         <AppearIn delay={staggerDelay(2, 32, 240)}>
-          <SectionCard label="已保存的记忆">
+          <SectionCard label={pick("已保存的记忆", "Saved memories")}>
             <View style={styles.usageHead}>
               {shownTotalBytes === null ? (
-                <Text style={[styles.usageStatus, { color: th.inkFaint }]}>正在读取…</Text>
+                <Text style={[styles.usageStatus, { color: th.inkFaint }]}>
+                  {pick("正在读取…", "Loading…")}
+                </Text>
               ) : shownTotalBytes === 0 && memoryProjects.length === 0 ? (
-                <Text style={[styles.usageStatus, { color: th.inkFaint }]}>还没有保存记忆。</Text>
+                <Text style={[styles.usageStatus, { color: th.inkFaint }]}>
+                  {pick("还没有保存记忆。", "No memories saved yet.")}
+                </Text>
               ) : (
                 <View style={styles.usageTotalCol}>
                   <Text style={[styles.total, { color: th.ink }]}>
                     {formatBytes(shownTotalBytes)}
                   </Text>
                   <Text style={[styles.usageSub, { color: th.inkFaint }]}>
-                    共 {memoryProjects.length} 个项目 ·{" "}
-                    {memoryProjects.reduce((sum, item) => sum + item.files.length, 0)} 个记忆文件
+                    {pick(
+                      `共 ${memoryProjects.length} 个项目 · ${memoryProjects.reduce((sum, item) => sum + item.files.length, 0)} 个记忆文件`,
+                      `${memoryProjects.length} projects · ${memoryProjects.reduce((sum, item) => sum + item.files.length, 0)} memory files`,
+                    )}
                   </Text>
                 </View>
               )}
@@ -503,7 +547,7 @@ export default function MemorySettingsScreen() {
                 onPress={() => void refresh()}
                 disabled={busy}
                 accessibilityRole="button"
-                accessibilityLabel="刷新记忆体量"
+                accessibilityLabel={pick("刷新记忆体量", "Refresh memory size")}
                 style={[styles.refresh, { backgroundColor: th.surfaceSoft }, busy ? styles.busy : null]}
               >
                 {busy ? (
@@ -517,7 +561,10 @@ export default function MemorySettingsScreen() {
               <View style={styles.usageEntries}>
                 {memoryProjects.map((proj) => (
                   <Text key={proj.key} style={[styles.usageEntry, { color: th.inkFaint }]}>
-                    {proj.label} · {proj.files.length} 项 · {formatBytes(proj.totalBytes)}
+                    {pick(
+                      `${proj.label} · ${proj.files.length} 项 · ${formatBytes(proj.totalBytes)}`,
+                      `${proj.label} · ${proj.files.length} files · ${formatBytes(proj.totalBytes)}`,
+                    )}
                   </Text>
                 ))}
               </View>
@@ -541,15 +588,18 @@ export default function MemorySettingsScreen() {
             <Row
               icon="trash"
               danger
-              title="清空全部本机记忆"
-              detail="删除所有项目的全部记忆文件，不影响会话记录"
+              title={pick("清空全部本机记忆", "Clear all local memories")}
+              detail={pick(
+                "删除所有项目的全部记忆文件，不影响会话记录",
+                "Deletes memory files across all projects without affecting chat history",
+              )}
               onPress={() => setConfirmTarget({ kind: "clearAll" })}
             />
           </SectionCard>
         </AppearIn>
 
         <AppearIn delay={staggerDelay(3, 32, 240)}>
-          <SectionCard label="记忆文件管理">
+          <SectionCard label={pick("记忆文件管理", "Memory files")}>
             {viewing ? (
               // 文件查看与编辑层：返回 + 文件名 + 预览/原文/编辑/删除
               <View style={styles.fileViewer}>
@@ -557,12 +607,14 @@ export default function MemorySettingsScreen() {
                   <Pressable
                     onPress={() => setViewing(null)}
                     accessibilityRole="button"
-                    accessibilityLabel="返回记忆文件列表"
+                    accessibilityLabel={pick("返回记忆文件列表", "Back to memory files")}
                     hitSlop={6}
                     style={styles.fileViewerBack}
                   >
                     <Icon name="chevron-left" size={14} color={th.inkSub} />
-                    <Text style={[styles.fileViewerBackText, { color: th.inkSub }]}>列表</Text>
+                    <Text style={[styles.fileViewerBackText, { color: th.inkSub }]}>
+                      {pick("列表", "List")}
+                    </Text>
                   </Pressable>
                   <Text style={[styles.fileViewerTitle, { color: th.ink }]} numberOfLines={1}>
                     {viewing.name}
@@ -575,10 +627,14 @@ export default function MemorySettingsScreen() {
                         }
                         hitSlop={6}
                       >
-                        <Text style={[styles.fileViewerToggle, { color: th.inkSub }]}>取消</Text>
+                        <Text style={[styles.fileViewerToggle, { color: th.inkSub }]}>
+                          {pick("取消", "Cancel")}
+                        </Text>
                       </Pressable>
                       <Pressable onPress={() => void saveViewingFile()} hitSlop={6}>
-                        <Text style={[styles.fileViewerToggle, { color: th.brand }]}>保存</Text>
+                        <Text style={[styles.fileViewerToggle, { color: th.brand }]}>
+                          {pick("保存", "Save")}
+                        </Text>
                       </Pressable>
                     </View>
                   ) : (
@@ -586,11 +642,13 @@ export default function MemorySettingsScreen() {
                       <Pressable
                         onPress={() => setViewing({ ...viewing, raw: !viewing.raw })}
                         accessibilityRole="button"
-                        accessibilityLabel={viewing.raw ? "渲染预览" : "查看原文"}
+                        accessibilityLabel={
+                          viewing.raw ? pick("渲染预览", "Rendered preview") : pick("查看原文", "View raw text")
+                        }
                         hitSlop={6}
                       >
                         <Text style={[styles.fileViewerToggle, { color: th.inkSub }]}>
-                          {viewing.raw ? "预览" : "原文"}
+                          {viewing.raw ? pick("预览", "Preview") : pick("原文", "Raw")}
                         </Text>
                       </Pressable>
                       <Pressable
@@ -598,10 +656,12 @@ export default function MemorySettingsScreen() {
                           setViewing({ ...viewing, editing: true, draft: viewing.text })
                         }
                         accessibilityRole="button"
-                        accessibilityLabel="编辑记忆文件"
+                        accessibilityLabel={pick("编辑记忆文件", "Edit memory file")}
                         hitSlop={6}
                       >
-                        <Text style={[styles.fileViewerToggle, { color: th.brand }]}>编辑</Text>
+                        <Text style={[styles.fileViewerToggle, { color: th.brand }]}>
+                          {pick("编辑", "Edit")}
+                        </Text>
                       </Pressable>
                       <Pressable
                         onPress={() =>
@@ -612,7 +672,7 @@ export default function MemorySettingsScreen() {
                           })
                         }
                         accessibilityRole="button"
-                        accessibilityLabel={`删除 ${viewing.name}`}
+                        accessibilityLabel={pick(`删除 ${viewing.name}`, `Delete ${viewing.name}`)}
                         hitSlop={6}
                       >
                         <Icon name="trash" size={14} color={th.red} />
@@ -659,7 +719,10 @@ export default function MemorySettingsScreen() {
                             setSelectedFiles(new Set());
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel={`查看 ${entry.label} 的记忆文件`}
+                          accessibilityLabel={pick(
+                            `查看 ${entry.label} 的记忆文件`,
+                            `View memory files for ${entry.label}`,
+                          )}
                           accessibilityState={{ selected: active }}
                           style={[
                             styles.fileChip,
@@ -693,7 +756,7 @@ export default function MemorySettingsScreen() {
                       <TextInput
                         value={fileQuery}
                         onChangeText={setFileQuery}
-                        placeholder="搜索记忆文件…"
+                        placeholder={pick("搜索记忆文件…", "Search memory files…")}
                         placeholderTextColor={th.inkFaint}
                         autoCorrect={false}
                         autoCapitalize="none"
@@ -703,7 +766,7 @@ export default function MemorySettingsScreen() {
                         <Pressable
                           onPress={() => setFileQuery("")}
                           accessibilityRole="button"
-                          accessibilityLabel="清除搜索"
+                          accessibilityLabel={pick("清除搜索", "Clear search")}
                           hitSlop={6}
                         >
                           <Icon name="x" size={12} color={th.inkGhost} />
@@ -720,7 +783,11 @@ export default function MemorySettingsScreen() {
                         });
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={batchMode ? "退出批量管理" : "批量管理记忆文件"}
+                      accessibilityLabel={
+                        batchMode
+                          ? pick("退出批量管理", "Exit bulk edit")
+                          : pick("批量管理记忆文件", "Bulk edit memory files")
+                      }
                       style={[
                         styles.manageToggle,
                         {
@@ -740,7 +807,7 @@ export default function MemorySettingsScreen() {
                           { color: batchMode ? th.brand : th.inkSub },
                         ]}
                       >
-                        {batchMode ? "完成" : "批量管理"}
+                        {batchMode ? pick("完成", "Done") : pick("批量管理", "Manage")}
                       </Text>
                     </PressableScale>
                   </View>
@@ -756,7 +823,9 @@ export default function MemorySettingsScreen() {
                     <Pressable
                       onPress={toggleSelectAllVisible}
                       accessibilityRole="button"
-                      accessibilityLabel={allVisibleSelected ? "取消全选" : "全选"}
+                      accessibilityLabel={
+                        allVisibleSelected ? pick("取消全选", "Deselect all") : pick("全选", "Select all")
+                      }
                       style={styles.selectAllBtn}
                     >
                       <View
@@ -773,12 +842,12 @@ export default function MemorySettingsScreen() {
                         ) : null}
                       </View>
                       <Text style={[styles.selectAllText, { color: th.ink }]}>
-                        {allVisibleSelected ? "取消全选" : "全选"}
+                        {allVisibleSelected ? pick("取消全选", "Deselect all") : pick("全选", "Select all")}
                       </Text>
                     </Pressable>
                     <View style={styles.batchActions}>
                       <PillButton
-                        label="清空此项目"
+                        label={pick("清空此项目", "Clear project")}
                         variant="secondary"
                         buttonSize="sm"
                         onPress={() =>
@@ -793,8 +862,8 @@ export default function MemorySettingsScreen() {
                       <PillButton
                         label={
                           selectedFiles.size > 0
-                            ? `删除选中 (${selectedFiles.size})`
-                            : "删除选中"
+                            ? pick(`删除选中 (${selectedFiles.size})`, `Delete (${selectedFiles.size})`)
+                            : pick("删除选中", "Delete")
                         }
                         variant="danger"
                         buttonSize="sm"
@@ -815,16 +884,21 @@ export default function MemorySettingsScreen() {
                   <View style={styles.filesPlaceholder}>
                     <ActivityIndicator color={th.brand} size="small" />
                     <Text style={[styles.filesPlaceholderText, { color: th.inkFaint }]}>
-                      正在扫描记忆目录…
+                      {pick("正在扫描记忆目录…", "Scanning memory folder…")}
                     </Text>
                   </View>
                 ) : memoryProjects.length === 0 ? (
                   <Text style={[styles.filesPlaceholderText, { color: th.inkFaint, padding: space(3.5) }]}>
-                    还没有记忆文件。开启记忆并完成几个回合后，内核会在后台自动写入；每个项目一个目录。
+                    {pick(
+                      "还没有记忆文件。开启记忆并完成几个回合后，内核会在后台自动写入；每个项目一个目录。",
+                      "No memory files yet. Enable memory and complete a few turns — the kernel saves notes per project automatically.",
+                    )}
                   </Text>
                 ) : visibleFiles.length === 0 ? (
                   <Text style={[styles.filesPlaceholderText, { color: th.inkFaint, padding: space(3.5) }]}>
-                    {fileQuery.trim() ? "没有匹配的文件" : "这个项目还没有记忆文件"}
+                    {fileQuery.trim()
+                      ? pick("没有匹配的文件", "No matching files")
+                      : pick("这个项目还没有记忆文件", "No memory files in this project yet")}
                   </Text>
                 ) : (
                   <View>
@@ -854,7 +928,9 @@ export default function MemorySettingsScreen() {
                             delayLongPress={320}
                             accessibilityRole="button"
                             accessibilityLabel={
-                              batchMode ? `选择记忆文件 ${file.name}` : `查看记忆文件 ${file.name}`
+                              batchMode
+                                ? pick(`选择记忆文件 ${file.name}`, `Select memory file ${file.name}`)
+                                : pick(`查看记忆文件 ${file.name}`, `View memory file ${file.name}`)
                             }
                             style={({ pressed }) => [
                               styles.fileRowMain,
@@ -911,7 +987,10 @@ export default function MemorySettingsScreen() {
                               }}
                               hitSlop={8}
                               accessibilityRole="button"
-                              accessibilityLabel={`删除记忆文件 ${file.name}`}
+                              accessibilityLabel={pick(
+                                `删除记忆文件 ${file.name}`,
+                                `Delete memory file ${file.name}`,
+                              )}
                               style={[
                                 styles.rowDeleteBtn,
                                 { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
@@ -935,8 +1014,8 @@ export default function MemorySettingsScreen() {
             <Row
               icon="info"
               tone="steel"
-              title="诊断"
-              detail="用量与网络状态"
+              title={pick("诊断", "Diagnostics")}
+              detail={pick("用量与网络状态", "Usage and network status")}
               onPress={() => router.push("/settings/diagnostics")}
             />
           </SectionCard>
@@ -955,26 +1034,47 @@ export default function MemorySettingsScreen() {
         visible={confirmTarget !== null}
         title={
           confirmTarget?.kind === "clearAll"
-            ? "清空全部本机记忆？"
+            ? pick("清空全部本机记忆？", "Clear all local memories?")
             : confirmTarget?.kind === "clearProject"
-              ? `清空「${confirmTarget.projectLabel}」记忆？`
+              ? pick(
+                  `清空「${confirmTarget.projectLabel}」记忆？`,
+                  `Clear memories for "${confirmTarget.projectLabel}"?`,
+                )
               : confirmTarget?.kind === "deleteSelected"
-                ? `删除选中的 ${confirmTarget.names.length} 个记忆文件？`
-                : `删除记忆文件「${confirmTarget?.fileName ?? ""}」？`
+                ? pick(
+                    `删除选中的 ${confirmTarget.names.length} 个记忆文件？`,
+                    `Delete ${confirmTarget.names.length} selected memory files?`,
+                  )
+                : pick(
+                    `删除记忆文件「${confirmTarget?.fileName ?? ""}」？`,
+                    `Delete memory file "${confirmTarget?.fileName ?? ""}"?`,
+                  )
         }
         message={
           confirmTarget?.kind === "clearAll"
-            ? "这会删除本机所有项目的全部记忆文件，不删除会话本身。已经打开的会话仍持有内存里的记忆，重新打开后完全清除。"
+            ? pick(
+                "这会删除本机所有项目的全部记忆文件，不删除会话本身。已经打开的会话仍持有内存里的记忆，重新打开后完全清除。",
+                "This deletes all local memory files across every project without deleting chats. Open sessions keep cached memories until reopened.",
+              )
             : confirmTarget?.kind === "clearProject"
-              ? `将删除「${confirmTarget.projectLabel}」下的全部 ${confirmTarget.count} 个记忆文件，此操作不可恢复。`
+              ? pick(
+                  `将删除「${confirmTarget.projectLabel}」下的全部 ${confirmTarget.count} 个记忆文件，此操作不可恢复。`,
+                  `Deletes all ${confirmTarget.count} memory files under "${confirmTarget.projectLabel}". This can't be undone.`,
+                )
               : confirmTarget?.kind === "deleteSelected"
-                ? `将彻底删除选中的 ${confirmTarget.names.length} 个记忆文件（并同步清理 MEMORY.md 索引），不可恢复。`
-                : `将彻底删除「${confirmTarget?.fileName ?? ""}」（并同步清理 MEMORY.md 索引），不可恢复。`
+                ? pick(
+                    `将彻底删除选中的 ${confirmTarget.names.length} 个记忆文件（并同步清理 MEMORY.md 索引），不可恢复。`,
+                    `Permanently deletes ${confirmTarget.names.length} memory files and cleans up MEMORY.md. This can't be undone.`,
+                  )
+                : pick(
+                    `将彻底删除「${confirmTarget?.fileName ?? ""}」（并同步清理 MEMORY.md 索引），不可恢复。`,
+                    `Permanently deletes "${confirmTarget?.fileName ?? ""}" and cleans up MEMORY.md. This can't be undone.`,
+                  )
         }
         confirmLabel={
           confirmTarget?.kind === "clearAll" || confirmTarget?.kind === "clearProject"
-            ? "确认清空"
-            : "确认删除"
+            ? pick("确认清空", "Clear")
+            : pick("确认删除", "Delete")
         }
         danger
         onCancel={() => setConfirmTarget(null)}

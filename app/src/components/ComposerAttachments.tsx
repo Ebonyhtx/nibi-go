@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon } from "./Icon";
 import type { ComposerAttachment } from "../composer/attachments";
+import { useI18n } from "../i18n";
 import { radius, space, useNibiTheme } from "../theme";
 
 export function ComposerAttachments({
@@ -14,6 +15,7 @@ export function ComposerAttachments({
   onRemove: (id: string) => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   if (attachments.length === 0) return null;
   return (
     <ScrollView
@@ -36,7 +38,7 @@ export function ComposerAttachments({
             onPress={() => onRemove(attachment.id)}
             hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel={`移除 ${attachment.name}`}
+            accessibilityLabel={pick(`移除 ${attachment.name}`, `Remove ${attachment.name}`)}
             style={({ pressed }) => [styles.remove, pressed ? { opacity: 0.5 } : null]}
           >
             <Icon name="x" size={9} color={t.steel} />

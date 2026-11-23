@@ -1,22 +1,18 @@
-// NIBI 像素桌宠 · 图集播放器（Skia 最近邻渲染）。
-// 素材真源：nibi-pixel-pet 仓（单一数据源 out/pack.json，本仓随 assets/pet/ 快照）。
+// NIBI 像素桌宠 · 图集播放器（Skia 最近邻 + UI 线程帧驱动 + 全局按需共享缓存）。
+// 素材真源：assets/pet/pack.json + sheets/*.png + sheets-dark/*.png。
 //
-// 播放纪律（素材规格）：
-//   · 64×64 原生格；逐帧时长以 pack.json 为准（连续同帧已合并、ms 不相等，不能匀速 steps）
-//   · 基线 y=58（所有状态共用）
-//   · 状态切换先播 enter-* 过渡（终点帧已对齐目标首帧），再循环目标状态；flying 无过渡
-//
-// 尺寸：**按设备像素取整数倍**。素材要求整数倍最近邻，但 dp×density 通常不是整数
-// （1080×2400@420dpi = 2.625），所以这里反过来算：先定目标 dp，再取最接近的整数倍
-// M，实际 dp 尺寸 = 64·M / density —— 这样设备像素上每格正好 M 个像素，既不糊也不虚胖。
-//
-// 渲染：Skia + sampling=Nearest（RN 核心 Image 在 Android 恒双线性，整数倍也糊边），
-// 并用 Group clip 收死到当前格（否则相邻帧从图集漏出）。
-// 全部图集一次性预加载：useImage 跟着 state 走时，换状态新图未解码会返回 null，
-// 宠物会先消失半拍再出现（"一卡一卡"的来源之一）。
-// 省电/无障碍：系统开启"降低动画"时只画静态帧，不持续重绘。
-import { memo, useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, PixelRatio, StyleSheet, View } from "react-native";
+// 关键修复与性能优化（2.1）：
+//   1. 彻底消除 thinking 等高帧顶部裁切：crop=1 时容器 box === cell（exact 64*M / density），
+//      inset === 0，整格 [0..63] 完整落在物理像素网格上，既不裁切顶部思考云也不发糊；
+//   2. 全局共享按需 SkImage 缓存：同一张图集全 App 只解码一次（静态缩略图仅解码 idle 1 张，
+//      不再每个 PetView 重复解码 17 张）；
+//   3. UI 线程帧驱动：用 Reanimated useFrameCallback + useDerivedValue 直接在 UI 线程推进帧偏移，
+//      稳态循环期间 0 次 React 重渲染（原方案 20 次/秒 React setState + Skia 树 diff）；
+//   4. 后台/抽屉/失焦自动停帧：共享全局 AppState 监听与 motion/appear 单例 useReducedMotion，
+//      恢复时无缝续播，不再错播 enter-*；状态切换同步切入 enter，消除首帧闪烁。
+
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AppState, Image, PixelRatio, StyleSheet, View } from "react-native";
 import {
   Canvas,
   FilterMode,
@@ -24,11 +20,20 @@ import {
   Image as SkiaImage,
   MipmapMode,
   rect,
-  useImage,
+  Skia,
+  type SkImage,
 } from "@shopify/react-native-skia";
+import {
+  runOnJS,
+  useDerivedValue,
+  useFrameCallback,
+  useSharedValue,
+} from "react-native-reanimated";
 
 import petPackRaw from "../../assets/pet/pack.json";
+import { useReducedMotion } from "../motion/appear";
 import { useNibiScheme } from "../theme";
+import { computePetGeometry } from "./petMachine";
 
 interface PetAnimFrames {
   i: number;
@@ -69,8 +74,9 @@ export type PetStateId =
 const petPack = petPackRaw as PetPack;
 const CELL = petPack.spec.cell.w;
 const BASELINE = petPack.spec.baseline;
+const NEAREST_SAMPLING = { filter: FilterMode.Nearest, mipmap: MipmapMode.None } as const;
 
-/** 图集键 → 本地资源（浅色套）。墨夜套在 SHEET_SOURCES_DARK，按当前色板选。 */
+/** 图集键 → 本地资源（浅色套）。 */
 const SHEET_SOURCES = {
   idle: require("../../assets/pet/sheets/idle.png"),
   working: require("../../assets/pet/sheets/working.png"),
@@ -91,7 +97,7 @@ const SHEET_SOURCES = {
   "enter-carrying": require("../../assets/pet/sheets/enter-carrying.png"),
 } as const;
 
-/** 图集键 → 墨夜套资源（与浅色套一一对应；缺项回落到浅色套）。 */
+/** 图集键 → 墨夜套资源（与浅色套一一对应）。 */
 const SHEET_SOURCES_DARK = {
   idle: require("../../assets/pet/sheets-dark/idle.png"),
   working: require("../../assets/pet/sheets-dark/working.png"),
@@ -113,120 +119,160 @@ const SHEET_SOURCES_DARK = {
 } as const;
 
 type SheetKey = keyof typeof SHEET_SOURCES;
+type Scheme = "light" | "dark";
 
-/** 全部图集一次性预加载（hooks 顺序固定，必须逐条写）——切换不卡的关键。 */
-function useAllSheets(sources: typeof SHEET_SOURCES) {
-  const idle = useImage(sources.idle);
-  const working = useImage(sources.working);
-  const done = useImage(sources.done);
-  const waiting = useImage(sources.waiting);
-  const sleeping = useImage(sources.sleeping);
-  const thinking = useImage(sources.thinking);
-  const error = useImage(sources.error);
-  const carrying = useImage(sources.carrying);
-  const flying = useImage(sources.flying);
-  const enterIdle = useImage(sources["enter-idle"]);
-  const enterWorking = useImage(sources["enter-working"]);
-  const enterDone = useImage(sources["enter-done"]);
-  const enterWaiting = useImage(sources["enter-waiting"]);
-  const enterSleeping = useImage(sources["enter-sleeping"]);
-  const enterThinking = useImage(sources["enter-thinking"]);
-  const enterError = useImage(sources["enter-error"]);
-  const enterCarrying = useImage(sources["enter-carrying"]);
-
-  return {
-    idle,
-    working,
-    done,
-    waiting,
-    sleeping,
-    thinking,
-    error,
-    carrying,
-    flying,
-    "enter-idle": enterIdle,
-    "enter-working": enterWorking,
-    "enter-done": enterDone,
-    "enter-waiting": enterWaiting,
-    "enter-sleeping": enterSleeping,
-    "enter-thinking": enterThinking,
-    "enter-error": enterError,
-    "enter-carrying": enterCarrying,
-  } as Record<SheetKey, ReturnType<typeof useImage>>;
+interface PrecomputedSchedule {
+  ends: number[];
+  indices: number[];
+  totalMs: number;
 }
 
-/** ms 时刻落在图集第几帧（frames 的 ms 是合并后的真实时长）。 */
-function frameAt(anim: PetAnim, ms: number): number {
-  let acc = 0;
-  for (const f of anim.frames) {
-    acc += f.ms;
-    if (ms < acc) return f.i;
-  }
-  return anim.frames[anim.frames.length - 1]!.i;
-}
+const STATE_ENTER_MAP: Record<PetStateId, string | null> = Object.fromEntries(
+  petPack.states.map((s) => [s.id, s.enter ?? null]),
+) as Record<PetStateId, string | null>;
 
-/**
- * 距离下一帧边界还有多久（ms）；null = 动画已到尾且不循环，可以停表。
- * 素材是 20fps 上下的变长帧；原来每个 vsync 都跑一次 RAF 只为判断帧号变没变
- * （60 次/秒回调，其中 2/3 是白跑）。按下一帧边界定时，回调降到 ~20 次/秒。
- */
-function nextFrameIn(anim: PetAnim, ms: number, loop: boolean): number | null {
-  let acc = 0;
-  for (const f of anim.frames) {
-    acc += f.ms;
-    if (ms < acc) {
-      const isLast = f === anim.frames[anim.frames.length - 1];
-      if (isLast && !loop) return null;
-      return Math.max(8, acc - ms + 1);
+const SCHEDULE_MAP: Record<string, PrecomputedSchedule> = Object.fromEntries(
+  Object.entries(petPack.animations).map(([key, anim]) => {
+    const ends: number[] = [];
+    const indices: number[] = [];
+    let acc = 0;
+    for (const f of anim.frames) {
+      acc += f.ms;
+      ends.push(acc);
+      indices.push(f.i);
     }
-  }
-  return loop ? Math.max(8, anim.totalMs - (ms % anim.totalMs) + 1) : null;
-}
+    return [key, { ends, indices, totalMs: Math.max(1, anim.totalMs || acc) }];
+  }),
+);
 
 function sheetKeyOf(anim: PetAnim): SheetKey {
   return anim.sheet.replace(/^(sheets|sheets-dark)\//u, "").replace(/\.png$/u, "") as SheetKey;
 }
 
-/**
- * 目标 dp → 设备像素整数倍 → 实际 dp。
- * 例：density 2.625、目标 96dp → 96×2.625=252px → /64=3.94 → M=4 → 64×4/2.625=97.5dp。
- */
-export function petDisplaySize(targetDp: number, crop = 1): { dp: number; multiple: number } {
-  const density = PixelRatio.get() || 1;
-  // crop<1 表示只显示中间那一块，等价于把原格放大 → 一个原格落在更多设备像素上
-  const wanted = (targetDp * density) / (CELL * crop);
-  const multiple = Math.max(2, Math.min(6, Math.round(wanted)));
-  return { dp: (CELL * multiple) / density, multiple };
+// ─── 模块级全局共享 SkImage 缓存（按需解码，零重复加载） ─────────────────────
+
+const decodedSheets = new Map<string, SkImage>();
+const loadingSheets = new Set<string>();
+const sheetListeners = new Set<() => void>();
+let cacheVersion = 0;
+
+function notifySheetListeners(): void {
+  cacheVersion += 1;
+  for (const listener of sheetListeners) listener();
 }
 
-/** 系统"降低动画"：开着就只画静态帧（省电 + 无障碍）。 */
-function useReduceMotion(): boolean {
-  const [reduce, setReduce] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((v) => {
-      if (alive) setReduce(v);
+function subscribeSheetCache(listener: () => void): () => void {
+  sheetListeners.add(listener);
+  return () => {
+    sheetListeners.delete(listener);
+  };
+}
+
+function cacheKeyOf(scheme: Scheme, key: SheetKey): string {
+  return `${scheme}:${key}`;
+}
+
+function ensureSheetLoaded(scheme: Scheme, key: SheetKey): void {
+  const ck = cacheKeyOf(scheme, key);
+  if (decodedSheets.has(ck) || loadingSheets.has(ck)) return;
+  const sources = scheme === "dark" ? SHEET_SOURCES_DARK : SHEET_SOURCES;
+  const asset = sources[key] ?? SHEET_SOURCES[key];
+  const resolved = Image.resolveAssetSource(asset);
+  const uri = resolved?.uri;
+  if (!uri) return;
+  loadingSheets.add(ck);
+  void Skia.Data.fromURI(uri)
+    .then((data) => {
+      const img = Skia.Image.MakeImageFromEncoded(data);
+      if (img) {
+        decodedSheets.set(ck, img);
+        notifySheetListeners();
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      loadingSheets.delete(ck);
     });
-    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduce);
-    return () => {
-      alive = false;
-      sub.remove();
-    };
-  }, []);
-  return reduce;
+}
+
+function useCachedSheet(scheme: Scheme, key: SheetKey | null): SkImage | null {
+  useSyncExternalStore(
+    subscribeSheetCache,
+    () => cacheVersion,
+    () => 0,
+  );
+  useEffect(() => {
+    if (key) ensureSheetLoaded(scheme, key);
+  }, [scheme, key]);
+  if (!key) return null;
+  return decodedSheets.get(cacheKeyOf(scheme, key)) ?? null;
+}
+
+/** 活跃桌宠首次挂起后温和预热高频状态，避免首次切态等待解码；静态缩略图绝不触发。 */
+const HOT_PRELOAD_KEYS: readonly SheetKey[] = [
+  "thinking",
+  "enter-thinking",
+  "working",
+  "enter-working",
+  "waiting",
+  "done",
+  "enter-done",
+];
+
+// ─── 模块级共享 AppState 活跃态（全应用单一订阅，后台自动停帧） ───────────────
+
+let appActiveState = AppState.currentState === "active";
+let appStateInitialized = false;
+const appActiveListeners = new Set<() => void>();
+
+function ensureAppStateSubscription(): void {
+  if (appStateInitialized) return;
+  appStateInitialized = true;
+  AppState.addEventListener("change", (next) => {
+    const active = next === "active";
+    if (active !== appActiveState) {
+      appActiveState = active;
+      for (const listener of appActiveListeners) listener();
+    }
+  });
+}
+
+function useAppActive(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      ensureAppStateSubscription();
+      appActiveListeners.add(listener);
+      return () => {
+        appActiveListeners.delete(listener);
+      };
+    },
+    () => appActiveState,
+    () => true,
+  );
+}
+
+/**
+ * 目标 dp → 设备像素整数倍 → 实际 dp。
+ * crop >= 1 时返回 box === dp 且 inset === 0（整格零裁切）。
+ */
+export function petDisplaySize(
+  targetDp: number,
+  crop = 1,
+): { dp: number; box: number; inset: number; multiple: number } {
+  const g = computePetGeometry(targetDp, PixelRatio.get() || 1, CELL, crop);
+  return { dp: g.cell, box: g.box, inset: g.inset, multiple: g.multiple };
 }
 
 export interface PetViewProps {
-  /** 桌宠状态（语义映射见 petStates.ts）。 */
+  /** 桌宠状态（语义映射见 petStates.ts / petMachine.ts）。 */
   state: PetStateId;
   /** 目标显示尺寸（dp）；实际尺寸会按设备像素取整数倍微调。 */
   targetSize?: number;
-  /** false = 只画静止首帧（侧栏小图标、列表缩略图用，不占动画预算）。 */
+  /** false = 只画静止首帧（侧栏小图标、列表缩略图、抽屉打开或离焦时停帧省电）。 */
   animated?: boolean;
   /**
-   * 只显示原格中间的 crop 比例（0–1，默认 1 = 整格）。
-   * 素材每格含月亮/蜡烛等道具，缩略图里整体缩会显零碎；crop 时仍按设备像素
-   * 整数倍绘制再居中裁切，所以不会糊。
+   * 只显示原格中间的 crop 比例（0–1，默认 1 = 整格零裁切）。
+   * 缩略图场景用 crop < 1 放大居中，仍按物理像素网格对齐不发糊。
    */
   crop?: number;
 }
@@ -237,88 +283,199 @@ export const PetView = memo(function PetView({
   animated = true,
   crop = 1,
 }: PetViewProps) {
-  // 图集按当前色板选（墨夜套已随 assets 快照）；useImage 在换源时重新解码一次。
   const scheme = useNibiScheme();
-  const sheets = useAllSheets(scheme === "dark" ? SHEET_SOURCES_DARK : SHEET_SOURCES);
-  const systemReduceMotion = useReduceMotion();
+  const systemReduceMotion = useReducedMotion();
+  const appActive = useAppActive();
   const reduceMotion = systemReduceMotion || !animated;
-  const box = targetSize;
-  const { dp: cell } = petDisplaySize(targetSize, crop);
-  // 整格比视窗大：把当前格居中，视窗只露出中间 crop 那块
-  const inset = (box - cell) / 2;
+  const shouldTick = !reduceMotion && appActive;
 
-  const stateDef = petPack.states.find((s) => s.id === state);
-  const enterId = stateDef?.enter ?? null;
+  const { dp: cell, box, inset } = petDisplaySize(targetSize, crop);
+  const clipRect = useMemo(() => rect(0, 0, box, box), [box]);
+
+  const enterId = STATE_ENTER_MAP[state] ?? null;
   const enterAnim = enterId ? petPack.animations[enterId] : undefined;
   const loopAnim = petPack.animations[state] as PetAnim | undefined;
 
-  // 状态切换回到过渡相位；flying（无过渡）直接进循环；降低动画时直接画首帧。
-  const [phase, setPhase] = useState<"enter" | "loop">(enterAnim ? "enter" : "loop");
+  // 同步派生相位：状态切换当帧即落到 enter（若有），消除切换瞬间的 1 帧 loop[0] 闪烁；
+  // 仅暂停/恢复（抽屉开合、切后台）不改变 state，绝不重播 enter-*。
+  const [phaseRecord, setPhaseRecord] = useState<{
+    state: PetStateId;
+    phase: "enter" | "loop";
+  }>(() => ({ state, phase: !reduceMotion && enterAnim ? "enter" : "loop" }));
+
+  const effectivePhase: "enter" | "loop" =
+    reduceMotion || !enterAnim
+      ? "loop"
+      : phaseRecord.state === state
+        ? phaseRecord.phase
+        : "enter";
+
   useEffect(() => {
-    setPhase(reduceMotion ? "loop" : enterAnim ? "enter" : "loop");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, reduceMotion]);
+    setPhaseRecord((prev) => {
+      const targetPhase: "enter" | "loop" = !reduceMotion && enterAnim ? "enter" : "loop";
+      if (prev.state === state && prev.phase === targetPhase) return prev;
+      // 仅当 state 真变化、或因 reduceMotion 必须退回 loop 时才更新；解除暂停不重播 enter。
+      if (prev.state === state && !reduceMotion) return prev;
+      return { state, phase: targetPhase };
+    });
+  }, [state, enterAnim, reduceMotion]);
 
-  const anim = phase === "enter" && enterAnim ? enterAnim : loopAnim;
+  const anim = effectivePhase === "enter" && enterAnim ? enterAnim : loopAnim;
+  const animId = effectivePhase === "enter" && enterId ? enterId : state;
+  const activeSheetKey = anim ? sheetKeyOf(anim) : null;
+  const loopSheetKey = loopAnim ? sheetKeyOf(loopAnim) : null;
 
-  const [frameIdx, setFrameIdx] = useState(0);
-  const frameRef = useRef(0);
+  // 当前播放页按需加载；处于 enter 阶段时同步预解码紧随其后的 loop 页。
+  const currentImage = useCachedSheet(scheme, activeSheetKey);
+  useCachedSheet(scheme, effectivePhase === "enter" ? loopSheetKey : null);
+
+  // 活跃主桌宠温和预热高频图集（每次间隔 120ms 错峰解码，不抢首屏帧预算）。
+  const preloadedSchemeRef = useRef<Scheme | null>(null);
   useEffect(() => {
-    if (!anim) return;
-    frameRef.current = 0;
-    setFrameIdx(0);
-
-    // 降低动画：只画一帧，不起定时器（不持续重绘 = 不跟交互抢帧预算）
-    if (reduceMotion) return;
-
+    if (!animated || preloadedSchemeRef.current === scheme) return;
+    preloadedSchemeRef.current = scheme;
     let alive = true;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const started = performance.now();
-    const tick = () => {
-      if (!alive) return;
-      const elapsed = performance.now() - started;
-      if (phase === "enter" && enterAnim && elapsed >= enterAnim.totalMs) {
-        setPhase("loop");
-        return;
-      }
-      const anim_ = anim as PetAnim;
-      const ms = anim_.loop ? elapsed % anim_.totalMs : Math.min(elapsed, anim_.totalMs - 1);
-      // 只在帧序号真变化时 setState：源动画 20fps，避免每 vsync 都触发 React 重渲染
-      const next = frameAt(anim_, ms);
-      if (next !== frameRef.current) {
-        frameRef.current = next;
-        setFrameIdx(next);
-      }
-      // enter 阶段即使素材本身不循环也要继续排到 totalMs：那一刻要切进 loop，
-      // 提前停表会把宠物冻在过渡的最后一帧。
-      const delay = nextFrameIn(anim_, ms, anim_.loop || phase === "enter");
-      if (delay === null) return;
-      timer = setTimeout(tick, delay);
-    };
-    tick();
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    HOT_PRELOAD_KEYS.forEach((key, idx) => {
+      timers.push(
+        setTimeout(() => {
+          if (alive) ensureSheetLoaded(scheme, key);
+        }, 250 + idx * 120),
+      );
+    });
     return () => {
       alive = false;
-      if (timer) clearTimeout(timer);
+      for (const timer of timers) clearTimeout(timer);
     };
-  }, [anim, phase, enterAnim, reduceMotion]);
+  }, [animated, scheme]);
+
+  // 兜底帧：首次遇到冷门图集尚未解码完成的 ~2ms 窗口内沿用上一帧，避免闪空。
+  const lastReadyRef = useRef<{ image: SkImage; frameCount: number } | null>(null);
+  if (currentImage && anim) {
+    lastReadyRef.current = { image: currentImage, frameCount: anim.frameCount };
+  }
+  const renderImage = currentImage ?? lastReadyRef.current?.image ?? null;
+  const renderFrameCount = currentImage
+    ? (anim?.frameCount ?? 1)
+    : (lastReadyRef.current?.frameCount ?? 1);
+  const usingFallback = !currentImage && renderImage !== null;
+
+  const schedule = SCHEDULE_MAP[animId] ?? { ends: [100], indices: [0], totalMs: 100 };
+
+  // ── UI 线程帧驱动（0 React 重渲染 / 帧） ──
+  const elapsedSv = useSharedValue(0);
+  const frameIdxSv = useSharedValue(0);
+  const cellSv = useSharedValue(cell);
+  const insetSv = useSharedValue(inset);
+  const endsSv = useSharedValue<number[]>(schedule.ends);
+  const indicesSv = useSharedValue<number[]>(schedule.indices);
+  const totalMsSv = useSharedValue(schedule.totalMs);
+  const isEnterSv = useSharedValue(effectivePhase === "enter" ? 1 : 0);
+  const enterDoneSv = useSharedValue(0);
+  const usingFallbackSv = useSharedValue(usingFallback ? 1 : 0);
+
+  useEffect(() => {
+    cellSv.value = cell;
+    insetSv.value = inset;
+  }, [cell, inset, cellSv, insetSv]);
+
+  useEffect(() => {
+    usingFallbackSv.value = usingFallback ? 1 : 0;
+  }, [usingFallback, usingFallbackSv]);
+
+  useEffect(() => {
+    elapsedSv.value = 0;
+    frameIdxSv.value = 0;
+    endsSv.value = schedule.ends;
+    indicesSv.value = schedule.indices;
+    totalMsSv.value = schedule.totalMs;
+    isEnterSv.value = effectivePhase === "enter" ? 1 : 0;
+    enterDoneSv.value = 0;
+  }, [
+    animId,
+    effectivePhase,
+    schedule,
+    elapsedSv,
+    frameIdxSv,
+    endsSv,
+    indicesSv,
+    totalMsSv,
+    isEnterSv,
+    enterDoneSv,
+  ]);
+
+  const finishEnter = useCallback(
+    (forState: PetStateId) => {
+      setPhaseRecord((prev) =>
+        prev.state === forState && prev.phase === "loop"
+          ? prev
+          : { state: forState, phase: "loop" },
+      );
+    },
+    [],
+  );
+
+  const stateSv = useSharedValue<PetStateId>(state);
+  useEffect(() => {
+    stateSv.value = state;
+  }, [state, stateSv]);
+
+  const frameCallback = useFrameCallback((info) => {
+    "worklet";
+    const dt = info.timeSincePreviousFrame;
+    // 钳制单帧步进（<= 100ms），避免从挂起恢复瞬间连跳多帧。
+    const step = dt !== null && dt > 0 ? Math.min(dt, 100) : 16;
+    const nextElapsed = elapsedSv.value + step;
+    elapsedSv.value = nextElapsed;
+
+    const total = totalMsSv.value;
+    if (isEnterSv.value === 1 && nextElapsed >= total) {
+      if (enterDoneSv.value === 0) {
+        enterDoneSv.value = 1;
+        runOnJS(finishEnter)(stateSv.value);
+      }
+      return;
+    }
+
+    const ms = isEnterSv.value === 1 ? Math.min(nextElapsed, total - 1) : nextElapsed % total;
+    const ends = endsSv.value;
+    const indices = indicesSv.value;
+    let picked = indices.length > 0 ? indices[indices.length - 1]! : 0;
+    for (let k = 0; k < ends.length; k++) {
+      if (ms < ends[k]!) {
+        picked = indices[k]!;
+        break;
+      }
+    }
+    if (frameIdxSv.value !== picked) {
+      frameIdxSv.value = picked;
+    }
+  }, false);
+
+  useEffect(() => {
+    frameCallback.setActive(shouldTick && !usingFallback);
+  }, [frameCallback, shouldTick, usingFallback]);
+
+  const imageX = useDerivedValue(() => {
+    const idx = usingFallbackSv.value === 1 ? 0 : frameIdxSv.value;
+    return insetSv.value - idx * cellSv.value;
+  });
 
   if (!anim) return null;
-
-  const skImage = sheets[sheetKeyOf(anim)] ?? null;
 
   return (
     <View style={[styles.cell, { width: box, height: box }]}>
       <Canvas style={styles.canvas}>
-        <Group clip={rect(0, 0, box, box)}>
-          {skImage ? (
+        <Group clip={clipRect}>
+          {renderImage ? (
             <SkiaImage
-              image={skImage}
-              x={inset - frameIdx * cell}
+              image={renderImage}
+              x={imageX}
               y={inset}
-              width={anim.frameCount * cell}
+              width={renderFrameCount * cell}
               height={cell}
-              fit="cover"
-              sampling={{ filter: FilterMode.Nearest, mipmap: MipmapMode.None }}
+              fit="fill"
+              sampling={NEAREST_SAMPLING}
             />
           ) : null}
         </Group>

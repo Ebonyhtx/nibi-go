@@ -6,6 +6,7 @@ import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 import { installApk, sha256File } from "nibi-updater";
 
+import { pickText } from "../i18n";
 import { digestMatches, resolveUpdate, type GitHubRelease, type UpdateInfo } from "./updater-core";
 
 export const RELEASE_REPO =
@@ -41,18 +42,39 @@ export interface DownloadResult {
  *  无摘要直接拒装（fail-closed）：GitHub 会为每个上传资产算 digest，缺失说明发布流程有问题。 */
 export async function downloadUpdate(info: UpdateInfo): Promise<DownloadResult> {
   if (!info.sha256) {
-    throw new Error("更新包缺少 SHA-256 摘要，已拒绝下载（发布侧需提供 asset digest）");
+    throw new Error(
+      pickText(
+        "更新包缺少 SHA-256 摘要，已拒绝下载（发布侧需提供 asset digest）",
+        "Update package is missing a SHA-256 digest and was rejected (release must provide asset digest)",
+      ),
+    );
   }
   const target = `${FileSystem.cacheDirectory}nibi-go-${info.version}.apk`;
   await FileSystem.deleteAsync(target, { idempotent: true }).catch(() => {});
   const result = await FileSystem.downloadAsync(info.apkUrl, target);
-  if (result.status !== 200) throw new Error(`下载失败（HTTP ${result.status}）`);
+  if (result.status !== 200) {
+    throw new Error(
+      pickText(`下载失败（HTTP ${result.status}）`, `Download failed (HTTP ${result.status})`),
+    );
+  }
   const actual = sha256File(result.uri);
-  if (!actual) throw new Error("无法校验更新包（原生模块缺失）");
+  if (!actual) {
+    throw new Error(
+      pickText(
+        "无法校验更新包（原生模块缺失）",
+        "Unable to verify update package (native module missing)",
+      ),
+    );
+  }
   const verified = digestMatches(info.sha256, actual);
   if (!verified) {
     await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => {});
-    throw new Error("更新包校验失败，已丢弃");
+    throw new Error(
+      pickText(
+        "更新包校验失败，已丢弃",
+        "Update package checksum verification failed and was discarded",
+      ),
+    );
   }
   return { apkPath: result.uri, verified };
 }

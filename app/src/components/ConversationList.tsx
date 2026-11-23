@@ -30,6 +30,7 @@ import {
   View,
 } from "react-native";
 
+import { pickText, useI18n } from "../i18n";
 import { AppearIn } from "../motion/appear";
 import { easingStandard } from "../motion/easing";
 import { haptic } from "../motion/haptics";
@@ -203,6 +204,7 @@ function AnnotationQuoteCards({
   plugins?: readonly LoadedPlugin[];
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const annotations = quotes.filter(
     (quote) => quote.kind === "annotation" || quote.kind === "transform",
   );
@@ -240,22 +242,78 @@ function AnnotationQuoteCards({
               </Text>
               {isTransform ? (
                 <Text style={[styles.quoteNote, { color: th.steel }]} numberOfLines={1}>
-                  改写引用
+                  {pick("改写引用", "Rewrite quote")}
                 </Text>
-              ) : quote.instruction ? (
-                <Text style={[styles.quoteNote, { color: th.brand }]} numberOfLines={1}>
-                  指令：{quote.instruction}
-                </Text>
-              ) : quote.comment?.trim() ? (
-                <Text style={[styles.quoteNote, { color: th.ink }]} numberOfLines={2}>
-                  {quote.comment.trim()}
-                </Text>
-              ) : null}
+              ) : (
+                <>
+                  {quote.instruction ? (
+                    <Text style={[styles.quoteNote, { color: th.brand }]} numberOfLines={1}>
+                      {pick("指令：", "Action: ")}
+                      {quote.instruction}
+                    </Text>
+                  ) : null}
+                  {quote.comment?.trim() ? (
+                    <Text style={[styles.quoteNote, { color: th.ink }]} numberOfLines={2}>
+                      {quote.comment.trim()}
+                    </Text>
+                  ) : null}
+                </>
+              )}
             </View>
           </View>
         );
       })}
     </View>
+  );
+}
+
+/** 气泡下方统一的注释标记胶囊：区分已发与待发，点击直达注释管理或新增注释。 */
+function AnnotationMarkPill({
+  draftCount,
+  sentCount,
+  onPress,
+}: {
+  draftCount: number;
+  sentCount: number;
+  onPress?: () => void;
+}) {
+  const th = useNibiTheme();
+  const { pick } = useI18n();
+  if (draftCount <= 0 && sentCount <= 0) return null;
+  const label =
+    draftCount > 0 && sentCount > 0
+      ? pick(`已注释 ${sentCount} · 待发 ${draftCount}`, `${sentCount} annotated · ${draftCount} draft`)
+      : draftCount > 0
+        ? pick(`待发注释 ${draftCount}`, `${draftCount} draft note${draftCount > 1 ? "s" : ""}`)
+        : pick(`已注释 ${sentCount}`, `${sentCount} annotated`);
+  const highlighted = draftCount > 0;
+  return (
+    <PressableScale
+      scaleTo={0.95}
+      onPress={() => {
+        haptic("tap");
+        onPress?.();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[
+        styles.annotationMark,
+        {
+          backgroundColor: highlighted ? th.brandSoft : th.surfaceSoft,
+          borderColor: highlighted ? th.brand : th.hairline,
+        },
+      ]}
+    >
+      <Icon name="quote" size={10} color={highlighted ? th.brand : th.inkSub} />
+      <Text
+        style={[
+          styles.annotationMarkText,
+          { color: highlighted ? th.brand : th.inkSub },
+        ]}
+      >
+        {label}
+      </Text>
+    </PressableScale>
   );
 }
 
@@ -276,7 +334,9 @@ function ConversationListImpl({
   onPluginAction,
   bottomInset = 0,
   onMessageLongPress,
-  annotationCountFor,
+  draftAnnotationCounts,
+  onAnnotationMarkPress,
+  scrollToMessage = null,
   showReasoning = true,
   showTools = true,
   autoCollapseThinking = true,
@@ -302,9 +362,20 @@ function ConversationListImpl({
     message: string,
     anchor: PopupAnchor,
     messageRole: "user" | "assistant",
+    messageId?: string,
   ) => void;
-  /** 这条消息当前还有多少条未发送注释（已发送的从行上的引用里统计）。 */
-  annotationCountFor?: (messageKey: string) => number;
+  /** 每条消息当前待发送的注释条数映射（作为显式 prop 透传，避免 memo 读到旧 ref）。 */
+  draftAnnotationCounts?: Readonly<Record<string, number>>;
+  /** 点击消息下方注释徽标：有待发注释时打开按此消息筛选的管理抽屉，否则新增注释。 */
+  onAnnotationMarkPress?: (
+    messageKey: string,
+    hasDraft: boolean,
+    messageText: string,
+    messageRole: "user" | "assistant",
+    messageId?: string,
+  ) => void;
+  /** 从注释管理器定位回对应消息的触发信号。 */
+  scrollToMessage?: { key: string; seq: number } | null;
   /** 是否显示助手思考块（默认显示；关掉后气泡只剩正文）。 */
   showReasoning?: boolean;
   /** 是否显示工具行（默认显示；false 时工具/工具组行整行不渲染）。 */
@@ -321,6 +392,7 @@ function ConversationListImpl({
   jumpSignal?: number;
 }) {
   const th = useNibiTheme();
+  const { locale } = useI18n();
   const { isOverlayApproval } = usePhoneApprovalOverlay(rows, onRespond);
   const ref = useRef<FlashListRef<ChatRow> | null>(null);
   // 只有用户本来就在底部时才自动跟随；往上翻历史时不抢滚动。
@@ -554,6 +626,22 @@ function ConversationListImpl({
     ref.current?.scrollToEnd({ animated: true });
   }, [jumpSignal, updateAtBottom]);
 
+  // 注释管理器点击「定位原消息」：滚到对应行并松开贴底跟随。
+  const scrollTargetSeqRef = useRef(0);
+  useEffect(() => {
+    if (!scrollToMessage || scrollToMessage.seq === scrollTargetSeqRef.current) return;
+    scrollTargetSeqRef.current = scrollToMessage.seq;
+    const index = rows.findIndex((entry) => entry.key === scrollToMessage.key);
+    if (index < 0) return;
+    stickToBottom.current = false;
+    updateAtBottom(false);
+    try {
+      ref.current?.scrollToIndex({ index, animated: true, viewPosition: 0.35 });
+    } catch {
+      // FlashList 尚未测量完该偏移时静默降级
+    }
+  }, [rows, scrollToMessage, updateAtBottom]);
+
   const keyExtractor = useCallback((row: ChatRow) => row.key, []);
   const getItemType = useCallback((row: ChatRow) => row.kind, []);
 
@@ -568,11 +656,12 @@ function ConversationListImpl({
       turnChanges,
       turnPushes,
       sentAnnotationCounts,
-      annotationCountFor,
+      draftAnnotationCounts,
       modelChangeKeys,
       enterKeys,
       toggleTick,
       th,
+      locale,
     }),
     [
       agentRunningTools,
@@ -584,11 +673,12 @@ function ConversationListImpl({
       turnChanges,
       turnPushes,
       sentAnnotationCounts,
-      annotationCountFor,
+      draftAnnotationCounts,
       modelChangeKeys,
       enterKeys,
       toggleTick,
       th,
+      locale,
     ],
   );
 
@@ -598,9 +688,8 @@ function ConversationListImpl({
         row={row}
         enter={enterKeys.has(row.key)}
         modelChanged={modelChangeKeys.has(row.key)}
-        annotationCount={
-          (sentAnnotationCounts[row.key] ?? 0) + (annotationCountFor?.(row.key) ?? 0)
-        }
+        sentAnnotationCount={sentAnnotationCounts[row.key] ?? 0}
+        draftAnnotationCount={draftAnnotationCounts?.[row.key] ?? 0}
         turnFiles={row.kind === "turn" ? (turnChanges[row.key] ?? EMPTY_FILES) : EMPTY_FILES}
         turnPushMap={row.kind === "turn" ? turnPushes.get(row.key) : undefined}
         overlayApproval={row.kind === "approval" && isOverlayApproval(row)}
@@ -613,6 +702,7 @@ function ConversationListImpl({
         onRespond={onRespond}
         onOpenSession={onOpenSession}
         onMessageLongPress={onMessageLongPress}
+        onAnnotationMarkPress={onAnnotationMarkPress}
         onRetryTurn={onRetryTurn}
         isOpen={isOpen}
         toggleOpen={toggleOpen}
@@ -623,7 +713,7 @@ function ConversationListImpl({
       enterKeys,
       modelChangeKeys,
       sentAnnotationCounts,
-      annotationCountFor,
+      draftAnnotationCounts,
       turnChanges,
       turnPushes,
       isOverlayApproval,
@@ -636,6 +726,7 @@ function ConversationListImpl({
       onRespond,
       onOpenSession,
       onMessageLongPress,
+      onAnnotationMarkPress,
       onRetryTurn,
       isOpen,
       toggleOpen,
@@ -735,7 +826,8 @@ function ConversationRowItem({
   row,
   enter,
   modelChanged,
-  annotationCount,
+  sentAnnotationCount,
+  draftAnnotationCount,
   turnFiles,
   turnPushMap,
   overlayApproval,
@@ -748,6 +840,7 @@ function ConversationRowItem({
   onRespond,
   onOpenSession,
   onMessageLongPress,
+  onAnnotationMarkPress,
   onRetryTurn,
   isOpen,
   toggleOpen,
@@ -756,7 +849,8 @@ function ConversationRowItem({
   row: ChatRow;
   enter: boolean;
   modelChanged: boolean;
-  annotationCount: number;
+  sentAnnotationCount: number;
+  draftAnnotationCount: number;
   turnFiles: readonly ChatFileChange[];
   turnPushMap?: ReadonlyMap<string, Record<string, unknown>>;
   overlayApproval: boolean;
@@ -773,6 +867,14 @@ function ConversationRowItem({
     message: string,
     anchor: PopupAnchor,
     messageRole: "user" | "assistant",
+    messageId?: string,
+  ) => void;
+  onAnnotationMarkPress?: (
+    messageKey: string,
+    hasDraft: boolean,
+    messageText: string,
+    messageRole: "user" | "assistant",
+    messageId?: string,
   ) => void;
   onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
   isOpen: (id: string, fallback: boolean) => boolean;
@@ -780,6 +882,7 @@ function ConversationRowItem({
   renderPluginTool: (row: Extract<ChatRow, { kind: "tool" }>) => ReactNode;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const wrapEnter = (node: ReactNode): ReactNode =>
     enter ? <AppearIn distance={6}>{node}</AppearIn> : node;
 
@@ -801,7 +904,9 @@ function ConversationRowItem({
           {/* 发送中的乐观气泡也带同款光标：和助手流式共用一套「正在直播」的语言。 */}
           <View style={styles.pendingHintRow}>
             <StreamingCursor variant="small" />
-            <Text style={[styles.pendingHint, { color: th.inkFaint }]}>发送中…</Text>
+            <Text style={[styles.pendingHint, { color: th.inkFaint }]}>
+              {pick("发送中…", "Sending…")}
+            </Text>
           </View>
         </View>
       </View>,
@@ -838,13 +943,14 @@ function ConversationRowItem({
                       height: 1,
                     },
                     "user",
+                    row.entityId,
                   );
                 }
               : undefined
           }
           delayLongPress={350}
           accessibilityRole="button"
-          accessibilityLabel="用户消息，长按添加注释"
+          accessibilityLabel={pick("用户消息，长按添加注释", "User message, long press to annotate")}
           style={({ pressed }) => [
             styles.bubble,
             styles.bubbleUser,
@@ -858,14 +964,22 @@ function ConversationRowItem({
           <MessageTokens tokens={parsed.tokens} plugins={plugins} />
           {parsed.body.length > 0 ? <BodyText text={parsed.body} color={th.ink} /> : null}
         </Pressable>
-        {annotationCount > 0 ? (
-          <View style={styles.annotationMark}>
-            <Icon name="quote" size={10} color={th.brand} />
-            <Text style={[styles.annotationMarkText, { color: th.brand }]}>
-              {annotationCount} 条注释
-            </Text>
-          </View>
-        ) : null}
+        <AnnotationMarkPill
+          draftCount={draftAnnotationCount}
+          sentCount={sentAnnotationCount}
+          onPress={
+            onAnnotationMarkPress
+              ? () =>
+                  onAnnotationMarkPress(
+                    row.key,
+                    draftAnnotationCount > 0,
+                    displayText || row.text,
+                    "user",
+                    row.entityId,
+                  )
+              : undefined
+          }
+        />
       </View>,
     );
   }
@@ -931,13 +1045,13 @@ function ConversationRowItem({
           : "completed";
     const statusLabel = running
       ? row.backgrounded
-        ? "后台运行中"
-        : "进行中"
+        ? pick("后台运行中", "Running in background")
+        : pick("进行中", "Running")
       : row.status === "failed"
-        ? "失败"
+        ? pick("失败", "Failed")
         : row.status === "cancelled"
-          ? "已停止"
-          : "已完成";
+          ? pick("已停止", "Stopped")
+          : pick("已完成", "Done");
     const showFoot = row.backgrounded || (row.childSessionId && onOpenSession);
     return wrapEnter(
       <View
@@ -947,7 +1061,7 @@ function ConversationRowItem({
           <AgentFace name={row.subagentType} status={faceStatus} size={22} badge />
           <View style={styles.subagentTitleCol}>
             <Text style={[styles.toolName, { color: th.ink }]} numberOfLines={1}>
-              子智能体 · {row.subagentType}
+              {pick("子智能体", "Subagent")} · {row.subagentType}
             </Text>
             <Text style={[styles.subagentStatus, { color: tone }]}>{statusLabel}</Text>
           </View>
@@ -960,16 +1074,18 @@ function ConversationRowItem({
         {showFoot ? (
           <View style={styles.subagentFoot}>
             <Text style={[styles.subagentMeta, { color: th.inkFaint }]}>
-              {row.backgrounded ? "后台运行" : ""}
+              {row.backgrounded ? pick("后台运行", "Background") : ""}
             </Text>
             {row.childSessionId && onOpenSession ? (
               <Pressable
                 onPress={() => onOpenSession(row.childSessionId as string)}
                 accessibilityRole="button"
-                accessibilityLabel="查看子会话"
+                accessibilityLabel={pick("查看子会话", "View sub-session")}
                 hitSlop={6}
               >
-                <Text style={[styles.subagentLink, { color: th.steel }]}>查看子会话 ›</Text>
+                <Text style={[styles.subagentLink, { color: th.steel }]}>
+                  {pick("查看子会话 ›", "View sub-session ›")}
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -1069,7 +1185,7 @@ function ConversationRowItem({
                 }
                 delayLongPress={350}
                 accessibilityRole="button"
-                accessibilityLabel="助手消息，长按打开动作"
+                accessibilityLabel={pick("助手消息，长按打开动作", "Assistant message, long press for actions")}
                 style={({ pressed }) => [
                   streamingMd
                     ? null
@@ -1135,7 +1251,7 @@ function ConversationRowItem({
                   }
                   delayLongPress={350}
                   accessibilityRole="button"
-                  accessibilityLabel="助手消息，长按打开动作"
+                  accessibilityLabel={pick("助手消息，长按打开动作", "Assistant message, long press for actions")}
                   style={({ pressed }) => (pressed ? { opacity: 0.88 } : null)}
                 >
                   <MessageMarkdown text={segment.value} />
@@ -1166,7 +1282,7 @@ function ConversationRowItem({
           }
           delayLongPress={350}
           accessibilityRole="button"
-          accessibilityLabel="助手消息，长按打开动作"
+          accessibilityLabel={pick("助手消息，长按打开动作", "Assistant message, long press for actions")}
           style={({ pressed }) => [
             styles.bubble,
             styles.bubbleAssistant,
@@ -1186,14 +1302,21 @@ function ConversationRowItem({
       ) : showThinking ? null : (
         <BodyText text={"…"} color={th.ink} />
       )}
-      {annotationCount > 0 ? (
-        <View style={styles.annotationMark}>
-          <Icon name="quote" size={10} color={th.brand} />
-          <Text style={[styles.annotationMarkText, { color: th.brand }]}>
-            已注释 {annotationCount}
-          </Text>
-        </View>
-      ) : null}
+      <AnnotationMarkPill
+        draftCount={draftAnnotationCount}
+        sentCount={sentAnnotationCount}
+        onPress={
+          onAnnotationMarkPress && hasText
+            ? () =>
+                onAnnotationMarkPress(
+                  row.key,
+                  draftAnnotationCount > 0,
+                  row.text,
+                  "assistant",
+                )
+            : undefined
+        }
+      />
     </View>,
   );
 }
@@ -1217,6 +1340,7 @@ function ToolGroupView({
   agentRunningTools: Set<string>;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const open = isOpen(row.key, !autoCollapseTools);
   const tone = toolTone(th, row.running ? "running" : "success");
   const badgeBg = row.running ? th.amberSoft : th.okSoft;
@@ -1236,7 +1360,7 @@ function ToolGroupView({
         title={
           <View style={styles.groupTitleRow}>
             <Text style={[styles.toolRowName, { color: th.ink }]} numberOfLines={1}>
-              工具调用
+              {pick("工具调用", "Tool calls")}
             </Text>
             <View
               style={[
@@ -1245,14 +1369,17 @@ function ToolGroupView({
               ]}
             >
               <Text style={[styles.stepCountText, { color: th.inkSub }]}>
-                {row.tools.length} 步
+                {pick(
+                  `${row.tools.length} 步`,
+                  `${row.tools.length} ${row.tools.length === 1 ? "step" : "steps"}`,
+                )}
               </Text>
             </View>
           </View>
         }
         subtitle={
           <Text style={[styles.toolRowMeta, { color: tone }]} numberOfLines={1}>
-            {row.running ? "进行中" : "已完成"}
+            {row.running ? pick("进行中", "Running") : pick("已完成", "Done")}
           </Text>
         }
         open={open}
@@ -1288,14 +1415,25 @@ function TurnFooterView({
   onRetryTurn?: (target: { rowId: number; entityId: string }) => void;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const parts: string[] = [];
-  if (!row.folded && row.toolCalls > 0) parts.push(`${row.toolCalls} 次工具`);
+  if (!row.folded && row.toolCalls > 0) {
+    parts.push(
+      pick(`${row.toolCalls} 次工具`, `${row.toolCalls} ${row.toolCalls === 1 ? "tool" : "tools"}`),
+    );
+  }
   if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`);
   if (row.files) {
     parts.push(
       row.files.reverted
-        ? `${row.files.files} 个文件（已撤销）`
-        : `${row.files.files} 个文件 +${row.files.additions} −${row.files.deletions}`,
+        ? pick(
+            `${row.files.files} 个文件（已撤销）`,
+            `${row.files.files} ${row.files.files === 1 ? "file" : "files"} (reverted)`,
+          )
+        : pick(
+            `${row.files.files} 个文件 +${row.files.additions} −${row.files.deletions}`,
+            `${row.files.files} ${row.files.files === 1 ? "file" : "files"} +${row.files.additions} −${row.files.deletions}`,
+          ),
     );
   }
   const ok = row.state === "completedSuccess";
@@ -1304,8 +1442,8 @@ function TurnFooterView({
     : ok
       ? ""
       : row.state === "failed"
-        ? "回合失败"
-        : "已中断";
+        ? pick("回合失败", "Turn failed")
+        : pick("已中断", "Interrupted");
   const note = plugins
     ? plugins
         .flatMap((plugin) =>
@@ -1369,14 +1507,14 @@ function TurnFooterView({
               onPress={() => onRetryTurn!({ rowId: row.rowId, entityId: row.entityId! })}
               scaleTo={0.94}
               accessibilityRole="button"
-              accessibilityLabel="重试这一轮"
+              accessibilityLabel={pick("重试这一轮", "Retry this turn")}
               style={[
                 styles.retry,
                 { backgroundColor: th.card, borderColor: th.hairlineStrong },
               ]}
             >
               <Icon name="refresh" size={11} color={th.ink} />
-              <Text style={[styles.retryText, { color: th.ink }]}>重试</Text>
+              <Text style={[styles.retryText, { color: th.ink }]}>{pick("重试", "Retry")}</Text>
             </PressableScale>
           ) : null}
         </View>
@@ -1405,6 +1543,7 @@ const ToolRowView = memo(function ToolRowView({
   agentRunning?: boolean;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const tone = agentRunning ? th.amber : toolTone(th, row.status);
   const target = toolTarget(row);
   const hasDetail = Boolean(row.detail || row.output || row.error);
@@ -1424,7 +1563,10 @@ const ToolRowView = memo(function ToolRowView({
         : row.status === "running" || row.status === "inputStreaming" || row.status === "pendingApproval"
           ? "running"
           : "completed";
-  const statusWord = isAgentTool && agentRunning ? "后台运行中" : toolStatusLabel(row.status);
+  const statusWord =
+    isAgentTool && agentRunning
+      ? pick("后台运行中", "Running in background")
+      : toolStatusLabel(row.status);
   return (
     <View style={styles.toolRow}>
       <Disclosure
@@ -1503,13 +1645,13 @@ function toolStatusLabel(status: string): string {
     case "running":
     case "inputStreaming":
     case "pendingApproval":
-      return "进行中";
+      return pickText("进行中", "Running");
     case "success":
-      return "已完成";
+      return pickText("已完成", "Done");
     case "error":
-      return "失败";
+      return pickText("失败", "Failed");
     case "cancelled":
-      return "已停止";
+      return pickText("已停止", "Stopped");
     default:
       return status;
   }
@@ -1543,6 +1685,7 @@ const ThinkingDisclosure = memo(function ThinkingDisclosure({
   onToggle: () => void;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   // 只有看着它流完的思考才记耗时；历史行不知道时长就只显示“思考”。
   const startedAt = useRef<number | null>(null);
   const [seconds, setSeconds] = useState<number | undefined>(undefined);
@@ -1554,14 +1697,17 @@ const ThinkingDisclosure = memo(function ThinkingDisclosure({
       startedAt.current = null;
     }
   }, [streaming]);
-  const title = seconds === undefined ? "思考" : `思考 · 持续 ${seconds} 秒`;
+  const title =
+    seconds === undefined
+      ? pick("思考", "Thinking")
+      : pick(`思考 · 持续 ${seconds} 秒`, `Thought for ${seconds}s`);
   const preview = streaming ? reasoningTail(reasoning) : "";
   return (
     <Disclosure
       icon={<Icon name="sparkles" size={12} color={th.inkFaint} />}
       title={
         <Text style={[styles.thinkingTitle, { color: th.inkSub }]} numberOfLines={1}>
-          {streaming ? "正在思考" : title}
+          {streaming ? pick("正在思考", "Thinking…") : title}
         </Text>
       }
       subtitle={
@@ -1655,13 +1801,27 @@ function ProcessGroupView({
   agentRunningTools?: Set<string>;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const [open, setOpen] = useState(false);
   const metaParts: string[] = [];
-  if (row.toolCalls > 0) metaParts.push(`${row.toolCalls} 次工具`);
-  if (row.messages > 0) metaParts.push(`${row.messages} 条消息`);
+  if (row.toolCalls > 0) {
+    metaParts.push(
+      pick(`${row.toolCalls} 次工具`, `${row.toolCalls} ${row.toolCalls === 1 ? "tool" : "tools"}`),
+    );
+  }
+  if (row.messages > 0) {
+    metaParts.push(
+      pick(
+        `${row.messages} 条消息`,
+        `${row.messages} ${row.messages === 1 ? "message" : "messages"}`,
+      ),
+    );
+  }
   const metaLabel = metaParts.join(" · ");
   const totalSteps = row.toolCalls + row.messages;
-  const a11yLabel = metaLabel ? `已完成 · ${metaLabel}` : "已完成过程";
+  const a11yLabel = metaLabel
+    ? pick(`已完成 · ${metaLabel}`, `Completed · ${metaLabel}`)
+    : pick("已完成过程", "Completed process");
   // 先按会话级开关过滤子行：showReasoning 管思考块（正文消息保留），
   // showTools 管工具/工具组；其余子行（子智能体/通知）不受影响。
   const visible = row.rows.filter((child) => {
@@ -1692,7 +1852,7 @@ function ProcessGroupView({
         <View style={[styles.toolIconBadge, { backgroundColor: th.okSoft }]}>
           <Icon name="check" size={11} color={th.ok} />
         </View>
-        <Text style={[styles.processTitle, { color: th.ink }]}>执行过程</Text>
+        <Text style={[styles.processTitle, { color: th.ink }]}>{pick("执行过程", "Process")}</Text>
         {metaLabel ? (
           <Text style={[styles.processMeta, { color: th.inkSub }]} numberOfLines={1}>
             {metaLabel}
@@ -1706,7 +1866,7 @@ function ProcessGroupView({
             ]}
           >
             <Text style={[styles.stepCountText, { color: th.inkSub }]}>
-              {totalSteps} 步
+              {pick(`${totalSteps} 步`, `${totalSteps} ${totalSteps === 1 ? "step" : "steps"}`)}
             </Text>
           </View>
         ) : null}
@@ -1753,6 +1913,7 @@ function ProcessChild({
   agentRunningTools?: Set<string>;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   if (row.kind === "assistant") {
     // 思考与顶层思考块同款（ThinkingDisclosure + chip 外壳）；中间正文仍用 processText。
     const thinkingDefault = autoCollapseThinking ? row.streaming : true;
@@ -1808,7 +1969,7 @@ function ProcessChild({
   if (row.kind === "subagent") {
     return (
       <Text style={[styles.processTool, { color: th.inkFaint }]}>
-        子智能体 · {row.subagentType} · {row.status}
+        {pick("子智能体", "Subagent")} · {row.subagentType} · {row.status}
         {row.summary ? ` · ${row.summary}` : ""}
       </Text>
     );
@@ -1822,13 +1983,19 @@ function ProcessChild({
 /** 轮末改动卡（dsh-Go ChangeCard 的信息面）：改了哪些文件、各自 +/−。 */
 function ChangeCard({ files }: { files: readonly ChatFileChange[] }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const added = files.reduce((sum, file) => sum + file.additions, 0);
   const removed = files.reduce((sum, file) => sum + file.deletions, 0);
   const shown = files.slice(0, 4);
   return (
     <View style={[styles.changes, { backgroundColor: th.card, borderColor: th.hairline }]}>
       <View style={styles.toolHead}>
-        <Text style={[styles.toolName, { color: th.ink }]}>改动了 {files.length} 个文件</Text>
+        <Text style={[styles.toolName, { color: th.ink }]}>
+          {pick(
+            `改动了 ${files.length} 个文件`,
+            `Changed ${files.length} ${files.length === 1 ? "file" : "files"}`,
+          )}
+        </Text>
         <Text style={[styles.toolStatus, { color: th.inkFaint }]}>
           +{added} −{removed}
         </Text>
@@ -1850,7 +2017,10 @@ function ChangeCard({ files }: { files: readonly ChatFileChange[] }) {
       ))}
       {files.length > shown.length ? (
         <Text style={[styles.fileMore, { color: th.inkFaint }]}>
-          还有 {files.length - shown.length} 个文件
+          {pick(
+            `还有 ${files.length - shown.length} 个文件`,
+            `${files.length - shown.length} more ${files.length - shown.length === 1 ? "file" : "files"}`,
+          )}
         </Text>
       ) : null}
     </View>
@@ -1944,9 +2114,12 @@ const styles = StyleSheet.create({
   annotationMark: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    marginTop: 4,
-    marginLeft: space(1),
+    gap: 4,
+    marginTop: space(1.5),
+    paddingHorizontal: space(2),
+    paddingVertical: 3,
+    borderRadius: radius.chip,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   annotationMarkText: { ...text("micro"), fontWeight: "600" },
   text: { ...text("body") },

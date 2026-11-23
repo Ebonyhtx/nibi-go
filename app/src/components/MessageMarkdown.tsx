@@ -14,6 +14,7 @@ import { WebView } from "react-native-webview";
 
 import { Sheet } from "./ui/Sheet";
 import { Icon } from "./Icon";
+import { useI18n } from "../i18n";
 import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
 import { radius, space, text, useNibiScheme, useNibiTheme } from "../theme";
@@ -100,6 +101,7 @@ export const PendingArtifactCard = memo(function PendingArtifactCard({
   lines: number;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   return (
     <View
       style={[
@@ -118,7 +120,9 @@ export const PendingArtifactCard = memo(function PendingArtifactCard({
         </View>
         <View style={styles.artifactCol}>
           <View style={styles.artifactTitleRow}>
-            <Text style={[styles.artifactTitle, { color: th.ink }]}>正在生成可视化</Text>
+            <Text style={[styles.artifactTitle, { color: th.ink }]}>
+              {pick("正在生成可视化", "Generating visual")}
+            </Text>
             <View
               style={[
                 styles.artifactTagPill,
@@ -131,7 +135,10 @@ export const PendingArtifactCard = memo(function PendingArtifactCard({
             </View>
           </View>
           <Text style={[styles.artifactMeta, { color: th.inkFaint }]}>
-            已接收 {lines} 行，完成后可全屏预览
+            {pick(
+              `已接收 ${lines} 行，完成后可全屏预览`,
+              `${lines} lines received, full-screen preview ready when done`,
+            )}
           </Text>
         </View>
       </View>
@@ -148,6 +155,7 @@ export const ArtifactCard = memo(function ArtifactCard({
   artifact: VisualArtifact;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const { height: screenHeight } = useWindowDimensions();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -173,7 +181,9 @@ export const ArtifactCard = memo(function ArtifactCard({
         </View>
         <View style={styles.artifactCol}>
           <View style={styles.artifactTitleRow}>
-            <Text style={[styles.artifactTitle, { color: th.ink }]}>可视化工件</Text>
+            <Text style={[styles.artifactTitle, { color: th.ink }]}>
+              {pick("可视化工件", "Visual artifact")}
+            </Text>
             <View
               style={[
                 styles.artifactTagPill,
@@ -184,7 +194,7 @@ export const ArtifactCard = memo(function ArtifactCard({
             </View>
           </View>
           <Text style={[styles.artifactMeta, { color: th.inkFaint }]}>
-            图表 / 网页 · {lines} 行源码
+            {pick(`图表 / 网页 · ${lines} 行源码`, `Chart / Web · ${lines} lines`)}
           </Text>
         </View>
         <PressableScale
@@ -195,14 +205,16 @@ export const ArtifactCard = memo(function ArtifactCard({
             setOpen(true);
           }}
           accessibilityRole="button"
-          accessibilityLabel={`预览 ${artifact.lang} 可视化`}
+          accessibilityLabel={pick(`预览 ${artifact.lang} 可视化`, `Preview ${artifact.lang} visual`)}
           style={[
             styles.artifactButton,
             { backgroundColor: th.brandSoft, borderColor: th.brand },
           ]}
         >
           <Icon name="eye" size={12} color={th.brand} />
-          <Text style={[styles.artifactButtonText, { color: th.brand }]}>预览</Text>
+          <Text style={[styles.artifactButtonText, { color: th.brand }]}>
+            {pick("预览", "Preview")}
+          </Text>
         </PressableScale>
       </View>
       {mounted ? (
@@ -228,7 +240,9 @@ export const ArtifactCard = memo(function ArtifactCard({
             >
               <Icon name="globe" size={14} color={th.brand} />
             </View>
-            <Text style={[styles.artifactSheetTitle, { color: th.ink }]}>可视化预览</Text>
+            <Text style={[styles.artifactSheetTitle, { color: th.ink }]}>
+              {pick("可视化预览", "Visual preview")}
+            </Text>
             <View
               style={[
                 styles.artifactTagPill,
@@ -244,7 +258,9 @@ export const ArtifactCard = memo(function ArtifactCard({
                 setMaximized((value) => !value);
               }}
               accessibilityRole="button"
-              accessibilityLabel={maximized ? "退出全屏" : "全屏查看"}
+              accessibilityLabel={
+                maximized ? pick("退出全屏", "Exit full screen") : pick("全屏查看", "Full screen")
+              }
               hitSlop={8}
               style={[
                 styles.artifactMaxButton,
@@ -261,7 +277,7 @@ export const ArtifactCard = memo(function ArtifactCard({
                   { color: maximized ? th.brand : th.inkSub },
                 ]}
               >
-                {maximized ? "还原" : "全屏"}
+                {maximized ? pick("还原", "Restore") : pick("全屏", "Full screen")}
               </Text>
             </PressableScale>
             <PressableScale
@@ -271,7 +287,7 @@ export const ArtifactCard = memo(function ArtifactCard({
                 setMaximized(false);
               }}
               accessibilityRole="button"
-              accessibilityLabel="关闭预览"
+              accessibilityLabel={pick("关闭预览", "Close preview")}
               hitSlop={8}
               style={[
                 styles.artifactCloseButton,
@@ -284,7 +300,11 @@ export const ArtifactCard = memo(function ArtifactCard({
           <View
             style={[
               styles.artifactWeb,
-              { height: maximized ? Math.round(screenHeight * 0.92) - 56 : 540 },
+              {
+                height: maximized
+                  ? Math.max(200, Math.round(screenHeight * 0.88) - 56)
+                  : Math.min(540, Math.max(200, Math.round(screenHeight * 0.64))),
+              },
             ]}
           >
             <WebView source={{ html: artifactHtml(artifact.lang, artifact.code) }} />

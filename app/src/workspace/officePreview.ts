@@ -13,6 +13,8 @@
 
 import { inflateSync, strFromU8, unzipSync, unzlibSync } from "fflate";
 
+import { pickText } from "../i18n";
+
 export type OfficeDocKind = "docx" | "xlsx" | "pptx" | "pdf";
 
 export const OFFICE_KIND_LABEL: Record<OfficeDocKind, string> = {
@@ -378,7 +380,12 @@ export function renderDocxBytes(name: string, bytes: Uint8Array, isDark: boolean
   const entries = unzipSync(bytes);
   const docBytes = entries["word/document.xml"];
   if (!docBytes) {
-    throw new Error("未找到 word/document.xml，文件可能不是有效的 .docx 文档");
+    throw new Error(
+      pickText(
+        "未找到 word/document.xml，文件可能不是有效的 .docx 文档",
+        "Missing word/document.xml; this file may not be a valid .docx document",
+      ),
+    );
   }
   const xml = strFromU8(docBytes);
   const bodyMatch = /<w:body[^>]*>([\s\S]*?)<\/w:body>/u.exec(xml);
@@ -454,8 +461,8 @@ export function renderDocxBytes(name: string, bytes: Uint8Array, isDark: boolean
   const content =
     blocks.length > 0
       ? `<div class="doc-card">${blocks.join("\n")}</div>`
-      : `<div class="doc-card"><div class="empty-note">文档内容为空</div></div>`;
-  return wrapPreviewHtml(name, "Word 文档", content, isDark);
+      : `<div class="doc-card"><div class="empty-note">${pickText("文档内容为空", "Empty document")}</div></div>`;
+  return wrapPreviewHtml(name, pickText("Word 文档", "Word Document"), content, isDark);
 }
 
 /** Excel 列字母（A=0, Z=25, AA=26）转 0 基列号。 */
@@ -503,7 +510,12 @@ export function renderXlsxBytes(name: string, bytes: Uint8Array, isDark: boolean
     });
 
   if (sheetKeys.length === 0) {
-    throw new Error("未找到工作表数据（xl/worksheets/sheet1.xml）");
+    throw new Error(
+      pickText(
+        "未找到工作表数据（xl/worksheets/sheet1.xml）",
+        "No worksheet data found (xl/worksheets/sheet1.xml)",
+      ),
+    );
   }
 
   const cards: string[] = [];
@@ -570,14 +582,25 @@ export function renderXlsxBytes(name: string, bytes: Uint8Array, isDark: boolean
       rowsHtml.length > 0
         ? `<div class="table-wrap"><table>${rowsHtml.join("")}</table></div>${
             truncated
-              ? `<div class="foot-note">已预览前 ${MAX_XLSX_PREVIEW_ROWS} 行（共 ${rowMatches.length} 行）</div>`
+              ? `<div class="foot-note">${pickText(
+                  `已预览前 ${MAX_XLSX_PREVIEW_ROWS} 行（共 ${rowMatches.length} 行）`,
+                  `Showing first ${MAX_XLSX_PREVIEW_ROWS} of ${rowMatches.length} rows`,
+                )}</div>`
               : ""
           }`
-        : `<div class="empty-note">空工作表</div>`;
+        : `<div class="empty-note">${pickText("空工作表", "Empty sheet")}</div>`;
     cards.push(`<div class="doc-card"><h3>${escapeHtml(title)}</h3>${body}</div>`);
   });
 
-  return wrapPreviewHtml(name, `Excel · ${sheetKeys.length} 表`, cards.join("\n"), isDark);
+  return wrapPreviewHtml(
+    name,
+    pickText(
+      `Excel · ${sheetKeys.length} 表`,
+      `Excel · ${sheetKeys.length} ${sheetKeys.length === 1 ? "sheet" : "sheets"}`,
+    ),
+    cards.join("\n"),
+    isDark,
+  );
 }
 
 /** 解析 .pptx (ppt/slides/slide*.xml) → 幻灯片分镜卡片 HTML。 */
@@ -592,7 +615,12 @@ export function renderPptxBytes(name: string, bytes: Uint8Array, isDark: boolean
     });
 
   if (slideKeys.length === 0) {
-    throw new Error("未找到幻灯片页面（ppt/slides/slide1.xml）");
+    throw new Error(
+      pickText(
+        "未找到幻灯片页面（ppt/slides/slide1.xml）",
+        "No slides found (ppt/slides/slide1.xml)",
+      ),
+    );
   }
 
   const cards = slideKeys.map((key, idx) => {
@@ -627,7 +655,7 @@ export function renderPptxBytes(name: string, bytes: Uint8Array, isDark: boolean
       }
     }
 
-    const heading = lines[0] ?? `第 ${idx + 1} 页`;
+    const heading = lines[0] ?? pickText(`第 ${idx + 1} 页`, `Slide ${idx + 1}`);
     const bullets = lines.slice(1);
     const bulletsHtml =
       bullets.length > 0
@@ -636,7 +664,7 @@ export function renderPptxBytes(name: string, bytes: Uint8Array, isDark: boolean
             .join("")}</ul>`
         : tablesHtml.length > 0
           ? ""
-          : `<p class="empty-note">（本页无额外正文要点）</p>`;
+          : `<p class="empty-note">${pickText("（本页无额外正文要点）", "(No additional text on this slide)")}</p>`;
     return `<div class="slide-card">
       <div class="slide-num">SLIDE ${idx + 1} / ${slideKeys.length}</div>
       <div class="slide-title">${escapeHtml(heading)}</div>
@@ -645,7 +673,15 @@ export function renderPptxBytes(name: string, bytes: Uint8Array, isDark: boolean
     </div>`;
   });
 
-  return wrapPreviewHtml(name, `PPT · ${slideKeys.length} 页`, cards.join("\n"), isDark);
+  return wrapPreviewHtml(
+    name,
+    pickText(
+      `PPT · ${slideKeys.length} 页`,
+      `PPT · ${slideKeys.length} ${slideKeys.length === 1 ? "slide" : "slides"}`,
+    ),
+    cards.join("\n"),
+    isDark,
+  );
 }
 
 /** 解码 PDF 括号字面串 `(...)` 为原始字节数组（处理转义与八进制 `\ddd`）。 */
@@ -1007,12 +1043,24 @@ export function renderPdfBytes(name: string, bytes: Uint8Array, isDark: boolean)
     }
   });
 
+  const totalPages = Math.max(pageCount, pageCards.length);
   const bodyHtml =
     pageCards.length > 0
       ? pageCards.join("\n")
-      : `<div class="doc-card"><div class="empty-note">PDF 共 ${pageCount} 页（此文档为扫描件或纯图像页面，无直接可提取文本流）</div></div>`;
+      : `<div class="doc-card"><div class="empty-note">${pickText(
+          `PDF 共 ${pageCount} 页（此文档为扫描件或纯图像页面，无直接可提取文本流）`,
+          `PDF (${pageCount} ${pageCount === 1 ? "page" : "pages"}): scanned or image-only document with no extractable text stream`,
+        )}</div></div>`;
 
-  return wrapPreviewHtml(name, `PDF · ${Math.max(pageCount, pageCards.length)} 页`, bodyHtml, isDark);
+  return wrapPreviewHtml(
+    name,
+    pickText(
+      `PDF · ${totalPages} 页`,
+      `PDF · ${totalPages} ${totalPages === 1 ? "page" : "pages"}`,
+    ),
+    bodyHtml,
+    isDark,
+  );
 }
 
 /** 从原始字节渲染 Office / PDF 文档为排版 HTML 字符串。 */

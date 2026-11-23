@@ -177,6 +177,8 @@ export function currentLicenseAccountId(): string | null {
   return state.accountId;
 }
 
+import { pickText } from "../i18n";
+
 /** 在线检查间隔（桌面同口径：10 分钟；进入市场/启动时用缓存先渲染，再后台续期）。 */
 const SYNC_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -193,7 +195,7 @@ export function pluginLicenseDecision(pluginId: string): PluginLicenseDecision {
     return {
       status: "denied",
       allowed: false,
-      reason: `服务端已拒绝：${state.lastRefusal}`,
+      reason: pickText(`服务端已拒绝：${state.lastRefusal}`, `Server denied: ${state.lastRefusal}`),
       claims: null,
       expiresAt: state.expiresAt,
     };
@@ -221,7 +223,7 @@ export function licenseSummary(): {
     return {
       activated: false,
       grace: false,
-      reason: "这台设备还没有同步账号授权",
+      reason: pickText("这台设备还没有同步账号授权", "Account license not synced on this device yet"),
       plan: snapshot.plan,
       expiresAt: snapshot.expiresAt,
     };

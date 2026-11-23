@@ -57,10 +57,18 @@ export function pluginSourceLabel(
   }
   if (item.detail) {
     const head = item.detail.split(" · ")[0]?.trim();
-    if (head && head !== "插件" && head !== "引用这条消息") return head;
+    if (
+      head &&
+      head !== "插件" &&
+      head !== "引用这条消息" &&
+      head !== "Plugin" &&
+      head !== "Quote this message"
+    ) {
+      return head;
+    }
   }
   if (item.pluginId) return item.pluginId;
-  return item.source === "nibi" ? "NIBI" : "插件";
+  return item.source === "nibi" ? "NIBI" : "Plugin";
 }
 
 /** 按插件归属分组消息动作，并支持按命令标题或插件名做不区分大小写过滤。 */

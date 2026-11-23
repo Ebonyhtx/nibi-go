@@ -1,4 +1,6 @@
 // 带超时与大小上限的取字节工具（索引与插件包共用）。
+import { pickText } from "../i18n";
+
 export const FETCH_TIMEOUT_MS = 20_000;
 
 /** 取一个 URL 的原始字节；只接受 2xx，超时/超限/外部取消都抛错。 */
@@ -26,7 +28,9 @@ export async function fetchBytes(
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > maxBytes) throw new Error("响应超过大小上限");
+    if (buffer.byteLength > maxBytes) {
+      throw new Error(pickText("响应超过大小上限", "Response exceeds size limit"));
+    }
     return new Uint8Array(buffer);
   } finally {
     clearTimeout(timer);
@@ -67,7 +71,7 @@ export async function fetchBytesWithProgress(
     };
     const onAbort = () => {
       xhr.abort();
-      finish(() => reject(new Error("已取消")));
+      finish(() => reject(new Error(pickText("已取消", "Cancelled"))));
     };
 
     xhr.open("GET", url);
@@ -84,18 +88,18 @@ export async function fetchBytesWithProgress(
       }
       const buffer = xhr.response as ArrayBuffer | null;
       if (!buffer) {
-        finish(() => reject(new Error("响应为空")));
+        finish(() => reject(new Error(pickText("响应为空", "Empty response"))));
         return;
       }
       if (buffer.byteLength > maxBytes) {
-        finish(() => reject(new Error("响应超过大小上限")));
+        finish(() => reject(new Error(pickText("响应超过大小上限", "Response exceeds size limit"))));
         return;
       }
       finish(() => resolve(new Uint8Array(buffer)));
     };
-    xhr.onerror = () => finish(() => reject(new Error("网络错误")));
-    xhr.ontimeout = () => finish(() => reject(new Error("下载超时")));
-    xhr.onabort = () => finish(() => reject(new Error("已取消")));
+    xhr.onerror = () => finish(() => reject(new Error(pickText("网络错误", "Network error"))));
+    xhr.ontimeout = () => finish(() => reject(new Error(pickText("下载超时", "Download timed out"))));
+    xhr.onabort = () => finish(() => reject(new Error(pickText("已取消", "Cancelled"))));
     options.signal?.addEventListener("abort", onAbort);
     if (options.signal?.aborted) {
       onAbort();

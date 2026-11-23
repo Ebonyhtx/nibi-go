@@ -15,6 +15,7 @@ export type IconName =
   | "chevron-right"
   | "chevron-left"
   | "chevron-down"
+  | "chevron-up"
   | "refresh"
   | "monitor"
   | "phone"
@@ -69,6 +70,7 @@ const GLYPHS: Record<IconName, { set: "feather" | "ion" | "mci"; name: string }>
   "chevron-right": { set: "feather", name: "chevron-right" },
   "chevron-left": { set: "feather", name: "chevron-left" },
   "chevron-down": { set: "feather", name: "chevron-down" },
+  "chevron-up": { set: "feather", name: "chevron-up" },
   refresh: { set: "feather", name: "refresh-cw" },
   monitor: { set: "feather", name: "monitor" },
   phone: { set: "feather", name: "smartphone" },

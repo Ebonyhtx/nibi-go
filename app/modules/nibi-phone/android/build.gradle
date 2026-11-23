@@ -16,6 +16,18 @@ dependencies {
   testImplementation "org.json:json:20240303"
 }
 
+// 将 app/assets/pet 单一真源图集打包进原生 assets/pet/（保留连字符文件名、跳过密度缩放与 PNG 压缩），
+// 供 StatusBubble 离开应用时原生最近邻渲染 NIBI 像素小鸟，无需在 Android res 里维护第二份素材。
+def generatedPetAssetsDir = layout.buildDirectory.dir("generated/pet-assets").get().asFile
+def syncPetBubbleAssets = tasks.register("syncPetBubbleAssets", Sync) {
+  from(file("../../../assets/pet")) {
+    include "pack.json"
+    include "sheets/*.png"
+    include "sheets-dark/*.png"
+  }
+  into(new File(generatedPetAssetsDir, "pet"))
+}
+
 android {
   namespace "expo.modules.nibiphone"
 
@@ -24,7 +36,19 @@ android {
     versionName "0.1.0"
   }
 
+  sourceSets {
+    main {
+      assets.srcDir(generatedPetAssetsDir)
+    }
+  }
+
   testOptions {
     unitTests.returnDefaultValues = true
   }
+}
+
+tasks.matching {
+  it.name == "preBuild" || it.name.startsWith("generate") && it.name.endsWith("Assets") || it.name.startsWith("package") && it.name.endsWith("Assets") || it.name.startsWith("merge") && it.name.endsWith("Assets")
+}.configureEach {
+  dependsOn(syncPetBubbleAssets)
 }

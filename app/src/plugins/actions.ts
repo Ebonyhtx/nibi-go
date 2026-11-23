@@ -7,6 +7,7 @@ import type { Effect } from "@nibi-go/plugin-contract";
 import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, Platform, ToastAndroid } from "react-native";
 
+import { pickText } from "../i18n";
 import { runHostCommand, type HostCommandContext } from "./commands";
 import type { LoadedPlugin } from "./store";
 
@@ -35,7 +36,7 @@ export function toast(text: string): void {
     ToastAndroid.show(text, ToastAndroid.SHORT);
     return;
   }
-  Alert.alert("插件", text);
+  Alert.alert(pickText("插件", "Plugin"), text);
 }
 
 /** 执行一个动作；返回是否实际执行（被 3 秒窗口挡住时 false）。 */
@@ -48,7 +49,7 @@ export function runPluginAction(
   const now = Date.now();
   const previous = lastRun.get(key);
   if (previous !== undefined && now - previous < TAP_WINDOW_MS) {
-    toast("操作太频繁，请稍后再试");
+    toast(pickText("操作太频繁，请稍后再试", "Too frequent — please try again shortly"));
     return false;
   }
   lastRun.set(key, now);
@@ -65,7 +66,9 @@ export function runPluginAction(
         context.openPanel(plugin.parsed.manifest.id, effect.panel);
         break;
       case "link":
-        void Linking.openURL(effect.url).catch(() => toast("打不开这个链接"));
+        void Linking.openURL(effect.url).catch(() =>
+          toast(pickText("打不开这个链接", "Couldn't open this link")),
+        );
         break;
       case "refresh":
         context.refresh();
@@ -73,8 +76,16 @@ export function runPluginAction(
       case "copy":
         // 写剪贴板是异步的；抛错或平台返回 false 都如实提示，绝不假装成功。
         void Clipboard.setStringAsync(effect.text)
-          .then((saved) => toast(saved ? "已复制" : "复制失败，请手动选择文本"))
-          .catch(() => toast("复制失败，请手动选择文本"));
+          .then((saved) =>
+            toast(
+              saved
+                ? pickText("已复制", "Copied")
+                : pickText("复制失败，请手动选择文本", "Copy failed — select text manually"),
+            ),
+          )
+          .catch(() =>
+            toast(pickText("复制失败，请手动选择文本", "Copy failed — select text manually")),
+          );
         break;
       case "command":
         runHostCommand(effect.name, effect.args, context.command);

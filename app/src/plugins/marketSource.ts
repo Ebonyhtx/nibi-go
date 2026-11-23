@@ -11,6 +11,7 @@
 
 import { File, Paths } from "expo-file-system";
 
+import { pickText } from "../i18n";
 import { npmRegistriesForRegion, type NpmMarketRegion } from "./npmRegistry";
 
 export type MarketRegion = NpmMarketRegion;
@@ -41,7 +42,7 @@ export function npmRegistryForRegion(region: MarketRegion): string {
 export { npmRegistriesForRegion };
 
 export function marketRegionLabel(region: MarketRegion): string {
-  return region === "cn" ? "国内源" : "国外源";
+  return region === "cn" ? pickText("国内源", "CN Mirror") : pickText("国外源", "Global");
 }
 
 /**

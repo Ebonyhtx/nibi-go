@@ -153,11 +153,11 @@ class PhoneModule : Module() {
     Function("canShowBubble") { bubble()?.canDraw() == true }
 
     /**
-     * 气泡状态由 RN 驱动（hidden/running/tools/waiting/done）；
-     * 原生只换肤/启停动效，不做自动状态机。
+     * 气泡状态由 RN 驱动（hidden/thinking/working/carrying/running/tools/waiting/done/error）；
+     * 原生只渲染对应的像素宠物小鸟与明暗图集，不做自动状态机。
      */
-    AsyncFunction("setBubbleState") { state: String ->
-      bubble()?.setState(state)
+    AsyncFunction("setBubbleState") { state: String, scheme: String? ->
+      bubble()?.setState(state, scheme)
     }
 
     /** 原生侧当前是否有手机工具在执行（气泡的 tools 信号；RN 轮询这一位）。 */

@@ -4,13 +4,23 @@
 // 避免“昨天”因夏令时 23/25 小时偏移被判错。列表进入分组前已按 updatedAt 倒序。
 import type { KernelSessionSummary } from "@nibi-go/kernel-session";
 
+import { pickText } from "../i18n";
+
 export type SessionDay = "today" | "yesterday" | "thisWeek" | "earlier";
 
 export const SESSION_DAY_LABELS: Record<SessionDay, string> = {
-  today: "今天",
-  yesterday: "昨天",
-  thisWeek: "本周",
-  earlier: "更早",
+  get today() {
+    return pickText("今天", "Today");
+  },
+  get yesterday() {
+    return pickText("昨天", "Yesterday");
+  },
+  get thisWeek() {
+    return pickText("本周", "This week");
+  },
+  get earlier() {
+    return pickText("更早", "Earlier");
+  },
 };
 
 export interface SessionGroup {
@@ -66,7 +76,8 @@ export function filterSessionsByTitle(
 ): KernelSessionSummary[] {
   const needle = query.trim().toLocaleLowerCase();
   if (needle.length === 0) return [...sessions];
+  const fallbackTitle = pickText("新对话", "New chat");
   return sessions.filter((session) =>
-    (session.title || "新对话").toLocaleLowerCase().includes(needle),
+    (session.title || fallbackTitle).toLocaleLowerCase().includes(needle),
   );
 }

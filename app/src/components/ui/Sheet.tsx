@@ -6,7 +6,15 @@
 //   - 可选 avoidKeyboard（独立 UI 线程 translateY，绝不与 RN Animated 驱动冲突）
 //   - 退场完成带 visibleRef 守卫（关→立刻重开不会误卸）
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Keyboard, Modal, StyleSheet, Text, View, type KeyboardEvent } from "react-native";
+import {
+  Keyboard,
+  Modal,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type KeyboardEvent,
+} from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -18,6 +26,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useI18n } from "../../i18n";
+import { METRICS, SUPPORTED_MODAL_ORIENTATIONS } from "../../layout/adaptive";
 import { useReducedMotion } from "../../motion/appear";
 import { haptic } from "../../motion/haptics";
 import { radius, space, text, useNibiTheme } from "../../theme";
@@ -54,9 +64,12 @@ export function Sheet({
   showHandle?: boolean;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduced = useReducedMotion();
   const handleEnabled = showHandle ?? maxHeightRatio < 0.98;
+  const [kbHeight, setKbHeight] = useState(0);
 
   const [rendered, setRendered] = useState(visible);
   const [interactive, setInteractive] = useState(visible);
@@ -78,10 +91,12 @@ export function Sheet({
   useEffect(() => {
     if (!avoidKeyboard || !rendered) {
       kbLift.value = 0;
+      setKbHeight(0);
       return;
     }
     const apply = (event: KeyboardEvent) => {
       const h = Math.max(0, event.endCoordinates.height);
+      setKbHeight(h);
       if (reduced) {
         kbLift.value = h;
       } else {
@@ -92,9 +107,17 @@ export function Sheet({
       }
     };
     const show = Keyboard.addListener("keyboardDidShow", apply);
-    const hide = Keyboard.addListener("keyboardDidHide", (event) =>
-      apply({ ...event, endCoordinates: { ...event.endCoordinates, height: 0 } }),
-    );
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      setKbHeight(0);
+      if (reduced) {
+        kbLift.value = 0;
+      } else {
+        kbLift.value = withTiming(0, {
+          duration: 210,
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
+        });
+      }
+    });
     return () => {
       show.remove();
       hide.remove();
@@ -229,12 +252,26 @@ export function Sheet({
 
   if (!rendered) return null;
 
+  const wideSheet = windowWidth >= 700 && maxHeightRatio < 0.98;
+  const sheetWidth = wideSheet
+    ? Math.min(METRICS.sheetMax, windowWidth - insets.left - insets.right - space(8))
+    : undefined;
+  const availableHeight = Math.max(
+    180,
+    windowHeight - (avoidKeyboard ? kbHeight : 0) - insets.top - space(3),
+  );
+  const computedMaxHeight = Math.min(
+    Math.round(windowHeight * maxHeightRatio),
+    availableHeight,
+  );
+
   return (
     <Modal
       transparent
       visible
       statusBarTranslucent
       navigationBarTranslucent
+      supportedOrientations={[...SUPPORTED_MODAL_ORIENTATIONS]}
       animationType="none"
       onRequestClose={onClose}
     >
@@ -250,7 +287,10 @@ export function Sheet({
           />
         </GestureDetector>
 
-        <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, liftStyle]}>
+        <Animated.View
+          pointerEvents="box-none"
+          style={[StyleSheet.absoluteFill, styles.liftLayer, liftStyle]}
+        >
           <Animated.View
             pointerEvents={interactive ? "auto" : "none"}
             onLayout={(event) => {
@@ -259,11 +299,24 @@ export function Sheet({
             }}
             style={[
               styles.content,
+              wideSheet
+                ? {
+                    width: sheetWidth,
+                    borderRadius: radius.card + 4,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: th.hairlineStrong,
+                    marginBottom: Math.max(insets.bottom, space(3)),
+                  }
+                : {
+                    width: "100%",
+                    paddingLeft: insets.left,
+                    paddingRight: insets.right,
+                    paddingBottom: insets.bottom,
+                    borderTopColor: th.hairlineStrong,
+                  },
               {
-                maxHeight: `${Math.round(maxHeightRatio * 100)}%`,
+                maxHeight: computedMaxHeight,
                 backgroundColor: th.card,
-                borderTopColor: th.hairlineStrong,
-                paddingBottom: insets.bottom,
                 ...th.elevation.menu,
               },
               contentStyle,
@@ -271,7 +324,11 @@ export function Sheet({
           >
             {handleEnabled ? (
               <GestureDetector gesture={dragGesture}>
-                <View style={styles.handleZone} accessible accessibilityLabel="向下拖动关闭">
+                <View
+                  style={styles.handleZone}
+                  accessible
+                  accessibilityLabel={pick("向下拖动关闭", "Drag down to close")}
+                >
                   <View style={[styles.handlePill, { backgroundColor: th.inkGhost }]} />
                 </View>
               </GestureDetector>
@@ -292,11 +349,11 @@ export function Sheet({
 }
 
 const styles = StyleSheet.create({
+  liftLayer: {
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
   content: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     borderTopLeftRadius: radius.card + 4,
     borderTopRightRadius: radius.card + 4,
     borderTopWidth: StyleSheet.hairlineWidth,

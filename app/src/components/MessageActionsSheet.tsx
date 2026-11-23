@@ -19,6 +19,7 @@ import {
   MESSAGE_POPUP_PINNED_COUNT,
   MESSAGE_SHEET_SEARCH_THRESHOLD,
 } from "../composer/messageMenu";
+import { useI18n } from "../i18n";
 import { PressableScale } from "../motion/PressableScale";
 import { radius, space, text, useNibiTheme } from "../theme";
 import { Icon, type IconName } from "./Icon";
@@ -40,6 +41,7 @@ export function MessageActionsSheet({
   onClose: () => void;
 }) {
   const th = useNibiTheme();
+  const { pick, locale } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
   // 退场动画期间保持最近一份非空列表，防止关闭瞬间内容闪白。
@@ -57,15 +59,25 @@ export function MessageActionsSheet({
   const showSearch = shownItems.length >= MESSAGE_SHEET_SEARCH_THRESHOLD;
   const groups = useMemo(
     () => groupMessageMenuItems(shownItems, pluginNames, query),
-    [shownItems, pluginNames, query],
+    // locale 变化时重新计算，保证分组标题与排序随语言实时刷新。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shownItems, pluginNames, query, locale],
   );
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="消息插件动作" avoidKeyboard>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title={pick("消息插件动作", "Message plugin actions")}
+      avoidKeyboard
+    >
       <View style={styles.body}>
         <View style={styles.metaRow}>
           <Text style={[styles.metaText, { color: th.inkFaint }]}>
-            共 {shownItems.length} 项 · 排在前 {MESSAGE_POPUP_PINNED_COUNT} 位常驻长按浮层
+            {pick(
+              `共 ${shownItems.length} 项 · 排在前 ${MESSAGE_POPUP_PINNED_COUNT} 位常驻长按浮层`,
+              `${shownItems.length} total · top ${MESSAGE_POPUP_PINNED_COUNT} pinned in menu`,
+            )}
           </Text>
           <PressableScale
             onPress={() => {
@@ -75,14 +87,16 @@ export function MessageActionsSheet({
             }}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel="自定义长按消息动作"
+            accessibilityLabel={pick("自定义长按消息动作", "Customize message actions")}
             style={[
               styles.manageBtn,
               { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
             ]}
           >
             <Icon name="gear" size={12} color={th.inkSub} />
-            <Text style={[styles.manageText, { color: th.inkSub }]}>自定义</Text>
+            <Text style={[styles.manageText, { color: th.inkSub }]}>
+              {pick("自定义", "Customize")}
+            </Text>
           </PressableScale>
         </View>
 
@@ -98,7 +112,7 @@ export function MessageActionsSheet({
               ref={inputRef}
               value={query}
               onChangeText={setQuery}
-              placeholder="搜索动作名称或插件…"
+              placeholder={pick("搜索动作名称或插件…", "Search actions or plugins…")}
               placeholderTextColor={th.inkGhost}
               autoCapitalize="none"
               autoCorrect={false}
@@ -110,7 +124,7 @@ export function MessageActionsSheet({
                 onPress={() => setQuery("")}
                 hitSlop={8}
                 accessibilityRole="button"
-                accessibilityLabel="清空筛选"
+                accessibilityLabel={pick("清空筛选", "Clear filter")}
               >
                 <Icon name="x" size={14} color={th.inkFaint} />
               </PressableScale>
@@ -126,7 +140,10 @@ export function MessageActionsSheet({
         >
           {groups.length === 0 ? (
             <Text style={[styles.emptyText, { color: th.inkFaint }]}>
-              没有匹配「{query.trim()}」的消息动作
+              {pick(
+                `没有匹配「${query.trim()}」的消息动作`,
+                `No message actions matching "${query.trim()}"`,
+              )}
             </Text>
           ) : (
             groups.map((group) => (
@@ -193,6 +210,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space(4),
     paddingBottom: space(2),
     gap: space(2),
+    flexShrink: 1,
   },
   metaRow: {
     flexDirection: "row",

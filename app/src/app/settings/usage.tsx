@@ -5,7 +5,7 @@
 // 范围切换即重拉，重进页面（useFocusEffect）也重拉；失败给一行 amber 提示，重进即重试。
 
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
@@ -26,15 +26,11 @@ import { SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
 import { friendlyToolName } from "../../conversation/toolLabels";
+import { useI18n } from "../../i18n";
 import { currentKernelClient } from "../../kernel/kernelRegistry";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { radius, space, text, useNibiTheme } from "../../theme";
-
-const RANGES: readonly SegmentedOption<KernelUsageRange>[] = [
-  { value: "all", label: "全部" },
-  { value: "7d", label: "近 7 天" },
-  { value: "30d", label: "近 30 天" },
-];
 
 /** >=1000 显示 12.3k（与 ConversationList 的 formatTokens 同一条口径）。 */
 function formatTokens(tokens: number): string {
@@ -44,7 +40,21 @@ function formatTokens(tokens: number): string {
 
 export default function UsageScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
+  const ranges = useMemo<readonly SegmentedOption<KernelUsageRange>[]>(
+    () => [
+      { value: "all", label: pick("全部", "All") },
+      { value: "7d", label: pick("近 7 天", "Last 7d") },
+      { value: "30d", label: pick("近 30 天", "Last 30d") },
+    ],
+    [pick],
+  );
   const [range, setRange] = useState<KernelUsageRange>("all");
   const [stats, setStats] = useState<KernelUsageStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,7 +67,12 @@ export default function UsageScreen() {
   const load = useCallback(async (target: KernelUsageRange) => {
     const client = currentKernelClient();
     if (!client) {
-      setError("内核还没就绪：先回首页，再回来看用量。");
+      setError(
+        pick(
+          "内核还没就绪：先回首页，再回来看用量。",
+          "Kernel isn't ready yet: visit the home screen first, then check usage.",
+        ),
+      );
       setStats(null);
       return;
     }
@@ -71,11 +86,14 @@ export default function UsageScreen() {
     } catch (cause) {
       if (seq !== loadSeq.current) return;
       setStats(null);
-      setError(`用量统计读取失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      setError(
+        pick("用量统计读取失败：", "Failed to load usage stats: ") +
+          (cause instanceof Error ? cause.message : String(cause)),
+      );
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, []);
+  }, [pick]);
 
   useFocusEffect(
     useCallback(() => {
@@ -119,15 +137,15 @@ export default function UsageScreen() {
         pointerEvents="none"
       />
       <ScreenHeader
-        title="使用统计"
+        title={pick("使用统计", "Usage")}
         onBack={() => router.back()}
         right={loading ? <ActivityIndicator color={th.brand} size="small" /> : undefined}
       />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+      <ScrollView contentContainerStyle={bodyStyle}>
         {/* 范围切换：复用弹簧滑块分段控件，加载指示挪进顶栏右槽避免列表跳动。 */}
         <AppearIn delay={staggerDelay(0, 32, 240)}>
-          <SegmentedControl options={RANGES} value={range} onChange={switchRange} />
+          <SegmentedControl options={ranges} value={range} onChange={switchRange} />
         </AppearIn>
 
         {error ? (
@@ -141,53 +159,71 @@ export default function UsageScreen() {
         {stats ? (
           <View style={[styles.statsGroup, loading ? styles.statsDim : null]}>
             <AppearIn delay={staggerDelay(2, 32, 240)}>
-              <SectionCard label="总览">
+              <SectionCard label={pick("总览", "Overview")}>
                 <View style={styles.cardBody}>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>总 tokens</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("总 tokens", "Total tokens")}
+                    </Text>
                     <Text style={[styles.bigValue, { color: th.ink }]}>
                       {formatTokens(summary?.totalTokens ?? 0)}
                     </Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>输入</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("输入", "Input")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>
                       {formatTokens(summary?.inputTokens ?? 0)}
                     </Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>输出</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("输出", "Output")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>
                       {formatTokens(summary?.outputTokens ?? 0)}
                     </Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>缓存读</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("缓存读", "Cache read")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>
                       {formatTokens(summary?.cacheReadTokens ?? 0)}
                     </Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>模型请求</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("模型请求", "Model requests")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>{modelRequests}</Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>回合</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("回合", "Turns")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>{summary?.totalTurns ?? 0}</Text>
                   </View>
                   <View style={styles.kv}>
-                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>会话</Text>
+                    <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                      {pick("会话", "Sessions")}
+                    </Text>
                     <Text style={[styles.kvValue, { color: th.ink }]}>{summary?.totalSessions ?? 0}</Text>
                   </View>
                   {errors > 0 ? (
                     <View style={styles.kv}>
-                      <Text style={[styles.kvKey, { color: th.inkFaint }]}>错误</Text>
+                      <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                        {pick("错误", "Errors")}
+                      </Text>
                       <Text style={[styles.kvValue, { color: th.amber }]}>{errors}</Text>
                     </View>
                   ) : null}
                   {toolCalls > 0 ? (
                     <View style={styles.kv}>
-                      <Text style={[styles.kvKey, { color: th.inkFaint }]}>工具调用</Text>
+                      <Text style={[styles.kvKey, { color: th.inkFaint }]}>
+                        {pick("工具调用", "Tool calls")}
+                      </Text>
                       <Text style={[styles.kvValue, { color: th.ink }]}>{toolCalls}</Text>
                     </View>
                   ) : null}
@@ -196,16 +232,18 @@ export default function UsageScreen() {
             </AppearIn>
 
             <AppearIn delay={staggerDelay(3, 32, 240)}>
-              <SectionCard label="模型占比">
+              <SectionCard label={pick("模型占比", "Models")}>
                 <View style={styles.cardBody}>
                   {models.length === 0 ? (
-                    <Text style={[styles.detail, { color: th.inkFaint }]}>暂无数据</Text>
+                    <Text style={[styles.detail, { color: th.inkFaint }]}>
+                      {pick("暂无数据", "No data yet")}
+                    </Text>
                   ) : (
                     models.map((row, index) => (
                       <View key={`${row.modelId ?? "?"}-${index}`} style={styles.barRow}>
                         <View style={styles.barHead}>
                           <Text numberOfLines={1} style={[styles.barLabel, { color: th.inkSub }]}>
-                            {row.modelId ?? "未知模型"}
+                            {row.modelId ?? pick("未知模型", "Unknown model")}
                           </Text>
                           <Text style={[styles.barValue, { color: th.ink }]}>
                             {formatTokens(row.totalTokens)}
@@ -230,10 +268,12 @@ export default function UsageScreen() {
             </AppearIn>
 
             <AppearIn delay={staggerDelay(4, 32, 240)}>
-              <SectionCard label="每日趋势">
+              <SectionCard label={pick("每日趋势", "Daily trend")}>
                 <View style={styles.cardBody}>
                   {trendDays.length === 0 ? (
-                    <Text style={[styles.detail, { color: th.inkFaint }]}>暂无数据</Text>
+                    <Text style={[styles.detail, { color: th.inkFaint }]}>
+                      {pick("暂无数据", "No data yet")}
+                    </Text>
                   ) : (
                     trendDays.map((day) => (
                       <View key={day.date} style={styles.barRow}>
@@ -264,10 +304,12 @@ export default function UsageScreen() {
             </AppearIn>
 
             <AppearIn delay={staggerDelay(5, 32, 240)}>
-              <SectionCard label="工具调用">
+              <SectionCard label={pick("工具调用", "Tool calls")}>
                 <View style={styles.cardBody}>
                   {(stats.tools ?? []).length === 0 ? (
-                    <Text style={[styles.detail, { color: th.inkFaint }]}>暂无数据</Text>
+                    <Text style={[styles.detail, { color: th.inkFaint }]}>
+                      {pick("暂无数据", "No data yet")}
+                    </Text>
                   ) : (
                     stats.tools.slice(0, 8).map((tool) => (
                       <View key={tool.toolName} style={styles.kv}>
@@ -276,7 +318,9 @@ export default function UsageScreen() {
                         </Text>
                         <Text style={[styles.kvValue, { color: th.ink }]}>
                           {tool.callCount}
-                          {tool.errorCount > 0 ? ` · 错 ${tool.errorCount}` : ""}
+                          {tool.errorCount > 0
+                            ? pick(` · 错 ${tool.errorCount}`, ` · ${tool.errorCount} err`)
+                            : ""}
                           {tool.avgDurationMs !== null
                             ? ` · ${Math.round(tool.avgDurationMs)}ms`
                             : ""}

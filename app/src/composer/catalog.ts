@@ -4,6 +4,13 @@
 // 避免设置页与 COMPOSE 各自维护一套动作导致语义漂移。
 
 import type { IconName } from "../components/Icon";
+import { pickText } from "../i18n";
+import {
+  pluginActionTitle,
+  pluginDisplayName,
+  pluginSkillDescription,
+  pluginSkillName,
+} from "../plugins/builtinI18n";
 import type { LoadedPlugin } from "../plugins/store";
 
 export type ComposerGroup =
@@ -69,84 +76,87 @@ function skillIdentity(skill: SkillCatalogEntry): string {
 export const PLUS_GROUPS: ReadonlyArray<{
   group: Exclude<ComposerGroup, "message">;
   title: string;
+  titleEn: string;
 }> = [
-  { group: "attachment", title: "添加附件" },
-  { group: "native-command", title: "NIBI 命令" },
-  { group: "plugin-command", title: "插件命令" },
-  { group: "plugin", title: "插件" },
-  { group: "skill", title: "技能" },
+  { group: "attachment", title: "添加附件", titleEn: "Attachments" },
+  { group: "native-command", title: "NIBI 命令", titleEn: "NIBI commands" },
+  { group: "plugin-command", title: "插件命令", titleEn: "Plugin commands" },
+  { group: "plugin", title: "插件", titleEn: "Plugins" },
+  { group: "skill", title: "技能", titleEn: "Skills" },
 ];
 
-const NATIVE_COMMANDS: ReadonlyArray<ComposerCatalogItem> = [
-  {
-    id: "native:compact",
-    group: "native-command",
-    source: "nibi",
-    title: "压缩",
-    detail: "压缩当前对话的上下文",
-    icon: "archive",
-    token: { kind: "command", value: "compact" },
-  },
-  {
-    id: "native:goal",
-    group: "native-command",
-    source: "nibi",
-    title: "目标",
-    detail: "查看或设定本次目标",
-    icon: "shield",
-    token: { kind: "command", value: "goal" },
-  },
-  {
-    id: "native:plan",
-    group: "native-command",
-    source: "nibi",
-    title: "计划模式",
-    detail: "先出计划再执行",
-    icon: "doc",
-    token: { kind: "mode", value: "plan" },
-  },
-  {
-    id: "native:build",
-    group: "native-command",
-    source: "nibi",
-    title: "退出计划",
-    detail: "关闭计划模式",
-    icon: "pen",
-    token: { kind: "mode", value: "build" },
-  },
-  {
-    id: "native:init",
-    group: "native-command",
-    source: "nibi",
-    title: "初始化",
-    detail: "创建或更新工作区说明",
-    icon: "sparkles",
-    token: { kind: "command", value: "init" },
-  },
-  // 工作流暂不列出：内核的 DWF 引擎与 dynamic-workflows 技能都没打进 Android 包，
-  // 选中只会得到一段无法执行的提示词（假可用比缺功能更糟）。
-];
+function nativeCommands(): ComposerCatalogItem[] {
+  return [
+    {
+      id: "native:compact",
+      group: "native-command",
+      source: "nibi",
+      title: pickText("压缩", "Compact"),
+      detail: pickText("压缩当前对话的上下文", "Compact context for this chat"),
+      icon: "archive",
+      token: { kind: "command", value: "compact" },
+    },
+    {
+      id: "native:goal",
+      group: "native-command",
+      source: "nibi",
+      title: pickText("目标", "Goal"),
+      detail: pickText("查看或设定本次目标", "View or set the current goal"),
+      icon: "shield",
+      token: { kind: "command", value: "goal" },
+    },
+    {
+      id: "native:plan",
+      group: "native-command",
+      source: "nibi",
+      title: pickText("计划模式", "Plan mode"),
+      detail: pickText("先出计划再执行", "Draft a plan before acting"),
+      icon: "doc",
+      token: { kind: "mode", value: "plan" },
+    },
+    {
+      id: "native:build",
+      group: "native-command",
+      source: "nibi",
+      title: pickText("退出计划", "Exit plan"),
+      detail: pickText("关闭计划模式", "Turn off Plan mode"),
+      icon: "pen",
+      token: { kind: "mode", value: "build" },
+    },
+    {
+      id: "native:init",
+      group: "native-command",
+      source: "nibi",
+      title: pickText("初始化", "Init"),
+      detail: pickText("创建或更新工作区说明", "Create or update workspace instructions"),
+      icon: "sparkles",
+      token: { kind: "command", value: "init" },
+    },
+  ];
+}
 
-const ATTACHMENTS: ReadonlyArray<ComposerCatalogItem> = [
-  {
-    id: "attachment:image",
-    group: "attachment",
-    source: "nibi",
-    title: "图片",
-    detail: "从相册选择图片",
-    icon: "image",
-    token: { kind: "attachment", value: "image" },
-  },
-  {
-    id: "attachment:file",
-    group: "attachment",
-    source: "nibi",
-    title: "文件",
-    detail: "选择任意文件",
-    icon: "doc",
-    token: { kind: "attachment", value: "file" },
-  },
-];
+function attachments(): ComposerCatalogItem[] {
+  return [
+    {
+      id: "attachment:image",
+      group: "attachment",
+      source: "nibi",
+      title: pickText("图片", "Image"),
+      detail: pickText("从相册选择图片", "Choose from photo library"),
+      icon: "image",
+      token: { kind: "attachment", value: "image" },
+    },
+    {
+      id: "attachment:file",
+      group: "attachment",
+      source: "nibi",
+      title: pickText("文件", "File"),
+      detail: pickText("选择任意文件", "Choose any file"),
+      icon: "doc",
+      token: { kind: "attachment", value: "file" },
+    },
+  ];
+}
 
 function pluginSource(plugin: LoadedPlugin): ComposerSource {
   return plugin.bundled ? "nibi" : "plugin";
@@ -154,6 +164,7 @@ function pluginSource(plugin: LoadedPlugin): ComposerSource {
 
 function pluginCommands(plugin: LoadedPlugin): ComposerCatalogItem[] {
   const manifest = plugin.parsed.manifest;
+  const displayName = pluginDisplayName(manifest.id, manifest.name);
   const actions = [
     ...manifest.contributes.composerActions,
     ...manifest.contributes.composerTools,
@@ -165,8 +176,8 @@ function pluginCommands(plugin: LoadedPlugin): ComposerCatalogItem[] {
         id: `plugin-command:${manifest.id}:${action.id}`,
         group: "plugin-command" as const,
         source: pluginSource(plugin),
-        title: action.title,
-        detail: manifest.name,
+        title: pluginActionTitle(manifest.id, action.id, action.title),
+        detail: displayName,
         icon: (action.icon as IconName | undefined) ?? "sparkles",
         ...(manifest.accent ? { accent: manifest.accent } : {}),
         pluginId: manifest.id,
@@ -185,8 +196,8 @@ function pluginCards(plugin: LoadedPlugin): ComposerCatalogItem[] {
       id: `plugin:${manifest.id}`,
       group: "plugin",
       source: pluginSource(plugin),
-      title: manifest.name,
-      detail: plugin.bundled ? "NIBI 插件" : "用户插件",
+      title: pluginDisplayName(manifest.id, manifest.name),
+      detail: plugin.bundled ? pickText("NIBI 插件", "NIBI plugin") : pickText("用户插件", "User plugin"),
       icon: icon ?? "puzzle",
       ...(manifest.accent ? { accent: manifest.accent } : {}),
       pluginId: manifest.id,
@@ -198,6 +209,7 @@ function pluginCards(plugin: LoadedPlugin): ComposerCatalogItem[] {
 
 function messageActions(plugin: LoadedPlugin): ComposerCatalogItem[] {
   const manifest = plugin.parsed.manifest;
+  const displayName = pluginDisplayName(manifest.id, manifest.name);
   return manifest.contributes.messageActions.flatMap((action) => {
     if (!action.command) return [];
     return [
@@ -205,12 +217,12 @@ function messageActions(plugin: LoadedPlugin): ComposerCatalogItem[] {
         id: `message:${manifest.id}:${action.id}`,
         group: "message" as const,
         source: pluginSource(plugin),
-        title: action.title,
-        detail: `${manifest.name} · 引用这条消息`,
+        title: pluginActionTitle(manifest.id, action.id, action.title),
+        detail: `${displayName} · ${pickText("引用这条消息", "Quote this message")}`,
         icon: "sparkles" as const,
         ...(manifest.accent ? { accent: manifest.accent } : {}),
         pluginId: manifest.id,
-        pluginName: manifest.name,
+        pluginName: displayName,
         bundled: plugin.bundled,
         token: { kind: "command" as const, value: action.command },
       },
@@ -229,8 +241,10 @@ function skillItems(skills: readonly SkillCatalogEntry[]): ComposerCatalogItem[]
         id: `skill:${skill.id}`,
         group: "skill" as const,
         source: plugin ? ("plugin" as const) : ("nibi" as const),
-        title: skill.title ?? bare,
-        detail: skill.pluginName ? `插件 · ${skill.pluginName}` : "本机技能",
+        title: pluginSkillName(skill.pluginName, bare, skill.title ?? bare),
+        detail: skill.pluginName
+          ? `${pickText("插件", "Plugin")} · ${pluginDisplayName(skill.pluginName, skill.pluginName)}`
+          : pickText("本机技能", "Local skill"),
         icon: "doc" as const,
         ...(skill.pluginName ? { pluginId: skill.pluginName } : {}),
         token: { kind: "skill" as const, value },
@@ -250,8 +264,8 @@ export function pluginManifestSkills(
       return (manifest.skills ?? []).map((skill) => ({
         id: `plugin-manifest:${manifest.id}:${skill.id}`,
         name: skill.id,
-        title: skill.name ?? skill.id,
-        description: skill.description,
+        title: pluginSkillName(manifest.id, skill.id, skill.name ?? skill.id),
+        description: pluginSkillDescription(manifest.id, skill.id, skill.description),
         scope: "plugin" as const,
         pluginName: manifest.id,
         enabled: true,
@@ -286,8 +300,8 @@ export function buildComposerCatalog(
 ): ComposerCatalogItem[] {
   const enabled = plugins.filter((plugin) => plugin.enabled && plugin.parsed.slotsAvailable);
   return [
-    ...ATTACHMENTS,
-    ...NATIVE_COMMANDS,
+    ...attachments(),
+    ...nativeCommands(),
     ...enabled.flatMap(pluginCommands),
     ...enabled.flatMap(pluginCards),
     ...skillItems(skills),

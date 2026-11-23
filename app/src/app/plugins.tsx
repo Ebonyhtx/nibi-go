@@ -24,6 +24,14 @@ import { MenuRow } from "../components/ui/MenuRow";
 import { Row } from "../components/ui/Row";
 import { Divider, SectionCard } from "../components/ui/SectionCard";
 import { ScreenHeader } from "../components/ui/ScreenHeader";
+import { pickText, useI18n } from "../i18n";
+import { useResponsiveBodyStyle } from "../layout/responsive";
+import {
+  pluginActionTitle,
+  pluginDisplayDescription,
+  pluginDisplayName,
+  pluginSkillName,
+} from "../plugins/builtinI18n";
 import { uninstallMarketPlugin } from "../plugins/installer";
 import { missingEnvVarNames, validatePluginEnvName } from "../plugins/npmRegistry";
 import { usePlugins } from "../plugins/usePlugins";
@@ -33,16 +41,24 @@ import { PressableScale } from "../motion/PressableScale";
 import { radius, space, text, useNibiTheme } from "../theme";
 
 function statusOf(plugin: LoadedPlugin): { label: string; tone: "ok" | "warn" | "danger" | "muted" } {
-  if (plugin.parsed.status === "invalid") return { label: "清单有误", tone: "danger" };
-  if (plugin.parsed.status === "incompatible") return { label: "不兼容", tone: "warn" };
-  if (plugin.licenseBlocked) return { label: "待授权", tone: "warn" };
-  if (!plugin.parsed.slotsAvailable) return { label: "已降级", tone: "warn" };
-  if (!plugin.enabled) return { label: "已停用", tone: "muted" };
-  return { label: "可用", tone: "ok" };
+  if (plugin.parsed.status === "invalid") {
+    return { label: pickText("清单有误", "Invalid manifest"), tone: "danger" };
+  }
+  if (plugin.parsed.status === "incompatible") {
+    return { label: pickText("不兼容", "Incompatible"), tone: "warn" };
+  }
+  if (plugin.licenseBlocked) {
+    return { label: pickText("待授权", "License needed"), tone: "warn" };
+  }
+  if (!plugin.parsed.slotsAvailable) {
+    return { label: pickText("已降级", "Degraded"), tone: "warn" };
+  }
+  if (!plugin.enabled) return { label: pickText("已停用", "Disabled"), tone: "muted" };
+  return { label: pickText("可用", "Ready"), tone: "ok" };
 }
 
 function sourceBadgeOf(plugin: LoadedPlugin): string {
-  if (plugin.bundled) return "NIBI 内置";
+  if (plugin.bundled) return pickText("NIBI 内置", "Built-in");
   if (plugin.sourceMeta?.kind === "npm") {
     const pkg = plugin.sourceMeta.npmPackage?.trim();
     const title = plugin.parsed.manifest.name.trim();
@@ -52,9 +68,9 @@ function sourceBadgeOf(plugin: LoadedPlugin): string {
     }
     return "npm MCP";
   }
-  if (plugin.sourceMeta?.kind === "standard") return "标准插件";
-  if (plugin.sourceMeta?.kind === "skill-bundle") return "技能包";
-  return "已安装";
+  if (plugin.sourceMeta?.kind === "standard") return pickText("标准插件", "Standard plugin");
+  if (plugin.sourceMeta?.kind === "skill-bundle") return pickText("技能包", "Skill pack");
+  return pickText("已安装", "Installed");
 }
 
 function PluginCard({
@@ -73,6 +89,7 @@ function PluginCard({
   onRequestUninstall?: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const manifest = plugin.parsed.manifest;
   // 开关用本地状态先行，避免父级异步 reload 把 Switch 拉回旧值造成闪烁。
   const [enabled, setEnabled] = useState(plugin.enabled);
@@ -176,6 +193,8 @@ function PluginCard({
     return filled.size;
   }, [isMcp, envMap, values, customEnv]);
 
+  const displayName = pluginDisplayName(manifest.id, manifest.name);
+  const displayDescription = pluginDisplayDescription(manifest.id, manifest.description);
   const commands: Array<{ key: string; title: string; name: string }> = [];
   const commandNames = new Set<string>();
   const addCommand = (key: string, title: string, name: string) => {
@@ -184,13 +203,31 @@ function PluginCard({
     commands.push({ key, title: title.trim() || name, name });
   };
   for (const action of manifest.contributes.composerActions) {
-    if (action.token?.kind === "command") addCommand(`a:${action.id}`, action.title, action.token.value);
+    if (action.token?.kind === "command") {
+      addCommand(
+        `a:${action.id}`,
+        pluginActionTitle(manifest.id, action.id, action.title),
+        action.token.value,
+      );
+    }
   }
   for (const action of manifest.contributes.composerTools) {
-    if (action.token?.kind === "command") addCommand(`t:${action.id}`, action.title, action.token.value);
+    if (action.token?.kind === "command") {
+      addCommand(
+        `t:${action.id}`,
+        pluginActionTitle(manifest.id, action.id, action.title),
+        action.token.value,
+      );
+    }
   }
   for (const action of manifest.contributes.messageActions) {
-    if (action.command) addCommand(`m:${action.id}`, action.title, action.command);
+    if (action.command) {
+      addCommand(
+        `m:${action.id}`,
+        pluginActionTitle(manifest.id, action.id, action.title),
+        action.command,
+      );
+    }
   }
   const skills = manifest.skills ?? [];
   const hasDetails = isMcp || settings.length > 0 || commands.length > 0 || skills.length > 0;
@@ -216,7 +253,11 @@ function PluginCard({
       if (isMcp) {
         const suffix = label ? ` ${label}` : "";
         const empty = typeof value === "string" && value.trim().length === 0;
-        setSaveNotice(empty ? `已清空${suffix}，新开会话生效` : `已保存${suffix}，新开会话生效`);
+        setSaveNotice(
+          empty
+            ? pick(`已清空${suffix}，新开会话生效`, `Cleared${suffix}; applies to new sessions`)
+            : pick(`已保存${suffix}，新开会话生效`, `Saved${suffix}; applies to new sessions`),
+        );
       }
     } catch (error) {
       setEnvError(error instanceof Error ? error.message : String(error));
@@ -251,7 +292,9 @@ function PluginCard({
     try {
       await onSetEnv(name, trimmed);
       setSaveNotice(
-        trimmed.length > 0 ? `已保存 ${name}，新开会话生效` : `已清空 ${name}，新开会话生效`,
+        trimmed.length > 0
+          ? pick(`已保存 ${name}，新开会话生效`, `Saved ${name}; applies to new sessions`)
+          : pick(`已清空 ${name}，新开会话生效`, `Cleared ${name}; applies to new sessions`),
       );
     } catch (error) {
       setEnvError(error instanceof Error ? error.message : String(error));
@@ -272,7 +315,9 @@ function PluginCard({
     });
     try {
       await onDeleteEnv(name);
-      setSaveNotice(`已删除 ${name}，新开会话生效`);
+      setSaveNotice(
+        pick(`已删除 ${name}，新开会话生效`, `Removed ${name}; applies to new sessions`),
+      );
     } catch (error) {
       setEnvError(error instanceof Error ? error.message : String(error));
     }
@@ -286,7 +331,7 @@ function PluginCard({
     }
     const trimmedValue = newEnvValue.trim();
     if (!trimmedValue) {
-      setEnvError(`请输入 ${validated.name} 的值`);
+      setEnvError(pick(`请输入 ${validated.name} 的值`, `Enter a value for ${validated.name}`));
       return;
     }
     Keyboard.dismiss();
@@ -296,12 +341,14 @@ function PluginCard({
     setAddingEnv(false);
   };
 
-  const detailsTitle = isMcp ? "环境变量与设置" : "设置与命令";
+  const detailsTitle = isMcp
+    ? pick("环境变量与设置", "Environment & settings")
+    : pick("设置与命令", "Settings & commands");
 
   return (
     <SectionCard>
       <Row
-        title={manifest.name}
+        title={displayName}
         detail={`v${manifest.version} · ${sourceBadgeOf(plugin)}`}
         right={
           <View style={styles.headRight}>
@@ -317,21 +364,21 @@ function PluginCard({
               }}
               trackColor={{ true: t.brand, false: t.hairline }}
               thumbColor={enabled ? t.brandFg : undefined}
-              accessibilityLabel={`启用 ${manifest.name}`}
+              accessibilityLabel={pick(`启用 ${displayName}`, `Enable ${displayName}`)}
             />
           </View>
         }
       />
 
       <View style={styles.cardBody}>
-        {manifest.description ? (
-          <Text style={[styles.description, { color: t.inkSub }]}>{manifest.description}</Text>
+        {displayDescription ? (
+          <Text style={[styles.description, { color: t.inkSub }]}>{displayDescription}</Text>
         ) : null}
 
         {plugin.parsed.degraded.length > 0 ? (
           <View style={styles.chips}>
             <View style={[styles.chip, { backgroundColor: t.amberSoft }]}>
-              <Text style={[styles.chipText, { color: t.amber }]}>已降级</Text>
+              <Text style={[styles.chipText, { color: t.amber }]}>{pick("已降级", "Degraded")}</Text>
             </View>
           </View>
         ) : null}
@@ -343,7 +390,10 @@ function PluginCard({
         {plugin.parsed.issues.length > 0 ? (
           <View style={styles.issues}>
             <Text style={[styles.issueTitle, { color: t.amber }]}>
-              {plugin.parsed.issues.length} 项有误（可用部分仍生效）
+              {pick(
+                `${plugin.parsed.issues.length} 项有误（可用部分仍生效）`,
+                `${plugin.parsed.issues.length} issues (working parts remain active)`,
+              )}
             </Text>
             {plugin.parsed.issues.slice(0, 3).map((issue, index) => (
               <Text key={index} style={[styles.issue, { color: t.inkFaint }]} numberOfLines={2}>
@@ -358,7 +408,7 @@ function PluginCard({
         <>
           <Divider />
           <View style={styles.entryGroup}>
-            <Text style={[styles.entryLabel, { color: t.inkFaint }]}>面板</Text>
+            <Text style={[styles.entryLabel, { color: t.inkFaint }]}>{pick("面板", "Panels")}</Text>
             {panels.map((panel) => {
               const degraded = plugin.parsed.degraded.includes(`panels:${panel.id}`);
               return (
@@ -378,7 +428,9 @@ function PluginCard({
                   right={
                     degraded ? (
                       <View style={styles.entryRight}>
-                        <Text style={[styles.panelDegraded, { color: t.amber }]}>已降级</Text>
+                        <Text style={[styles.panelDegraded, { color: t.amber }]}>
+                          {pick("已降级", "Degraded")}
+                        </Text>
                         <Icon name="chevron-right" size={13} color={t.inkGhost} />
                       </View>
                     ) : undefined
@@ -394,14 +446,14 @@ function PluginCard({
         <>
           <Divider />
           <View style={styles.entryGroup}>
-            <Text style={[styles.entryLabel, { color: t.inkFaint }]}>网页</Text>
+            <Text style={[styles.entryLabel, { color: t.inkFaint }]}>{pick("网页", "Web views")}</Text>
             {webIslands.map((island) => (
               <MenuRow
                 key={island.id}
                 icon="globe"
                 tone="steel"
                 label={island.title}
-                detail="内置网页"
+                detail={pick("内置网页", "Built-in web view")}
                 disabled={!canEnable}
                 onPress={() =>
                   router.push({
@@ -422,7 +474,10 @@ function PluginCard({
             <PressableScale
               onPress={() => setShowDetails((current) => !current)}
               accessibilityRole="button"
-              accessibilityLabel={`${showDetails ? "收起" : "展开"} ${manifest.name} 的${detailsTitle}`}
+              accessibilityLabel={pick(
+                `${showDetails ? "收起" : "展开"} ${displayName} 的${detailsTitle}`,
+                `${showDetails ? "Collapse" : "Expand"} ${detailsTitle} for ${displayName}`,
+              )}
               style={styles.detailsHead}
             >
               <View style={styles.detailsHeadLeft}>
@@ -430,14 +485,14 @@ function PluginCard({
                 {isMcp && missingEnvs.length > 0 ? (
                   <View style={[styles.envBadge, { backgroundColor: t.amberSoft }]}>
                     <Text style={[styles.envBadgeText, { color: t.amber }]} numberOfLines={1}>
-                      待配 {missingEnvs[0]}
+                      {pick("待配", "Needs")} {missingEnvs[0]}
                       {missingEnvs.length > 1 ? ` +${missingEnvs.length - 1}` : ""}
                     </Text>
                   </View>
                 ) : isMcp && configuredEnvCount > 0 ? (
                   <View style={[styles.envBadge, { backgroundColor: t.okSoft }]}>
                     <Text style={[styles.envBadgeText, { color: t.ok }]}>
-                      已配 {configuredEnvCount} 项
+                      {pick(`已配 ${configuredEnvCount} 项`, `${configuredEnvCount} set`)}
                     </Text>
                   </View>
                 ) : null}
@@ -493,7 +548,7 @@ function PluginCard({
                                 { color: hasValue ? t.ok : t.amber },
                               ]}
                             >
-                              {hasValue ? "已配置" : "待填写"}
+                              {hasValue ? pick("已配置", "Set") : pick("待填写", "Required")}
                             </Text>
                           </View>
                         ) : null}
@@ -609,11 +664,14 @@ function PluginCard({
                                 Keyboard.dismiss();
                               }}
                               accessibilityRole="button"
-                              accessibilityLabel={`保存 ${mappedEnv ?? setting.title}`}
+                              accessibilityLabel={pick(
+                                `保存 ${mappedEnv ?? setting.title}`,
+                                `Save ${mappedEnv ?? setting.title}`,
+                              )}
                               style={[styles.inlineSaveBtn, { backgroundColor: t.brand }]}
                             >
                               <Text style={[styles.inlineSaveText, { color: t.brandFg }]}>
-                                保存
+                                {pick("保存", "Save")}
                               </Text>
                             </PressableScale>
                           ) : mappedEnv && hasValue ? (
@@ -623,7 +681,7 @@ function PluginCard({
                                 void commitSetting(setting.id, "", mappedEnv);
                               }}
                               accessibilityRole="button"
-                              accessibilityLabel={`清空 ${mappedEnv}`}
+                              accessibilityLabel={pick(`清空 ${mappedEnv}`, `Clear ${mappedEnv}`)}
                               hitSlop={6}
                               style={[styles.iconActionBtn, { backgroundColor: t.surfaceSoft }]}
                             >
@@ -640,7 +698,9 @@ function PluginCard({
                   <View style={styles.envSection}>
                     <View style={styles.envSectionHead}>
                       <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>
-                        {Object.keys(envMap ?? {}).length > 0 ? "自定义环境变量" : "环境变量"}
+                        {Object.keys(envMap ?? {}).length > 0
+                          ? pick("自定义环境变量", "Custom env vars")
+                          : pick("环境变量", "Environment variables")}
                       </Text>
                       {!addingEnv ? (
                         <PressableScale
@@ -650,11 +710,16 @@ function PluginCard({
                             setAddingEnv(true);
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel={`为 ${manifest.name} 添加环境变量`}
+                          accessibilityLabel={pick(
+                            `为 ${manifest.name} 添加环境变量`,
+                            `Add env var for ${manifest.name}`,
+                          )}
                           style={[styles.addEnvBtn, { backgroundColor: t.brandSoft }]}
                         >
                           <Icon name="plus" size={12} color={t.brand} />
-                          <Text style={[styles.addEnvText, { color: t.brand }]}>添加变量</Text>
+                          <Text style={[styles.addEnvText, { color: t.brand }]}>
+                            {pick("添加变量", "Add var")}
+                          </Text>
                         </PressableScale>
                       ) : null}
                     </View>
@@ -663,7 +728,10 @@ function PluginCard({
                     !addingEnv &&
                     Object.keys(envMap ?? {}).length === 0 ? (
                       <Text style={[styles.detailsHint, { color: t.inkFaint }]}>
-                        暂未配置环境变量。若该 MCP 需要 API Key / Token，点击右上「添加变量」填入即可。
+                        {pick(
+                          "暂未配置环境变量。若该 MCP 需要 API Key / Token，点击右上「添加变量」填入即可。",
+                          "No environment variables configured. If this MCP needs an API key or token, tap Add var above.",
+                        )}
                       </Text>
                     ) : null}
 
@@ -681,12 +749,14 @@ function PluginCard({
                               <Text style={[styles.settingTitle, { color: t.ink }]}>{name}</Text>
                               {hasSaved ? (
                                 <View style={[styles.miniPill, { backgroundColor: t.okSoft }]}>
-                                  <Text style={[styles.miniPillText, { color: t.ok }]}>已配置</Text>
+                                  <Text style={[styles.miniPillText, { color: t.ok }]}>
+                                    {pick("已配置", "Set")}
+                                  </Text>
                                 </View>
                               ) : detected ? (
                                 <View style={[styles.miniPill, { backgroundColor: t.amberSoft }]}>
                                   <Text style={[styles.miniPillText, { color: t.amber }]}>
-                                    自动探测
+                                    {pick("自动探测", "Detected")}
                                   </Text>
                                 </View>
                               ) : null}
@@ -698,7 +768,7 @@ function PluginCard({
                                   void removeEnv(name);
                                 }}
                                 accessibilityRole="button"
-                                accessibilityLabel={`删除环境变量 ${name}`}
+                                accessibilityLabel={pick(`删除环境变量 ${name}`, `Delete env var ${name}`)}
                                 hitSlop={6}
                                 style={styles.deleteEnvIcon}
                               >
@@ -731,7 +801,7 @@ function PluginCard({
                                   });
                                 }
                               }}
-                              placeholder={`填写 ${name}`}
+                              placeholder={pick(`填写 ${name}`, `Enter ${name}`)}
                               placeholderTextColor={t.inkFaint}
                               autoCapitalize="none"
                               autoCorrect={false}
@@ -755,11 +825,11 @@ function PluginCard({
                                   Keyboard.dismiss();
                                 }}
                                 accessibilityRole="button"
-                                accessibilityLabel={`保存环境变量 ${name}`}
+                                accessibilityLabel={pick(`保存环境变量 ${name}`, `Save env var ${name}`)}
                                 style={[styles.inlineSaveBtn, { backgroundColor: t.brand }]}
                               >
                                 <Text style={[styles.inlineSaveText, { color: t.brandFg }]}>
-                                  保存
+                                  {pick("保存", "Save")}
                                 </Text>
                               </PressableScale>
                             ) : null}
@@ -781,12 +851,12 @@ function PluginCard({
                             setNewEnvName(value.toUpperCase().replace(/[^A-Z0-9_]/gu, ""));
                             setEnvError(null);
                           }}
-                          placeholder="变量名（例如 AMAP_KEY）"
+                          placeholder={pick("变量名（例如 AMAP_KEY）", "Variable name (e.g. API_KEY)")}
                           placeholderTextColor={t.inkFaint}
                           autoCapitalize="characters"
                           autoCorrect={false}
                           maxLength={64}
-                          accessibilityLabel="环境变量名"
+                          accessibilityLabel={pick("环境变量名", "Environment variable name")}
                           style={[
                             styles.settingInput,
                             {
@@ -802,7 +872,7 @@ function PluginCard({
                             setNewEnvValue(value);
                             setEnvError(null);
                           }}
-                          placeholder="变量值（API Key / Token 等）"
+                          placeholder={pick("变量值（API Key / Token 等）", "Value (API key, token, etc.)")}
                           placeholderTextColor={t.inkFaint}
                           autoCapitalize="none"
                           autoCorrect={false}
@@ -810,7 +880,7 @@ function PluginCard({
                           onSubmitEditing={() => {
                             void handleAddEnv();
                           }}
-                          accessibilityLabel="环境变量值"
+                          accessibilityLabel={pick("环境变量值", "Environment variable value")}
                           style={[
                             styles.settingInput,
                             {
@@ -835,7 +905,9 @@ function PluginCard({
                               { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
                             ]}
                           >
-                            <Text style={[styles.addFormBtnText, { color: t.inkSub }]}>取消</Text>
+                            <Text style={[styles.addFormBtnText, { color: t.inkSub }]}>
+                              {pick("取消", "Cancel")}
+                            </Text>
                           </PressableScale>
                           <PressableScale
                             scaleTo={0.96}
@@ -848,7 +920,9 @@ function PluginCard({
                               { backgroundColor: t.brand, borderColor: t.brand },
                             ]}
                           >
-                            <Text style={[styles.addFormBtnText, { color: t.brandFg }]}>保存</Text>
+                            <Text style={[styles.addFormBtnText, { color: t.brandFg }]}>
+                              {pick("保存", "Save")}
+                            </Text>
                           </PressableScale>
                         </View>
                       </View>
@@ -866,14 +940,19 @@ function PluginCard({
                     ) : null}
 
                     <Text style={[styles.detailsHint, { color: t.inkGhost }]}>
-                      环境变量仅注入本插件的 MCP 子进程；修改后请新开会话生效。
+                      {pick(
+                        "环境变量仅注入本插件的 MCP 子进程；修改后请新开会话生效。",
+                        "Variables are only passed to this plugin's MCP subprocess. Start a new chat for changes to apply.",
+                      )}
                     </Text>
                   </View>
                 ) : null}
 
                 {commands.length > 0 ? (
                   <View style={styles.commands}>
-                    <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>命令</Text>
+                    <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>
+                      {pick("命令", "Commands")}
+                    </Text>
                     {commands.map((command) => (
                       <View key={command.key} style={styles.commandRow}>
                         <Text style={[styles.commandTitle, { color: t.inkSub }]} numberOfLines={1}>
@@ -885,18 +964,23 @@ function PluginCard({
                       </View>
                     ))}
                     <Text style={[styles.detailsHint, { color: t.inkGhost }]}>
-                      在对话里输入 /命令名 或从加号菜单触发。
+                      {pick(
+                        "在对话里输入 /命令名 或从加号菜单触发。",
+                        "Type /command in chat or pick it from the + menu.",
+                      )}
                     </Text>
                   </View>
                 ) : null}
 
                 {skills.length > 0 ? (
                   <View style={styles.commands}>
-                    <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>技能</Text>
+                    <Text style={[styles.detailsLabel, { color: t.inkFaint }]}>
+                      {pick("技能", "Skills")}
+                    </Text>
                     {skills.map((skill) => (
                       <View key={skill.id} style={styles.commandRow}>
                         <Text style={[styles.commandTitle, { color: t.inkSub }]} numberOfLines={1}>
-                          {skill.name ?? skill.id}
+                          {pluginSkillName(manifest.id, skill.id, skill.name ?? skill.id)}
                         </Text>
                         <Text style={[styles.commandName, { color: t.inkFaint }]} numberOfLines={1}>
                           {skill.id}
@@ -917,18 +1001,20 @@ function PluginCard({
           <View style={styles.cardFooter}>
             <Text style={[styles.footerMeta, { color: t.inkGhost }]} numberOfLines={1}>
               {isMcp && manifest.runtime
-                ? `MCP 服务 · ${manifest.runtime.serverName}`
-                : "已安装扩展"}
+                ? `${pick("MCP 服务", "MCP server")} · ${manifest.runtime.serverName}`
+                : pick("已安装扩展", "Installed extension")}
             </Text>
             <PressableScale
               scaleTo={0.95}
               onPress={onRequestUninstall}
               accessibilityRole="button"
-              accessibilityLabel={`卸载 ${manifest.name}`}
+              accessibilityLabel={pick(`卸载 ${displayName}`, `Uninstall ${displayName}`)}
               style={[styles.uninstallBtn, { backgroundColor: t.redSoft }]}
             >
               <Icon name="trash" size={12} color={t.red} />
-              <Text style={[styles.uninstallText, { color: t.red }]}>卸载</Text>
+              <Text style={[styles.uninstallText, { color: t.red }]}>
+                {pick("卸载", "Uninstall")}
+              </Text>
             </PressableScale>
           </View>
         </>
@@ -939,7 +1025,13 @@ function PluginCard({
 
 export default function PluginsScreen() {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const plugins = usePlugins();
   const [uninstallTarget, setUninstallTarget] = useState<LoadedPlugin | null>(null);
   const [uninstalling, setUninstalling] = useState(false);
@@ -975,7 +1067,7 @@ export default function PluginsScreen() {
         pointerEvents="none"
       />
       <ScreenHeader
-        title="插件"
+        title={pick("插件", "Plugins")}
         onBack={() => router.back()}
         right={
           // 市场入口带店形图标 + 全名：只写「市场」两个字没人知道是插件市场
@@ -983,17 +1075,19 @@ export default function PluginsScreen() {
           <PressableScale
             onPress={() => router.push("/market")}
             accessibilityRole="button"
-            accessibilityLabel="打开插件市场"
+            accessibilityLabel={pick("打开插件市场", "Open plugin marketplace")}
             style={[styles.marketButton, { backgroundColor: t.brandSoft }]}
           >
             <Icon name="store" size={12} color={t.brand} />
-            <Text style={[styles.marketText, { color: t.brand }]}>插件市场</Text>
+            <Text style={[styles.marketText, { color: t.brand }]}>
+              {pick("插件市场", "Marketplace")}
+            </Text>
           </PressableScale>
         }
       />
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(6) }]}
+        contentContainerStyle={bodyStyle}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
@@ -1001,7 +1095,9 @@ export default function PluginsScreen() {
         {plugins.loading && plugins.plugins.length === 0 ? (
           <View style={styles.loading}>
             <ActivityIndicator color={t.brand} />
-            <Text style={[styles.loadingText, { color: t.inkFaint }]}>读取插件清单…</Text>
+            <Text style={[styles.loadingText, { color: t.inkFaint }]}>
+              {pick("读取插件清单…", "Loading plugin manifests…")}
+            </Text>
           </View>
         ) : null}
 
@@ -1061,7 +1157,10 @@ export default function PluginsScreen() {
           <AppearIn delay={staggerDelay(0, 32, 240)}>
             <View style={[styles.note, { borderColor: t.hairline }]}>
               <Text style={[styles.noteText, { color: t.inkFaint }]}>
-                插件只能显示受限内容，无法更改应用权限。去「插件市场」安装更多插件。
+                {pick(
+                  "插件只能显示受限内容，无法更改应用权限。去「插件市场」安装更多插件。",
+                  "Plugins run with limited UI and cannot change app permissions. Browse the Marketplace to install more.",
+                )}
               </Text>
             </View>
           </AppearIn>
@@ -1071,9 +1170,15 @@ export default function PluginsScreen() {
       <ConfirmDialog
         visible={uninstallTarget !== null}
         danger
-        title={`卸载「${uninstallTarget?.parsed.manifest.name ?? ""}」？`}
-        message="将删除本地插件目录，已保存的环境变量与设置会保留，重新安装后可沿用。"
-        confirmLabel={uninstalling ? "卸载中…" : "卸载"}
+        title={pick(
+          `卸载「${uninstallTarget?.parsed.manifest.name ?? ""}」？`,
+          `Uninstall "${uninstallTarget?.parsed.manifest.name ?? ""}"?`,
+        )}
+        message={pick(
+          "将删除本地插件目录，已保存的环境变量与设置会保留，重新安装后可沿用。",
+          "Removes the local plugin files. Saved environment variables and settings are preserved if you reinstall later.",
+        )}
+        confirmLabel={uninstalling ? pick("卸载中…", "Uninstalling…") : pick("卸载", "Uninstall")}
         onCancel={() => {
           if (!uninstalling) setUninstallTarget(null);
         }}

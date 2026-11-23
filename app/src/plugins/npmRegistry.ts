@@ -7,6 +7,8 @@
 
 import type { NpmEnvSpec } from "@nibi-go/market-index";
 
+import { pickText } from "../i18n";
+
 export type NpmMarketRegion = "cn" | "global";
 
 export const CN_NPM_REGISTRIES = [
@@ -34,7 +36,15 @@ export type ParsedNpmSpec =
 /** 解析用户输入的 npm 包名 / spec / npmjs.com 链接。 */
 export function parseNpmSpec(rawInput: string): ParsedNpmSpec {
   let text = rawInput.trim();
-  if (!text) return { ok: false, reason: "请输入 npm 包名（例如 @modelcontextprotocol/server-sequential-thinking）" };
+  if (!text) {
+    return {
+      ok: false,
+      reason: pickText(
+        "请输入 npm 包名（例如 @modelcontextprotocol/server-sequential-thinking）",
+        "Enter an npm package name (e.g. @modelcontextprotocol/server-sequential-thinking)",
+      ),
+    };
+  }
 
   // 兼容粘贴 npmjs.com / npmmirror.com 网页链接
   const webMatch =
@@ -51,7 +61,9 @@ export function parseNpmSpec(rawInput: string): ParsedNpmSpec {
   let version: string | undefined;
   if (text.startsWith("@")) {
     const slash = text.indexOf("/");
-    if (slash < 2) return { ok: false, reason: `npm 包名不合法：${text}` };
+    if (slash < 2) {
+      return { ok: false, reason: pickText(`npm 包名不合法：${text}`, `Invalid npm package name: ${text}`) };
+    }
     const at = text.indexOf("@", slash + 1);
     if (at > slash) {
       name = text.slice(0, at);
@@ -67,7 +79,7 @@ export function parseNpmSpec(rawInput: string): ParsedNpmSpec {
 
   name = name.trim();
   if (!NPM_NAME_RE.test(name) || name.length > 214 || name.includes("..")) {
-    return { ok: false, reason: `npm 包名不合法：${name}` };
+    return { ok: false, reason: pickText(`npm 包名不合法：${name}`, `Invalid npm package name: ${name}`) };
   }
   if (version !== undefined) {
     version = version.trim();
@@ -76,7 +88,10 @@ export function parseNpmSpec(rawInput: string): ParsedNpmSpec {
     } else if (!VERSION_RE.test(version)) {
       return {
         ok: false,
-        reason: `请填写精确版本号或留空取最新版（不支持范围写法：${version}）`,
+        reason: pickText(
+          `请填写精确版本号或留空取最新版（不支持范围写法：${version}）`,
+          `Specify an exact version or leave blank for latest (ranges not supported: ${version})`,
+        ),
       };
     }
   }
@@ -150,10 +165,12 @@ export type PublicBrowseChannelId =
 export interface PublicBrowseChannel {
   id: PublicBrowseChannelId;
   label: string;
+  labelEn: string;
   /** 实时 npm 浏览词（单主题词以同时兼容 npmmirror 与 npmjs）；null 表示本地精选/技能频道。 */
   query: string | null;
   /** 频道说明（展示在列表顶部）。 */
   subtitle: string;
+  subtitleEn: string;
 }
 
 /** 公开市场「可逛」分类频道（全部采用国内 npmmirror 与国外 npmjs 均稳定出流的单主题查询）。 */
@@ -161,56 +178,74 @@ export const PUBLIC_BROWSE_CHANNELS: readonly PublicBrowseChannel[] = [
   {
     id: "featured",
     label: "精选",
+    labelEn: "Featured",
     query: null,
     subtitle: "验签公开插件 + 手机实测可用的纯 JS MCP 与技能包",
+    subtitleEn: "Signed public plugins + mobile-tested pure-JS MCPs & skill packs",
   },
   {
     id: "popular",
     label: "热门 MCP",
+    labelEn: "Popular MCP",
     query: "mcp-server",
     subtitle: "按实时热度浏览 npm 开源 MCP 服务器",
+    subtitleEn: "Browse popular open-source MCP servers on npm",
   },
   {
     id: "official-mcp",
     label: "MCP 生态",
+    labelEn: "Ecosystem",
     query: "modelcontextprotocol server",
     subtitle: "Model Context Protocol 官方与主流社区服务器",
+    subtitleEn: "Official and community Model Context Protocol servers",
   },
   {
     id: "search",
     label: "搜索抓取",
+    labelEn: "Search & Web",
     query: "mcp search",
     subtitle: "联网搜索、网页抓取与资讯检索 MCP",
+    subtitleEn: "Web search, fetching, and information retrieval MCPs",
   },
   {
     id: "map",
     label: "地图出行",
+    labelEn: "Maps & Travel",
     query: "mcp map",
     subtitle: "地图导航、POI 检索与出行服务 MCP",
+    subtitleEn: "Maps, POI lookup, and navigation MCPs",
   },
   {
     id: "weather",
     label: "天气生活",
+    labelEn: "Weather & Life",
     query: "mcp weather",
     subtitle: "天气预报与日常实用工具 MCP",
+    subtitleEn: "Weather forecasts and everyday utility MCPs",
   },
   {
     id: "dev",
     label: "开发数据",
+    labelEn: "Dev & Data",
     query: "mcp database",
     subtitle: "数据库、云服务与开发辅助 MCP",
+    subtitleEn: "Databases, cloud APIs, and developer MCPs",
   },
   {
     id: "chart",
     label: "图表文档",
+    labelEn: "Charts & Docs",
     query: "mcp chart",
     subtitle: "数据可视化、思维导图与文档处理 MCP",
+    subtitleEn: "Charts, diagrams, and document-processing MCPs",
   },
   {
     id: "skills",
     label: "技能包",
+    labelEn: "Skill Packs",
     query: null,
     subtitle: "无需外部密钥、离线即装即用的开源提示词技能包",
+    subtitleEn: "Offline-ready open-source prompt skill packs — no API keys needed",
   },
 ];
 
@@ -264,13 +299,13 @@ export function classifyNpmHit(pkg: {
   if (DESKTOP_BROWSER_RE.test(haystack)) {
     return {
       suitability: "desktop-only",
-      mobileHint: "需桌面浏览器，手机端通常无法运行",
+      mobileHint: pickText("需桌面浏览器，手机端通常无法运行", "Requires a desktop browser — usually won't run on mobile"),
     };
   }
   if (DESKTOP_OS_RE.test(haystack)) {
     return {
       suitability: "desktop-only",
-      mobileHint: "依赖桌面系统环境，手机端不适用",
+      mobileHint: pickText("依赖桌面系统环境，手机端不适用", "Depends on desktop OS APIs — not supported on mobile"),
     };
   }
   return { suitability: "recommended" };
@@ -378,7 +413,7 @@ export async function searchNpmPackages(
   }
   const size = Math.min(25, Math.max(1, options.size ?? 15));
   const registries = npmRegistriesForRegion(region);
-  let lastError = "网络请求失败";
+  let lastError = pickText("网络请求失败", "Network request failed");
 
   for (const registry of registries) {
     const url = `${registry}/-/v1/search?text=${encodeURIComponent(trimmed)}&size=${size}&from=${from}`;
@@ -457,11 +492,11 @@ export async function searchNpmPackages(
       const hasMore = rawCount > 0 && nextFrom < total && nextFrom < MAX_BROWSE_OFFSET;
       return { ok: true, hits, total, from, rawCount, hasMore, registry };
     } catch (error) {
-      if (options.signal?.aborted) return { ok: false, reason: "已取消" };
+      if (options.signal?.aborted) return { ok: false, reason: pickText("已取消", "Cancelled") };
       lastError = error instanceof Error ? error.message : String(error);
     }
   }
-  return { ok: false, reason: `搜索 npm 失败：${lastError}` };
+  return { ok: false, reason: pickText(`搜索 npm 失败：${lastError}`, `npm search failed: ${lastError}`) };
 }
 
 /** 从 npm 镜像拉取指定包（或最新版）的 package.json 元数据与 dist.integrity。 */
@@ -473,14 +508,20 @@ export async function fetchNpmPackageMetadata(
 ): Promise<{ ok: true; meta: NpmPackageVersionMeta } | NpmErrorResult> {
   const registries = npmRegistriesForRegion(region);
   const tagOrVersion = version?.trim() || "latest";
-  let lastError = "网络请求失败";
+  let lastError = pickText("网络请求失败", "Network request failed");
 
   for (const registry of registries) {
     const url = `${registry}/${packageName}/${encodeURIComponent(tagOrVersion)}`;
     try {
       const { status, json } = await fetchJsonWithTimeout(url, META_TIMEOUT_MS, options.signal);
       if (status === 404) {
-        return { ok: false, reason: `在 npm 上找不到 ${packageName}@${tagOrVersion}` };
+        return {
+          ok: false,
+          reason: pickText(
+            `在 npm 上找不到 ${packageName}@${tagOrVersion}`,
+            `Package ${packageName}@${tagOrVersion} not found on npm`,
+          ),
+        };
       }
       if (status < 200 || status >= 300 || typeof json !== "object" || json === null) {
         lastError = `HTTP ${status}`;
@@ -488,7 +529,7 @@ export async function fetchNpmPackageMetadata(
       }
       const doc = json as Record<string, unknown>;
       if (typeof doc.name !== "string" || typeof doc.version !== "string") {
-        lastError = "registry 返回格式不完整";
+        lastError = pickText("registry 返回格式不完整", "Incomplete registry metadata");
         continue;
       }
       const dist =
@@ -531,11 +572,14 @@ export async function fetchNpmPackageMetadata(
         },
       };
     } catch (error) {
-      if (options.signal?.aborted) return { ok: false, reason: "已取消" };
+      if (options.signal?.aborted) return { ok: false, reason: pickText("已取消", "Cancelled") };
       lastError = error instanceof Error ? error.message : String(error);
     }
   }
-  return { ok: false, reason: `获取 npm 元数据失败：${lastError}` };
+  return {
+    ok: false,
+    reason: pickText(`获取 npm 元数据失败：${lastError}`, `Failed to fetch npm metadata: ${lastError}`),
+  };
 }
 
 export type NpmInspectResult =
@@ -585,13 +629,22 @@ export function inspectNpmPackageJson(
     if (bannedLinux || !allowedLinux) {
       return {
         ok: false,
-        reason: `该 npm 包仅支持 ${pkg.os.join(", ")}，不兼容 Android 手机端`,
+        reason: pickText(
+          `该 npm 包仅支持 ${pkg.os.join(", ")}，不兼容 Android 手机端`,
+          `This npm package only supports ${pkg.os.join(", ")} and is incompatible with Android`,
+        ),
       };
     }
   }
 
   if (pkg.gypfile === true || pkg.binary !== undefined) {
-    return { ok: false, reason: "该 npm 包声明了原生编译配置（gypfile/binary），手机端仅支持纯 JS 包" };
+    return {
+      ok: false,
+      reason: pickText(
+        "该 npm 包声明了原生编译配置（gypfile/binary），手机端仅支持纯 JS 包",
+        "This package declares native compilation (gypfile/binary); mobile only supports pure-JS packages",
+      ),
+    };
   }
 
   const scripts = pkg.scripts ?? {};
@@ -601,16 +654,27 @@ export function inspectNpmPackageJson(
     if (NATIVE_SCRIPT_HINT_RE.test(body)) {
       return {
         ok: false,
-        reason: `该 npm 包在 ${hook} 中依赖原生编译（${body.slice(0, 60)}），手机端不支持`,
+        reason: pickText(
+          `该 npm 包在 ${hook} 中依赖原生编译（${body.slice(0, 60)}），手机端不支持`,
+          `This package runs native build commands in ${hook} (${body.slice(0, 60)}), unsupported on mobile`,
+        ),
       };
     }
     if (options.strictInstallScripts) {
       return {
         ok: false,
-        reason: `市场包不允许包含 ${hook} 安装脚本`,
+        reason: pickText(
+          `市场包不允许包含 ${hook} 安装脚本`,
+          `Marketplace packages cannot include ${hook} install scripts`,
+        ),
       };
     }
-    warnings.push(`已通过 --ignore-scripts 跳过 ${hook} 脚本`);
+    warnings.push(
+      pickText(
+        `已通过 --ignore-scripts 跳过 ${hook} 脚本`,
+        `Skipped ${hook} script with --ignore-scripts`,
+      ),
+    );
   }
 
   let candidate: string | null = null;
@@ -639,7 +703,10 @@ export function inspectNpmPackageJson(
   if (!candidate) {
     return {
       ok: false,
-      reason: "该 npm 包未声明可用的 JavaScript bin/main 入口（可能不是命令行 MCP 服务器）",
+      reason: pickText(
+        "该 npm 包未声明可用的 JavaScript bin/main 入口（可能不是命令行 MCP 服务器）",
+        "This package does not declare a runnable JS bin/main entry (may not be a CLI MCP server)",
+      ),
     };
   }
 
@@ -821,15 +888,29 @@ export type ValidatedPluginEnvName =
 /** 校验用户输入的自定义环境变量名。 */
 export function validatePluginEnvName(rawName: string): ValidatedPluginEnvName {
   const name = rawName.trim();
-  if (!name) return { ok: false, reason: "请输入环境变量名（如 AMAP_KEY）" };
+  if (!name) {
+    return {
+      ok: false,
+      reason: pickText("请输入环境变量名（如 AMAP_KEY）", "Enter an env variable name (e.g. API_KEY)"),
+    };
+  }
   if (!PLUGIN_ENV_NAME_RE.test(name)) {
     return {
       ok: false,
-      reason: "变量名须以大写字母开头，仅含大写字母、数字和下划线（2–64 位）",
+      reason: pickText(
+        "变量名须以大写字母开头，仅含大写字母、数字和下划线（2–64 位）",
+        "Must start with an uppercase letter and use only A-Z, 0-9, and _ (2-64 chars)",
+      ),
     };
   }
   if (isBlockedPluginEnvName(name)) {
-    return { ok: false, reason: `环境变量 ${name} 属于系统保留项，不允许覆盖` };
+    return {
+      ok: false,
+      reason: pickText(
+        `环境变量 ${name} 属于系统保留项，不允许覆盖`,
+        `${name} is a reserved system variable and cannot be overridden`,
+      ),
+    };
   }
   return { ok: true, name };
 }
@@ -961,8 +1042,11 @@ export function detectNpmEnvSpecs(sources: {
     out.push({
       name,
       title: name,
-      description: `自动探测的环境变量（${name}），填写后新开会话生效`,
-      placeholder: `填写 ${name}`.slice(0, 64),
+      description: pickText(
+        `自动探测的环境变量（${name}），填写后新开会话生效`,
+        `Auto-detected env variable (${name}); takes effect in new sessions`,
+      ),
+      placeholder: pickText(`填写 ${name}`, `Enter ${name}`).slice(0, 64),
     });
   }
 
@@ -1066,7 +1150,7 @@ export function buildNpmPluginManifest(params: {
     envMap[settingId] = envName;
     const title = (item.title.trim() || envName).slice(0, 64);
     const description = item.description?.trim().slice(0, 120);
-    const placeholder = (item.placeholder?.trim() || `填写 ${envName}`).slice(0, 64);
+    const placeholder = (item.placeholder?.trim() || pickText(`填写 ${envName}`, `Enter ${envName}`)).slice(0, 64);
     settings.push({
       id: settingId,
       title,

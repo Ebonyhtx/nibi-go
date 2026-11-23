@@ -4,6 +4,8 @@
 // 与路径策略都以它为边界，`session/resume` 不会改它。所以根目录名用会话 ID：创建前就能
 // 确定路径，删除会话时也能确定地回收。旧会话（workspace 就是 filesDir）保持原样，不迁移。
 
+import { pickText } from "../i18n";
+
 /** 与内核 `KernelWorkspaceRef` 同形；这里不依赖包类型，方便单测。 */
 export interface WorkspaceRefLike {
   workspacePath: string;
@@ -35,7 +37,7 @@ export function isSafeSessionId(sessionId: string): boolean {
 
 export function sessionWorkspacePath(root: string, sessionId: string): string {
   if (!isSafeSessionId(sessionId)) {
-    throw new Error(`非法的会话 ID：${sessionId}`);
+    throw new Error(pickText(`非法的会话 ID：${sessionId}`, `Invalid session ID: ${sessionId}`));
   }
   return `${root.replace(/\/+$/u, "")}/${WORKSPACES_DIR}/${sessionId}`;
 }
@@ -56,7 +58,7 @@ export const PROJECTS_DIR = "projects";
 /** 项目的持久 workspace：`<root>/projects/<projectId>`。多个会话共享同一目录。 */
 export function projectWorkspacePath(root: string, projectId: string): string {
   if (!isSafeProjectDirName(projectId)) {
-    throw new Error(`非法的项目 ID：${projectId}`);
+    throw new Error(pickText(`非法的项目 ID：${projectId}`, `Invalid project ID: ${projectId}`));
   }
   return `${root.replace(/\/+$/u, "")}/${PROJECTS_DIR}/${projectId}`;
 }

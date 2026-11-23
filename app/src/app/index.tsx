@@ -12,7 +12,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import {
   Animated,
   Keyboard,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -51,7 +50,18 @@ import { rubberBandProgress, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import { GoDrawer, GoRail, GoSidebar } from "../components/GoDrawer";
 import { SideBackdrop } from "../components/SideBackdrop";
 import { Dot, Icon, type IconName } from "../components/Icon";
-import { PetView, type PetStateId } from "../components/PetView";
+import {
+  PET_BASELINE,
+  PET_CELL,
+  petDisplaySize,
+  PetView,
+  type PetStateId,
+} from "../components/PetView";
+import {
+  derivePetState,
+  nextDevPreviewState,
+  type RecentTurnOutcome,
+} from "../components/petMachine";
 import { PluginActionSheet, type PluginSheetItem } from "../components/PluginActionSheet";
 import { MessageActionsSheet } from "../components/MessageActionsSheet";
 import { PluginPopup, type PopupAnchor } from "../components/PluginPopup";
@@ -93,8 +103,14 @@ import {
   type ComposerAttachment,
 } from "../composer/attachments";
 import { useComposerPreferences } from "../composer/useComposerPreferences";
+import {
+  buildConversationQuotes,
+  buildDraftAnnotationCounts,
+  reorderAnnotations,
+} from "../composer/annotations";
 import { pluginSourceLabel, splitMessageMenuItems } from "../composer/messageMenu";
 import { dismissKeyboardOnce, leaveComposerForNavigation } from "../composer/leave";
+import { useI18n } from "../i18n";
 import { createProject, setActiveProject, useProjects } from "../kernel/projects";
 import { usePlugins } from "../plugins/usePlugins";
 import type { KernelConversationQuote } from "@nibi-go/kernel-session";
@@ -118,13 +134,36 @@ interface SheetEntry {
 
 const PERMISSION_OPTIONS: ReadonlyArray<{
   id: "build" | "guarded" | "yolo";
-  label: string;
-  detail: string;
+  labelZh: string;
+  labelEn: string;
+  detailZh: string;
+  detailEn: string;
   icon: IconName;
 }> = [
-  { id: "build", label: "变更前确认", detail: "改文件前先问我。", icon: "pen" },
-  { id: "guarded", label: "自主模式", detail: "在有风险时询问", icon: "shield" },
-  { id: "yolo", label: "完全访问", detail: "减少确认次数。", icon: "question" },
+  {
+    id: "build",
+    labelZh: "变更前确认",
+    labelEn: "Ask before edits",
+    detailZh: "改文件前先问我。",
+    detailEn: "Ask me before editing files.",
+    icon: "pen",
+  },
+  {
+    id: "guarded",
+    labelZh: "自主模式",
+    labelEn: "Autonomous",
+    detailZh: "在有风险时询问",
+    detailEn: "Ask only on risky actions.",
+    icon: "shield",
+  },
+  {
+    id: "yolo",
+    labelZh: "完全访问",
+    labelEn: "Full access",
+    detailZh: "减少确认次数。",
+    detailEn: "Minimize confirmation prompts.",
+    icon: "question",
+  },
 ];
 
 /** filesDir 绝对路径：抽屉的项目筛选按它反查会话归属。 */
@@ -134,6 +173,7 @@ function workspaceRoot(): string {
 
 export default function GoHomeScreen() {
   const th = useNibiTheme();
+  const { locale, pick } = useI18n();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -180,7 +220,7 @@ export default function GoHomeScreen() {
         plugins.enabled,
         mergeSkillCatalog(conversation.skills, plugins.enabled),
       ),
-    [conversation.skills, plugins.enabled],
+    [conversation.skills, locale, plugins.enabled],
   );
   const composerPreferences = useComposerPreferences(composerCatalog);
   // 没有选择时用设置页的默认模型；默认值带档位时优先沿用。
@@ -290,18 +330,34 @@ export default function GoHomeScreen() {
     | null
   >(null);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
+  const draftAnnotationCounts = useMemo(
+    () => buildDraftAnnotationCounts(annotations),
+    [annotations],
+  );
   const [annotationEditor, setAnnotationEditor] = useState<{
     messageKey: string;
     messageId?: string;
     messageRole: "user" | "assistant";
     fullText: string;
     initialExcerpt?: string;
+    initialSelectionStart?: number;
+    initialSelectionEnd?: number;
     editingId?: string;
     comment?: string;
     instruction?: string;
     instructionLabel?: string;
+    returnToManager?: boolean;
   } | null>(null);
   const [annotationManagerOpen, setAnnotationManagerOpen] = useState(false);
+  const [annotationManagerFilter, setAnnotationManagerFilter] = useState<{
+    messageKey: string;
+    messageText: string;
+    messageRole: "user" | "assistant";
+    messageId?: string;
+  } | null>(null);
+  const [scrollToMessage, setScrollToMessage] = useState<{ key: string; seq: number } | null>(
+    null,
+  );
   // 编辑重发：草稿承载改写文本，发送走 editUserQuery（内核截断历史后重发）；× 取消并清草稿。
   const [editTarget, setEditTarget] = useState<{
     rowId: number;
@@ -451,7 +507,7 @@ export default function GoHomeScreen() {
         kind: "mode",
         pluginId: "nibi",
         pluginName: "NIBI",
-        label: "计划模式",
+        label: pick("计划模式", "Plan mode"),
         value: "plan",
         mode: "plan",
         accent: "brand",
@@ -477,7 +533,7 @@ export default function GoHomeScreen() {
                 kind: "mode",
                 pluginId: "nibi",
                 pluginName: "NIBI",
-                label: "计划模式",
+                label: pick("计划模式", "Plan mode"),
                 value: "plan",
                 mode: "plan",
                 accent: "brand",
@@ -580,7 +636,7 @@ export default function GoHomeScreen() {
       kind: "message",
       pluginId,
       pluginName,
-      label: "这条消息",
+      label: pick("这条消息", "This message"),
       value: messageKey,
       accent: "default",
       icon: "quote",
@@ -682,7 +738,9 @@ export default function GoHomeScreen() {
     if (sessionActions.length === 0) return;
     const title = conversation.sessions.find((session) => session.sessionId === sessionId)?.title;
     setSessionSheet({
-      title: title ? `会话信息 · ${title}` : "会话信息",
+      title: title
+        ? `${pick("会话信息", "Session info")} · ${title}`
+        : pick("会话信息", "Session info"),
       items: sessionActions.map(({ plugin, action }) => ({
         key: `${plugin.parsed.manifest.id}:${action.id}`,
         label: action.title,
@@ -694,7 +752,7 @@ export default function GoHomeScreen() {
       })),
     });
   };
-  const saveAnnotation = ({ excerpt, comment }: AnnotationDraft) => {
+  const saveAnnotation = ({ excerpt, comment, selectionStart, selectionEnd }: AnnotationDraft) => {
     const editor = annotationEditor;
     if (!editor) return;
     if (editor.editingId) {
@@ -705,6 +763,8 @@ export default function GoHomeScreen() {
                 ...annotation,
                 messageText: excerpt,
                 comment,
+                selectionStart,
+                selectionEnd,
                 ...(editor.instruction ? { instruction: editor.instruction } : {}),
               }
             : annotation,
@@ -714,19 +774,23 @@ export default function GoHomeScreen() {
       setAnnotations((current) => [
         ...current,
         {
-          id: `annotation-${Date.now()}`,
+          id: `annotation-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           messageKey: editor.messageKey,
           ...(editor.messageId ? { messageId: editor.messageId } : {}),
           messageRole: editor.messageRole,
           messageText: excerpt,
           fullText: editor.fullText,
+          selectionStart,
+          selectionEnd,
           comment,
           ...(editor.instruction ? { instruction: editor.instruction } : {}),
           createdAt: Date.now(),
         },
       ]);
     }
+    const shouldReopenManager = Boolean(editor.returnToManager);
     setAnnotationEditor(null);
+    if (shouldReopenManager) setAnnotationManagerOpen(true);
   };
   const editAnnotation = (annotation: AnnotationItem) => {
     setAnnotationManagerOpen(false);
@@ -736,16 +800,50 @@ export default function GoHomeScreen() {
       messageRole: annotation.messageRole,
       fullText: annotation.fullText || annotation.messageText,
       initialExcerpt: annotation.messageText,
+      initialSelectionStart: annotation.selectionStart,
+      initialSelectionEnd: annotation.selectionEnd,
       editingId: annotation.id,
       comment: annotation.comment,
       ...(annotation.instruction ? { instruction: annotation.instruction } : {}),
+      returnToManager: true,
     });
   };
   const deleteAnnotation = (id: string) => {
     setAnnotations((current) => current.filter((annotation) => annotation.id !== id));
   };
-  const annotationCountFor = (messageKey: string): number =>
-    annotations.filter((annotation) => annotation.messageKey === messageKey).length;
+  const clearAllAnnotations = () => {
+    setAnnotations([]);
+    setAnnotationManagerFilter(null);
+    setAnnotationManagerOpen(false);
+  };
+  const reorderAnnotationItem = (index: number, delta: -1 | 1) => {
+    setAnnotations((current) => reorderAnnotations(current, index, delta));
+  };
+  const jumpToAnnotatedMessage = (messageKey: string) => {
+    setAnnotationManagerOpen(false);
+    setScrollToMessage((prev) => ({ key: messageKey, seq: (prev?.seq ?? 0) + 1 }));
+  };
+  const handleAnnotationMarkPress = (
+    messageKey: string,
+    hasDraft: boolean,
+    messageText: string,
+    messageRole: "user" | "assistant",
+    messageId?: string,
+  ) => {
+    if (hasDraft) {
+      setAnnotationManagerFilter({ messageKey, messageText, messageRole, messageId });
+      setAnnotationManagerOpen(true);
+      return;
+    }
+    setAnnotationEditor({
+      messageKey,
+      ...(messageId ? { messageId } : {}),
+      messageRole,
+      fullText: messageText,
+      initialExcerpt: messageText,
+      comment: "",
+    });
+  };
 
   // 稳定引用桥：抽屉/面板开合会让首页整体重渲染，若给消息流的回调每次都换引用，
   // ConversationList 的 memo 就永远命中不了——整条消息流会跟着侧栏动画一起重排，
@@ -754,7 +852,7 @@ export default function GoHomeScreen() {
     openSession: conversation.openSession,
     retryTurn: conversation.retryTurn,
     openMessagePopup,
-    annotationCountFor,
+    handleAnnotationMarkPress,
     onPluginAction,
     showHint,
   });
@@ -762,7 +860,7 @@ export default function GoHomeScreen() {
     openSession: conversation.openSession,
     retryTurn: conversation.retryTurn,
     openMessagePopup,
-    annotationCountFor,
+    handleAnnotationMarkPress,
     onPluginAction,
     showHint,
   };
@@ -775,13 +873,33 @@ export default function GoHomeScreen() {
     });
   }, []);
   const stableOpenMessagePopup = useCallback(
-    (messageKey: string, message: string, anchor: PopupAnchor, role: "user" | "assistant") => {
-      latestHandlers.current.openMessagePopup(messageKey, message, anchor, role);
+    (
+      messageKey: string,
+      message: string,
+      anchor: PopupAnchor,
+      role: "user" | "assistant",
+      messageId?: string,
+    ) => {
+      latestHandlers.current.openMessagePopup(messageKey, message, anchor, role, messageId);
     },
     [],
   );
-  const stableAnnotationCountFor = useCallback(
-    (messageKey: string) => latestHandlers.current.annotationCountFor(messageKey),
+  const stableAnnotationMarkPress = useCallback(
+    (
+      messageKey: string,
+      hasDraft: boolean,
+      messageText: string,
+      messageRole: "user" | "assistant",
+      messageId?: string,
+    ) => {
+      latestHandlers.current.handleAnnotationMarkPress(
+        messageKey,
+        hasDraft,
+        messageText,
+        messageRole,
+        messageId,
+      );
+    },
     [],
   );
   const stablePluginAction = useCallback<PluginActionHandler>((plugin, action) => {
@@ -812,7 +930,12 @@ export default function GoHomeScreen() {
         annotations.length > 0 ||
         tokens.some((token) => token.id !== compactToken.id && token.kind !== "mode");
       if (hasOther) {
-        showHint("压缩需要单独发送：请先清掉其他内容或附件");
+        showHint(
+          pick(
+            "压缩需要单独发送：请先清掉其他内容或附件",
+            "Send /compact by itself: clear other text or attachments first",
+          ),
+        );
         return;
       }
       // 对话还很短时压缩不划算：摘要会把“消息”换成一段比它更长的话，上下文反而变大。
@@ -821,7 +944,12 @@ export default function GoHomeScreen() {
           ?.chars ?? 0;
       const messageTokens = Math.round(messageChars / 4);
       if (messageTokens > 0 && messageTokens < 2_000) {
-        showHint(`当前对话只有约 ${messageTokens} tokens，压缩不会更省`);
+        showHint(
+          pick(
+            `当前对话只有约 ${messageTokens} tokens，压缩不会更省`,
+            `This conversation is only ~${messageTokens} tokens — compacting won't save space`,
+          ),
+        );
         return;
       }
       setTokens((current) => current.filter((token) => token.id !== compactToken.id));
@@ -850,61 +978,72 @@ export default function GoHomeScreen() {
                 : "set";
       setTokens((current) => current.filter((token) => token.id !== goalToken.id));
       setDraft("");
-      showHint(action === "show" ? "正在读取目标…" : "正在更新目标…");
+      showHint(
+        action === "show"
+          ? pick("正在读取目标…", "Loading goal…")
+          : pick("正在更新目标…", "Updating goal…"),
+      );
       void conversation
         .runGoal(action, action === "set" ? input : undefined)
         .then(({ message }) => showHint(message));
       return;
     }
     const prompt = composePrompt(tokens, draft);
-    const annotationQuotes: KernelConversationQuote[] = annotations.map((annotation, index) => ({
-      text: annotation.messageText,
-      kind: "annotation",
-      number: index + 1,
-      messageKey: annotation.messageKey,
-      messageRole: annotation.messageRole,
-      senderName: annotation.messageRole === "assistant" ? "NIBI" : "我",
-      sentAt: new Date(annotation.createdAt).toISOString(),
-      ...(annotation.messageId ? { messageId: annotation.messageId } : {}),
-      ...(annotation.comment.trim() ? { comment: annotation.comment.trim() } : {}),
-      ...(annotation.instruction ? { instruction: annotation.instruction } : {}),
-    }));
-    // 消息动作（润色/缩写）= 命令 + 消息引用；不是注释评论。
-    const transformQuotes: KernelConversationQuote[] = tokens
-      .filter((token) => token.kind === "message" && token.messageText)
-      .map((token, index) => ({
-        text: token.messageText ?? "",
-        kind: "transform",
-        number: index + 1,
-        messageKey: token.value,
-        messageRole: token.messageRole ?? "assistant",
-        senderName: token.messageRole === "user" ? "我" : "NIBI",
-      }));
-    const quotes = [...annotationQuotes, ...transformQuotes];
+    const quotes: KernelConversationQuote[] = buildConversationQuotes(annotations, tokens, {
+      user: pick("我", "Me"),
+      assistant: "NIBI",
+    });
     if (!prompt && quotes.length === 0 && attachments.length === 0) return;
     const pluginReferences = pluginReferencesForTokens(tokens);
     const attachmentRefs = attachments.map(toAttachmentRef);
+    const snapshotAnnotations = annotations;
+    const snapshotTokens = tokens;
+    const snapshotAttachments = attachments;
+    const snapshotDraft = draft;
     setAnnotations([]);
     setTokens((current) => current.filter((token) => token.kind === "mode"));
     setAttachments([]);
     setDraft("");
-    void conversation.send(prompt, {
-      ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
-      mode: permissionMode,
-      planEnabled,
-      ...(modelChoice ? { modelSelection: modelChoice } : {}),
-      ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
-      ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
-    });
+    void conversation
+      .send(prompt, {
+        ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
+        mode: permissionMode,
+        planEnabled,
+        ...(modelChoice ? { modelSelection: modelChoice } : {}),
+        ...(quotes.length > 0 ? { conversationQuotes: quotes } : {}),
+        ...(pluginReferences.length > 0 ? { pluginReferences } : {}),
+      })
+      .then((ok) => {
+        if (ok) return;
+        // 发送失败时恢复草稿与注释，防止精心编写的注释丢失。
+        if (snapshotAnnotations.length > 0) {
+          setAnnotations((cur) => (cur.length === 0 ? snapshotAnnotations : cur));
+        }
+        if (snapshotAttachments.length > 0) {
+          setAttachments((cur) => (cur.length === 0 ? snapshotAttachments : cur));
+        }
+        if (snapshotDraft) {
+          setDraft((cur) => (cur.length === 0 ? snapshotDraft : cur));
+        }
+        const nonMode = snapshotTokens.filter((token) => token.kind !== "mode");
+        if (nonMode.length > 0) {
+          setTokens((cur) =>
+            cur.some((token) => token.kind !== "mode") ? cur : snapshotTokens,
+          );
+        }
+      });
   };
 
-  // 面板动作里的“插入草稿”跨页带回首页。
+  // 面板动作里的“插入草稿”跨页带回首页；同时维护屏焦点，离焦时暂停宠物动画省电。
+  const [screenFocused, setScreenFocused] = useState(true);
   useFocusEffect(
     useCallback(() => {
+      setScreenFocused(true);
       const text = takePendingInsert();
       if (text) {
         setDraft((current) => (current.length > 0 ? `${current}\n${text}` : text));
       }
+      return () => setScreenFocused(false);
     }, []),
   );
   // 切换会话时清掉上一轮的注释/弹出层，避免把 A 会话的注释带进 B。
@@ -914,6 +1053,7 @@ export default function GoHomeScreen() {
     setAttachments([]);
     setAnnotationEditor(null);
     setAnnotationManagerOpen(false);
+    setAnnotationManagerFilter(null);
     setPopup(null);
   }, [conversation.activeSessionId]);
   // 发送反馈：sendText 的 RPC 很快返回、turn 变 running 要再等一拍；这段空窗
@@ -930,7 +1070,11 @@ export default function GoHomeScreen() {
     sendDraft();
   };
   const permissionLabel =
-    permissionMode === "yolo" ? "完全访问" : permissionMode === "guarded" ? "自主" : "变更前";
+    permissionMode === "yolo"
+      ? pick("完全访问", "Full access")
+      : permissionMode === "guarded"
+        ? pick("自主", "Auto")
+        : pick("变更前", "Ask");
   const choosePermission = (id: "build" | "guarded" | "yolo") => {
     if (id === permissionMode) {
       setPermissionMenu(null);
@@ -946,68 +1090,135 @@ export default function GoHomeScreen() {
   };
   const activeTitle =
     conversation.sessions.find((session) => session.sessionId === conversation.activeSessionId)
-      ?.title || "新对话";
-  // 配置缺失（没配模型服务）是设置问题，不是链路故障：横幅给「去设置」而不是「重试」，
-  // 宠物也不报 error。错误文案真源在 useKernelConversation（“还没有可用的模型服务”）。
-  const setupIssue = conversation.status.includes("还没有可用的模型服务");
-  // 2.0：桌宠接会话状态机（此前只播 idle）——
-  //   等审批 → waiting；流式（还没出正文）→ thinking；流式/工具 → working；
-  //   回合刚完成 → done（2.4s 后回 idle）；内核不可用 → sleeping；连接失败 → error。
-  // dev 下点宠物仍可循环九个状态，用来核对切换与过渡（发布构建不生效）。
+      ?.title || pick("新对话", "New chat");
+  // 配置缺失（没配模型服务）按结构化 setupIssue 判断，不再耦合中文文案。
+  const setupIssue = conversation.setupIssue;
+  // 2.1：桌宠走纯状态机 petMachine.ts，覆盖全部 9 种状态：
+  //   拖动 → flying；报错 → error；等审批/提问 → waiting；
+  //   执行交付工具/挂载附件注释 → carrying；执行工具/流式正文 → working；
+  //   首 token 前/纯思考推理 → thinking；回合完成 → done（2.4s）；
+  //   内核未就绪或 90s 无互动 → sleeping；默认 → idle。
   const [previewState, setPreviewState] = useState<PetStateId | null>(null);
-  const [celebrating, setCelebrating] = useState(false);
-  const livePetState = useMemo<PetStateId>(() => {
-    // 配置缺失（未配 Provider / 没默认模型）是设置问题，不是链路故障——别让宠物一直报红。
-    if (conversation.statusKind === "error" && !setupIssue) return PET_STATE.error;
-    if (conversation.statusKind === "error" && !setupIssue) return PET_STATE.error;
-    if (conversation.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
-      return PET_STATE.waiting;
-    }
-    if (conversation.turn === "running") {
-      const streaming = [...conversation.rows]
-        .reverse()
-        .find((row) => row.kind === "assistant" && row.streaming);
-      // 长推理段（只有思考、还没正文）用 thinking；其余（正文流式/工具）用 working。
-      if (streaming?.kind === "assistant" && streaming.text.trim().length === 0) {
-        return PET_STATE.thinking;
-      }
-      return PET_STATE.working;
-    }
-    if (celebrating) return PET_STATE.done;
-    if (!conversation.ready) return PET_STATE.sleeping;
-    return PET_STATE.idle;
+  const [isDraggingPet, setIsDraggingPet] = useState(false);
+  const [recentTurnOutcome, setRecentTurnOutcome] = useState<RecentTurnOutcome>(null);
+  const [idleSleeping, setIdleSleeping] = useState(false);
+  const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleSleepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const wakePet = useCallback(() => {
+    setIdleSleeping(false);
+    if (idleSleepTimerRef.current) clearTimeout(idleSleepTimerRef.current);
+    idleSleepTimerRef.current = setTimeout(() => setIdleSleeping(true), 90_000);
+  }, []);
+
+  useEffect(() => {
+    wakePet();
+    return () => {
+      if (idleSleepTimerRef.current) clearTimeout(idleSleepTimerRef.current);
+    };
   }, [
-    setupIssue,
-    conversation.statusKind,
-    conversation.rows,
+    wakePet,
+    draft,
     conversation.turn,
-    conversation.ready,
-    celebrating,
+    conversation.rows.length,
+    conversation.activeSessionId,
+    attachments.length,
+    annotations.length,
+    isDraggingPet,
   ]);
-  // 回合完成 → 播一次 done（只在「从 running 变 idle 且最后一轮 completed」时触发）。
+
+  // 回合结束短时反馈（completed → done 2.4s，failed → error 3.5s）：
+  // 新回合开始或切换会话立刻清掉定时器与状态，彻底避免 celebrating 卡死。
   const lastTurnState = useMemo(() => {
     for (let i = conversation.rows.length - 1; i >= 0; i--) {
-      const row = conversation.rows[i];
+      const row = conversation.rows[i]!;
       if (row.kind === "turn") return row.state;
     }
     return null;
   }, [conversation.rows]);
   const runningRef = useRef(false);
+  const lastTurnStateRef = useRef(lastTurnState);
+  lastTurnStateRef.current = lastTurnState;
+
+  useEffect(() => {
+    if (outcomeTimerRef.current) {
+      clearTimeout(outcomeTimerRef.current);
+      outcomeTimerRef.current = null;
+    }
+    runningRef.current = false;
+    setRecentTurnOutcome(null);
+  }, [conversation.activeSessionId]);
+
   useEffect(() => {
     const wasRunning = runningRef.current;
-    runningRef.current = conversation.turn === "running";
-    if (!wasRunning || runningRef.current) return;
-    if (lastTurnState !== "completed") return;
-    setCelebrating(true);
-    const timer = setTimeout(() => setCelebrating(false), 2400);
-    return () => clearTimeout(timer);
-  }, [conversation.turn, lastTurnState]);
+    const isRunning = conversation.turn === "running";
+    runningRef.current = isRunning;
+    if (isRunning) {
+      if (outcomeTimerRef.current) {
+        clearTimeout(outcomeTimerRef.current);
+        outcomeTimerRef.current = null;
+      }
+      setRecentTurnOutcome(null);
+      return;
+    }
+    if (!wasRunning) return;
+    const state = lastTurnStateRef.current;
+    const nextOutcome: RecentTurnOutcome =
+      state === "completed" ? "completed" : state === "failed" ? "failed" : null;
+    if (!nextOutcome) return;
+    setRecentTurnOutcome(nextOutcome);
+    if (outcomeTimerRef.current) clearTimeout(outcomeTimerRef.current);
+    outcomeTimerRef.current = setTimeout(
+      () => {
+        outcomeTimerRef.current = null;
+        setRecentTurnOutcome(null);
+      },
+      nextOutcome === "completed" ? 2400 : 3500,
+    );
+  }, [conversation.turn]);
+
+  useEffect(() => {
+    return () => {
+      if (outcomeTimerRef.current) clearTimeout(outcomeTimerRef.current);
+    };
+  }, []);
+
+  const livePetState = useMemo<PetStateId>(
+    () =>
+      derivePetState({
+        dragging: isDraggingPet,
+        statusKind: conversation.statusKind,
+        setupIssue,
+        reconnecting: conversation.statusKind === "busy" && !conversation.ready,
+        ready: conversation.ready,
+        turn: conversation.turn,
+        pendingSend,
+        rows: conversation.rows,
+        recentOutcome: recentTurnOutcome,
+        hasQueuedPayloads: attachments.length > 0 || annotations.length > 0,
+        idleSleeping,
+      }),
+    [
+      isDraggingPet,
+      conversation.statusKind,
+      setupIssue,
+      conversation.ready,
+      conversation.turn,
+      pendingSend,
+      conversation.rows,
+      recentTurnOutcome,
+      attachments.length,
+      annotations.length,
+      idleSleeping,
+    ],
+  );
   const petState = previewState ?? livePetState;
-  const cyclePetState = () => {
+  const handlePetTap = () => {
+    wakePet();
     if (!__DEV__) return;
-    const ids = Object.values(PET_STATE);
-    const i = ids.indexOf(petState);
-    setPreviewState(ids[(i + 1) % ids.length]!);
+    const next = nextDevPreviewState(previewState);
+    setPreviewState(next);
+    showHint(next ? `Pet preview: ${next}` : "Pet preview: live");
   };
 
   // 右侧工作区面板：当前会话的 workspace 目录 + 本会话子代理状态。
@@ -1027,13 +1238,23 @@ export default function GoHomeScreen() {
   const sideDragging = useSharedValue(0);
   const sidePanActive = useSharedValue(0);
   const sideCrossed = useSharedValue(0);
-  const drawerW = useSharedValue(300);
+  const drawerW = useSharedValue(320);
   const panelW = useSharedValue(360);
-  const { width: windowWidth } = useWindowDimensions();
+  const canOpenOverlayDrawer = useSharedValue(1);
   useEffect(() => {
-    drawerW.value = Math.min(300, Math.round(windowWidth * 0.8));
-    panelW.value = Math.min(360, Math.round(windowWidth * 0.88));
-  }, [windowWidth, drawerW, panelW]);
+    drawerW.value = layout.drawerWidth + insets.left;
+    panelW.value = layout.workspacePanelWidth + insets.right;
+    canOpenOverlayDrawer.value = layout.left === "sidebar" ? 0 : 1;
+  }, [
+    layout.drawerWidth,
+    layout.workspacePanelWidth,
+    layout.left,
+    insets.left,
+    insets.right,
+    drawerW,
+    panelW,
+    canOpenOverlayDrawer,
+  ]);
   useEffect(() => {
     sideMode.value = drawerOpen ? 1 : workspacePanelOpen ? -1 : 0;
   }, [drawerOpen, workspacePanelOpen, sideMode]);
@@ -1088,6 +1309,10 @@ export default function GoHomeScreen() {
           const mode = sideMode.value;
           if (mode === 0) {
             if (event.translationX > 0) {
+              if (canOpenOverlayDrawer.value === 0) {
+                side.value = 0;
+                return;
+              }
               const raw = event.translationX / drawerW.value;
               side.value = raw > 1 ? 1 + rubberBandProgress(raw - 1) : raw;
             } else {
@@ -1127,7 +1352,7 @@ export default function GoHomeScreen() {
           const progress = side.value;
           const fast = Math.abs(event.velocityX) > 550;
           if (mode === 0) {
-            if (progress > 0.35 || (fast && event.velocityX > 0)) {
+            if (canOpenOverlayDrawer.value === 1 && (progress > 0.35 || (fast && event.velocityX > 0))) {
               const v = event.velocityX / drawerW.value;
               side.value = withSpring(1, { ...SIDE_SPRING_CONFIG, velocity: v });
               runOnJS(openDrawerSide)(false);
@@ -1311,13 +1536,16 @@ export default function GoHomeScreen() {
     };
   }, [conversation.rows]);
 
-  // 宠物目标尺寸（dp）；PetView 内部再按设备像素取整数倍微调（像素不糊）。
+  // 宠物目标尺寸（dp）；PetView 按设备像素整数倍输出真实 box（crop=1 时零裁切）。
   // 手机 88 / 横屏 72（省高度）/ 平板 104。
   const petTarget = layout.landscapeCompact ? 72 : layout.windowClass === "compact" ? 88 : 104;
+  const petBox = petDisplaySize(petTarget, 1).box;
+  // 只裁掉脚线（y=58）下方极窄的透明底边，顶部 y=0 完整保留，彻底杜绝思考云顶部裁切。
+  const petDockHeight = Math.ceil((petBox * PET_BASELINE) / PET_CELL) + 2;
   // 状态点挂在整个屏幕的右缘（不在正文的 16dp 留白里），底部按 COMPOSE 高度让位。
   // Android edgeToEdge 下 keyboardHeight 已扣除导航栏，需要加回 insets.bottom 才与输入栏对齐。
   const composerBottom = insets.bottom + space(2) + keyboardHeight;
-  const statusBottom = composerBottom + 52 + petTarget + space(8);
+  const statusBottom = composerBottom + 52 + petDockHeight + space(8);
   const hasSidebar = layout.left === "sidebar";
   const hasRail = layout.left === "rail";
   const inShell = hasSidebar || hasRail;
@@ -1335,33 +1563,42 @@ export default function GoHomeScreen() {
     }
   };
 
-  const bodyMax = Math.min(layout.bodyMaxWidth, hasSidebar ? layout.bodyWidth - space(8) : layout.bodyMaxWidth);
+  const bodyMax = Math.min(
+    layout.bodyMaxWidth,
+    inShell ? layout.bodyWidth - space(8) : layout.bodyMaxWidth,
+  );
 
-  // 宠物可横向拖动（正式功能，不是 dev 手势）：偏移归一化到 -1..1，
-  // 跨旋转/换尺寸自动收敛；行程只允许在输入栏范围内，拖不出去。
-  const petRange = Math.max(0, (bodyMax - space(8) - petTarget) / 2);
-  const [petOffset, setPetOffset] = useState(0);
-  const offsetRef = useRef(0);
-  const dragStartRef = useRef(0);
-  const applyOffset = (v: number) => {
-    const clamped = Math.max(-1, Math.min(1, v));
-    offsetRef.current = clamped;
-    setPetOffset(clamped);
-  };
-  const petResponder = useMemo(
+  // 宠物横向拖动（UI 线程 Reanimated SharedValue 驱动，拖动期 0 次 GoHomeScreen 重渲染）：
+  // 偏移归一化到 -1..1，跨旋转/换尺寸自动收敛；拖动中自动切入 flying 态。
+  const petRange = Math.max(0, (bodyMax - space(8) - petBox) / 2);
+  const petRangeSv = useSharedValue(petRange);
+  useEffect(() => {
+    petRangeSv.value = petRange;
+  }, [petRange, petRangeSv]);
+  const petOffsetSv = useSharedValue(0);
+  const petDragStartSv = useSharedValue(0);
+  const petTranslateStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: petOffsetSv.value * petRangeSv.value }],
+  }));
+  const petDragGesture = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4,
-        onPanResponderGrant: () => {
-          dragStartRef.current = offsetRef.current;
-        },
-        onPanResponderMove: (_e, g) => {
-          if (petRange <= 0) return;
-          applyOffset(dragStartRef.current + g.dx / petRange);
-        },
-      }),
-    [petRange],
+      Gesture.Pan()
+        .activeOffsetX([-6, 6])
+        .failOffsetY([-12, 12])
+        .onStart(() => {
+          petDragStartSv.value = petOffsetSv.value;
+          runOnJS(setIsDraggingPet)(true);
+        })
+        .onUpdate((e) => {
+          const range = petRangeSv.value;
+          if (range <= 0) return;
+          const next = petDragStartSv.value + e.translationX / range;
+          petOffsetSv.value = Math.max(-1, Math.min(1, next));
+        })
+        .onFinalize(() => {
+          runOnJS(setIsDraggingPet)(false);
+        }),
+    [petDragStartSv, petOffsetSv, petRangeSv],
   );
 
   return (
@@ -1403,14 +1640,19 @@ export default function GoHomeScreen() {
         {hasRail ? (
           <GoRail
             petState={petState}
-            onMenu={() => {
+            onMenu={onMenu}
+            onNewSession={() => {
+              blurComposer();
+              setNewChatOpen(true);
+            }}
+            onSearch={onMenu}
+            onWork={() => {
               leaveComposerForNavigation({
                 blur: blurComposer,
                 dismiss: () => dismissKeyboardOnce(Keyboard.dismiss),
-                navigate: () => setSidebarOpen(true),
+                navigate: () => router.push("/work"),
               });
             }}
-            onSearch={() => undefined}
             onSettings={() => {
               leaveComposerForNavigation({
                 blur: blurComposer,
@@ -1429,7 +1671,15 @@ export default function GoHomeScreen() {
         ) : null}
 
         <Reanimated.View
-          style={[styles.body, { paddingRight: insets.right, overflow: "hidden" }, bodyDepthStyle]}
+          style={[
+            styles.body,
+            {
+              paddingLeft: !inShell ? insets.left : 0,
+              paddingRight: insets.right,
+              overflow: "hidden",
+            },
+            bodyDepthStyle,
+          ]}
         >
           <View style={[styles.bodyInner, { maxWidth: bodyMax }]}>
             {/*
@@ -1448,7 +1698,11 @@ export default function GoHomeScreen() {
                     ]}
                     onPress={onMenu}
                     accessibilityRole="button"
-                    accessibilityLabel={layout.menuAction === "collapse" ? "折叠对话列表" : "打开对话列表"}
+                    accessibilityLabel={
+                      layout.menuAction === "collapse"
+                        ? pick("折叠对话列表", "Collapse chats")
+                        : pick("打开对话列表", "Open chats")
+                    }
                   >
                     <Icon name="menu" size={17} color={th.ink} />
                   </PressableScale>
@@ -1463,7 +1717,10 @@ export default function GoHomeScreen() {
                     });
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`会话与权限模式：${permissionLabel}`}
+                  accessibilityLabel={pick(
+                    `会话与权限模式：${permissionLabel}`,
+                    `Session & permissions: ${permissionLabel}`,
+                  )}
                   containerStyle={styles.chipFlex}
                   style={[
                     styles.chip,
@@ -1498,7 +1755,10 @@ export default function GoHomeScreen() {
                     void providerCatalog.reload();
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`}
+                  accessibilityLabel={pick(
+                    `选择模型：${modelLabel}${effortLabel ? `，思考强度${effortLabel}` : ""}`,
+                    `Select model: ${modelLabel}${effortLabel ? `, thinking effort ${effortLabel}` : ""}`,
+                  )}
                   containerStyle={styles.modelChipFlex}
                   style={[
                     styles.modelChip,
@@ -1526,7 +1786,7 @@ export default function GoHomeScreen() {
                     { backgroundColor: th.card, borderColor: th.hairlineStrong },
                     th.elevation.card,
                   ]}
-                  accessibilityLabel="打开工作区面板"
+                  accessibilityLabel={pick("打开工作区面板", "Open workspace panel")}
                   onPress={() => openPanelSide(true)}
                 >
                   <Icon name="folder" size={17} color={th.ink} />
@@ -1559,7 +1819,10 @@ export default function GoHomeScreen() {
                   th.elevation.card,
                 ]}
                 accessibilityRole={setupIssue || conversation.statusRetryable ? "button" : "text"}
-                accessibilityLabel={`内核状态：${conversation.status}`}
+                accessibilityLabel={pick(
+                  `内核状态：${conversation.status}`,
+                  `Kernel status: ${conversation.status}`,
+                )}
               >
                 <View
                   style={[
@@ -1575,12 +1838,18 @@ export default function GoHomeScreen() {
                   ]}
                 />
                 <Text style={[styles.statusBannerText, { color: th.inkSub }]} numberOfLines={2}>
-                  {setupIssue ? "还没有可用的模型服务" : conversation.status}
+                  {setupIssue
+                    ? pick("还没有可用的模型服务", "No model provider configured yet")
+                    : conversation.status}
                 </Text>
                 {setupIssue ? (
-                  <Text style={[styles.statusRetry, { color: th.brand }]}>去设置</Text>
+                  <Text style={[styles.statusRetry, { color: th.brand }]}>
+                    {pick("去设置", "Configure")}
+                  </Text>
                 ) : conversation.statusKind === "error" && conversation.statusRetryable ? (
-                  <Text style={[styles.statusRetry, { color: th.brand }]}>重试</Text>
+                  <Text style={[styles.statusRetry, { color: th.brand }]}>
+                    {pick("重试", "Retry")}
+                  </Text>
                 ) : null}
               </PressableScale>
             ) : null}
@@ -1602,9 +1871,15 @@ export default function GoHomeScreen() {
                   onOpenSession={stableOpenSession}
                   plugins={plugins.enabled}
                   onPluginAction={stablePluginAction}
-                  bottomInset={petTarget + (annotations.length > 0 ? space(10) : 0) + keyboardHeight}
+                  bottomInset={
+                    (layout.landscapeCompact && keyboardHeight > 0
+                      ? 0
+                      : petDockHeight + (annotations.length > 0 ? space(10) : 0)) + keyboardHeight
+                  }
                   onMessageLongPress={stableOpenMessagePopup}
-                  annotationCountFor={stableAnnotationCountFor}
+                  draftAnnotationCounts={draftAnnotationCounts}
+                  onAnnotationMarkPress={stableAnnotationMarkPress}
+                  scrollToMessage={scrollToMessage}
                   showReasoning={conversationPrefs.showReasoning}
                   showTools={conversationPrefs.showTools}
                   autoCollapseThinking={conversationPrefs.autoCollapseReasoning}
@@ -1619,31 +1894,60 @@ export default function GoHomeScreen() {
                   distance={10}
                   style={[styles.stageText, layout.landscapeCompact && styles.stageTextLandscape]}
                 >
-                  <View
-                    style={[
-                      styles.emptyMedallion,
-                      { backgroundColor: th.card, borderColor: th.hairlineStrong },
-                      th.elevation.card,
-                    ]}
-                  >
-                    <View style={[styles.emptyHalo, { backgroundColor: th.brandSoft }]} />
-                    <PetView
-                      state={PET_STATE.idle}
-                      targetSize={64}
-                      animated={!drawerOpen && !workspacePanelOpen}
-                      crop={0.8}
-                    />
-                  </View>
-                  <Text style={[styles.stageTitle, { color: th.ink }]}>开始一段对话</Text>
+                  {!(layout.landscapeCompact && keyboardHeight > 0) ? (
+                    <View
+                      style={[
+                        styles.emptyMedallion,
+                        layout.landscapeCompact ? { width: 64, height: 64, borderRadius: 32 } : null,
+                        { backgroundColor: th.card, borderColor: th.hairlineStrong },
+                        th.elevation.card,
+                      ]}
+                    >
+                      <View style={[styles.emptyHalo, { backgroundColor: th.brandSoft }]} />
+                      <PetView
+                        state={PET_STATE.idle}
+                        targetSize={layout.landscapeCompact ? 48 : 64}
+                        animated={screenFocused && !drawerOpen && !workspacePanelOpen}
+                        crop={0.8}
+                      />
+                    </View>
+                  ) : null}
+                  <Text style={[styles.stageTitle, { color: th.ink }]}>
+                    {pick("开始一段对话", "Start a conversation")}
+                  </Text>
                   <Text style={[styles.stageSubtitle, { color: th.inkSub }]}>
-                    随时提问、审阅代码或交办后台任务
+                    {pick(
+                      "随时提问、审阅代码或交办后台任务",
+                      "Ask questions, review code, or delegate background tasks",
+                    )}
                   </Text>
                   {!layout.landscapeCompact ? (
                     <View style={styles.starterRow}>
                       {[
-                        { icon: "folder" as IconName, label: "梳理项目结构", prompt: "帮我梳理一下当前项目的目录结构与核心模块。" },
-                        { icon: "wrench" as IconName, label: "排查问题与报错", prompt: "帮我检查并定位当前工作区里的异常或潜在问题。" },
-                        { icon: "checklist" as IconName, label: "制定实现计划", prompt: "先帮我拆解一份清晰的分步实现计划。" },
+                        {
+                          icon: "folder" as IconName,
+                          label: pick("梳理项目结构", "Map project structure"),
+                          prompt: pick(
+                            "帮我梳理一下当前项目的目录结构与核心模块。",
+                            "Walk me through the directory structure and core modules of this project.",
+                          ),
+                        },
+                        {
+                          icon: "wrench" as IconName,
+                          label: pick("排查问题与报错", "Diagnose issues & errors"),
+                          prompt: pick(
+                            "帮我检查并定位当前工作区里的异常或潜在问题。",
+                            "Inspect this workspace and locate any errors or potential issues.",
+                          ),
+                        },
+                        {
+                          icon: "checklist" as IconName,
+                          label: pick("制定实现计划", "Draft an action plan"),
+                          prompt: pick(
+                            "先帮我拆解一份清晰的分步实现计划。",
+                            "Break this down into a clear step-by-step implementation plan first.",
+                          ),
+                        },
                       ].map((starter) => (
                         <PressableScale
                           key={starter.label}
@@ -1675,12 +1979,14 @@ export default function GoHomeScreen() {
 
               {/* 底部渐隐：使用与底色同 RGB 的零透明起点（bgFadeStart），消除 Android
                   LinearGradient "transparent"(=rgba(0,0,0,0)) 带来的灰褐色断层带。 */}
+              {/* 底部渐隐：键盘在横屏窄高下弹出时隐藏，避免挤占本来就紧张的消息可视区。 */}
+              {!(layout.landscapeCompact && keyboardHeight > 0) ? (
               <Animated.View
                 pointerEvents="none"
                 style={[
                   styles.bottomFade,
                   {
-                    height: petTarget + space(2),
+                    height: petDockHeight + space(2),
                     transform: [{ translateY: keyboardLift }],
                     opacity: keyboard.offset.interpolate({
                       inputRange: [0, 120],
@@ -1696,10 +2002,11 @@ export default function GoHomeScreen() {
                   style={StyleSheet.absoluteFill}
                 />
               </Animated.View>
+              ) : null}
 
               {/* 宠物 + 快捷动作浮在会话流底部：不参与列表布局，也不改变 COMPOSE。
-                  空态时不渲染——中央已有品牌大鸟，同屏两只鸟抢主角（运营者 2026-11-21 指出）。 */}
-              {conversation.rows.length > 0 ? (
+                  空态时不渲染（中央已有品牌大鸟）；横屏弹键盘时自动退让保住消息可读区。 */}
+              {conversation.rows.length > 0 && !(layout.landscapeCompact && keyboardHeight > 0) ? (
               <Animated.View
                 style={[styles.petOverlay, { transform: [{ translateY: keyboardLift }] }]}
                 pointerEvents="box-none"
@@ -1708,11 +2015,14 @@ export default function GoHomeScreen() {
                   <CapsuleStack items={capsuleItems} onItem={applyCatalogItem} />
                 </View>
                 {annotations.length > 0 ? (
-                  <View style={{ transform: [{ translateX: petOffset * petRange }] }}>
+                  <Reanimated.View style={petTranslateStyle}>
                     <Pressable
-                      onPress={() => setAnnotationManagerOpen(true)}
+                      onPress={() => {
+                        setAnnotationManagerFilter(null);
+                        setAnnotationManagerOpen(true);
+                      }}
                       accessibilityRole="button"
-                      accessibilityLabel={`注释 ${annotations.length}`}
+                      accessibilityLabel={pick(`注释 ${annotations.length}`, `${annotations.length} annotations`)}
                       style={({ pressed }) => [
                         styles.annotationBadge,
                         { backgroundColor: th.card, borderColor: th.hairline },
@@ -1722,47 +2032,46 @@ export default function GoHomeScreen() {
                     >
                       <Icon name="quote" size={12} color={th.brand} />
                       <Text style={[styles.annotationBadgeText, { color: th.brand }]}>
-                        注释 {annotations.length}
+                        {pick(`注释 ${annotations.length}`, `Notes ${annotations.length}`)}
                       </Text>
                     </Pressable>
-                  </View>
+                  </Reanimated.View>
                 ) : null}
-                <View
+                <Reanimated.View
                   pointerEvents="box-none"
                   style={[
                     styles.petDock,
-                    {
-                      height: petTarget - space(2),
-                      transform: [{ translateX: petOffset * petRange }],
-                    },
+                    { height: petDockHeight },
+                    petTranslateStyle,
                   ]}
                 >
-                  <View
-                    style={[styles.petTouch, { width: petTarget, height: petTarget - space(2) }]}
-                    {...petResponder.panHandlers}
-                  >
-                    <Pressable
-                      onPress={cyclePetState}
-                      accessibilityLabel="桌宠"
-                      style={({ pressed }) => ({
-                        width: petTarget,
-                        height: petTarget - space(2),
-                        alignItems: "center",
-                        opacity: pressed ? 0.82 : 1,
-                      })}
+                  <GestureDetector gesture={petDragGesture}>
+                    <View
+                      style={[styles.petTouch, { width: petBox, height: petDockHeight }]}
                     >
-                      <View pointerEvents="none">
-                        <PetView
-                          state={petState}
-                          targetSize={petTarget}
-                          // 侧栏展开时宠物被遮罩盖住；停掉它的逐帧重绘，避免每帧
-                          // 把 BlurTargetView 弄脏、逼磨砂层全屏重算。
-                          animated={!drawerOpen && !workspacePanelOpen}
-                        />
-                      </View>
-                    </Pressable>
-                  </View>
-                </View>
+                      <Pressable
+                        onPress={handlePetTap}
+                        accessibilityLabel={pick("桌宠", "Pet mascot")}
+                        style={({ pressed }) => ({
+                          width: petBox,
+                          height: petDockHeight,
+                          alignItems: "center",
+                          justifyContent: "flex-start",
+                          opacity: pressed ? 0.86 : 1,
+                        })}
+                      >
+                        <View pointerEvents="none">
+                          <PetView
+                            state={petState}
+                            targetSize={petTarget}
+                            // 侧栏展开、二级页覆盖或切后台时停帧，彻底零 GPU/CPU 空转。
+                            animated={screenFocused && !drawerOpen && !workspacePanelOpen}
+                          />
+                        </View>
+                      </Pressable>
+                    </View>
+                  </GestureDetector>
+                </Reanimated.View>
               </Animated.View>
               ) : null}
             </Reanimated.View>
@@ -1797,10 +2106,13 @@ export default function GoHomeScreen() {
                 ]}
               >
                 <Text style={[styles.editStripText, { color: th.brand }]} numberOfLines={1}>
-                  正在编辑重发最后一条消息，发送后替换原文
+                  {pick(
+                    "正在编辑重发最后一条消息，发送后替换原文",
+                    "Editing your last message — sending will replace it",
+                  )}
                 </Text>
                 <Pressable
-                  accessibilityLabel="取消编辑"
+                  accessibilityLabel={pick("取消编辑", "Cancel edit")}
                   hitSlop={10}
                   onPress={() => {
                     haptic("tick");
@@ -1852,7 +2164,7 @@ export default function GoHomeScreen() {
                   { backgroundColor: th.surfaceSoft, borderColor: th.hairline },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="选择插件"
+                accessibilityLabel={pick("选择插件", "Tools & plugins")}
               >
                 <Icon name="plus" size={15} color={th.ink} />
               </PressableScale>
@@ -1876,7 +2188,11 @@ export default function GoHomeScreen() {
                 ref={composerInputRef}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={tokens.length > 0 ? "继续输入…" : "给 NIBI 发消息…"}
+                placeholder={
+                  tokens.length > 0
+                    ? pick("继续输入…", "Keep typing…")
+                    : pick("给 NIBI 发消息…", "Message NIBI…")
+                }
                 placeholderTextColor={th.inkFaint}
                 style={[styles.composerInput, { color: th.ink }]}
                 returnKeyType="send"
@@ -1897,7 +2213,7 @@ export default function GoHomeScreen() {
                   发送 RPC 在途（turn 还没 running）时也不要把按钮先压暗——那是
                   「点发送后按钮闪一下」的来源。 */}
               <PressableScale
-                accessibilityLabel={stopping ? "停止生成" : "发送"}
+                accessibilityLabel={stopping ? pick("停止生成", "Stop generating") : pick("发送", "Send")}
                 disabled={!stopping && !canSend}
                 onPress={() => {
                   if (stopping) {
@@ -1995,7 +2311,8 @@ export default function GoHomeScreen() {
         blurTarget={blurTargetRef}
       />
 
-      {!inShell ? (
+      {/* 非常驻侧栏（包括手机与 840–919dp 中宽平板 GoRail 档）都挂载 overlay 抽屉，彻底消除 840–919dp 死胡同。 */}
+      {!hasSidebar ? (
         <GoDrawer
           workspaceRoot={workspaceRoot()}
           open={drawerOpen}
@@ -2046,6 +2363,7 @@ export default function GoHomeScreen() {
         style={[
           styles.jumpWrap,
           {
+            right: insets.right + space(3.5),
             bottom: insets.bottom + space(2) + 60,
             transform: [{ translateY: keyboardLift }],
           },
@@ -2077,7 +2395,7 @@ export default function GoHomeScreen() {
               setJumpSignal((value) => value + 1);
             }}
             accessibilityRole="button"
-            accessibilityLabel="跳到最新消息"
+            accessibilityLabel={pick("跳到最新消息", "Jump to latest")}
             style={[
               styles.jumpButton,
               {
@@ -2108,11 +2426,11 @@ export default function GoHomeScreen() {
         width={300}
       >
         <ScrollView
-          style={styles.plusScroll}
+          style={{ maxHeight: Math.min(430, Math.max(180, Math.round(height * 0.6))) }}
           nestedScrollEnabled
           showsVerticalScrollIndicator={false}
         >
-          {PLUS_GROUPS.map(({ group, title }) => {
+          {PLUS_GROUPS.map(({ group, title, titleEn }) => {
             const items = plusItemsFor(group);
             if (items.length === 0) return null;
             const nibi = items.filter((item) => item.source === "nibi");
@@ -2162,12 +2480,16 @@ export default function GoHomeScreen() {
             );
             return (
               <View key={group} style={styles.plusSection}>
-                <Text style={[styles.plusTitle, { color: th.ink }]}>{title}</Text>
+                <Text style={[styles.plusTitle, { color: th.ink }]}>
+                  {pick(title, titleEn)}
+                </Text>
                 {(split ? nibi : items).map(row)}
                 {split && plugin.length > 0 ? (
                   <>
                     <Text style={[styles.plusSubtitle, { color: th.inkFaint }]}>
-                      {group === "skill" ? "插件技能" : "用户插件"}
+                      {group === "skill"
+                        ? pick("插件技能", "Plugin skills")
+                        : pick("用户插件", "User plugins")}
                     </Text>
                     {plugin.map(row)}
                   </>
@@ -2192,9 +2514,12 @@ export default function GoHomeScreen() {
 
       <ConfirmDialog
         visible={confirmFullAccess}
-        title="切换到完全访问"
-        message={"完全访问会减少确认次数，模型可以在不逐次询问的情况下修改文件和执行命令。\n\n只在你信任当前任务和模型时使用。"}
-        confirmLabel="切换到完全访问"
+        title={pick("切换到完全访问", "Switch to Full Access")}
+        message={pick(
+          "完全访问会减少确认次数，模型可以在不逐次询问的情况下修改文件和执行命令。\n\n只在你信任当前任务和模型时使用。",
+          "Full access reduces confirmation prompts, allowing the model to edit files and run commands without asking each time.\n\nUse only when you trust the current task and model.",
+        )}
+        confirmLabel={pick("切换到完全访问", "Enable Full Access")}
         danger
         onCancel={() => setConfirmFullAccess(false)}
         onConfirm={() => {
@@ -2235,14 +2560,20 @@ export default function GoHomeScreen() {
         onClose={() => setPermissionMenu(null)}
         width={286}
       >
-        <Text style={[styles.popupTitle, { color: th.ink }]}>会话权限</Text>
+        <Text style={[styles.popupTitle, { color: th.ink }]}>
+          {pick("会话权限", "Session permissions")}
+        </Text>
         <Pressable
           onPress={() => {
             setPlanMode(!planEnabled);
             setPermissionMenu(null);
           }}
           accessibilityRole="button"
-          accessibilityLabel={planEnabled ? "关闭计划模式" : "打开计划模式"}
+          accessibilityLabel={
+            planEnabled
+              ? pick("关闭计划模式", "Turn off Plan mode")
+              : pick("打开计划模式", "Turn on Plan mode")
+          }
           style={({ pressed }) => [
             styles.menuRow,
             { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
@@ -2257,8 +2588,12 @@ export default function GoHomeScreen() {
             <Icon name="doc" size={15} color={planEnabled ? th.brand : th.inkSub} />
           </View>
           <View style={styles.menuText}>
-            <Text style={[styles.menuLabel, { color: th.ink }]}>计划模式</Text>
-            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>编辑前先出计划。</Text>
+            <Text style={[styles.menuLabel, { color: th.ink }]}>
+              {pick("计划模式", "Plan mode")}
+            </Text>
+            <Text style={[styles.menuDetail, { color: th.inkFaint }]}>
+              {pick("编辑前先出计划。", "Draft a plan before editing.")}
+            </Text>
           </View>
           <Icon
             name={planEnabled ? "check" : "chevron-right"}
@@ -2269,12 +2604,14 @@ export default function GoHomeScreen() {
         <View style={[styles.menuDivider, { backgroundColor: th.hairline }]} />
         {PERMISSION_OPTIONS.map((option) => {
           const active = permissionMode === option.id;
+          const optionLabel = pick(option.labelZh, option.labelEn);
+          const optionDetail = pick(option.detailZh, option.detailEn);
           return (
             <Pressable
               key={option.id}
               onPress={() => choosePermission(option.id)}
               accessibilityRole="button"
-              accessibilityLabel={`${option.label}：${option.detail}`}
+              accessibilityLabel={`${optionLabel}: ${optionDetail}`}
               style={({ pressed }) => [
                 styles.menuRow,
                 { borderColor: th.hairline, backgroundColor: pressed ? th.hover : "transparent", opacity: pressed ? 0.92 : 1 },
@@ -2302,8 +2639,8 @@ export default function GoHomeScreen() {
                 />
               </View>
               <View style={styles.menuText}>
-                <Text style={[styles.menuLabel, { color: th.ink }]}>{option.label}</Text>
-                <Text style={[styles.menuDetail, { color: th.inkFaint }]}>{option.detail}</Text>
+                <Text style={[styles.menuLabel, { color: th.ink }]}>{optionLabel}</Text>
+                <Text style={[styles.menuDetail, { color: th.inkFaint }]}>{optionDetail}</Text>
               </View>
               {active ? <Icon name="check" size={13} color={th.brand} /> : null}
             </Pressable>
@@ -2325,11 +2662,19 @@ export default function GoHomeScreen() {
               const text = popup.message;
               setPopup(null);
               void Clipboard.setStringAsync(text)
-                .then((saved) => showHint(saved ? "已复制" : "复制失败，请手动选择文本"))
-                .catch(() => showHint("复制失败，请手动选择文本"));
+                .then((saved) =>
+                  showHint(
+                    saved
+                      ? pick("已复制", "Copied")
+                      : pick("复制失败，请手动选择文本", "Copy failed — select text manually"),
+                  ),
+                )
+                .catch(() =>
+                  showHint(pick("复制失败，请手动选择文本", "Copy failed — select text manually")),
+                );
             }}
             accessibilityRole="button"
-            accessibilityLabel="复制消息"
+            accessibilityLabel={pick("复制消息", "Copy message")}
             style={({ pressed }) => [
               styles.msgCoreTile,
               {
@@ -2339,7 +2684,7 @@ export default function GoHomeScreen() {
             ]}
           >
             <Icon name="copy" size={16} color={th.inkSub} />
-            <Text style={[styles.msgCoreLabel, { color: th.ink }]}>复制</Text>
+            <Text style={[styles.msgCoreLabel, { color: th.ink }]}>{pick("复制", "Copy")}</Text>
           </Pressable>
 
           <Pressable
@@ -2356,7 +2701,7 @@ export default function GoHomeScreen() {
               });
             }}
             accessibilityRole="button"
-            accessibilityLabel="添加注释"
+            accessibilityLabel={pick("添加注释", "Add annotation")}
             style={({ pressed }) => [
               styles.msgCoreTile,
               {
@@ -2366,7 +2711,17 @@ export default function GoHomeScreen() {
             ]}
           >
             <Icon name="quote" size={16} color={th.brand} />
-            <Text style={[styles.msgCoreLabel, { color: th.brand }]}>注释</Text>
+            <Text style={[styles.msgCoreLabel, { color: th.brand }]}>
+              {(() => {
+                const count =
+                  popup?.kind === "message"
+                    ? (draftAnnotationCounts[popup.messageKey] ?? 0)
+                    : 0;
+                return count > 0
+                  ? pick(`注释 (${count})`, `Annotate (${count})`)
+                  : pick("注释", "Annotate");
+              })()}
+            </Text>
           </Pressable>
 
           {/* 编辑重发：只出现在内核判定可编辑（最新一条 realUser 输入）的用户消息上。 */}
@@ -2384,14 +2739,19 @@ export default function GoHomeScreen() {
                   (row.attachments?.length ?? 0) > 0 ||
                   (row.pluginReferences?.length ?? 0) > 0
                 ) {
-                  showHint("带附件或引用的消息暂不支持编辑重发");
+                  showHint(
+                    pick(
+                      "带附件或引用的消息暂不支持编辑重发",
+                      "Messages with attachments or quotes can't be edited & resent yet",
+                    ),
+                  );
                   return;
                 }
                 setEditTarget({ rowId: row.rowId, entityId: row.entityId });
                 setDraft(row.text);
               }}
               accessibilityRole="button"
-              accessibilityLabel="编辑重发"
+              accessibilityLabel={pick("编辑重发", "Edit & resend")}
               style={({ pressed }) => [
                 styles.msgCoreTile,
                 {
@@ -2401,7 +2761,9 @@ export default function GoHomeScreen() {
               ]}
             >
               <Icon name="pen" size={16} color={th.inkSub} />
-              <Text style={[styles.msgCoreLabel, { color: th.ink }]}>编辑重发</Text>
+              <Text style={[styles.msgCoreLabel, { color: th.ink }]}>
+                {pick("编辑重发", "Edit")}
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -2474,7 +2836,10 @@ export default function GoHomeScreen() {
                       setMessageMoreTarget(captured);
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`更多插件动作，共 ${messageMenuItems.length} 项`}
+                    accessibilityLabel={pick(
+                      `更多插件动作，共 ${messageMenuItems.length} 项`,
+                      `More plugin actions (${messageMenuItems.length})`,
+                    )}
                     style={({ pressed }) => [
                       styles.menuRow,
                       {
@@ -2488,11 +2853,13 @@ export default function GoHomeScreen() {
                       <Icon name="puzzle" size={14} color={th.inkSub} />
                     </View>
                     <View style={styles.menuText}>
-                      <Text style={[styles.menuLabel, { color: th.ink }]}>更多插件动作</Text>
+                      <Text style={[styles.menuLabel, { color: th.ink }]}>
+                        {pick("更多插件动作", "More plugin actions")}
+                      </Text>
                     </View>
                     <View style={[styles.msgMoreBadge, { backgroundColor: th.surfaceSoft }]}>
                       <Text style={[styles.msgMoreBadgeText, { color: th.inkSub }]}>
-                        共 {messageMenuItems.length} 项
+                        {pick(`共 ${messageMenuItems.length} 项`, `${messageMenuItems.length}`)}
                       </Text>
                     </View>
                     <Icon name="chevron-right" size={13} color={th.inkFaint} />
@@ -2529,19 +2896,56 @@ export default function GoHomeScreen() {
         fullText={annotationEditor?.fullText ?? ""}
         initialExcerpt={annotationEditor?.initialExcerpt}
         initialComment={annotationEditor?.comment}
+        initialSelectionStart={annotationEditor?.initialSelectionStart}
+        initialSelectionEnd={annotationEditor?.initialSelectionEnd}
         instruction={annotationEditor?.instruction}
         instructionLabel={annotationEditor?.instructionLabel}
         editing={annotationEditor?.editingId !== undefined}
-        onCancel={() => setAnnotationEditor(null)}
+        editingId={annotationEditor?.editingId}
+        existingAnnotations={annotations}
+        transformCount={tokens.filter((t) => t.kind === "message" && Boolean(t.messageText)).length}
+        transformChars={tokens
+          .filter((t) => t.kind === "message" && Boolean(t.messageText))
+          .reduce((sum, t) => sum + (t.messageText?.length ?? 0), 0)}
+        onCancel={() => {
+          const reopen = Boolean(annotationEditor?.returnToManager);
+          setAnnotationEditor(null);
+          if (reopen) setAnnotationManagerOpen(true);
+        }}
         onSubmit={saveAnnotation}
       />
 
       <AnnotationManager
         visible={annotationManagerOpen}
         annotations={annotations}
-        onClose={() => setAnnotationManagerOpen(false)}
+        filterMessageKey={annotationManagerFilter?.messageKey ?? null}
+        onClearFilter={() => setAnnotationManagerFilter(null)}
+        onAddForFilteredMessage={
+          annotationManagerFilter
+            ? () => {
+                const target = annotationManagerFilter;
+                setAnnotationManagerOpen(false);
+                setAnnotationEditor({
+                  messageKey: target.messageKey,
+                  ...(target.messageId ? { messageId: target.messageId } : {}),
+                  messageRole: target.messageRole,
+                  fullText: target.messageText,
+                  initialExcerpt: target.messageText,
+                  comment: "",
+                  returnToManager: true,
+                });
+              }
+            : undefined
+        }
+        onClose={() => {
+          setAnnotationManagerOpen(false);
+          setAnnotationManagerFilter(null);
+        }}
         onEdit={editAnnotation}
         onDelete={deleteAnnotation}
+        onClearAll={clearAllAnnotations}
+        onReorder={reorderAnnotationItem}
+        onJumpToMessage={jumpToAnnotatedMessage}
       />
 
       <PluginActionSheet
@@ -2762,9 +3166,9 @@ const styles = StyleSheet.create({
     paddingTop: space(1.5),
     paddingBottom: 1,
   },
-  // PetView 的方形画布底部有透明留白/飞行云海；裁到输入栏上沿，避免云海盖住 COMPOSE。
-  petDock: { alignItems: "center", overflow: "hidden" },
-  petTouch: { alignItems: "center", justifyContent: "center" },
+  // PetView 顶部 y=0 必须从容器顶边起画（绝不垂直居中裁头）；只裁掉脚线（y=58）下方极窄透明留白。
+  petDock: { alignItems: "center", justifyContent: "flex-start", overflow: "hidden" },
+  petTouch: { alignItems: "center", justifyContent: "flex-start" },
   annotationBadge: {
     alignSelf: "center",
     flexDirection: "row",

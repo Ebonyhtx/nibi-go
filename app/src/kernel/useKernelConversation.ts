@@ -40,6 +40,8 @@ import {
 } from "nibi-kernel-host";
 
 import { getCachedMemoryPreferences, loadMemoryPreferences } from "../memory/preferences";
+import { extractPetRowSignals, isDeliveryToolName } from "../components/petMachine";
+import { pickText, useLocale, type Locale } from "../i18n";
 import { getCachedDevicePreferences, subscribeDevicePreferences } from "../settings/devicePreferences";
 import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
 import { registerKernelClient, unregisterKernelClient } from "./kernelRegistry";
@@ -118,6 +120,77 @@ async function sessionMcpServers(): Promise<KernelMcpServer[] | undefined> {
   return servers.length > 0 ? servers : undefined;
 }
 
+class SetupRequiredError extends Error {
+  readonly code = "SETUP_REQUIRED" as const;
+  constructor() {
+    super(pickText("还没有可用的模型服务", "No model provider configured yet"));
+  }
+}
+
+class SessionKeptError extends Error {
+  readonly code = "SESSION_KEPT" as const;
+  constructor() {
+    super(
+      pickText(
+        "会话正在运行或被引用，暂时不能删除",
+        "Session is running or referenced and cannot be deleted right now",
+      ),
+    );
+  }
+}
+
+type KernelStatusCode =
+  | "init"
+  | "ready"
+  | "restarting"
+  | "kernel_unavailable"
+  | "setup_required"
+  | "send_failed"
+  | "reconnect_failed"
+  | "init_failed"
+  | "error";
+
+interface KernelStatusState {
+  code: KernelStatusCode;
+  detail?: string;
+  zhPrefix?: string;
+  enPrefix?: string;
+}
+
+function isSetupRequiredError(error: unknown): boolean {
+  return (
+    error instanceof SetupRequiredError ||
+    (error instanceof Error &&
+      (error.message.includes("还没有可用的模型服务") ||
+        error.message.includes("No model provider configured")))
+  );
+}
+
+function formatKernelStatus(state: KernelStatusState, locale: Locale): string {
+  switch (state.code) {
+    case "init":
+      return pickText("初始化…", "Initializing…", locale);
+    case "ready":
+      return pickText("就绪", "Ready", locale);
+    case "restarting":
+      return pickText("内核重启中…", "Restarting kernel…", locale);
+    case "kernel_unavailable":
+      return pickText("内核不可用", "Kernel unavailable", locale);
+    case "setup_required":
+      return pickText("还没有可用的模型服务", "No model provider configured yet", locale);
+    case "send_failed":
+      return `${pickText("发送失败：", "Send failed: ", locale)}${state.detail ?? ""}`;
+    case "reconnect_failed":
+      return `${pickText("内核重连失败：", "Reconnect failed: ", locale)}${state.detail ?? ""}`;
+    case "init_failed":
+      return `${pickText("失败：", "Failed: ", locale)}${state.detail ?? ""}`;
+    case "error": {
+      const prefix = pickText(state.zhPrefix ?? "", state.enPrefix ?? "", locale);
+      return `${prefix}${state.detail ?? ""}`;
+    }
+  }
+}
+
 async function createWithDefaultModel(
   client: KernelSessionClient,
   workspaceRef?: WorkspaceRefLike,
@@ -141,7 +214,7 @@ async function createWithDefaultModel(
     // 看到失败，否则会静默建出一个内核默认模型（曾因此把 mock 写进会话并一路沿用）。
     if (!(error instanceof KernelProtocolError) || error.code !== -32601) throw error;
   }
-  if (!model) throw new Error("还没有可用的模型服务");
+  if (!model) throw new SetupRequiredError();
   // 会话 ID 由 Host 先生成：workspace 目录名要用它，而内核在 create 之后才返回 ID。
   // deferred：未发过消息的「新对话」不落库、不进会话抽屉（内核首条输入时才提升为正式会话）。
   // 项目会话的 workspace 是项目目录（多会话共享；记忆/项目级 agents 都挂它），在创建前建好。
@@ -198,11 +271,13 @@ export interface KernelConversation {
   status: string;
   /** 状态横幅分类：ok 不显示；busy 是进行中（初始化/重启）；error 常驻并可带重试。 */
   statusKind: "ok" | "busy" | "error";
+  /** 当前状态是否为未配置模型服务的引导态（结构化标志，不依赖文案字符串匹配）。 */
+  setupIssue: boolean;
   /** 这条失败状态有没有对应的重试动作（横幅只在此为 true 时画「重试」）。 */
   statusRetryable: boolean;
   /** 状态横幅的「重试」：发送失败原样重发；初始化/重连失败重建连接。 */
   retryStatus: () => Promise<void>;
-  /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）。 */
+  /** 顶栏显示的当前默认模型（设置页的 `defaultModelSelection.modelId`）；未配置为空串。 */
   modelLabel: string;
   /** 当前会话快照里的模型选择（打开会话时同步给 COMPOSE）。 */
   currentModelSelection: {
@@ -227,7 +302,7 @@ export interface KernelConversation {
   /** 已归档的会话（归档管理）；归档是 GO 本地的会话管理状态，不写内核。 */
   archivedSessions: readonly KernelSessionSummary[];
   activeSessionId: string | null;
-  send: (text: string, options?: KernelSendOptions) => Promise<void>;
+  send: (text: string, options?: KernelSendOptions) => Promise<boolean>;
   /** 停止当前轮（内核 `stop`）；返回错误文案，成功为 null。 */
   stopTurn: () => Promise<string | null>;
   /** 编辑并重发最后一条用户输入（内核 `editUserQuery`）；返回错误文案，成功为 null。 */
@@ -296,8 +371,10 @@ export function useKernelConversation(): KernelConversation {
       void deactivateKeepAwake("nibi-turn");
     };
   }, [turn]);
-  const [status, setStatus] = useState("初始化…");
-  const [modelLabel, setModelLabel] = useState("未配置模型");
+  const locale = useLocale();
+  const [statusState, setStatusState] = useState<KernelStatusState>({ code: "init" });
+  const status = useMemo(() => formatKernelStatus(statusState, locale), [statusState, locale]);
+  const [modelLabel, setModelLabel] = useState("");
   const [currentModelSelection, setCurrentModelSelection] = useState<{
     providerId: string;
     modelId: string;
@@ -601,9 +678,14 @@ export function useKernelConversation(): KernelConversation {
         rememberSessionSnapshot(await client.resumeSession(sessionId, servers));
         if (clientRef.current !== client || activeSessionIdRef.current !== sessionId) return;
         await attach(client, sessionId);
-        setStatus("就绪");
+        setStatusState({ code: "ready" });
       } catch (error) {
-        setStatus(`刷新手机工具失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatusState({
+          code: "error",
+          zhPrefix: "刷新手机工具失败：",
+          enPrefix: "Failed to refresh phone tools: ",
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     [attach, rememberSessionSnapshot],
@@ -629,49 +711,45 @@ export function useKernelConversation(): KernelConversation {
     return () => subscription.remove();
   }, []);
 
-  // ── 全局悬浮状态气泡 ─────────────────────────────────────────────
-  // 运营者需求：后台/别的应用里也能看到 NIBI-GO 正在跑、在等审批、或手机被操控；
-  // 单击气泡切回应用。状态只由这里驱动，原生不做状态机；无悬浮窗权限时全部静默。
+  // ── 全局悬浮像素宠物气泡 ─────────────────────────────────────────────
+  // 离开 NIBI-GO 或手机操控执行中时，像素小鸟悬浮在屏幕侧边同步反映思考/干活/搬运/等审批/完成/报错；
+  // 单击小鸟切回应用，拖动小鸟自动切入飞行态。状态只由这里驱动，无悬浮窗权限时静默。
   const bubbleAppStateRef = useRef<AppStateStatus>("active");
   const bubbleToolsBusyRef = useRef(false);
-  // 回合完成（running→idle）后的绿点窗口；原生侧停留 2s 自动收起。
-  const bubbleDoneUntilRef = useRef(0);
+  // 回合结束（running→idle）后的短暂提示窗口（completed→done 2.4s，failed→error 3.2s）。
+  const bubbleOutcomeRef = useRef<{ kind: "done" | "error"; until: number } | null>(null);
+  const bubbleAutoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bubbleLastRef = useRef<PhoneBubbleState>("hidden");
   const bubblePrevTurnRef = useRef<TurnState>("idle");
   const bubbleInputRef = useRef<{ turn: TurnState; rows: readonly ChatRow[] }>({ turn, rows });
 
-  /** 汇总当前应显示的气泡状态；与上次相同就不打原生（流式期间 rows 高频变化）。 */
+  /** 汇总当前应显示的悬浮宠物状态；与上次相同就不打原生（流式期间 rows 高频变化）。 */
   const applyBubbleState = useCallback(() => {
     const current = bubbleInputRef.current;
     let next: PhoneBubbleState = "hidden";
     if (canShowBubble()) {
       if (bubbleToolsBusyRef.current) {
         // 手机操控进行中：无论前后台都亮（工具信号来自 1s 轮询）。
-        next = "tools";
+        next = "working";
       } else if (bubbleAppStateRef.current !== "active") {
-        // 后台子代理在跑（主回合已完成但 subagent 行仍在运行/后台）也是"还在干活"。
-        const subagentBusy = current.rows.some(
-          (row) =>
-            row.kind === "subagent" &&
-            (row.status === "running" || (row.status === undefined && row.backgrounded)),
-        );
-        if (subagentBusy) {
-          if (current.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
-            next = "waiting";
-          } else {
-            next = "running";
-          }
+        const signals = extractPetRowSignals(current.rows);
+        if (signals.hasPendingInteraction) {
+          next = "waiting";
         } else if (current.turn === "running") {
-          // 审批/提问最高；其次执行中的工具行；纯流式是 running。
-          if (current.rows.some((row) => row.kind === "approval" || row.kind === "question")) {
-            next = "waiting";
-          } else if (current.rows.some(hasActiveToolRow)) {
-            next = "tools";
+          if (signals.activeToolName) {
+            next = isDeliveryToolName(signals.activeToolName) ? "carrying" : "working";
+          } else if (signals.streamingAssistantHasText) {
+            next = "working";
           } else {
-            next = "running";
+            next = "thinking";
           }
-        } else if (Date.now() < bubbleDoneUntilRef.current) {
-          next = "done";
+        } else if (signals.hasRunningSubagent) {
+          next = "working";
+        } else {
+          const outcome = bubbleOutcomeRef.current;
+          if (outcome && Date.now() < outcome.until) {
+            next = outcome.kind;
+          }
         }
       }
     }
@@ -682,13 +760,48 @@ export function useKernelConversation(): KernelConversation {
 
   useEffect(() => {
     bubbleInputRef.current = { turn, rows };
-    // turn running→idle：回合完成，后台时给 2s 绿点（回前台会直接 hidden）。
-    if (bubblePrevTurnRef.current === "running" && turn === "idle") {
-      bubbleDoneUntilRef.current = Date.now() + 2_000;
+    if (turn === "running") {
+      bubbleOutcomeRef.current = null;
+      if (bubbleAutoHideTimerRef.current) {
+        clearTimeout(bubbleAutoHideTimerRef.current);
+        bubbleAutoHideTimerRef.current = null;
+      }
+    } else if (bubblePrevTurnRef.current === "running") {
+      // 仅按真实回合结论决定 done 还是 error，不再把失败回合误亮成 done。
+      let lastTurnState: string | null = null;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i]!;
+        if (row.kind === "turn") {
+          lastTurnState = row.state;
+          break;
+        }
+      }
+      const outcomeKind =
+        lastTurnState === "failed" ? "error" : lastTurnState === "completed" ? "done" : null;
+      if (outcomeKind) {
+        const stayMs = outcomeKind === "done" ? 2_400 : 3_200;
+        bubbleOutcomeRef.current = { kind: outcomeKind, until: Date.now() + stayMs };
+        if (bubbleAutoHideTimerRef.current) clearTimeout(bubbleAutoHideTimerRef.current);
+        bubbleAutoHideTimerRef.current = setTimeout(() => {
+          bubbleAutoHideTimerRef.current = null;
+          bubbleOutcomeRef.current = null;
+          // 与原生 autoHide 对齐，重置 bubbleLastRef，防止后续状态被误判成“未变化”。
+          if (bubbleLastRef.current === outcomeKind) {
+            bubbleLastRef.current = "hidden";
+          }
+          applyBubbleState();
+        }, stayMs + 80);
+      }
     }
     bubblePrevTurnRef.current = turn;
     applyBubbleState();
   }, [turn, rows, applyBubbleState]);
+
+  useEffect(() => {
+    return () => {
+      if (bubbleAutoHideTimerRef.current) clearTimeout(bubbleAutoHideTimerRef.current);
+    };
+  }, []);
 
   // 回前台立即收起（手机工具在途时保留 tools）。
   useEffect(() => {
@@ -800,7 +913,7 @@ export function useKernelConversation(): KernelConversation {
         }
         if (cancelled) return;
         if (!started && !kernelHostAvailable()) {
-          setStatus("内核不可用");
+          setStatusState({ code: "kernel_unavailable" });
           return;
         }
         // 内核建会话时同步问 Host 要偏好；先把记忆开关读进缓存，避免落到默认值。
@@ -856,11 +969,18 @@ export function useKernelConversation(): KernelConversation {
           activeSessionIdRef.current = sessionId;
           setActiveSessionId(sessionId);
           setReady(true);
-          setStatus("就绪");
+          setStatusState({ code: "ready" });
         }
       } catch (error) {
         if (!cancelled) {
-          setStatus(`失败：${error instanceof Error ? error.message : String(error)}`);
+          if (isSetupRequiredError(error)) {
+            setStatusState({ code: "setup_required" });
+          } else {
+            setStatusState({
+              code: "init_failed",
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     })();
@@ -903,7 +1023,7 @@ export function useKernelConversation(): KernelConversation {
         started = await startKernelHost(startEnv, { useService: false });
       }
       if (!started && !kernelHostAvailable()) {
-        setStatus("内核不可用");
+        setStatusState({ code: "kernel_unavailable" });
         return;
       }
     }
@@ -943,15 +1063,22 @@ export function useKernelConversation(): KernelConversation {
           sessionId = client.currentSessionId;
         }
       }
-      if (!sessionId) throw new Error("没有可用会话");
+      if (!sessionId) throw new Error(pickText("没有可用会话", "No session available"));
       await attach(client, sessionId);
       activeSessionIdRef.current = sessionId;
       setActiveSessionId(sessionId);
       await refreshSessions(client);
       setReady(true);
-      setStatus("就绪");
+      setStatusState({ code: "ready" });
     } catch (error) {
-      setStatus(`内核重连失败：${error instanceof Error ? error.message : String(error)}`);
+      if (isSetupRequiredError(error)) {
+        setStatusState({ code: "setup_required" });
+      } else {
+        setStatusState({
+          code: "reconnect_failed",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }, [attach, refreshSessions]);
 
@@ -959,7 +1086,7 @@ export function useKernelConversation(): KernelConversation {
     if (KERNEL_MODE !== "service") return;
     return onKernelRestart((event) => {
       if (event.status === "restarting") {
-        setStatus("内核重启中…");
+        setStatusState({ code: "restarting" });
         setReady(false);
         // 旧内核的请求全部作废：先收掉旧 client/订阅，等 ready 再重建。
         const oldClient = clientRef.current;
@@ -980,7 +1107,7 @@ export function useKernelConversation(): KernelConversation {
   }, [reconnect]);
 
   const send = useCallback(
-    async (text: string, options: KernelSendOptions = {}) => {
+    async (text: string, options: KernelSendOptions = {}): Promise<boolean> => {
       const content = text.trim();
       const client = clientRef.current;
       const quotes = options.conversationQuotes ?? [];
@@ -991,7 +1118,7 @@ export function useKernelConversation(): KernelConversation {
         !client ||
         client.currentSessionId === null
       ) {
-        return;
+        return false;
       }
       setSending(true);
       // 记下这次发送：失败后横幅「重试」原样重发；成功即清掉。
@@ -1039,6 +1166,7 @@ export function useKernelConversation(): KernelConversation {
         });
         await refreshSessions(client);
         lastSendRef.current = null;
+        return true;
       } catch (error) {
         // 发送失败时把乐观气泡收掉，避免它一直停在“发送中”。
         pendingRef.current = pendingRef.current.filter((entry) => entry.id !== pendingId);
@@ -1055,7 +1183,11 @@ export function useKernelConversation(): KernelConversation {
             }),
           ),
         );
-        setStatus(`发送失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatusState({
+          code: "send_failed",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        return false;
       } finally {
         setSending(false);
       }
@@ -1070,14 +1202,21 @@ export function useKernelConversation(): KernelConversation {
    */
   const compact = useCallback(async (): Promise<string | null> => {
     const client = clientRef.current;
-    if (!client || client.currentSessionId === null) return "没有可以压缩的会话";
+    if (!client || client.currentSessionId === null) {
+      return pickText("没有可以压缩的会话", "No session to compact");
+    }
     try {
       await client.compact();
       return null;
     } catch (error) {
-      const message = `压缩失败：${error instanceof Error ? error.message : String(error)}`;
-      setStatus(message);
-      return message;
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatusState({
+        code: "error",
+        zhPrefix: "压缩失败：",
+        enPrefix: "Compact failed: ",
+        detail,
+      });
+      return `${pickText("压缩失败：", "Compact failed: ")}${detail}`;
     }
   }, []);
 
@@ -1085,9 +1224,11 @@ export function useKernelConversation(): KernelConversation {
   const retryTurn = useCallback(
     async (target: { rowId: number; entityId: string }): Promise<string | null> => {
       const client = clientRef.current;
-      if (!client || client.currentSessionId === null) return "没有可重试的会话";
+      if (!client || client.currentSessionId === null) {
+        return pickText("没有可重试的会话", "No session to retry");
+      }
       const snapshot = controllerRef.current?.snapshot;
-      if (!snapshot) return "会话还没准备好";
+      if (!snapshot) return pickText("会话还没准备好", "Session is not ready yet");
       try {
         await client.retryTurn(target, {
           revision: snapshot.revision,
@@ -1095,9 +1236,14 @@ export function useKernelConversation(): KernelConversation {
         });
         return null;
       } catch (error) {
-        const message = `重试失败：${error instanceof Error ? error.message : String(error)}`;
-        setStatus(message);
-        return message;
+        const detail = error instanceof Error ? error.message : String(error);
+        setStatusState({
+          code: "error",
+          zhPrefix: "重试失败：",
+          enPrefix: "Retry failed: ",
+          detail,
+        });
+        return `${pickText("重试失败：", "Retry failed: ")}${detail}`;
       }
     },
     [],
@@ -1116,9 +1262,14 @@ export function useKernelConversation(): KernelConversation {
       }, 3_000);
       return null;
     } catch (error) {
-      const message = `停止失败：${error instanceof Error ? error.message : String(error)}`;
-      setStatus(message);
-      return message;
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatusState({
+        code: "error",
+        zhPrefix: "停止失败：",
+        enPrefix: "Stop failed: ",
+        detail,
+      });
+      return `${pickText("停止失败：", "Stop failed: ")}${detail}`;
     }
   }, []);
 
@@ -1146,52 +1297,75 @@ export function useKernelConversation(): KernelConversation {
       newText: string,
     ): Promise<string | null> => {
       const client = clientRef.current;
-      if (!client || client.currentSessionId === null) return "没有可编辑的会话";
+      if (!client || client.currentSessionId === null) {
+        return pickText("没有可编辑的会话", "No session to edit");
+      }
       const snapshot = controllerRef.current?.snapshot;
-      if (!snapshot) return "会话还没准备好";
+      if (!snapshot) return pickText("会话还没准备好", "Session is not ready yet");
       const text = newText.trim();
-      if (!text) return "编辑后的内容不能为空";
+      if (!text) return pickText("编辑后的内容不能为空", "Edited message cannot be empty");
       try {
         const result = await client.editUserQuery(target, text, {
           revision: snapshot.revision,
           logEpoch: snapshot.logEpoch,
         });
         if (!result.accepted) {
-          const message = result.message || "这条消息已不是最新输入，不能再编辑";
-          setStatus(`编辑重发被拒绝：${message}`);
+          const message =
+            result.message ||
+            pickText(
+              "这条消息已不是最新输入，不能再编辑",
+              "This message is no longer the latest input and cannot be edited",
+            );
+          setStatusState({
+            code: "error",
+            zhPrefix: "编辑重发被拒绝：",
+            enPrefix: "Edit & resend rejected: ",
+            detail: message,
+          });
           return message;
         }
         return null;
       } catch (error) {
-        const message = `编辑重发失败：${error instanceof Error ? error.message : String(error)}`;
-        setStatus(message);
-        return message;
+        const detail = error instanceof Error ? error.message : String(error);
+        setStatusState({
+          code: "error",
+          zhPrefix: "编辑重发失败：",
+          enPrefix: "Edit & resend failed: ",
+          detail,
+        });
+        return `${pickText("编辑重发失败：", "Edit & resend failed: ")}${detail}`;
       }
     },
     [],
   );
 
   /**
-   * 内核 `session/goal` 的回执是英文短句（`goal_summary` 里写死的），这里按同一组格式
-   * 换成中文；认不出的原样返回，不吞信息。
+   * 内核 `session/goal` 的回执是英文短句（`goal_summary` 里写死的），这里按当前语言呈现；
+   * 认不出的原样返回，不吞信息。
    */
-function localizeGoalReply(response: string): string {
-  const text = response.trim();
-  if (text.startsWith("No goal is set")) return "当前没有目标。用「目标」命令设定一个。";
-  const matched = /^Goal (active|achieved|paused|failed)\nObjective: ([\s\S]*)$/.exec(text);
-  if (matched) {
-    const label =
-      matched[1] === "active"
-        ? "目标进行中"
-        : matched[1] === "achieved"
-          ? "目标已达成"
-          : matched[1] === "paused"
-            ? "目标已暂停"
-            : "目标未达成";
-    return `${label}：${matched[2]?.trim() ?? ""}`;
+  function localizeGoalReply(response: string): string {
+    const text = response.trim();
+    if (text.startsWith("No goal is set")) {
+      return pickText(
+        "当前没有目标。用「目标」命令设定一个。",
+        "No goal is set. Use the Goal command to set one.",
+      );
+    }
+    const matched = /^Goal (active|achieved|paused|failed)\nObjective: ([\s\S]*)$/.exec(text);
+    if (matched) {
+      const label =
+        matched[1] === "active"
+          ? pickText("目标进行中", "Goal active")
+          : matched[1] === "achieved"
+            ? pickText("目标已达成", "Goal achieved")
+            : matched[1] === "paused"
+              ? pickText("目标已暂停", "Goal paused")
+              : pickText("目标未达成", "Goal failed");
+      const sep = pickText("：", ": ");
+      return `${label}${sep}${matched[2]?.trim() ?? ""}`;
+    }
+    return text;
   }
-  return text;
-}
 
   /**
    * 目标管理（内核 `session/goal`）。
@@ -1206,19 +1380,24 @@ function localizeGoalReply(response: string): string {
     ): Promise<{ message: string; startedTurn: boolean }> => {
       const client = clientRef.current;
       if (!client || client.currentSessionId === null) {
-        return { message: "没有可操作的会话", startedTurn: false };
+        return { message: pickText("没有可操作的会话", "No active session"), startedTurn: false };
       }
       try {
         const result = await client.goal(action, objective);
         const reply = localizeGoalReply(result.response);
         return {
           message:
-            reply || (action === "set" ? "目标已设置" : action === "clear" ? "目标已清除" : "已执行"),
+            reply ||
+            (action === "set"
+              ? pickText("目标已设置", "Goal set")
+              : action === "clear"
+                ? pickText("目标已清除", "Goal cleared")
+                : pickText("已执行", "Done")),
           startedTurn: result.startedTurn,
         };
       } catch (error) {
         return {
-          message: `目标操作失败：${error instanceof Error ? error.message : String(error)}`,
+          message: `${pickText("目标操作失败：", "Goal command failed: ")}${error instanceof Error ? error.message : String(error)}`,
           startedTurn: false,
         };
       }
@@ -1240,9 +1419,18 @@ function localizeGoalReply(response: string): string {
       activeSessionIdRef.current = sessionId;
       setActiveSessionId(sessionId);
       await refreshSessions(client);
-      setStatus("就绪");
+      setStatusState({ code: "ready" });
     } catch (error) {
-      setStatus(`新建失败：${error instanceof Error ? error.message : String(error)}`);
+      if (isSetupRequiredError(error)) {
+        setStatusState({ code: "setup_required" });
+      } else {
+        setStatusState({
+          code: "error",
+          zhPrefix: "新建失败：",
+          enPrefix: "Failed to create session: ",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }, [attach, refreshSessions]);
 
@@ -1255,9 +1443,14 @@ function localizeGoalReply(response: string): string {
         await attach(client, sessionId);
         activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
-        setStatus("就绪");
+        setStatusState({ code: "ready" });
       } catch (error) {
-        setStatus(`打开失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatusState({
+          code: "error",
+          zhPrefix: "打开失败：",
+          enPrefix: "Failed to open session: ",
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     [attach],
@@ -1297,12 +1490,12 @@ function localizeGoalReply(response: string): string {
       if (visible.length > 0) rememberSessionSnapshot(await resumeWithMcpServers(client, visible[0]!.sessionId));
       else rememberSessionSnapshot(await createWithDefaultModel(client));
       const nextId = client.currentSessionId;
-      if (!nextId) throw new Error("没有可用会话");
+      if (!nextId) throw new Error(pickText("没有可用会话", "No session available"));
       await attach(client, nextId);
       activeSessionIdRef.current = nextId;
       setActiveSessionId(nextId);
       setReady(true);
-      setStatus("就绪");
+      setStatusState({ code: "ready" });
     },
     [attach, refreshSessions],
   );
@@ -1310,14 +1503,16 @@ function localizeGoalReply(response: string): string {
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const client = clientRef.current;
-      if (!client) throw new Error("内核会话客户端不可用");
+      if (!client) {
+        throw new Error(pickText("内核会话客户端不可用", "Kernel session client unavailable"));
+      }
       // purge 会整棵保留「运行中」的会话；当前会话先让开。
       if (activeSessionIdRef.current === sessionId) {
         try {
           await openFallback(client, sessionId);
         } catch (error) {
           throw new Error(
-            `切换会话失败：${error instanceof Error ? error.message : String(error)}`,
+            `${pickText("切换会话失败：", "Failed to switch session: ")}${error instanceof Error ? error.message : String(error)}`,
           );
         }
       }
@@ -1327,9 +1522,13 @@ function localizeGoalReply(response: string): string {
       await client.deleteSession(sessionId);
       const purged = await client.purgeSessionData([sessionId]);
       const failure = purged.failed.find((item) => item.sessionId === sessionId);
-      if (failure) throw new Error(`删除失败（${failure.code}）`);
+      if (failure) {
+        throw new Error(
+          pickText(`删除失败（${failure.code}）`, `Delete failed (${failure.code})`),
+        );
+      }
       if (purged.kept.some((item) => item.sessionId === sessionId)) {
-        throw new Error("会话正在运行或被引用，暂时不能删除");
+        throw new SessionKeptError();
       }
       // 会话行与内核文件删掉后再回收 workspace 与临时目录；失败只记日志，不把删除报成失败。
       try {
@@ -1361,7 +1560,7 @@ function localizeGoalReply(response: string): string {
         succeeded += 1;
       } catch (error) {
         // 「运行中/被引用」不算失败：内核整棵保留，归档状态也保留。
-        if (error instanceof Error && error.message.includes("被引用")) kept += 1;
+        if (error instanceof SessionKeptError) kept += 1;
         else failed += 1;
       }
     }
@@ -1375,45 +1574,55 @@ function localizeGoalReply(response: string): string {
       try {
         await client.resolveInteraction(interactionId, answer);
       } catch (error) {
-        setStatus(`回答失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatusState({
+          code: "error",
+          zhPrefix: "回答失败：",
+          enPrefix: "Response failed: ",
+          detail: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     },
     [],
   );
 
-  // 状态横幅分类：就绪不显示；失败类可重试；其余（初始化…/内核重启中…）是进行中的提示。
-  // 这里只认字符串前缀，因为 setStatus 的调用点分散在各条失败路径上。
+  // 状态横幅分类完全按结构化 statusState.code 判断，不再依赖中文字符串前缀匹配。
+  const setupIssue = statusState.code === "setup_required";
   const statusKind = useMemo<"ok" | "busy" | "error">(() => {
-    if (status === "就绪") return "ok";
-    if (status.includes("失败") || status === "内核不可用") return "error";
-    return "busy";
-  }, [status]);
+    if (statusState.code === "ready") return "ok";
+    if (statusState.code === "init" || statusState.code === "restarting") return "busy";
+    return "error";
+  }, [statusState.code]);
   const statusRetryable = useMemo(
     () =>
-      status.startsWith("发送失败") ||
-      status.startsWith("内核重连失败") ||
-      status.startsWith("失败：") ||
-      status === "内核不可用",
-    [status],
+      statusState.code === "send_failed" ||
+      statusState.code === "reconnect_failed" ||
+      statusState.code === "init_failed" ||
+      statusState.code === "kernel_unavailable",
+    [statusState.code],
   );
   /** 状态横幅的「重试」：发送失败原样重发；初始化/重连失败统一走 reconnect（内部会先拉起宿主）。 */
   const retryStatus = useCallback(async () => {
-    if (status.startsWith("发送失败")) {
+    if (statusState.code === "send_failed") {
       const last = lastSendRef.current;
       if (last) await send(last.text, last.options);
       return;
     }
-    if (status.startsWith("内核重连失败") || status.startsWith("失败：") || status === "内核不可用") {
+    if (
+      statusState.code === "reconnect_failed" ||
+      statusState.code === "init_failed" ||
+      statusState.code === "kernel_unavailable"
+    ) {
       await reconnect();
     }
-  }, [status, send, reconnect]);
+  }, [statusState.code, send, reconnect]);
 
   return {
     rows,
     turn,
     status,
     statusKind,
+    setupIssue,
     statusRetryable,
     retryStatus,
     modelLabel,

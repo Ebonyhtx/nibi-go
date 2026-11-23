@@ -8,6 +8,7 @@ import type { ChatRow } from "@nibi-go/kernel-session";
 import { type ReactNode, useMemo, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 
+import { useI18n } from "../i18n";
 import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
 import { friendlyApprovalTitle, friendlyToolName } from "../conversation/toolLabels";
@@ -94,6 +95,7 @@ function ActionButton({
   onPress: () => void;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   if (kind === "text") {
     // 「本对话都允许」这类三级动作：透明药丸 + PressableScale，不与主键抢视觉。
     return (
@@ -106,7 +108,7 @@ function ActionButton({
         style={styles.textButton}
       >
         <Text style={[styles.textButtonLabel, { color: disabled ? th.inkGhost : th.inkSub }]}>
-          {busy ? "处理中…" : label}
+          {busy ? pick("处理中…", "Working…") : label}
         </Text>
       </PressableScale>
     );
@@ -115,7 +117,7 @@ function ActionButton({
   // 允许=primary（品牌底），拒绝=danger（红），其余次要键=secondary（面板底+发丝线）。
   return (
     <PillButton
-      label={busy ? "处理中…" : label}
+      label={busy ? pick("处理中…", "Working…") : label}
       variant={kind === "primary" ? "primary" : kind === "danger" ? "danger" : "secondary"}
       buttonSize="md"
       onPress={onPress}
@@ -169,6 +171,7 @@ export function ApprovalCard({
   onRespond: InteractionResponder;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -229,13 +232,15 @@ export function ApprovalCard({
         </View>
       ) : null}
       {row.autoResolution ? (
-        <Text style={[styles.hint, { color: th.inkGhost }]}>超时未答会自动处理</Text>
+        <Text style={[styles.hint, { color: th.inkGhost }]}>
+          {pick("超时未答会自动处理", "Will resolve automatically on timeout")}
+        </Text>
       ) : null}
       <View style={styles.actions}>
         <View style={styles.actionCell}>
           {/* 拒绝键给 danger（红）而不是普通次键：误触代价不对称，色先挡一道。 */}
           <ActionButton
-            label={secondary?.label ?? "拒绝"}
+            label={secondary?.label ?? pick("拒绝", "Deny")}
             kind="danger"
             busy={busy === (secondary?.optionId ?? "deny")}
             disabled={busy !== null}
@@ -244,7 +249,7 @@ export function ApprovalCard({
         </View>
         <View style={styles.actionCell}>
           <ActionButton
-            label={primary?.label ?? "允许本次"}
+            label={primary?.label ?? pick("允许本次", "Allow once")}
             kind="primary"
             busy={busy === (primary?.optionId ?? "allowOnce")}
             disabled={busy !== null}
@@ -297,6 +302,7 @@ export function QuestionCard({
   onRespond: InteractionResponder;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const questions = row.questions ?? [];
   const [picked, setPicked] = useState<Set<number>[]>(() => questions.map(() => new Set()));
   const [texts, setTexts] = useState<string[]>(() => questions.map(() => ""));
@@ -374,14 +380,17 @@ export function QuestionCard({
     }
   };
 
-  const title = questions.length > 1 ? `${questions.length} 个问题` : "需要你的回答";
+  const title =
+    questions.length > 1
+      ? pick(`${questions.length} 个问题`, `${questions.length} questions`)
+      : pick("需要你的回答", "Input needed");
 
   return (
     <CardShell
       tone="ask"
       icon="question"
       title={title}
-      badge={questions.length > 1 ? `${questions.length} 项` : undefined}
+      badge={questions.length > 1 ? pick(`${questions.length} 项`, `${questions.length}`) : undefined}
     >
       {questions.length > 0 ? (
         questions.map((question, index) => (
@@ -451,7 +460,11 @@ export function QuestionCard({
                     return next;
                   })
                 }
-                placeholder={question.options.length > 0 ? "其他回答…" : "输入回答…"}
+                placeholder={
+                  question.options.length > 0
+                    ? pick("其他回答…", "Other answer…")
+                    : pick("输入回答…", "Type your answer…")
+                }
                 sensitive={row.sensitive}
               />
             ) : null}
@@ -492,19 +505,21 @@ export function QuestionCard({
             <AnswerInput
               value={legacyText}
               onChangeText={setLegacyText}
-              placeholder="输入回答…"
+              placeholder={pick("输入回答…", "Type your answer…")}
               sensitive={row.sensitive}
             />
           ) : null}
         </View>
       )}
       {row.autoResolution ? (
-        <Text style={[styles.hint, { color: th.inkGhost }]}>超时未答会自动处理</Text>
+        <Text style={[styles.hint, { color: th.inkGhost }]}>
+          {pick("超时未答会自动处理", "Will resolve automatically on timeout")}
+        </Text>
       ) : null}
       <View style={styles.actions}>
         <View style={styles.actionCell}>
           <ActionButton
-            label="不回答"
+            label={pick("不回答", "Skip")}
             kind="secondary"
             busy={false}
             disabled={busy}
@@ -516,7 +531,7 @@ export function QuestionCard({
         </View>
         <View style={styles.actionCell}>
           <ActionButton
-            label="提交"
+            label={pick("提交", "Submit")}
             kind="primary"
             busy={busy}
             disabled={!complete || busy}

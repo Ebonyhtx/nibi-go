@@ -49,7 +49,7 @@ interface NativePhoneModule {
   openOverlaySettings(): boolean;
   openAppSettings(): boolean;
   canShowBubble(): boolean;
-  setBubbleState(state: string): Promise<void>;
+  setBubbleState(state: string, scheme?: string | null): Promise<void>;
   toolsBusy(): boolean;
   haptic(kind: PhoneHapticKind): boolean;
   addListener(
@@ -199,9 +199,9 @@ export function canShowPhoneBubble(): boolean {
   return call((module) => module.canShowBubble(), false);
 }
 
-/** 驱动悬浮状态气泡；失败只记日志（气泡是提醒，不是关键路径）。 */
-export function setPhoneBubbleState(state: string): void {
-  void native?.setBubbleState(state).catch((error) => {
+/** 驱动悬浮像素宠物气泡；失败只记日志（气泡是提醒，不是关键路径）。 */
+export function setPhoneBubbleState(state: string, scheme?: "light" | "dark" | "system"): void {
+  void native?.setBubbleState(state, scheme ?? "system").catch((error) => {
     console.warn("[nibigo] 悬浮气泡状态设置失败", error);
   });
 }

@@ -22,6 +22,7 @@ import {
 } from "react-native-webview";
 
 import { Icon } from "../components/Icon";
+import { useI18n, type Locale } from "../i18n";
 import { PressableScale } from "../motion/PressableScale";
 import { ENDPOINT_ORIGIN } from "../relay/config";
 import { fetchWebviewTicket, gateBootstrapScript } from "../relay/webviewTicket";
@@ -47,22 +48,25 @@ type Phase = "loading" | "ready" | "failed";
 const WORK_URL = resolveWorkUrl(ENDPOINT_ORIGIN);
 
 /**
- * 文档加载前注入：把 WebView 的语言钉成与 App 一致的中文。
+ * 文档加载前注入：把 WebView 的语言钉成与 App 一致的当前语言。
  * 不注入时站点按 WebView 的 Accept-Language 判成 en-US，界面变英文——与桌面/官网
  * 的中文体验不一致（2026-11-13 模拟器实拍：登录卡显示 "Sign In To Continue"）。
  * navigator.language 是只读属性，用 defineProperty 覆写；同时设 document lang。
  */
-const LOCALE_BOOTSTRAP = `
+function buildLocaleBootstrap(locale: Locale): string {
+  const langs = locale === "en-US" ? "['en-US', 'en']" : "['zh-CN', 'zh']";
+  return `
 (() => {
   try {
-    const L = 'zh-CN';
+    const L = ${JSON.stringify(locale)};
     Object.defineProperty(navigator, 'language', { get: () => L, configurable: true });
-    Object.defineProperty(navigator, 'languages', { get: () => [L, 'zh'], configurable: true });
+    Object.defineProperty(navigator, 'languages', { get: () => ${langs}, configurable: true });
     document.documentElement.lang = L;
   } catch {}
 })();
 true;
 `;
+}
 
 /**
  * 页面加载后看门狗：远控页卡在品牌 logo/loading 壳时，把诊断回传给原生。
@@ -93,6 +97,7 @@ true;
 
 export default function WorkScreen() {
   const th = useNibiTheme();
+  const { locale, pick } = useI18n();
   const insets = useSafeAreaInsets();
   const webRef = useRef<WebViewHandle>(null);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -103,17 +108,17 @@ export default function WorkScreen() {
   // 登录页门禁 ticket：普通浏览器拿不到，NIBI-GO 在页面里写成 Domain=nibistudio.cn
   // 的 Cookie，登录导航时带上；10 分钟有效，login-ui 收到后换发 2 小时 Cookie。
   const [ticket, setTicket] = useState<string | null>(null);
-  const [ticketError, setTicketError] = useState<string | null>(null);
+  const [ticketFailed, setTicketFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setTicket(null);
-    setTicketError(null);
+    setTicketFailed(false);
     setPhase("loading");
     void fetchWebviewTicket().then((value) => {
       if (!alive) return;
       if (!value) {
-        setTicketError("无法获取登录门禁凭证（ticket）。请检查网络后重试。");
+        setTicketFailed(true);
         setPhase("failed");
         return;
       }
@@ -166,6 +171,7 @@ export default function WorkScreen() {
 
   const retry = () => {
     setError(undefined);
+    setTicketFailed(false);
     setPhase("loading");
     setProgress(0);
     setReloadKey((k) => k + 1);
@@ -174,20 +180,34 @@ export default function WorkScreen() {
   return (
     <View style={[styles.root, { backgroundColor: th.bg }]}>
       {/* 薄顶栏：页面自己有完整 UI，这里只提供壳能力（返回 / 刷新 / 关闭） */}
-      <View style={[styles.bar, { paddingTop: insets.top + space(1.5), borderBottomColor: th.hairline }]}>
+      <View
+        style={[
+          styles.bar,
+          {
+            paddingTop: insets.top + space(1.5),
+            paddingLeft: insets.left + space(3),
+            paddingRight: insets.right + space(3),
+            borderBottomColor: th.hairline,
+          },
+        ]}
+      >
         <PressableScale
           scaleTo={0.95}
           style={[styles.key, { backgroundColor: th.panel }]}
           onPress={() => router.back()}
           accessibilityRole="button"
-          accessibilityLabel="返回"
+          accessibilityLabel={pick("返回", "Back")}
         >
           <Icon name="chevron-left" size={16} color={th.inkSub} />
         </PressableScale>
         <View style={styles.barCenter}>
           <Text style={[styles.barTitle, { color: th.ink }]}>NIBI-WORK</Text>
           <Text style={[styles.barSub, { color: th.inkFaint }]} numberOfLines={1}>
-            {phase === "failed" ? "加载失败" : phase === "loading" ? `加载中 ${Math.round(progress * 100)}%` : "桌面远控"}
+            {phase === "failed"
+              ? pick("加载失败", "Load failed")
+              : phase === "loading"
+                ? pick(`加载中 ${Math.round(progress * 100)}%`, `Loading ${Math.round(progress * 100)}%`)
+                : pick("桌面远控", "Desktop Remote")}
           </Text>
         </View>
         <PressableScale
@@ -195,16 +215,25 @@ export default function WorkScreen() {
           style={[styles.key, { backgroundColor: th.panel }]}
           onPress={retry}
           accessibilityRole="button"
-          accessibilityLabel="刷新"
+          accessibilityLabel={pick("刷新", "Refresh")}
         >
           <Icon name="refresh" size={16} color={th.inkSub} />
         </PressableScale>
       </View>
 
-      <View style={styles.body}>
+      <View
+        style={[
+          styles.body,
+          {
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+            paddingBottom: insets.bottom,
+          },
+        ]}
+      >
         {ticket ? (
           <WebView
-            key={reloadKey}
+            key={`${reloadKey}-${locale}`}
             ref={webRef}
             source={{ uri: WORK_URL }}
             // 登录态（OAuth 回调）留在 WebView：cookie 与 storage 都要开
@@ -217,7 +246,7 @@ export default function WorkScreen() {
             setSupportMultipleWindows={false}
             // 语言与注入口：locale 必须先于文档加载改写，否则站点已按 en-US 渲染；
             // ticket 写成父域 Cookie，登录导航到 auth.nibistudio.cn 时才会带上。
-            injectedJavaScriptBeforeContentLoaded={`${gateBootstrapScript(ticket)}\n${LOCALE_BOOTSTRAP}`}
+            injectedJavaScriptBeforeContentLoaded={`${gateBootstrapScript(ticket)}\n${buildLocaleBootstrap(locale)}`}
             injectedJavaScript={BOOT_WATCHDOG}
           onMessage={({ nativeEvent }) => {
             try {
@@ -232,8 +261,14 @@ export default function WorkScreen() {
               setPhase("failed");
               setError(
                 broken.length > 0
-                  ? `桌面端远控页面资源路径损坏（${broken[0]}）。这是 NIBI 桌面端发布问题，不是网络问题；请更新桌面端或等待服务端修复。`
-                  : "桌面远控页面没有启动，请刷新或更新桌面端。",
+                  ? pick(
+                      `桌面端远控页面资源路径损坏（${broken[0]}）。这是 NIBI 桌面端发布问题，不是网络问题；请更新桌面端或等待服务端修复。`,
+                      `Desktop remote page asset path is broken (${broken[0]}). This is a NIBI desktop release issue, not a network issue. Update desktop or wait for a server fix.`,
+                    )
+                  : pick(
+                      "桌面远控页面没有启动，请刷新或更新桌面端。",
+                      "Desktop remote page failed to start. Refresh or update desktop.",
+                    ),
               );
             } catch {
               // 非本看门狗的消息忽略。
@@ -250,7 +285,7 @@ export default function WorkScreen() {
           onNavigationStateChange={onNavChange}
           onError={({ nativeEvent }) => {
             setPhase("failed");
-            setError(nativeEvent.description || "页面打不开");
+            setError(nativeEvent.description || pick("页面打不开", "Unable to open page"));
           }}
           onHttpError={({ nativeEvent }) => {
             setPhase("failed");
@@ -263,16 +298,26 @@ export default function WorkScreen() {
         {phase === "loading" ? (
           <View style={[styles.overlay, { backgroundColor: th.bg }]} pointerEvents="none">
             <ActivityIndicator color={th.brand} />
-            <Text style={[styles.overlayText, { color: th.inkFaint }]}>正在打开桌面远控…</Text>
+            <Text style={[styles.overlayText, { color: th.inkFaint }]}>
+              {pick("正在打开桌面远控…", "Opening desktop remote…")}
+            </Text>
           </View>
         ) : null}
 
         {phase === "failed" ? (
           <View style={[styles.overlay, { backgroundColor: th.bg }]}>
             <View style={[styles.errCard, { backgroundColor: th.card, borderColor: th.hairline }]}>
-              <Text style={[styles.errTitle, { color: th.ink }]}>打不开桌面远控</Text>
+              <Text style={[styles.errTitle, { color: th.ink }]}>
+                {pick("打不开桌面远控", "Cannot open desktop remote")}
+              </Text>
               <Text style={[styles.errBody, { color: th.inkSub }]}>
-                {error ?? ticketError ?? "网络或服务异常"}
+                {error ??
+                  (ticketFailed
+                    ? pick(
+                        "无法获取登录门禁凭证（ticket）。请检查网络后重试。",
+                        "Unable to obtain sign-in gate ticket. Check your network and retry.",
+                      )
+                    : pick("网络或服务异常", "Network or service error"))}
               </Text>
               <Text style={[styles.errUrl, { color: th.inkFaint }]} numberOfLines={2}>
                 {WORK_URL}
@@ -284,7 +329,9 @@ export default function WorkScreen() {
                   style={[styles.errBtn, { backgroundColor: th.brand }]}
                   onPress={retry}
                 >
-                  <Text style={[styles.errBtnText, { color: th.brandFg }]}>重试</Text>
+                  <Text style={[styles.errBtnText, { color: th.brandFg }]}>
+                    {pick("重试", "Retry")}
+                  </Text>
                 </PressableScale>
                 <PressableScale
                   scaleTo={0.95}
@@ -292,7 +339,9 @@ export default function WorkScreen() {
                   style={[styles.errBtn, { backgroundColor: th.panel }]}
                   onPress={() => router.back()}
                 >
-                  <Text style={[styles.errBtnText, { color: th.inkSub }]}>返回</Text>
+                  <Text style={[styles.errBtnText, { color: th.inkSub }]}>
+                    {pick("返回", "Back")}
+                  </Text>
                 </PressableScale>
               </View>
             </View>
@@ -309,7 +358,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space(2),
-    paddingHorizontal: space(3),
     paddingBottom: space(1.5),
     borderBottomWidth: StyleSheet.hairlineWidth,
   },

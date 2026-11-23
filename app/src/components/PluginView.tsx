@@ -16,6 +16,7 @@ import type { ChatToolRow } from "@nibi-go/kernel-session";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { useI18n } from "../i18n";
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
 import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
@@ -285,6 +286,7 @@ export function PluginToolCard({
   onAction: PluginActionHandler;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const degraded = plugin.parsed.degraded.includes(`toolCards:${card.id}`);
   return (
     <View style={styles.toolCard}>
@@ -294,8 +296,8 @@ export function PluginToolCard({
       }} />
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: t.inkGhost }]} numberOfLines={1}>
-          插件 · {plugin.parsed.manifest.name}
-          {degraded ? " · 已降级" : ""}
+          {pick("插件", "Plugin")} · {plugin.parsed.manifest.name}
+          {degraded ? pick(" · 已降级", " · Degraded") : ""}
         </Text>
         <ActionRow actions={card.actions} onPress={(action) => onAction(plugin, action)} />
       </View>

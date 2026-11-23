@@ -34,30 +34,37 @@ import { radius, size, space, text, useNibiTheme } from "../../theme";
 
 import { useProviderCatalog } from "../../kernel/useProviderCatalog";
 import { Icon } from "../../components/Icon";
+import { pickText, useI18n } from "../../i18n";
 import { useProjects } from "../../kernel/projects";
 import { documentRootOf, fileUriOf, projectWorkspacePath } from "../../kernel/workspace";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 
 const DOT_DIR = ".nibi";
 const AGENTS_DIR = "agents";
 const DISABLED_DIR = "disabled";
-/** 内置子智能体（与 kernel definitions.rs builtins() 同清单；描述为中文简述）。 */
-const BUILT_INS: readonly { name: string; description: string }[] = [
+/** 内置子智能体（与 kernel definitions.rs builtins() 同清单）。 */
+const BUILT_INS: readonly { name: string; descriptionZh: string; descriptionEn: string }[] = [
   {
     name: "general-purpose",
-    description: "通用代理：研究复杂问题、搜索代码、执行多步任务（可用全部工具）",
+    descriptionZh: "通用代理：研究复杂问题、搜索代码、执行多步任务（可用全部工具）",
+    descriptionEn: "General-purpose agent: research complex tasks, search code, run multi-step work (all tools)",
   },
   {
     name: "Explore",
-    description: "只读搜索代理：广泛扫文件找结论，不做审计；可指定搜索广度",
+    descriptionZh: "只读搜索代理：广泛扫文件找结论，不做审计；可指定搜索广度",
+    descriptionEn: "Read-only search agent: scan files broadly for answers without modifying anything",
   },
   {
     name: "Plan",
-    description: "架构师代理：设计实现方案，给出分步计划与关键文件",
+    descriptionZh: "架构师代理：设计实现方案，给出分步计划与关键文件",
+    descriptionEn: "Architect agent: design implementation plans with step-by-step details and key files",
   },
 ];
 
 /** 新建时的预填模板（与桌面端同一份格式约定）。 */
-const TEMPLATE = `---
+function agentTemplate(): string {
+  return pickText(
+    `---
 name: my-agent
 description: 何时使用这个子智能体（一句话）
 model: ""
@@ -65,7 +72,18 @@ tools: [Read, Glob, Grep]
 ---
 
 你是……（系统提示词）
-`;
+`,
+    `---
+name: my-agent
+description: When to use this subagent (one sentence)
+model: ""
+tools: [Read, Glob, Grep]
+---
+
+You are… (system prompt)
+`,
+  );
+}
 
 /** 一个 agent 文件的展示信息；raw 留作编辑器初值。 */
 interface AgentEntry {
@@ -229,7 +247,16 @@ function parseEntry(relPath: string, raw: string): AgentEntry {
   const fileName = relPath.split("/").pop() ?? relPath;
   const values = splitFrontmatter(raw);
   if (!values) {
-    return { relPath, fileName, name: null, description: null, model: null, tools: null, invalid: "缺 frontmatter", raw };
+    return {
+      relPath,
+      fileName,
+      name: null,
+      description: null,
+      model: null,
+      tools: null,
+      invalid: pickText("缺 frontmatter", "Missing frontmatter"),
+      raw,
+    };
   }
   const name = frontText(values, "name");
   const description = frontText(values, "description");
@@ -245,7 +272,10 @@ function parseEntry(relPath: string, raw: string): AgentEntry {
     description: description?.replace(/\\n/gu, " ") ?? null,
     model,
     tools,
-    invalid: missing.length > 0 ? `缺 ${missing.join(" 和 ")}` : null,
+    invalid:
+      missing.length > 0
+        ? pickText(`缺 ${missing.join(" 和 ")}`, `Missing ${missing.join(" & ")}`)
+        : null,
     raw,
   };
 }
@@ -296,7 +326,13 @@ type Scope = "user" | "project";
 
 export default function SubagentsScreen() {
   const th = useNibiTheme();
+  const { pick, isEn, locale } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const { projects, activeProjectId } = useProjects();
   const providerCatalog = useProviderCatalog();
   const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -345,7 +381,7 @@ export default function SubagentsScreen() {
               description: null,
               model: null,
               tools: null,
-              invalid: "读取失败",
+              invalid: pick("读取失败", "Read failed"),
               raw: "",
             });
           }
@@ -356,11 +392,14 @@ export default function SubagentsScreen() {
       setEntries(next);
     } catch (error) {
       setEntries([]);
-      setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("读取失败：", "Failed to load: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setLoading(false);
     }
-  }, [scope, activeProject?.id]);
+  }, [scope, activeProject?.id, pick, locale]);
 
   useEffect(() => {
     void load();
@@ -406,7 +445,7 @@ export default function SubagentsScreen() {
   function openNew() {
     setMessage(null);
     setModelPickerOpen(false);
-    setEditor(formStateOf(scope, null, TEMPLATE));
+    setEditor(formStateOf(scope, null, agentTemplate()));
   }
 
   function openEdit(entry: AgentEntry) {
@@ -441,11 +480,13 @@ export default function SubagentsScreen() {
         // 没写 name 的老文件保留原文件名（内核仍会跳过，但原文不丢）。
         target = editor.relPath;
       } else {
-        setMessage("缺名称：先填上再保存");
+        setMessage(pick("缺名称：先填上再保存", "Missing name: enter one before saving"));
         return;
       }
       if (editor.relPath !== target && entries.some((entry) => entry.relPath === target)) {
-        setMessage(`${target} 已存在：换个名称再保存`);
+        setMessage(
+          pick(`${target} 已存在：换个名称再保存`, `${target} already exists — pick a different name`),
+        );
         return;
       }
       await new File(fileUriOf(`${root}/${target}`)).write(documentText);
@@ -455,10 +496,13 @@ export default function SubagentsScreen() {
         if (previous.exists) previous.delete();
       }
       setEditor(null);
-      setMessage("已保存");
+      setMessage(pick("已保存", "Saved"));
       await load();
     } catch (error) {
-      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("保存失败：", "Failed to save: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setBusy(false);
     }
@@ -480,16 +524,20 @@ export default function SubagentsScreen() {
         raw: "",
       },
     );
-    Alert.alert(`删除「${title}」？`, "删除后不可恢复。", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "删除",
-        style: "destructive",
-        onPress: () => {
-          void remove(relPath);
+    Alert.alert(
+      pick(`删除「${title}」？`, `Delete "${title}"?`),
+      pick("删除后不可恢复。", "This cannot be undone."),
+      [
+        { text: pick("取消", "Cancel"), style: "cancel" },
+        {
+          text: pick("删除", "Delete"),
+          style: "destructive",
+          onPress: () => {
+            void remove(relPath);
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   async function remove(relPath: string) {
@@ -502,7 +550,10 @@ export default function SubagentsScreen() {
       setEditor(null);
       await load();
     } catch (error) {
-      setMessage(`删除失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("删除失败：", "Failed to delete: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setBusy(false);
     }
@@ -533,7 +584,10 @@ export default function SubagentsScreen() {
         file.delete();
         await load();
       } catch (error) {
-        setMessage(`切换失败：${error instanceof Error ? error.message : String(error)}`);
+        setMessage(
+          pick("切换失败：", "Failed to toggle: ") +
+            (error instanceof Error ? error.message : String(error)),
+        );
       } finally {
         setBusy(false);
       }
@@ -547,7 +601,7 @@ export default function SubagentsScreen() {
 
   /** 编辑器的可选模型：继承主模型 + 各供应商模型 id。 */
   const modelChoices: readonly { value: string; label: string }[] = [
-    { value: "", label: "继承主模型" },
+    { value: "", label: pick("继承主模型", "Inherit main model") },
     ...providerCatalog.state.providers.flatMap((provider) =>
       provider.models.map((modelId) => ({
         value: modelId,
@@ -572,15 +626,13 @@ export default function SubagentsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="子智能体" onBack={() => router.back()} />
+      <ScreenHeader title={pick("子智能体", "Subagents")} onBack={() => router.back()} />
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "android" ? undefined : "padding"}
       >
-        <ScrollView
-          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
-        >
+        <ScrollView contentContainerStyle={bodyStyle}>
           {/* 作用域切换：用户级 / 当前项目（建了项目才可选）；与桌面端 User/Project 作用域同语义。 */}
           <AppearIn>
             <View style={styles.scopeChips}>
@@ -588,7 +640,7 @@ export default function SubagentsScreen() {
                 scaleTo={0.94}
                 onPress={() => setScope("user")}
                 accessibilityRole="button"
-                accessibilityLabel="用户级子智能体"
+                accessibilityLabel={pick("用户级子智能体", "User-level subagents")}
                 accessibilityState={{ selected: scope === "user" }}
                 style={[
                   styles.scopeChip,
@@ -599,7 +651,7 @@ export default function SubagentsScreen() {
                 ]}
               >
                 <Text style={[styles.scopeChipText, { color: scope === "user" ? th.brand : th.inkSub }]}>
-                  用户级
+                  {pick("用户级", "User")}
                 </Text>
               </PressableScale>
               {activeProject ? (
@@ -607,7 +659,10 @@ export default function SubagentsScreen() {
                   scaleTo={0.94}
                   onPress={() => setScope("project")}
                   accessibilityRole="button"
-                  accessibilityLabel={`当前项目的子智能体（${activeProject.name}）`}
+                  accessibilityLabel={pick(
+                    `当前项目的子智能体（${activeProject.name}）`,
+                    `Project subagents (${activeProject.name})`,
+                  )}
                   accessibilityState={{ selected: scope === "project" }}
                   style={[
                     styles.scopeChip,
@@ -621,7 +676,8 @@ export default function SubagentsScreen() {
                     style={[styles.scopeChipText, { color: scope === "project" ? th.brand : th.inkSub }]}
                     numberOfLines={1}
                   >
-                    项目：{activeProject.name}
+                    {pick("项目：", "Project: ")}
+                    {activeProject.name}
                   </Text>
                 </PressableScale>
               ) : null}
@@ -631,16 +687,18 @@ export default function SubagentsScreen() {
           {/* 内置子智能体（kernel agents/src/definitions.rs builtins()）：只读展示。
               桌面的内置模型覆盖依赖 Host 注入面，GO 内核侧没有该入口，不做假开关。 */}
           <AppearIn delay={staggerDelay(0, 32, 240)}>
-            <SectionCard label="内置">
+            <SectionCard label={pick("内置", "Built-in")}>
               {BUILT_INS.map((builtin) => (
                 <View key={builtin.name}>
                   <Row
                     icon="sparkles"
                     tone="steel"
                     title={builtin.name}
-                    detail={builtin.description}
+                    detail={pick(builtin.descriptionZh, builtin.descriptionEn)}
                   />
-                  <Text style={[styles.agentMeta, { color: th.inkFaint }]}>内置 · 跟随主模型</Text>
+                  <Text style={[styles.agentMeta, { color: th.inkFaint }]}>
+                    {pick("内置 · 跟随主模型", "Built-in · inherits main model")}
+                  </Text>
                 </View>
               ))}
             </SectionCard>
@@ -650,11 +708,13 @@ export default function SubagentsScreen() {
             // 编辑器（表单 / 原文）：每个字段独立控件——照桌面 SubagentsSection 的形态；
             // 「编辑原始文件」切到 Markdown 原文框，供需要 effort/maxTurns 等高级键的场景。
             <AppearIn>
-              <SectionCard label={editor.relPath?.split("/").pop() ?? "新建子智能体"}>
+              <SectionCard label={editor.relPath?.split("/").pop() ?? pick("新建子智能体", "New subagent")}>
                 <View style={styles.formBody}>
                   {editor.mode === "raw" ? (
                     <>
-                      <Text style={[styles.formLabel, { color: th.inkSub }]}>原始 Markdown（含 frontmatter）</Text>
+                      <Text style={[styles.formLabel, { color: th.inkSub }]}>
+                        {pick("原始 Markdown（含 frontmatter）", "Raw Markdown (with frontmatter)")}
+                      </Text>
                       <TextInput
                         value={editor.raw}
                         onChangeText={(raw) => setEditor({ ...editor, raw })}
@@ -672,7 +732,11 @@ export default function SubagentsScreen() {
                         ]}
                       />
                       <View style={styles.rawToggleRow}>
-                        {dirty ? <Text style={[styles.meta, { color: th.amber }]}>未保存</Text> : null}
+                        {dirty ? (
+                          <Text style={[styles.meta, { color: th.amber }]}>
+                            {pick("未保存", "Unsaved")}
+                          </Text>
+                        ) : null}
                         <PressableScale
                           scaleTo={0.98}
                           onPress={() => {
@@ -684,16 +748,18 @@ export default function SubagentsScreen() {
                             });
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel="返回表单编辑"
+                          accessibilityLabel={pick("返回表单编辑", "Back to form editor")}
                           style={styles.rawToggle}
                         >
-                          <Text style={[styles.rawToggleText, { color: th.steel }]}>返回表单编辑</Text>
+                          <Text style={[styles.rawToggleText, { color: th.steel }]}>
+                            {pick("返回表单编辑", "Back to form")}
+                          </Text>
                         </PressableScale>
                       </View>
                     </>
                   ) : (
                     <>
-                  <Text style={[styles.formLabel, { color: th.inkSub }]}>名称</Text>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>{pick("名称", "Name")}</Text>
                   <TextInput
                     value={editor.name}
                     onChangeText={(name) => setEditor({ ...editor, name })}
@@ -702,25 +768,32 @@ export default function SubagentsScreen() {
                     style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
                   />
 
-                  <Text style={[styles.formLabel, { color: th.inkSub }]}>何时使用</Text>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>
+                    {pick("何时使用", "When to use")}
+                  </Text>
                   <TextInput
                     value={editor.description}
                     onChangeText={(description) => setEditor({ ...editor, description })}
-                    placeholder="何时使用这个子智能体（一句话）"
+                    placeholder={pick(
+                      "何时使用这个子智能体（一句话）",
+                      "When to invoke this subagent (one sentence)",
+                    )}
                     placeholderTextColor={th.inkFaint}
                     style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
                   />
 
-                  <Text style={[styles.formLabel, { color: th.inkSub }]}>模型</Text>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>{pick("模型", "Model")}</Text>
                   <PressableScale
                     scaleTo={0.98}
                     onPress={() => setModelPickerOpen((value) => !value)}
                     accessibilityRole="button"
-                    accessibilityLabel="选择模型"
+                    accessibilityLabel={pick("选择模型", "Select model")}
                     style={[styles.fieldInput, styles.modelRow, { borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
                   >
                     <Text style={[styles.fieldValue, { color: th.ink }]} numberOfLines={1}>
-                      {modelChoices.find((choice) => choice.value === editor.model)?.label ?? editor.model ?? "继承主模型"}
+                      {modelChoices.find((choice) => choice.value === editor.model)?.label ??
+                        editor.model ??
+                        pick("继承主模型", "Inherit main model")}
                     </Text>
                     <Icon name="chevron-down" size={14} color={th.inkFaint} />
                   </PressableScale>
@@ -743,7 +816,7 @@ export default function SubagentsScreen() {
                       ))
                     : null}
 
-                  <Text style={[styles.formLabel, { color: th.inkSub }]}>工具</Text>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>{pick("工具", "Tools")}</Text>
                   <View style={styles.toolChips}>
                     {COMMON_TOOLS.map((tool) => {
                       const on = editor.tools.includes(tool);
@@ -760,7 +833,7 @@ export default function SubagentsScreen() {
                             })
                           }
                           accessibilityRole="button"
-                          accessibilityLabel={`工具 ${tool}`}
+                          accessibilityLabel={pick(`工具 ${tool}`, `Tool ${tool}`)}
                           accessibilityState={{ selected: on }}
                           style={[
                             styles.toolChip,
@@ -788,16 +861,21 @@ export default function SubagentsScreen() {
                           .filter((item) => item !== ""),
                       })
                     }
-                    placeholder="其他工具（逗号分隔）"
+                    placeholder={pick("其他工具（逗号分隔）", "Other tools (comma-separated)")}
                     placeholderTextColor={th.inkFaint}
                     style={[styles.fieldInput, { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft }]}
                   />
 
-                  <Text style={[styles.formLabel, { color: th.inkSub }]}>系统提示词</Text>
+                  <Text style={[styles.formLabel, { color: th.inkSub }]}>
+                    {pick("系统提示词", "System prompt")}
+                  </Text>
                   <TextInput
                     value={editor.prompt}
                     onChangeText={(prompt) => setEditor({ ...editor, prompt })}
-                    placeholder="你是……（这个子智能体怎么做事）"
+                    placeholder={pick(
+                      "你是……（这个子智能体怎么做事）",
+                      "You are… (how this subagent works)",
+                    )}
                     placeholderTextColor={th.inkFaint}
                     multiline
                     textAlignVertical="top"
@@ -805,17 +883,23 @@ export default function SubagentsScreen() {
                   />
 
                   <View style={styles.rawToggleRow}>
-                    {dirty ? <Text style={[styles.meta, { color: th.amber }]}>未保存</Text> : null}
+                    {dirty ? (
+                      <Text style={[styles.meta, { color: th.amber }]}>
+                        {pick("未保存", "Unsaved")}
+                      </Text>
+                    ) : null}
                     <PressableScale
                       scaleTo={0.98}
                       onPress={() =>
                         setEditor({ ...editor, mode: "raw", raw: buildDocument(editor) })
                       }
                       accessibilityRole="button"
-                      accessibilityLabel="编辑原始文件"
+                      accessibilityLabel={pick("编辑原始文件", "Edit raw file")}
                       style={styles.rawToggle}
                     >
-                      <Text style={[styles.rawToggleText, { color: th.steel }]}>编辑原始文件…</Text>
+                      <Text style={[styles.rawToggleText, { color: th.steel }]}>
+                        {pick("编辑原始文件…", "Edit raw file…")}
+                      </Text>
                     </PressableScale>
                   </View>
                     </>
@@ -827,12 +911,22 @@ export default function SubagentsScreen() {
 
           {editor ? (
             <View style={styles.actions}>
-              <PillButton label="取消" variant="secondary" disabled={busy} onPress={() => setEditor(null)} />
+              <PillButton
+                label={pick("取消", "Cancel")}
+                variant="secondary"
+                disabled={busy}
+                onPress={() => setEditor(null)}
+              />
               {editor.relPath ? (
-                <PillButton label="删除" variant="danger" disabled={busy} onPress={confirmDelete} />
+                <PillButton
+                  label={pick("删除", "Delete")}
+                  variant="danger"
+                  disabled={busy}
+                  onPress={confirmDelete}
+                />
               ) : null}
               <PillButton
-                label={busy ? "保存中…" : "保存"}
+                label={busy ? pick("保存中…", "Saving…") : pick("保存", "Save")}
                 variant="primary"
                 disabled={busy || !dirty}
                 onPress={() => void save()}
@@ -851,8 +945,15 @@ export default function SubagentsScreen() {
             <AppearIn>
               <SectionCard>
                 <View style={styles.empty}>
-                  <Text style={[styles.emptyTitle, { color: th.ink }]}>还没有子智能体</Text>
-                  <PillButton label="新建" variant="primary" icon="plus" onPress={openNew} />
+                  <Text style={[styles.emptyTitle, { color: th.ink }]}>
+                    {pick("还没有子智能体", "No custom subagents yet")}
+                  </Text>
+                  <PillButton
+                    label={pick("新建", "New")}
+                    variant="primary"
+                    icon="plus"
+                    onPress={openNew}
+                  />
                 </View>
               </SectionCard>
             </AppearIn>
@@ -870,7 +971,9 @@ export default function SubagentsScreen() {
                         <View style={styles.rightSlot}>
                           {entry.invalid ? (
                             <View style={[styles.badge, { backgroundColor: th.amberSoft }]}>
-                              <Text style={[styles.badgeText, { color: th.amber }]}>格式有误</Text>
+                              <Text style={[styles.badgeText, { color: th.amber }]}>
+                                {pick("格式有误", "Invalid")}
+                              </Text>
                             </View>
                           ) : (
                             <Switch
@@ -887,7 +990,7 @@ export default function SubagentsScreen() {
                             />
                           )}
                           <PillButton
-                            label="编辑"
+                            label={pick("编辑", "Edit")}
                             variant="secondary"
                             onPress={() => openEdit(entry)}
                           />
@@ -898,8 +1001,10 @@ export default function SubagentsScreen() {
                       // 与行内标题对齐（行左距 + 图标底 + 间距）。
                       <Text style={[styles.agentMeta, { color: th.inkFaint }]}>
                         {[
-                          entry.model ? `模型 ${entry.model}` : null,
-                          entry.tools ? `工具 ${entry.tools.join("、")}` : null,
+                          entry.model ? `${pick("模型", "Model")} ${entry.model}` : null,
+                          entry.tools
+                            ? `${pick("工具", "Tools")} ${entry.tools.join(isEn ? ", " : "、")}`
+                            : null,
                         ]
                           .filter(Boolean)
                           .join(" · ")}
@@ -910,7 +1015,12 @@ export default function SubagentsScreen() {
               ))}
               <AppearIn delay={staggerDelay(entries.length, 32, 240)}>
                 <SectionCard>
-                  <Row icon="plus" tone="brand" title="新建子智能体" onPress={openNew} />
+                  <Row
+                    icon="plus"
+                    tone="brand"
+                    title={pick("新建子智能体", "New subagent")}
+                    onPress={openNew}
+                  />
                 </SectionCard>
               </AppearIn>
             </>
@@ -918,7 +1028,12 @@ export default function SubagentsScreen() {
 
           {editor ? null : (
             <AppearIn delay={staggerDelay(entries.length + 1, 32, 240)}>
-              <Row icon="info" tone="plain" title="何时生效" detail="保存后对新开的会话生效" />
+              <Row
+                icon="info"
+                tone="plain"
+                title={pick("何时生效", "When it takes effect")}
+                detail={pick("保存后对新开的会话生效", "Applies to sessions created after saving")}
+              />
             </AppearIn>
           )}
 

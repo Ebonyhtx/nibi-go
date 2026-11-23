@@ -1,13 +1,8 @@
-// 设置首页：先分页，不再把所有配置堆在一页。
-//
-// 模型、快捷动作、插件、关于分开；后续新设置按入口加，不继续往下堆。
-// 2.0：SectionCard 分组 + ui/Row 统一行；「外观」分组（主题三选写 appearance/preferences，
-// useNibiTheme 消费同一份偏好，切换即时生效）。2.0.1：外观三行压成单卡分段控件；
-// 行副标题只留有增量的（审查口径：标题已说明的事不再复述）。
+// 设置首页：分页入口 + 外观主题 + 中英文语言实时切换 + 通知/悬浮小鸟偏好 + 平板居中响应式布局。
 
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
@@ -30,6 +25,8 @@ import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
 import { dismissKeyboardOnFocus } from "../../composer/leave";
+import { setLanguageMode, useI18n, type LanguageMode } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
 import { syncNotificationChannel } from "../../relay/notifications";
@@ -44,27 +41,42 @@ import {
 } from "../../settings/devicePreferences";
 import { radius, space, text, useNibiTheme } from "../../theme";
 
-/** 主题三选。分段控件里的短标签；详情不需要——图标+名称已自明。 */
-const APPEARANCE_MODES: readonly SegmentedOption<AppearanceMode>[] = [
-  { value: "system", icon: "monitor", label: "跟随系统" },
-  { value: "light", icon: "sun", label: "浅色" },
-  { value: "dark", icon: "moon", label: "墨夜" },
-];
-
 export default function SettingsHomeScreen() {
   const th = useNibiTheme();
+  const { mode: languageMode, pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(4),
+  });
   const version = Constants.expoConfig?.version ?? "0.0.0";
   const { session, snapshot } = useSession();
   const appearanceMode = useAppearanceMode();
   const device = useDevicePreferences();
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
-  // 应用内更新（GitHub Releases + 摘要校验的全链路已在 relay/updater，这里只差接线）。
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
-  // 从首页带着输入框焦点进来时，键盘会弹一下又收回去；进入设置先明确收起。
+  const appearanceOptions = useMemo<readonly SegmentedOption<AppearanceMode>[]>(
+    () => [
+      { value: "system", icon: "monitor", label: pick("跟随系统", "System") },
+      { value: "light", icon: "sun", label: pick("浅色", "Light") },
+      { value: "dark", icon: "moon", label: pick("墨夜", "Dark") },
+    ],
+    [pick],
+  );
+
+  const languageOptions = useMemo<readonly SegmentedOption<LanguageMode>[]>(
+    () => [
+      { value: "system", icon: "globe", label: pick("跟随系统", "System") },
+      { value: "zh-CN", label: "简体中文" },
+      { value: "en-US", label: "English" },
+    ],
+    [pick],
+  );
+
   useFocusEffect(
     useCallback(() => {
       dismissKeyboardOnFocus(Keyboard.dismiss);
@@ -79,9 +91,16 @@ export default function SettingsHomeScreen() {
       await session.login(force);
       const current = session.getSnapshot();
       if (!current.loggedIn) {
-        setAccountMessage(current.error?.message ?? "登录没有完成，请重试");
+        setAccountMessage(
+          current.error?.message ?? pick("登录没有完成，请重试", "Sign-in did not complete. Please retry."),
+        );
       } else {
-        setAccountMessage("已登录；进入插件市场会自动同步本机授权。");
+        setAccountMessage(
+          pick(
+            "已登录；进入插件市场会自动同步本机授权。",
+            "Signed in. Device licenses sync automatically in Plugin Market.",
+          ),
+        );
       }
     } finally {
       setAccountBusy(false);
@@ -89,56 +108,67 @@ export default function SettingsHomeScreen() {
   }
 
   function logout() {
-    Alert.alert("退出 NIBI 账号？", "配对凭据与本机已同步的设备授权会保留。", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "退出登录",
-        style: "destructive",
-        onPress: () => {
-          setAccountBusy(true);
-          void session
-            .logout()
-            .then(() => setAccountMessage("已退出登录"))
-            .finally(() => setAccountBusy(false));
+    Alert.alert(
+      pick("退出 NIBI 账号？", "Sign out of NIBI account?"),
+      pick("配对凭据与本机已同步的设备授权会保留。", "Paired devices and local synced licenses will be kept."),
+      [
+        { text: pick("取消", "Cancel"), style: "cancel" },
+        {
+          text: pick("退出登录", "Sign out"),
+          style: "destructive",
+          onPress: () => {
+            setAccountBusy(true);
+            void session
+              .logout()
+              .then(() => setAccountMessage(pick("已退出登录", "Signed out")))
+              .finally(() => setAccountBusy(false));
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   async function checkUpdate() {
     if (updateBusy) return;
     setUpdateBusy(true);
-    setUpdateMessage("正在检查…");
+    setUpdateMessage(pick("正在检查…", "Checking…"));
     let handedToDialog = false;
     try {
       const info = await checkForUpdate();
       if (!info) {
-        setUpdateMessage(`已是最新版本（${version}）`);
+        setUpdateMessage(pick(`已是最新版本（${version}）`, `Up to date (${version})`));
         return;
       }
-      const sizeLabel = info.size ? `，${Math.round(info.size / 1024 / 1024)} MB` : "";
+      const sizeLabel = info.size
+        ? pick(`，${Math.round(info.size / 1024 / 1024)} MB`, `, ${Math.round(info.size / 1024 / 1024)} MB`)
+        : "";
       setUpdateMessage(null);
       handedToDialog = true;
       Alert.alert(
-        `发现新版本 ${info.version}`,
-        `当前 ${version} → 新版 ${info.version}${sizeLabel}。下载完成后会校验摘要并调起安装。`,
+        pick(`发现新版本 ${info.version}`, `Update available: ${info.version}`),
+        pick(
+          `当前 ${version} → 新版 ${info.version}${sizeLabel}。下载完成后会校验摘要并调起安装。`,
+          `Current ${version} → New ${info.version}${sizeLabel}. Checksum will be verified before installing.`,
+        ),
         [
-          { text: "取消", style: "cancel", onPress: () => setUpdateBusy(false) },
+          { text: pick("取消", "Cancel"), style: "cancel", onPress: () => setUpdateBusy(false) },
           {
-            text: "下载并安装",
+            text: pick("下载并安装", "Download & install"),
             onPress: () => {
-              setUpdateMessage(`正在下载 ${info.version}…`);
+              setUpdateMessage(pick(`正在下载 ${info.version}…`, `Downloading ${info.version}…`));
               void downloadUpdate(info)
                 .then(({ apkPath }) => {
                   setUpdateMessage(null);
                   return installUpdate(apkPath).then((launched) => {
-                    if (!launched) setUpdateMessage("无法调起安装器，请手动安装");
+                    if (!launched) {
+                      setUpdateMessage(
+                        pick("无法调起安装器，请手动安装", "Unable to launch installer. Install manually."),
+                      );
+                    }
                   });
                 })
                 .catch((error: unknown) => {
-                  setUpdateMessage(
-                    error instanceof Error ? error.message : String(error),
-                  );
+                  setUpdateMessage(error instanceof Error ? error.message : String(error));
                 })
                 .finally(() => setUpdateBusy(false));
             },
@@ -155,27 +185,33 @@ export default function SettingsHomeScreen() {
 
   return (
     <View style={styles.root}>
-      {/* 页面纸面：与首页同一条竖向渐变（顶部暖光 → 纸面 → 纸底）。 */}
       <LinearGradient
         colors={[th.glowTop, th.bgGradient[0], th.bgGradient[1]]}
         locations={[0, 0.38, 1]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="设置" onBack={() => router.back()} />
+      <ScreenHeader title={pick("设置", "Settings")} onBack={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+      <ScrollView contentContainerStyle={bodyStyle}>
         <AppearIn delay={staggerDelay(0, 32, 240)}>
-          <SectionCard label="账号">
+          <SectionCard label={pick("账号", "Account")}>
             <Row
               icon="shield"
               tone="steel"
               title={
                 snapshot.loggedIn
-                  ? `已登录${snapshot.displayName ? `：${snapshot.displayName}` : ""}`
-                  : "登录 NIBI 账号"
+                  ? pick(
+                      `已登录${snapshot.displayName ? `：${snapshot.displayName}` : ""}`,
+                      `Signed in${snapshot.displayName ? `: ${snapshot.displayName}` : ""}`,
+                    )
+                  : pick("登录 NIBI 账号", "Sign in to NIBI")
               }
-              detail={snapshot.loggedIn ? "切换账号" : "远控设备配对与云端同步"}
+              detail={
+                snapshot.loggedIn
+                  ? pick("切换账号", "Switch account")
+                  : pick("远控设备配对与云端同步", "Remote pairing & cloud sync")
+              }
               onPress={() => void login(snapshot.loggedIn)}
             />
             {snapshot.loggedIn ? (
@@ -184,8 +220,8 @@ export default function SettingsHomeScreen() {
                 <Row
                   icon="x"
                   danger
-                  title="退出登录"
-                  detail="凭据与授权保留"
+                  title={pick("退出登录", "Sign out")}
+                  detail={pick("凭据与授权保留", "Credentials & licenses kept")}
                   onPress={logout}
                 />
               </>
@@ -202,14 +238,13 @@ export default function SettingsHomeScreen() {
           </AppearIn>
         ) : null}
 
-        {/* 通知（桌面「常规」组的任务通知/通知声音）：只在后台/锁屏弹，前台不影响。 */}
         <AppearIn delay={staggerDelay(2, 32, 240)}>
-          <SectionCard label="通知">
+          <SectionCard label={pick("通知与悬浮小鸟", "Notifications & Floating Pet")}>
             <ToggleRow
               icon="download"
               tone="steel"
-              title="任务通知"
-              detail="后台完成/待审批时提醒"
+              title={pick("任务通知", "Task notifications")}
+              detail={pick("后台完成或待审批时提醒", "Notify on completion or approval needed")}
               value={device.taskNotifications}
               onChange={(value) => void updateDevicePreferences({ taskNotifications: value })}
             />
@@ -217,22 +252,21 @@ export default function SettingsHomeScreen() {
             <ToggleRow
               icon="bell"
               tone="brand"
-              title="通知声音"
-              detail="提醒时播放提示音"
+              title={pick("通知声音", "Notification sound")}
+              detail={pick("提醒时播放提示音", "Play alert sound for notifications")}
               value={device.notificationSound}
               onChange={(value) => {
                 void updateDevicePreferences({ notificationSound: value });
-                // 渠道创建后不可变：切声音要删掉重建。
                 void syncNotificationChannel();
               }}
               disabled={!device.taskNotifications}
             />
             <Divider />
             <ToggleRow
-              icon="phone"
-              tone="steel"
-              title="后台运行气泡"
-              detail="会话/操控时悬浮提醒，点按切回"
+              icon="sparkles"
+              tone="brand"
+              title={pick("App 外悬浮小鸟", "Floating NIBI Bird")}
+              detail={pick("切出应用或手机操控时小鸟随行，点按切回", "NIBI Bird floats over other apps; tap to return")}
               value={device.statusBubble}
               onChange={(value) => void updateDevicePreferences({ statusBubble: value })}
             />
@@ -240,39 +274,39 @@ export default function SettingsHomeScreen() {
         </AppearIn>
 
         <AppearIn delay={staggerDelay(3, 32, 240)}>
-          <SectionCard label="交互">
+          <SectionCard label={pick("交互", "Interaction")}>
             <Row
               icon="sliders"
-              title="快捷动作"
-              detail="输入框上方、加号菜单与长按消息"
+              title={pick("快捷动作", "Quick actions")}
+              detail={pick("输入框上方、加号菜单与长按消息", "Composer bar, + menu & message long-press")}
               onPress={() => router.push("/settings/composer")}
             />
             <Divider />
             <Row
               icon="sparkles"
-              title="会话显示"
+              title={pick("会话显示", "Conversation display")}
               onPress={() => router.push("/settings/conversation")}
             />
           </SectionCard>
         </AppearIn>
 
         <AppearIn delay={staggerDelay(4, 32, 240)}>
-          <SectionCard label="模型">
+          <SectionCard label={pick("模型", "Models")}>
             <Row
               icon="monitor"
               tone="steel"
-              title="模型服务"
+              title={pick("模型服务", "Model providers")}
               onPress={() => router.push("/settings/provider")}
             />
           </SectionCard>
         </AppearIn>
 
         <AppearIn delay={staggerDelay(5, 32, 240)}>
-          <SectionCard label="项目">
+          <SectionCard label={pick("项目", "Projects")}>
             <Row
               icon="doc"
-              title="项目管理"
-              detail="共享工作区与项目记忆"
+              title={pick("项目管理", "Manage projects")}
+              detail={pick("共享工作区与项目记忆", "Shared workspaces & project memory")}
               onPress={() => router.push("/settings/projects")}
             />
           </SectionCard>
@@ -282,70 +316,80 @@ export default function SettingsHomeScreen() {
           <SectionCard label="Agent">
             <Row
               icon="pen"
-              title="个性化指令"
-              detail="写给所有会话的全局指令"
+              title={pick("个性化指令", "Custom instructions")}
+              detail={pick("写给所有会话的全局指令", "Global rules for all sessions (AGENTS.md)")}
               onPress={() => router.push("/settings/personalization")}
             />
             <Divider />
             <ToggleRow
               icon="clock"
               tone="plain"
-              title="任务运行时保持唤醒"
-              detail="回合执行期间不休屏"
+              title={pick("任务运行时保持唤醒", "Keep screen awake while running")}
+              detail={pick("回合执行期间不休屏", "Prevent sleep during active turns")}
               value={device.keepAwakeWhileRunning}
               onChange={(value) => void updateDevicePreferences({ keepAwakeWhileRunning: value })}
             />
             <Divider />
             <Row
               icon="sparkles"
-              title="记忆"
-              detail="按项目分开保存"
+              title={pick("记忆", "Memory")}
+              detail={pick("按项目分开保存", "Stored per project")}
               onPress={() => router.push("/settings/memory")}
             />
             <Divider />
             <Row
               icon="info"
               tone="steel"
-              title="诊断"
-              detail="用量与网络状态"
+              title={pick("诊断", "Diagnostics")}
+              detail={pick("用量与网络状态", "Cache hit rate & network status")}
               onPress={() => router.push("/settings/diagnostics")}
             />
             <Divider />
             <Row
               icon="user"
               tone="steel"
-              title="子智能体"
-              detail="自定义助手与工具面"
+              title={pick("子智能体", "Subagents")}
+              detail={pick("自定义助手与工具面", "Custom personas & tool scopes")}
               onPress={() => router.push("/settings/subagents")}
             />
             <Divider />
             <Row
               icon="download"
               tone="steel"
-              title="使用统计"
-              detail="Tokens、模型与趋势"
+              title={pick("使用统计", "Usage stats")}
+              detail={pick("Tokens、模型与趋势", "Tokens, models & trends")}
               onPress={() => router.push("/settings/usage")}
             />
           </SectionCard>
         </AppearIn>
 
-        {/* 外观：弹簧滑块分段控件 + 动效与触感反馈开关。 */}
         <AppearIn delay={staggerDelay(7, 32, 240)}>
-          <SectionCard label="外观">
+          <SectionCard label={pick("语言 / Language", "Language / 语言")}>
             <View style={styles.segWrap}>
               <SegmentedControl
-                options={APPEARANCE_MODES}
+                options={languageOptions}
+                value={languageMode}
+                onChange={(mode) => void setLanguageMode(mode)}
+              />
+            </View>
+          </SectionCard>
+        </AppearIn>
+
+        <AppearIn delay={staggerDelay(7, 32, 240)}>
+          <SectionCard label={pick("外观", "Appearance")}>
+            <View style={styles.segWrap}>
+              <SegmentedControl
+                options={appearanceOptions}
                 value={appearanceMode}
                 onChange={(mode) => void saveAppearancePreferences({ version: 1, mode })}
               />
             </View>
-            {/* 界面动效（桌面「外观」同名项）：关掉后入场/按压动画直出终态；系统「减少动画」优先。 */}
             <Divider />
             <ToggleRow
               icon="sparkles"
               tone="plain"
-              title="界面动效"
-              detail="关闭后动画直出终态"
+              title={pick("界面动效", "Animations")}
+              detail={pick("关闭后动画直出终态", "Disable transitions for instant rendering")}
               value={device.motionEnabled}
               onChange={(value) => void updateDevicePreferences({ motionEnabled: value })}
             />
@@ -353,44 +397,49 @@ export default function SettingsHomeScreen() {
             <ToggleRow
               icon="phone"
               tone="plain"
-              title="触感反馈"
-              detail="按键、开关与侧栏过阈震动"
+              title={pick("触感反馈", "Haptics")}
+              detail={pick("按键、开关与侧栏过阈震动", "Tactile feedback on buttons & gestures")}
               value={device.hapticsEnabled}
               onChange={(value) => void updateDevicePreferences({ hapticsEnabled: value })}
             />
           </SectionCard>
         </AppearIn>
 
-        <AppearIn delay={staggerDelay(7, 32, 240)}>
-          <SectionCard label="手机">
+        <AppearIn delay={staggerDelay(8, 32, 240)}>
+          <SectionCard label={pick("手机", "Phone")}>
             <Row
               icon="phone"
-              title="手机操控"
-              detail="读屏点按与高级模式"
+              title={pick("手机操控", "Phone control")}
+              detail={pick("读屏点按与高级模式", "Accessibility tap & advanced shell mode")}
               onPress={() => router.push("/settings/phone")}
             />
           </SectionCard>
         </AppearIn>
 
         <AppearIn delay={staggerDelay(8, 32, 240)}>
-          <SectionCard label="插件">
+          <SectionCard label={pick("插件", "Plugins")}>
             <Row
               icon="plug"
-              title="插件管理"
+              title={pick("插件管理", "Manage plugins")}
               onPress={() => router.push("/plugins")}
             />
           </SectionCard>
         </AppearIn>
 
         <AppearIn delay={staggerDelay(9, 32, 240)}>
-          <SectionCard label="关于">
-            <Row icon="info" tone="plain" title="NIBI-GO" detail={`版本 ${version}`} />
+          <SectionCard label={pick("关于", "About")}>
+            <Row
+              icon="info"
+              tone="plain"
+              title="NIBI-GO"
+              detail={pick(`版本 ${version}`, `Version ${version}`)}
+            />
             <Divider />
             <Row
               icon="download"
               tone="steel"
-              title="检查更新"
-              detail={updateMessage ?? "从 GitHub Releases 检查新版本"}
+              title={pick("检查更新", "Check for updates")}
+              detail={updateMessage ?? pick("从 GitHub Releases 检查新版本", "Check GitHub Releases for updates")}
               onPress={() => void checkUpdate()}
               right={updateBusy ? <ActivityIndicator color={th.brand} size="small" /> : undefined}
             />
@@ -403,7 +452,6 @@ export default function SettingsHomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(4) },
   accountMessage: {
     flexDirection: "row",
     alignItems: "center",

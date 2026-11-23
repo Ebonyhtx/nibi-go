@@ -20,6 +20,7 @@ import { PillButton } from "./ui/PillButton";
 import { ToggleRow } from "./ui/Row";
 import { Divider, SectionCard } from "./ui/SectionCard";
 import { Sheet } from "./ui/Sheet";
+import { useI18n } from "../i18n";
 import type {
   ProviderModelConfig,
   ProviderSummary,
@@ -178,6 +179,7 @@ export function ModelConfigSheet({
   onSave: (modelId: string, config: ProviderModelConfig) => Promise<void>;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const existing = Boolean(modelId);
   const [draft, setDraft] = useState<ModelDraft>(() => draftFrom(modelId ?? "", initialConfig));
   const [smart, setSmart] = useState(!existing);
@@ -219,7 +221,7 @@ export function ModelConfigSheet({
     if (!provider) return;
     const id = draft.modelId.trim();
     if (!id) {
-      setNote("先填模型 ID");
+      setNote(pick("先填模型 ID", "Enter a model ID first"));
       return;
     }
     setResolving(true);
@@ -241,7 +243,7 @@ export function ModelConfigSheet({
   const save = async () => {
     const id = draft.modelId.trim();
     if (!id) {
-      setNote("模型 ID 不能为空");
+      setNote(pick("模型 ID 不能为空", "Model ID cannot be empty"));
       return;
     }
     const levels = draft.reasoningLevels
@@ -249,7 +251,7 @@ export function ModelConfigSheet({
       .map((value) => value.trim())
       .filter(Boolean);
     if (levels.length === 0) {
-      setNote("至少保留一个思考档位");
+      setNote(pick("至少保留一个思考档位", "Keep at least one reasoning level"));
       return;
     }
     setSaving(true);
@@ -270,17 +272,17 @@ export function ModelConfigSheet({
         <View style={styles.head}>
           <View>
             <Text style={[styles.title, { color: t.ink }]}>
-              {existing ? "编辑模型" : "添加模型"}
+              {existing ? pick("编辑模型", "Edit model") : pick("添加模型", "Add model")}
             </Text>
             <Text style={[styles.sub, { color: t.inkFaint }]}>
-              {provider?.name ?? "未选择供应商"}
+              {provider?.name ?? pick("未选择供应商", "No provider selected")}
             </Text>
           </View>
           <PressableScale
             onPress={onClose}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="关闭"
+            accessibilityLabel={pick("关闭", "Close")}
             style={styles.close}
           >
             <Icon name="x" size={16} color={t.inkSub} />
@@ -296,9 +298,14 @@ export function ModelConfigSheet({
           <View style={[styles.smartCard, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}>
             <View style={styles.smartHead}>
               <View style={styles.smartText}>
-                <Text style={[styles.smartTitle, { color: t.ink }]}>智能配置</Text>
+                <Text style={[styles.smartTitle, { color: t.ink }]}>
+                  {pick("智能配置", "Smart config")}
+                </Text>
                 <Text style={[styles.hint, { color: t.inkFaint }]}>
-                  按模型名匹配内置目录：上下文、模态、思考档位与参数映射
+                  {pick(
+                    "按模型名匹配内置目录：上下文、模态、思考档位与参数映射",
+                    "Match built-in catalog by model name: context, modalities, reasoning levels & parameter mapping",
+                  )}
                 </Text>
               </View>
               <Switch
@@ -314,7 +321,7 @@ export function ModelConfigSheet({
                 onPress={() => void resolve()}
                 disabled={resolving}
                 accessibilityRole="button"
-                accessibilityLabel="按模型名匹配"
+                accessibilityLabel={pick("按模型名匹配", "Match by model name")}
                 style={({ pressed }) => [
                   styles.resolveButton,
                   { backgroundColor: pressed ? t.hover : t.brandSoft },
@@ -326,30 +333,39 @@ export function ModelConfigSheet({
                   <Icon name="sparkles" size={13} color={t.brand} />
                 )}
                 <Text style={[styles.resolveText, { color: t.brand }]}>
-                  {resolving ? "匹配中…" : "按模型名匹配"}
+                  {resolving ? pick("匹配中…", "Matching…") : pick("按模型名匹配", "Match by model name")}
                 </Text>
               </PressableScale>
               {matched ? (
                 <View style={[styles.matched, { backgroundColor: t.okSoft }]}>
                   <Icon name="check" size={11} color={t.ok} />
-                  <Text style={[styles.matchedText, { color: t.ok }]}>已匹配内置配置</Text>
+                  <Text style={[styles.matchedText, { color: t.ok }]}>
+                    {pick("已匹配内置配置", "Matched built-in config")}
+                  </Text>
                 </View>
               ) : null}
             </View>
           </View>
 
           <Field
-            label="模型 ID"
+            label={pick("模型 ID", "Model ID")}
             value={draft.modelId}
             onChange={(modelId) => setDraft({ ...draft, modelId })}
             placeholder="deepseek-v4.1-flash"
             editable={!existing}
-            hint={existing ? "模型 ID 已保存，不能在原位置改名；需要新 ID 请新增模型。" : undefined}
+            hint={
+              existing
+                ? pick(
+                    "模型 ID 已保存，不能在原位置改名；需要新 ID 请新增模型。",
+                    "Model ID is saved and cannot be renamed in place; add a new model for a different ID.",
+                  )
+                : undefined
+            }
           />
           <View style={styles.twoCols}>
             <View style={styles.col}>
               <Field
-                label="上下文窗口"
+                label={pick("上下文窗口", "Context window")}
                 value={draft.contextWindow}
                 onChange={(contextWindow) => setDraft({ ...draft, contextWindow })}
                 placeholder="128000"
@@ -358,7 +374,7 @@ export function ModelConfigSheet({
             </View>
             <View style={styles.col}>
               <Field
-                label="最大输出 Token"
+                label={pick("最大输出 Token", "Max output tokens")}
                 value={draft.maxOutputTokens}
                 onChange={(maxOutputTokens) => setDraft({ ...draft, maxOutputTokens })}
                 placeholder="8192"
@@ -367,7 +383,9 @@ export function ModelConfigSheet({
             </View>
           </View>
 
-          <Text style={[styles.section, { color: t.inkFaint }]}>输入类型</Text>
+          <Text style={[styles.section, { color: t.inkFaint }]}>
+            {pick("输入类型", "Input types")}
+          </Text>
           <View style={styles.chips}>
             <View
               style={[
@@ -375,21 +393,23 @@ export function ModelConfigSheet({
                 { backgroundColor: t.brandSoft, borderColor: t.brandSoft },
               ]}
             >
-              <Text style={[styles.chipText, { color: t.brand }]}>文本</Text>
+              <Text style={[styles.chipText, { color: t.brand }]}>{pick("文本", "Text")}</Text>
             </View>
-            {[
-              ["图片", "supportsImage"],
-              ["视频", "supportsVideo"],
-              ["PDF", "supportsPdf"],
-            ].map(([label, key]) => {
-              const value = draft[key as "supportsImage" | "supportsVideo" | "supportsPdf"];
+            {(
+              [
+                [pick("图片", "Image"), "supportsImage"],
+                [pick("视频", "Video"), "supportsVideo"],
+                ["PDF", "supportsPdf"],
+              ] as const
+            ).map(([label, key]) => {
+              const value = draft[key];
               return (
                 <PressableScale
                   key={key}
                   scaleTo={0.94}
                   onPress={() => setDraft({ ...draft, [key]: !value })}
                   accessibilityRole="button"
-                  accessibilityLabel={`输入类型 ${label}`}
+                  accessibilityLabel={pick(`输入类型 ${label}`, `Input type ${label}`)}
                   style={({ pressed }) => [
                     styles.chip,
                     {
@@ -406,9 +426,9 @@ export function ModelConfigSheet({
             })}
           </View>
 
-          <SectionCard label="模型能力">
+          <SectionCard label={pick("模型能力", "Capabilities")}>
             <ToggleRow
-              title="结构化输出"
+              title={pick("结构化输出", "Structured output")}
               value={draft.supportsJsonSchemaOutput}
               onChange={(supportsJsonSchemaOutput) =>
                 setDraft({ ...draft, supportsJsonSchemaOutput })
@@ -416,7 +436,7 @@ export function ModelConfigSheet({
             />
             <Divider />
             <ToggleRow
-              title="原生联网搜索"
+              title={pick("原生联网搜索", "Native web search")}
               value={draft.supportsNativeWebSearch}
               onChange={(supportsNativeWebSearch) =>
                 setDraft({ ...draft, supportsNativeWebSearch })
@@ -424,7 +444,7 @@ export function ModelConfigSheet({
             />
             <Divider />
             <ToggleRow
-              title="对话中间系统消息"
+              title={pick("对话中间系统消息", "Mid-conversation system messages")}
               value={draft.supportsMidConversationSystem}
               onChange={(supportsMidConversationSystem) =>
                 setDraft({ ...draft, supportsMidConversationSystem })
@@ -433,27 +453,36 @@ export function ModelConfigSheet({
           </SectionCard>
 
           <Field
-            label="思考档位（从低到高，逗号分隔）"
+            label={pick(
+              "思考档位（从低到高，逗号分隔）",
+              "Reasoning levels (low to high, comma-separated)",
+            )}
             value={draft.reasoningLevels}
             onChange={(reasoningLevels) => setDraft({ ...draft, reasoningLevels })}
             placeholder="disabled, low, high, max"
-            hint="档位数量由模型决定，不固定为 3 或 4 档。"
+            hint={pick(
+              "档位数量由模型决定，不固定为 3 或 4 档。",
+              "Number of levels depends on the model and is not fixed to 3 or 4.",
+            )}
           />
           <Field
-            label="思考参数映射（JSON/CEL 片段）"
+            label={pick("思考参数映射（JSON/CEL 片段）", "Reasoning parameter map (JSON/CEL)")}
             value={draft.reasoningMap}
             onChange={(reasoningMap) => setDraft({ ...draft, reasoningMap })}
             placeholder={'{"reasoning": {"effort": reasoningLevel}}'}
-            hint="留空为 {}；具体字段由供应商协议决定。"
+            hint={pick(
+              "留空为 {}；具体字段由供应商协议决定。",
+              "Leave blank for {}; exact fields depend on the provider protocol.",
+            )}
           />
 
           {note ? <Text style={[styles.note, { color: t.red }]}>{note}</Text> : null}
         </ScrollView>
 
         <View style={styles.foot}>
-          <PillButton variant="secondary" label="取消" onPress={onClose} />
+          <PillButton variant="secondary" label={pick("取消", "Cancel")} onPress={onClose} />
           <PillButton
-            label={saving ? "保存中…" : "保存"}
+            label={saving ? pick("保存中…", "Saving…") : pick("保存", "Save")}
             onPress={() => void save()}
             disabled={saving}
           />

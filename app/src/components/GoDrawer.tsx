@@ -36,6 +36,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Dot, Icon } from "./Icon";
 import { Sheet } from "./ui/Sheet";
+import { useI18n } from "../i18n";
+import { METRICS, resolveAdaptiveLayout } from "../layout/adaptive";
 import { useProjects } from "../kernel/projects";
 import { projectIdOfWorkspace } from "../kernel/workspace";
 import type { PetStateId } from "./PetView";
@@ -126,6 +128,7 @@ export function GoNavContent({
   onSessionActions,
 }: NavProps) {
   const t = useNibiTheme();
+  const { pick, locale, isEn } = useI18n();
   const router = useRouter();
   const suspended = petState === PET_STATE.sleeping;
   const [search, setSearch] = useState("");
@@ -193,8 +196,7 @@ export function GoNavContent({
     [],
   );
   const leaveFor = (path: "/settings" | "/settings/projects" | "/plugins") => {
-    // 先关抽屉、收键盘，等抽屉滑出（~320ms）后再 push：导航转场和 IME 收起
-    // 同一帧发生会让键盘在新页面上闪一下（运营者反馈多次的复发点）。
+    // 抽屉模式先关抽屉再 push，避免转场撞 IME；平板常驻 GoSidebar 无抽屉动画，直接跳转零延迟。
     leaveComposerForNavigation({
       blur: () => {
         onBeforeNavigate?.();
@@ -202,9 +204,12 @@ export function GoNavContent({
       },
       dismiss: () => dismissKeyboardOnce(() => dismissKeyboardIfShown()),
       navigate: () => {
-        onNavigate?.();
-        // 抽屉关闭动画走完再 push（320ms + 余量），转场期间不再碰键盘 API。
-        setTimeout(() => router.push(path), 400);
+        if (onNavigate) {
+          onNavigate();
+          setTimeout(() => router.push(path), 360);
+        } else {
+          router.push(path);
+        }
       },
     });
   };
@@ -223,7 +228,7 @@ export function GoNavContent({
           )
         : sessions;
     return groupSessionsByDay(filterSessionsByTitle(filtered, search));
-  }, [sessions, search, projectFilter, workspaceRoot]);
+  }, [sessions, search, projectFilter, workspaceRoot, locale]);
   const archivedRows = useMemo(
     () => filterSessionsByTitle(archivedSessions, search),
     [archivedSessions, search],
@@ -268,9 +273,14 @@ export function GoNavContent({
       search,
     );
     if (loose.length > 0)
-      out.push({ key: "independent", label: "独立会话", items: loose, project: true });
+      out.push({
+        key: "independent",
+        label: pick("独立会话", "Standalone"),
+        items: loose,
+        project: true,
+      });
     return out;
-  }, [groups, sessions, search, projects, projectFilter, workspaceRoot]);
+  }, [groups, sessions, search, projects, projectFilter, workspaceRoot, pick]);
 
   // 会话三点菜单（NIBI-GO Sheet 弹层）与彻底删除确认（ConfirmDialog），不再弹原生 Android AlertDialog。
   const [menuSession, setMenuSession] = useState<KernelSessionSummary | null>(null);
@@ -300,7 +310,9 @@ export function GoNavContent({
   const run = (action: (() => void | Promise<void>) | undefined, message: string) => {
     if (!action) return;
     void Promise.resolve(action()).catch((error: unknown) => {
-      showDrawerNotice(`${message}：${error instanceof Error ? error.message : String(error)}`);
+      showDrawerNotice(
+        `${message}${isEn ? ": " : "："}${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   };
 
@@ -329,29 +341,41 @@ export function GoNavContent({
       void Promise.resolve(onDeleteSession?.(target.session.sessionId))
         .then((bytes) => {
           if (typeof bytes === "number" && bytes > 0) {
-            showDrawerNotice(`已删除，释放了 ${formatBytes(bytes)}`);
+            showDrawerNotice(
+              pick(`已删除，释放了 ${formatBytes(bytes)}`, `Deleted · freed ${formatBytes(bytes)}`),
+            );
           } else {
-            showDrawerNotice("已彻底删除该会话");
+            showDrawerNotice(pick("已彻底删除该会话", "Session permanently deleted"));
           }
         })
         .catch((error: unknown) => {
           showDrawerNotice(
-            `删除失败：${error instanceof Error ? error.message : String(error)}`,
+            pick("删除失败：", "Delete failed: ") +
+              (error instanceof Error ? error.message : String(error)),
           );
         });
       return;
     }
     void onDeleteAllArchived?.()
       .then((result) => {
-        const lines = [`已删除 ${result.succeeded} 项`];
-        if (result.bytes > 0) lines.push(`释放 ${formatBytes(result.bytes)}`);
-        if (result.kept > 0) lines.push(`保留 ${result.kept} 项（运行中/被引用）`);
-        if (result.failed > 0) lines.push(`失败 ${result.failed} 项`);
-        showDrawerNotice(lines.join("，"));
+        const lines = [pick(`已删除 ${result.succeeded} 项`, `Deleted ${result.succeeded}`)];
+        if (result.bytes > 0) {
+          lines.push(pick(`释放 ${formatBytes(result.bytes)}`, `freed ${formatBytes(result.bytes)}`));
+        }
+        if (result.kept > 0) {
+          lines.push(
+            pick(`保留 ${result.kept} 项（运行中/被引用）`, `kept ${result.kept} (active/referenced)`),
+          );
+        }
+        if (result.failed > 0) {
+          lines.push(pick(`失败 ${result.failed} 项`, `${result.failed} failed`));
+        }
+        showDrawerNotice(lines.join(isEn ? ", " : "，"));
       })
       .catch((error: unknown) => {
         showDrawerNotice(
-          `删除失败：${error instanceof Error ? error.message : String(error)}`,
+          pick("删除失败：", "Delete failed: ") +
+            (error instanceof Error ? error.message : String(error)),
         );
       });
   };
@@ -389,10 +413,10 @@ export function GoNavContent({
               style={[styles.brandSubText, { color: suspended ? t.inkFaint : t.inkSub }]}
             >
               {suspended
-                ? "未连接"
+                ? pick("未连接", "Disconnected")
                 : onlineDevices > 0
-                  ? `本机就绪 · ${onlineDevices} 台在线`
-                  : "本机就绪"}
+                  ? pick(`本机就绪 · ${onlineDevices} 台在线`, `Local ready · ${onlineDevices} online`)
+                  : pick("本机就绪", "Local ready")}
             </Text>
           </View>
         </View>
@@ -406,14 +430,14 @@ export function GoNavContent({
             },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="新对话"
+          accessibilityLabel={pick("新对话", "New chat")}
           onPress={() => {
             onNewSession?.(projectFilter ?? undefined);
             onNavigate?.();
           }}
         >
           <Icon name="plus" size={12} color={t.brandFg} />
-          <Text style={[styles.newChatText, { color: t.brandFg }]}>新对话</Text>
+          <Text style={[styles.newChatText, { color: t.brandFg }]}>{pick("新对话", "New chat")}</Text>
         </PressableScale>
       </View>
 
@@ -434,7 +458,7 @@ export function GoNavContent({
             ref={searchRef}
             value={search}
             onChangeText={setSearch}
-            placeholder="搜索对话"
+            placeholder={pick("搜索对话", "Search chats")}
             placeholderTextColor={t.inkFaint}
             style={[styles.searchInput, { color: t.ink }]}
             returnKeyType="search"
@@ -452,7 +476,7 @@ export function GoNavContent({
             <Pressable
               onPress={() => setSearch("")}
               accessibilityRole="button"
-              accessibilityLabel="清除搜索"
+              accessibilityLabel={pick("清除搜索", "Clear search")}
               hitSlop={8}
             >
               <Icon name="x" size={13} color={t.inkGhost} />
@@ -463,11 +487,13 @@ export function GoNavContent({
         <Pressable
           onPress={() => setSearchArmed(true)}
           accessibilityRole="button"
-          accessibilityLabel="搜索对话"
+          accessibilityLabel={pick("搜索对话", "Search chats")}
           style={[styles.search, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
         >
           <Icon name="search" size={13} color={t.inkGhost} />
-          <Text style={[styles.searchPlaceholder, { color: t.inkFaint }]}>搜索对话</Text>
+          <Text style={[styles.searchPlaceholder, { color: t.inkFaint }]}>
+            {pick("搜索对话", "Search chats")}
+          </Text>
         </Pressable>
       )}
 
@@ -478,7 +504,7 @@ export function GoNavContent({
             scaleTo={0.94}
             onPress={() => setProjectFilter(null)}
             accessibilityRole="button"
-            accessibilityLabel="显示全部会话"
+            accessibilityLabel={pick("显示全部会话", "Show all chats")}
             accessibilityState={{ selected: projectFilter === null }}
             style={[
               styles.projectChip,
@@ -492,7 +518,7 @@ export function GoNavContent({
               style={[styles.projectChipText, { color: projectFilter === null ? t.brand : t.inkSub }]}
               numberOfLines={1}
             >
-              全部
+              {pick("全部", "All")}
             </Text>
           </PressableScale>
           {projects.map((project) => {
@@ -503,7 +529,7 @@ export function GoNavContent({
                 scaleTo={0.94}
                 onPress={() => setProjectFilter(active ? null : project.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`只看项目 ${project.name}`}
+                accessibilityLabel={pick(`只看项目 ${project.name}`, `Filter by ${project.name}`)}
                 accessibilityState={{ selected: active }}
                 style={[
                   styles.projectChip,
@@ -527,11 +553,13 @@ export function GoNavContent({
             scaleTo={0.94}
             onPress={() => leaveFor("/settings/projects")}
             accessibilityRole="button"
-            accessibilityLabel="管理项目"
+            accessibilityLabel={pick("管理项目", "Manage projects")}
             style={[styles.projectChip, { backgroundColor: t.surfaceSoft, borderColor: t.hairline }]}
           >
             <Icon name="folder" size={11} color={t.inkSub} />
-            <Text style={[styles.projectChipText, { color: t.inkSub }]}>管理</Text>
+            <Text style={[styles.projectChipText, { color: t.inkSub }]}>
+              {pick("管理", "Manage")}
+            </Text>
           </PressableScale>
         </View>
       ) : null}
@@ -555,11 +583,14 @@ export function GoNavContent({
                   ]}
                   onPress={() => setView("archived")}
                   accessibilityRole="button"
-                  accessibilityLabel={`已归档 ${archivedSessions.length} 个会话`}
+                  accessibilityLabel={pick(
+                    `已归档 ${archivedSessions.length} 个会话`,
+                    `Archived (${archivedSessions.length})`,
+                  )}
                 >
                   <Icon name="archive" size={13} color={t.inkSub} />
                   <Text style={[styles.archiveEntryText, { color: t.inkSub }]}>
-                    已归档 · {archivedSessions.length}
+                    {pick("已归档", "Archived")} · {archivedSessions.length}
                   </Text>
                   <Icon name="chevron-right" size={12} color={t.inkGhost} />
                 </PressableScale>
@@ -567,10 +598,14 @@ export function GoNavContent({
             ) : null}
             {sessions.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                {suspended ? "还没有对话" : "还没有对话，点右上角开始"}
+                {suspended
+                  ? pick("还没有对话", "No chats yet")
+                  : pick("还没有对话，点右上角开始", "No chats yet — tap New chat to start")}
               </Text>
             ) : displayGroups.length === 0 ? (
-              <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的对话</Text>
+              <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                {pick("没有匹配的对话", "No matching chats")}
+              </Text>
             ) : (
               displayGroups.map((group) => {
                 const headDelay = staggerDelay(staggerIndex++, 24, 240);
@@ -610,7 +645,7 @@ export function GoNavContent({
                             }}
                             delayLongPress={400}
                             accessibilityRole="button"
-                            accessibilityHint="长按归档这条会话"
+                            accessibilityHint={pick("长按归档这条会话", "Long press for session options")}
                             style={({ pressed }) => [
                               styles.sessionRow,
                               {
@@ -636,7 +671,7 @@ export function GoNavContent({
                                 },
                               ]}
                             >
-                              {session.title || "新对话"}
+                              {session.title || pick("新对话", "New chat")}
                             </Text>
                             <Text
                               style={[
@@ -650,7 +685,10 @@ export function GoNavContent({
                               onPress={() => openRowMenu(session)}
                               hitSlop={8}
                               accessibilityRole="button"
-                              accessibilityLabel={`${session.title || "新对话"} 的会话操作`}
+                              accessibilityLabel={pick(
+                                `${session.title || "新对话"} 的会话操作`,
+                                `Actions for ${session.title || "New chat"}`,
+                              )}
                             >
                               <Icon
                                 name="ellipsis"
@@ -674,26 +712,34 @@ export function GoNavContent({
                 onPress={() => setView("sessions")}
                 style={styles.archiveBack}
                 accessibilityRole="button"
-                accessibilityLabel="返回会话列表"
+                accessibilityLabel={pick("返回会话列表", "Back to chats")}
               >
                 <Icon name="chevron-left" size={13} color={t.inkSub} />
-                <Text style={[styles.archiveBackText, { color: t.inkSub }]}>会话</Text>
+                <Text style={[styles.archiveBackText, { color: t.inkSub }]}>
+                  {pick("会话", "Chats")}
+                </Text>
               </Pressable>
-              <Text style={[styles.archiveTitle, { color: t.ink }]}>已归档的会话</Text>
+              <Text style={[styles.archiveTitle, { color: t.ink }]}>
+                {pick("已归档的会话", "Archived chats")}
+              </Text>
               {archivedSessions.length > 0 ? (
                 <Pressable
                   onPress={confirmDeleteAll}
                   accessibilityRole="button"
-                  accessibilityLabel="删除所有归档会话"
+                  accessibilityLabel={pick("删除所有归档会话", "Delete all archived chats")}
                   hitSlop={6}
                 >
-                  <Text style={[styles.archiveDeleteAll, { color: t.red }]}>全部删除</Text>
+                  <Text style={[styles.archiveDeleteAll, { color: t.red }]}>
+                    {pick("全部删除", "Delete all")}
+                  </Text>
                 </Pressable>
               ) : null}
             </View>
             {archivedRows.length === 0 ? (
               <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                {archivedSessions.length === 0 ? "暂无已归档会话" : "没有匹配的归档会话"}
+                {archivedSessions.length === 0
+                  ? pick("暂无已归档会话", "No archived chats")
+                  : pick("没有匹配的归档会话", "No matching archived chats")}
               </Text>
             ) : (
               archivedRows.map((session) => (
@@ -701,33 +747,49 @@ export function GoNavContent({
                   <Pressable
                     style={styles.archivedBody}
                     onPress={() => {
-                      run(() => onUnarchiveSession?.(session.sessionId), "恢复失败");
+                      run(
+                        () => onUnarchiveSession?.(session.sessionId),
+                        pick("恢复失败", "Restore failed"),
+                      );
                       onOpenSession?.(session.sessionId);
                       onNavigate?.();
                     }}
                     accessibilityRole="button"
-                    accessibilityHint="打开并取消归档"
+                    accessibilityHint={pick("打开并取消归档", "Open and restore from archive")}
                   >
                     <Text numberOfLines={1} style={[styles.sessionTitle, { color: t.inkSub }]}>
-                      {session.title || "新对话"}
+                      {session.title || pick("新对话", "New chat")}
                     </Text>
                     <Text style={[styles.sessionTime, { color: t.inkGhost }]}>
                       {sessionTime(session.updatedAt ?? session.createdAt)}
                     </Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => run(() => onUnarchiveSession?.(session.sessionId), "恢复失败")}
+                    onPress={() =>
+                      run(
+                        () => onUnarchiveSession?.(session.sessionId),
+                        pick("恢复失败", "Restore failed"),
+                      )
+                    }
                     hitSlop={6}
                     accessibilityRole="button"
-                    accessibilityLabel={`取消归档 ${session.title || "新对话"}`}
+                    accessibilityLabel={pick(
+                      `取消归档 ${session.title || "新对话"}`,
+                      `Restore ${session.title || "New chat"}`,
+                    )}
                   >
-                    <Text style={[styles.restoreText, { color: t.inkSub }]}>恢复</Text>
+                    <Text style={[styles.restoreText, { color: t.inkSub }]}>
+                      {pick("恢复", "Restore")}
+                    </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => confirmDelete(session)}
                     hitSlop={6}
                     accessibilityRole="button"
-                    accessibilityLabel={`删除 ${session.title || "新对话"}`}
+                    accessibilityLabel={pick(
+                      `删除 ${session.title || "新对话"}`,
+                      `Delete ${session.title || "New chat"}`,
+                    )}
                   >
                     <Icon name="trash" size={15} color={t.red} />
                   </Pressable>
@@ -773,7 +835,7 @@ export function GoNavContent({
               router.push("/work");
             }}
             accessibilityRole="button"
-            accessibilityLabel="切换到桌面电脑"
+            accessibilityLabel={pick("切换到桌面电脑", "Remote desktop")}
           >
             <View
               style={[
@@ -788,7 +850,7 @@ export function GoNavContent({
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>远控</Text>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>{pick("远控", "Remote")}</Text>
           </PressableScale>
 
           <PressableScale
@@ -799,7 +861,7 @@ export function GoNavContent({
               { backgroundColor: pressed ? t.hover : "transparent" },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="插件"
+            accessibilityLabel={pick("插件", "Plugins")}
             onPress={() => leaveFor("/plugins")}
           >
             <View
@@ -810,7 +872,9 @@ export function GoNavContent({
             >
               <Icon name="plug" size={15} color={t.inkSub} />
             </View>
-            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>插件中心</Text>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>
+              {pick("插件中心", "Plugins")}
+            </Text>
           </PressableScale>
 
           <PressableScale
@@ -821,7 +885,7 @@ export function GoNavContent({
               { backgroundColor: pressed ? t.hover : "transparent" },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="设置"
+            accessibilityLabel={pick("设置", "Settings")}
             onPress={() => leaveFor("/settings")}
           >
             <View
@@ -832,21 +896,27 @@ export function GoNavContent({
             >
               <Icon name="gear" size={15} color={t.inkSub} />
             </View>
-            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>设置</Text>
+            <Text style={[styles.footBtnLabel, { color: t.inkSub }]}>
+              {pick("设置", "Settings")}
+            </Text>
           </PressableScale>
         </View>
       </View>
 
-      {/* 会话行三点菜单：NIBI-GO 纸上鸟 2.0 底部 Sheet，替代原生 Android AlertDialog */}
+      {/* 会话行三点菜单：NIBI-GO 纸上鸟 2.0 底部 Sheet，横屏可滚不截断底部按钮 */}
       <Sheet
         visible={menuSession !== null}
         onClose={() => setMenuSession(null)}
-        title={shownMenuSession?.title || "新对话"}
-        maxHeightRatio={0.48}
+        title={shownMenuSession?.title || pick("新对话", "New chat")}
+        maxHeightRatio={0.62}
       >
+        <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.sheetMenuWrap}>
           <Text style={[styles.sheetMenuHint, { color: t.inkSub }]}>
-            归档后可在抽屉顶部的「已归档」列表里随时恢复或彻底删除。
+            {pick(
+              "归档后可在抽屉顶部的「已归档」列表里随时恢复或彻底删除。",
+              "Archived chats can be restored or permanently deleted anytime from the Archived list.",
+            )}
           </Text>
           <PressableScale
             scaleTo={0.98}
@@ -854,11 +924,11 @@ export function GoNavContent({
               const target = menuSession;
               setMenuSession(null);
               if (target) {
-                run(() => onArchiveSession?.(target.sessionId), "归档失败");
+                run(() => onArchiveSession?.(target.sessionId), pick("归档失败", "Archive failed"));
               }
             }}
             accessibilityRole="button"
-            accessibilityLabel="归档任务"
+            accessibilityLabel={pick("归档任务", "Archive chat")}
             style={({ pressed }) => [
               styles.sheetMenuCard,
               {
@@ -871,9 +941,11 @@ export function GoNavContent({
               <Icon name="folder" size={16} color={t.brand} />
             </View>
             <View style={styles.sheetMenuTextCol}>
-              <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>归档任务</Text>
+              <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>
+                {pick("归档任务", "Archive chat")}
+              </Text>
               <Text style={[styles.sheetMenuSub, { color: t.inkFaint }]}>
-                从当前会话列表移入归档夹
+                {pick("从当前会话列表移入归档夹", "Move out of active chats into archive")}
               </Text>
             </View>
             <Icon name="chevron-right" size={14} color={t.inkGhost} />
@@ -888,7 +960,7 @@ export function GoNavContent({
                 if (target) onSessionActions(target.sessionId);
               }}
               accessibilityRole="button"
-              accessibilityLabel="会话信息"
+              accessibilityLabel={pick("会话信息", "Session actions")}
               style={({ pressed }) => [
                 styles.sheetMenuCard,
                 {
@@ -901,9 +973,11 @@ export function GoNavContent({
                 <Icon name="sparkles" size={16} color={t.steel} />
               </View>
               <View style={styles.sheetMenuTextCol}>
-                <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>会话动作与信息</Text>
+                <Text style={[styles.sheetMenuTitle, { color: t.ink }]}>
+                  {pick("会话动作与信息", "Session actions & info")}
+                </Text>
                 <Text style={[styles.sheetMenuSub, { color: t.inkFaint }]}>
-                  执行当前会话关联的插件动作
+                  {pick("执行当前会话关联的插件动作", "Run plugin actions for this session")}
                 </Text>
               </View>
               <Icon name="chevron-right" size={14} color={t.inkGhost} />
@@ -914,30 +988,46 @@ export function GoNavContent({
             scaleTo={0.98}
             onPress={() => setMenuSession(null)}
             accessibilityRole="button"
-            accessibilityLabel="取消"
+            accessibilityLabel={pick("取消", "Cancel")}
             style={[
               styles.sheetCancelBtn,
               { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
             ]}
           >
-            <Text style={[styles.sheetCancelText, { color: t.inkSub }]}>取消</Text>
+            <Text style={[styles.sheetCancelText, { color: t.inkSub }]}>
+              {pick("取消", "Cancel")}
+            </Text>
           </PressableScale>
         </View>
+        </ScrollView>
       </Sheet>
 
       <ConfirmDialog
         visible={deleteConfirm !== null}
         title={
           deleteConfirm?.kind === "all"
-            ? `彻底删除这 ${deleteConfirm.count} 个归档会话？`
-            : "彻底删除这个会话？"
+            ? pick(
+                `彻底删除这 ${deleteConfirm.count} 个归档会话？`,
+                `Permanently delete ${deleteConfirm.count} archived chats?`,
+              )
+            : pick("彻底删除这个会话？", "Permanently delete this chat?")
         }
         message={
           deleteConfirm?.kind === "all"
-            ? "会话记录、附件与轨迹文件会一起删除，无法恢复。运行中或被引用的会话会保留。"
-            : `“${deleteConfirm?.session.title || "新对话"}”的会话记录、附件与轨迹文件会一起删除，无法恢复。`
+            ? pick(
+                "会话记录、附件与轨迹文件会一起删除，无法恢复。运行中或被引用的会话会保留。",
+                "Chat history, attachments, and traces will be permanently removed. Running or referenced sessions are kept.",
+              )
+            : pick(
+                `“${deleteConfirm?.session.title || "新对话"}”的会话记录、附件与轨迹文件会一起删除，无法恢复。`,
+                `Chat history, attachments, and traces for "${deleteConfirm?.session.title || "New chat"}" will be permanently removed.`,
+              )
         }
-        confirmLabel={deleteConfirm?.kind === "all" ? "全部删除" : "彻底删除"}
+        confirmLabel={
+          deleteConfirm?.kind === "all"
+            ? pick("全部删除", "Delete all")
+            : pick("彻底删除", "Delete")
+        }
         danger
         onCancel={() => setDeleteConfirm(null)}
         onConfirm={executeDeleteConfirm}
@@ -1008,18 +1098,24 @@ export function GoDrawer({
   onBeforeNavigate?: () => void;
 }) {
   const t = useNibiTheme();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const panelWidth = Math.min(300, Math.round(width * 0.8));
-  const panelWidthSV = useSharedValue(panelWidth);
+  const panelWidth = resolveAdaptiveLayout({ width, height }).drawerWidth;
+  // 横屏时左缘有摄像头/刘海安全区（insets.left）：收起位移必须覆盖完整可见宽，
+  // 否则收起态会在屏幕左缘露出一截抽屉右边缘；完全收起时 opacity 置 0 同步隐藏边线/阴影。
+  const totalWidth = panelWidth + insets.left;
+  const panelWidthSV = useSharedValue(totalWidth);
   useEffect(() => {
-    panelWidthSV.value = panelWidth;
-  }, [panelWidth, panelWidthSV]);
+    panelWidthSV.value = totalWidth;
+  }, [totalWidth, panelWidthSV]);
 
   // 进度 → 位移/视差（UI 线程驱动；支持过界橡皮筋，左缘有 SIDE_BLEED 余量防露缝）。
   const panelStyle = useAnimatedStyle(() => {
     const p = Math.max(0, progress.value);
-    return { transform: [{ translateX: -panelWidthSV.value * (1 - p) }] };
+    return {
+      opacity: p <= 0.001 ? 0 : 1,
+      transform: [{ translateX: -panelWidthSV.value * (1 - p) }],
+    };
   });
   const contentStyle = useAnimatedStyle(() => {
     const p = Math.min(1, Math.max(0, progress.value));
@@ -1094,8 +1190,8 @@ export function GoDrawer({
           styles.panel,
           {
             left: -SIDE_BLEED,
-            width: panelWidth + SIDE_BLEED,
-            paddingLeft: SIDE_BLEED,
+            width: panelWidth + insets.left + SIDE_BLEED,
+            paddingLeft: SIDE_BLEED + insets.left,
             backgroundColor: t.card,
             borderRightColor: t.hairline,
             paddingTop: insets.top,
@@ -1179,7 +1275,12 @@ export function GoSidebar({
     <View
       style={[
         styles.sidebar,
-        { backgroundColor: t.card, borderRightColor: t.hairline, paddingLeft: insets.left },
+        {
+          width: METRICS.sidebarWidth + insets.left,
+          backgroundColor: t.card,
+          borderRightColor: t.hairline,
+          paddingLeft: insets.left,
+        },
       ]}
     >
       <GoNavContent
@@ -1204,27 +1305,33 @@ export function GoSidebar({
   );
 }
 
-/** expanded + 折叠：一列圆键（≡/搜索在上，AGENT/设置在下）。 */
+/** expanded + 折叠或 840–919dp 中宽平板：一列圆键（≡/新建/搜索在上，远控/插件/设置在下）。 */
 export function GoRail({
   petState,
   onMenu,
+  onNewSession,
   onSearch,
+  onWork,
   onSettings,
   onPlugins,
 }: {
   petState?: PetStateId;
   onMenu: () => void;
+  onNewSession?: () => void;
   onSearch: () => void;
+  onWork?: () => void;
   onSettings: () => void;
   onPlugins?: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
   const suspended = petState === PET_STATE.sleeping;
   const key = (
-    icon: "menu" | "search" | "phone" | "gear" | "plug",
+    icon: "menu" | "plus" | "search" | "monitor" | "gear" | "plug",
     onPress?: () => void,
     label?: string,
+    accent?: boolean,
   ) => (
     <PressableScale
       key={icon}
@@ -1232,36 +1339,61 @@ export function GoRail({
       onPress={onPress}
       style={[
         styles.railKey,
-        { ...t.elevation.card, backgroundColor: t.glass, borderColor: t.glassBorder },
+        accent
+          ? { ...t.elevation.card, backgroundColor: t.brand, borderColor: t.brand }
+          : { ...t.elevation.card, backgroundColor: t.card, borderColor: t.hairline },
       ]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Icon name={icon} size={18} color={onPress ? t.ink : t.inkFaint} />
+      <Icon
+        name={icon}
+        size={18}
+        color={accent ? t.brandFg : onPress ? t.ink : t.inkFaint}
+      />
     </PressableScale>
   );
 
   return (
-    <View style={[styles.rail, { paddingLeft: insets.left, paddingTop: insets.top + space(2) }]}>
+    <View
+      style={[
+        styles.rail,
+        {
+          width: METRICS.railWidth + insets.left,
+          paddingLeft: insets.left,
+          paddingTop: insets.top + space(2),
+        },
+      ]}
+    >
       <View style={styles.railGroup}>
-        {key("menu", onMenu, "展开对话列表")}
-        {key("search", onSearch, "搜索对话")}
+        {key("menu", onMenu, pick("展开对话列表", "Open sessions"))}
+        {onNewSession ? key("plus", onNewSession, pick("新对话", "New chat"), true) : null}
+        {key("search", onSearch, pick("搜索对话", "Search chats"))}
       </View>
       <View style={styles.flex1} />
       <View style={[styles.railGroup, { paddingBottom: insets.bottom + space(2) }]}>
-        <View
+        <PressableScale
+          scaleTo={0.94}
+          onPress={onWork}
+          disabled={!onWork}
+          accessibilityRole="button"
+          accessibilityLabel={pick("远控电脑", "Remote desktop")}
           style={[
             styles.railKey,
-            { ...t.elevation.card, backgroundColor: t.glass, borderColor: t.glassBorder },
+            { ...t.elevation.card, backgroundColor: t.card, borderColor: t.hairline },
           ]}
         >
-          <Icon name="phone" size={18} color={suspended ? t.inkFaint : t.ink} />
+          <Icon name="monitor" size={18} color={onWork ? t.steel : t.inkFaint} />
           <View style={styles.railBadge}>
-            <Dot size={7} color={t.inkGhost} ring={t.inkGhost} />
+            <Dot
+              size={7}
+              color={suspended ? t.inkGhost : t.ok}
+              ring={suspended ? t.inkGhost : undefined}
+            />
           </View>
-        </View>
-        {key("gear", onSettings, "设置")}
-        {onPlugins ? key("plug", onPlugins, "插件") : null}
+        </PressableScale>
+        {onPlugins ? key("plug", onPlugins, pick("插件中心", "Plugins")) : null}
+        {key("gear", onSettings, pick("设置", "Settings"))}
       </View>
     </View>
   );

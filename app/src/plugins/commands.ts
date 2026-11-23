@@ -3,6 +3,8 @@
 // 插件只能在下面这张表里点名：表外的命令（包括 permission/mode 这类设置项）一律拒绝。
 // 命令不接受路径或参数——v1 的 `args` 只为契约形状保留，插件无法借它影响导航目标。
 
+import { pickText } from "../i18n";
+
 /** 宿主命令上下文：导航与提示必填，会话动作由具体页面按能力提供。 */
 export interface HostCommandContext {
   /** 应用内导航（调用方的 router.push）。 */
@@ -41,25 +43,29 @@ export function runHostCommand(
   // v1 不接受插件参数：保留形参只为契约兼容。
   void args;
   if (!isHostCommand(name)) {
-    context.toast(`插件命令不可用：${name}`);
+    context.toast(pickText(`插件命令不可用：${name}`, `Plugin command unavailable: ${name}`));
     return;
   }
   switch (name) {
     case "newSession": {
       const newSession = context.newSession;
       if (!newSession) {
-        context.toast(`这个位置不支持该命令：${name}`);
+        context.toast(
+          pickText(`这个位置不支持该命令：${name}`, `Command not supported here: ${name}`),
+        );
         return;
       }
       try {
         void Promise.resolve(newSession()).catch((error: unknown) => {
           context.toast(
-            `新建会话失败：${error instanceof Error ? error.message : String(error)}`,
+            pickText("新建会话失败：", "Failed to start new chat: ") +
+              (error instanceof Error ? error.message : String(error)),
           );
         });
       } catch (error) {
         context.toast(
-          `新建会话失败：${error instanceof Error ? error.message : String(error)}`,
+          pickText("新建会话失败：", "Failed to start new chat: ") +
+            (error instanceof Error ? error.message : String(error)),
         );
         return;
       }
@@ -84,7 +90,9 @@ export function runHostCommand(
     case "compact": {
       const compact = context.compact;
       if (!compact) {
-        context.toast(`这个位置不支持该命令：${name}`);
+        context.toast(
+          pickText(`这个位置不支持该命令：${name}`, `Command not supported here: ${name}`),
+        );
         return;
       }
       void (async () => {
@@ -93,7 +101,8 @@ export function runHostCommand(
           if (error) context.toast(error);
         } catch (error) {
           context.toast(
-            `压缩失败：${error instanceof Error ? error.message : String(error)}`,
+            pickText("压缩失败：", "Compact failed: ") +
+              (error instanceof Error ? error.message : String(error)),
           );
         }
       })();
@@ -102,7 +111,12 @@ export function runHostCommand(
     default: {
       // 白名单与分支必须同步：漏实现时在编译期报错，而不是运行时静默。
       const unreachable: never = name;
-      context.toast(`插件命令不可用：${String(unreachable)}`);
+      context.toast(
+        pickText(
+          `插件命令不可用：${String(unreachable)}`,
+          `Plugin command unavailable: ${String(unreachable)}`,
+        ),
+      );
     }
   }
 }

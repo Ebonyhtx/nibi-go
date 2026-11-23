@@ -93,7 +93,7 @@ describe("入口接线（防回归）", () => {
     // 「抽屉一开就自动聚焦搜索框」正是键盘闪现的复发点，不能靠事后 blur 补。
     expect(drawer).toContain("searchArmed");
     expect(drawer).toContain("setSearchArmed(true)");
-    expect(drawer).toContain("搜索对话</Text>");
+    expect(drawer).toMatch(/styles\.searchPlaceholder[\s\S]*?搜索对话[\s\S]*?<\/Text>/);
     // leaveFor 必须把两处焦点都清掉：首页输入框（由父级传下来的 onBeforeNavigate）
     // 和抽屉自己的搜索框。只清一处都不够——这正是之前复发的形态。
     const leaveFor = drawer.slice(drawer.indexOf("const leaveFor"), drawer.indexOf("// 会话列表"));
@@ -112,10 +112,11 @@ describe("入口接线（防回归）", () => {
     expect(drawer).toMatch(
       /if \(wasActive\.current && !active\) \{[\s\S]*?searchRef\.current\?\.blur\(\);[\s\S]*?setSearchArmed\(false\);[\s\S]*?\}/,
     );
-    const closeEffect = drawer.slice(
-      drawer.indexOf("if (wasActive.current && !active)"),
-      drawer.indexOf("if (!wasActive.current && active)"),
-    );
+    const closeStart = drawer.indexOf("if (wasActive.current && !active)");
+    const closeEnd = drawer.indexOf("wasActive.current = active;", closeStart);
+    expect(closeStart).toBeGreaterThan(-1);
+    expect(closeEnd).toBeGreaterThan(closeStart);
+    const closeEffect = drawer.slice(closeStart, closeEnd);
     expect(closeEffect).not.toMatch(/Keyboard\.dismiss\(\);/);
   });
 

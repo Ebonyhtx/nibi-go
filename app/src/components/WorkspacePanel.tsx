@@ -17,6 +17,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { haptic } from "../motion/haptics";
+import { resolveAdaptiveLayout, SUPPORTED_MODAL_ORIENTATIONS } from "../layout/adaptive";
 import { rubberBandProgress, SIDE_BLEED, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import {
   Alert,
@@ -40,6 +41,7 @@ import {
 import { WebView } from "react-native-webview";
 
 import { AgentFace } from "./AgentFace";
+import { pickText, useI18n } from "../i18n";
 import { Icon } from "./Icon";
 import { MessageMarkdown } from "./MessageMarkdown";
 import { ConversationFeed, deriveRows, type ChatRow } from "@nibi-go/kernel-session";
@@ -106,22 +108,32 @@ const SEARCH_SKIP = new Set([
   "dist",
 ]);
 
-const KIND_LABEL: Record<ViewerKind, string> = {
-  md: "Markdown",
-  html: "HTML",
-  svg: "SVG",
-  image: "图片",
-  ...OFFICE_KIND_LABEL,
-  text: "文本",
-};
+function kindLabel(kind: ViewerKind): string {
+  const labels: Record<ViewerKind, string> = {
+    md: "Markdown",
+    html: "HTML",
+    svg: "SVG",
+    image: pickText("图片", "Image"),
+    ...OFFICE_KIND_LABEL,
+    text: pickText("文本", "Text"),
+  };
+  return labels[kind];
+}
 
-const STATUS_TEXT: Record<WorkspaceSubagent["status"], string> = {
-  running: "进行中",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已停止",
-  waiting: "等待中",
-};
+function statusText(status: WorkspaceSubagent["status"]): string {
+  switch (status) {
+    case "running":
+      return pickText("进行中", "Running");
+    case "completed":
+      return pickText("已完成", "Done");
+    case "failed":
+      return pickText("失败", "Failed");
+    case "cancelled":
+      return pickText("已停止", "Stopped");
+    case "waiting":
+      return pickText("等待中", "Waiting");
+  }
+}
 
 function kindOf(name: string): ViewerKind {
   const lower = name.toLowerCase();
@@ -231,14 +243,17 @@ export function WorkspacePanel({
   subagents: readonly WorkspaceSubagent[];
 }) {
   const t = useNibiTheme();
+  const { locale, pick } = useI18n();
   const scheme = useNibiScheme();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const panelWidth = Math.min(360, Math.round(width * 0.88));
-  const panelWidthSV = useSharedValue(panelWidth);
+  const panelWidth = resolveAdaptiveLayout({ width, height }).workspacePanelWidth;
+  // 横屏时右缘可能有安全区（insets.right）：收起位移覆盖完整宽并在完全收起时隐藏边线/阴影。
+  const totalWidth = panelWidth + insets.right;
+  const panelWidthSV = useSharedValue(totalWidth);
   useEffect(() => {
-    panelWidthSV.value = panelWidth;
-  }, [panelWidth, panelWidthSV]);
+    panelWidthSV.value = totalWidth;
+  }, [totalWidth, panelWidthSV]);
   // 一级入口；打开面板回到 hub（每次进来先选入口）。
   const [mode, setMode] = useState<WorkspaceMode>("hub");
   // 面板内正在查看的子智能体（有子会话的行点进来直接看消息流）。
@@ -248,7 +263,10 @@ export function WorkspacePanel({
   // 负进度 → 位移动画（面板在右，展开时 translateX=0；右缘留 SIDE_BLEED 防超拉露缝）。
   const panelStyle = useAnimatedStyle(() => {
     const p = Math.max(0, -progress.value);
-    return { transform: [{ translateX: panelWidthSV.value * (1 - p) }] };
+    return {
+      opacity: p <= 0.001 ? 0 : 1,
+      transform: [{ translateX: panelWidthSV.value * (1 - p) }],
+    };
   });
   const contentStyle = useAnimatedStyle(() => {
     const p = Math.min(1, Math.max(0, -progress.value));
@@ -534,7 +552,7 @@ export function WorkspacePanel({
     return () => {
       alive = false;
     };
-  }, [viewerNode, scheme]);
+  }, [viewerNode, scheme, locale]);
 
   // 图片：预取宽高算 aspectRatio（自适应宽高，不撑变形）。
   useEffect(() => {
@@ -564,8 +582,8 @@ export function WorkspacePanel({
       setChildrenMap((prev) => ({ ...prev, [node.relPath]: nodes }));
     } catch (error) {
       Alert.alert(
-        "读取目录失败",
-        `${node.name}：${error instanceof Error ? error.message : String(error)}`,
+        pick("读取目录失败", "Couldn't read folder"),
+        `${node.name}: ${error instanceof Error ? error.message : String(error)}`,
       );
       // 读不了的目录收回起态，避免停在「读取中」。
       setExpanded((prev) => {
@@ -606,8 +624,11 @@ export function WorkspacePanel({
       kind === "image" || isOfficeKind(kind) ? MAX_RICH_VIEWER_BYTES : MAX_TEXT_VIEWER_BYTES;
     if (typeof node.size === "number" && node.size > limit) {
       Alert.alert(
-        "文件过大",
-        `${node.name} 有 ${formatSize(node.size)}，超过 ${formatSize(limit)} 预览上限；可在桌面查看完整内容。`,
+        pick("文件过大", "File too large"),
+        pick(
+          `${node.name} 有 ${formatSize(node.size)}，超过 ${formatSize(limit)} 预览上限；可在桌面查看完整内容。`,
+          `${node.name} is ${formatSize(node.size)}, over the ${formatSize(limit)} preview limit. Open it on desktop to view everything.`,
+        ),
       );
       return;
     }
@@ -642,7 +663,12 @@ export function WorkspacePanel({
             onPress={() => (node.isDir ? toggleDir(node) : openFile(node))}
             accessibilityRole="button"
             accessibilityLabel={
-              node.isDir ? `${isOpen ? "收起" : "展开"}目录 ${node.name}` : `打开文件 ${node.name}`
+              node.isDir
+                ? pick(
+                    `${isOpen ? "收起" : "展开"}目录 ${node.name}`,
+                    `${isOpen ? "Collapse" : "Expand"} folder ${node.name}`,
+                  )
+                : pick(`打开文件 ${node.name}`, `Open file ${node.name}`)
             }
             style={({ pressed }) => [
               styles.row,
@@ -687,7 +713,7 @@ export function WorkspacePanel({
                     { color: t.inkFaint, paddingLeft: space(2) + (depth + 1) * space(3) },
                   ]}
                 >
-                  空目录
+                  {pick("空目录", "Empty folder")}
                 </Text>
               )
             ) : loadingDirs.has(node.relPath) ? (
@@ -697,7 +723,7 @@ export function WorkspacePanel({
                   { color: t.inkFaint, paddingLeft: space(2) + (depth + 1) * space(3) },
                 ]}
               >
-                读取中…
+                {pick("读取中…", "Loading…")}
               </Text>
             ) : null
           ) : null}
@@ -717,8 +743,8 @@ export function WorkspacePanel({
           styles.panel,
           {
             right: -SIDE_BLEED,
-            width: panelWidth + SIDE_BLEED,
-            paddingRight: SIDE_BLEED,
+            width: panelWidth + insets.right + SIDE_BLEED,
+            paddingRight: SIDE_BLEED + insets.right,
             backgroundColor: t.card,
             borderLeftColor: t.hairline,
             paddingTop: insets.top,
@@ -745,7 +771,11 @@ export function WorkspacePanel({
                   setViewerFullscreen(false);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={transcriptAgent ? "返回子智能体列表" : "返回入口"}
+                accessibilityLabel={
+                  transcriptAgent
+                    ? pick("返回子智能体列表", "Back to subagents")
+                    : pick("返回入口", "Back")
+                }
                 hitSlop={6}
                 style={[
                   styles.headBack,
@@ -759,16 +789,16 @@ export function WorkspacePanel({
               {transcriptAgent
                 ? transcriptAgent.name
                 : mode === "files"
-                  ? "文件"
+                  ? pick("文件", "Files")
                   : mode === "agents"
-                    ? "子智能体"
-                    : "工作区"}
+                    ? pick("子智能体", "Subagents")
+                    : pick("工作区", "Workspace")}
             </Text>
             <PressableScale
               scaleTo={0.94}
               onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="关闭工作区"
+              accessibilityLabel={pick("关闭工作区", "Close workspace")}
               hitSlop={6}
               style={[
                 styles.headClose,
@@ -786,7 +816,7 @@ export function WorkspacePanel({
                 scaleTo={0.97}
                 onPress={() => setMode("files")}
                 accessibilityRole="button"
-                accessibilityLabel="打开文件"
+                accessibilityLabel={pick("打开文件", "Open files")}
                 style={[
                   styles.capsule,
                   {
@@ -800,9 +830,9 @@ export function WorkspacePanel({
                   <Icon name="folder" size={19} color={t.brand} />
                 </View>
                 <View style={styles.capsuleCol}>
-                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>文件</Text>
+                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>{pick("文件", "Files")}</Text>
                   <Text style={[styles.capsuleDetail, { color: t.inkSub }]}>
-                    浏览工作区文件，点开即看内容
+                    {pick("浏览工作区文件，点开即看内容", "Browse workspace files and tap to view")}
                   </Text>
                 </View>
                 <Icon name="chevron-right" size={14} color={t.inkFaint} />
@@ -811,7 +841,7 @@ export function WorkspacePanel({
                 scaleTo={0.97}
                 onPress={() => setMode("agents")}
                 accessibilityRole="button"
-                accessibilityLabel="打开子智能体"
+                accessibilityLabel={pick("打开子智能体", "Open subagents")}
                 style={[
                   styles.capsule,
                   {
@@ -825,9 +855,9 @@ export function WorkspacePanel({
                   <Icon name="users" size={19} color={t.brand} />
                 </View>
                 <View style={styles.capsuleCol}>
-                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>子智能体</Text>
+                  <Text style={[styles.capsuleTitle, { color: t.ink }]}>{pick("子智能体", "Subagents")}</Text>
                   <Text style={[styles.capsuleDetail, { color: t.inkSub }]}>
-                    本会话派出的子智能体与消息流
+                    {pick("本会话派出的子智能体与消息流", "Subagents spawned in this session and their transcripts")}
                   </Text>
                 </View>
                 <Icon name="chevron-right" size={14} color={t.inkFaint} />
@@ -837,7 +867,7 @@ export function WorkspacePanel({
             workspacePath === null ? (
               /* 没有项目工作区：文件模式整块空态。 */
               <Text style={[styles.emptyText, { color: t.inkFaint, paddingHorizontal: space(3.5) }]}>
-                没有项目工作区
+                {pick("没有项目工作区", "No project workspace")}
               </Text>
             ) : (
             <View style={styles.content}>
@@ -861,14 +891,14 @@ export function WorkspacePanel({
                       ellipsizeMode="head"
                       style={[styles.sectionTitle, { color: t.inkSub }]}
                     >
-                      {normalizeEntry(workspacePath) || "工作区根目录"}
+                      {normalizeEntry(workspacePath) || pick("工作区根目录", "Workspace root")}
                     </Text>
                   </View>
                   <PressableScale
                     scaleTo={0.94}
                     onPress={refreshTree}
                     accessibilityRole="button"
-                    accessibilityLabel="刷新文件列表"
+                    accessibilityLabel={pick("刷新文件列表", "Refresh file list")}
                     hitSlop={6}
                     style={[
                       styles.sectionAction,
@@ -892,7 +922,7 @@ export function WorkspacePanel({
                     ref={searchRef}
                     value={search}
                     onChangeText={setSearch}
-                    placeholder="搜索文件名"
+                    placeholder={pick("搜索文件名", "Search file names")}
                     placeholderTextColor={t.inkFaint}
                     style={[styles.searchInput, { color: t.ink }]}
                     autoCorrect={false}
@@ -904,7 +934,7 @@ export function WorkspacePanel({
                     <Pressable
                       onPress={() => setSearch("")}
                       accessibilityRole="button"
-                      accessibilityLabel="清除搜索"
+                      accessibilityLabel={pick("清除搜索", "Clear search")}
                       hitSlop={8}
                     >
                       <Icon name="x" size={13} color={t.inkGhost} />
@@ -912,10 +942,15 @@ export function WorkspacePanel({
                   ) : null}
                 </View>
                 {rootError ? (
-                  <Text style={[styles.emptyText, { color: t.red }]}>读不了工作区：{rootError}</Text>
+                  <Text style={[styles.emptyText, { color: t.red }]}>
+                    {pick("读不了工作区：", "Can't read workspace: ")}
+                    {rootError}
+                  </Text>
                 ) : query.length > 0 ? (
                   searching ? (
-                    <Text style={[styles.emptyText, { color: t.inkFaint }]}>搜索中…</Text>
+                    <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                      {pick("搜索中…", "Searching…")}
+                    </Text>
                   ) : searchResults && searchResults.length > 0 ? (
                     searchResults.map((node) => (
                       <PressableScale
@@ -923,7 +958,7 @@ export function WorkspacePanel({
                         scaleTo={0.98}
                         onPress={() => openFile(node)}
                         accessibilityRole="button"
-                        accessibilityLabel={`打开文件 ${node.name}`}
+                        accessibilityLabel={pick(`打开文件 ${node.name}`, `Open file ${node.name}`)}
                         style={({ pressed }) => [
                           styles.row,
                           {
@@ -948,12 +983,18 @@ export function WorkspacePanel({
                       </PressableScale>
                     ))
                   ) : (
-                    <Text style={[styles.emptyText, { color: t.inkFaint }]}>没有匹配的文件</Text>
+                    <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                      {pick("没有匹配的文件", "No matching files")}
+                    </Text>
                   )
                 ) : rootNodes === null ? (
-                  <Text style={[styles.emptyText, { color: t.inkFaint }]}>读取中…</Text>
+                  <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                    {pick("读取中…", "Loading…")}
+                  </Text>
                 ) : rootNodes.length === 0 ? (
-                  <Text style={[styles.emptyText, { color: t.inkFaint }]}>工作区是空的</Text>
+                  <Text style={[styles.emptyText, { color: t.inkFaint }]}>
+                    {pick("工作区是空的", "Workspace is empty")}
+                  </Text>
                 ) : (
                   renderTreeRows(rootNodes, 0)
                 )}
@@ -986,7 +1027,7 @@ export function WorkspacePanel({
                           setViewer(null);
                         }}
                         accessibilityRole="button"
-                        accessibilityLabel="返回文件列表"
+                        accessibilityLabel={pick("返回文件列表", "Back to files")}
                         hitSlop={6}
                         style={styles.viewerBack}
                       >
@@ -996,14 +1037,14 @@ export function WorkspacePanel({
                         {viewer.node.name}
                       </Text>
                       <Text style={[styles.viewerKind, { color: t.inkFaint }]}>
-                        {KIND_LABEL[viewerKind]}
+                        {kindLabel(viewerKind)}
                       </Text>
                       {canMaximize ? (
                         <PressableScale
                           scaleTo={0.94}
                           onPress={() => setViewerFullscreen(true)}
                           accessibilityRole="button"
-                          accessibilityLabel="全屏查看文档"
+                          accessibilityLabel={pick("全屏查看文档", "View document full screen")}
                           hitSlop={6}
                           style={[
                             styles.viewerAction,
@@ -1017,7 +1058,8 @@ export function WorkspacePanel({
                     <View style={styles.viewerBody}>
                       {viewer.error ? (
                         <Text style={[styles.viewerHint, { color: t.red }]}>
-                          读不出来：{viewer.error}
+                          {pick("读不出来：", "Couldn't read: ")}
+                          {viewer.error}
                         </Text>
                       ) : viewerKind === "image" ? (
                         <View style={styles.imageWrap}>
@@ -1031,15 +1073,20 @@ export function WorkspacePanel({
                           />
                         </View>
                       ) : viewer.content === null ? (
-                        <Text style={[styles.viewerHint, { color: t.inkFaint }]}>读取中…</Text>
+                        <Text style={[styles.viewerHint, { color: t.inkFaint }]}>
+                          {pick("读取中…", "Loading…")}
+                        </Text>
                       ) : viewer.binaryNotice ? (
                         <View style={styles.binaryWrap}>
                           <Icon name="doc" size={28} color={t.inkGhost} />
                           <Text style={[styles.binaryTitle, { color: t.inkSub }]}>
-                            二进制文件，不支持纯文本预览
+                            {pick("二进制文件，不支持纯文本预览", "Binary file; plain-text preview isn't supported")}
                           </Text>
                           <Text style={[styles.binaryDetail, { color: t.inkFaint }]}>
-                            支持直接预览 Word (.docx)、Excel (.xlsx)、PPT (.pptx)、PDF、Markdown、HTML、SVG、图片与纯文本文件。
+                            {pick(
+                              "支持直接预览 Word (.docx)、Excel (.xlsx)、PPT (.pptx)、PDF、Markdown、HTML、SVG、图片与纯文本文件。",
+                              "Previews Word (.docx), Excel (.xlsx), PPT (.pptx), PDF, Markdown, HTML, SVG, images and plain text.",
+                            )}
                           </Text>
                         </View>
                       ) : viewerKind === "md" ? (
@@ -1066,7 +1113,10 @@ export function WorkspacePanel({
                           <Text selectable style={[styles.textBody, { color: t.ink }]}>
                             {viewer.content}
                             {viewer.truncated
-                              ? "\n\n——已截断：文件超过 100KB，只显示前 100KB。"
+                              ? pick(
+                                  "\n\n——已截断：文件超过 100KB，只显示前 100KB。",
+                                  "\n\n— Truncated: file exceeds 100KB; showing the first 100KB.",
+                                )
                               : ""}
                           </Text>
                         </ScrollView>
@@ -1095,7 +1145,7 @@ export function WorkspacePanel({
             >
               {subagents.length === 0 ? (
                 <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-                  本会话还没有派出子智能体
+                  {pick("本会话还没有派出子智能体", "No subagents in this session yet")}
                 </Text>
               ) : (
                 subagents.map((agent) => {
@@ -1117,7 +1167,7 @@ export function WorkspacePanel({
                             <Text
                               style={[styles.agentStatus, { color: statusColor(agent.status) }]}
                             >
-                              {STATUS_TEXT[agent.status]}
+                              {statusText(agent.status)}
                             </Text>
                           </View>
                         </View>
@@ -1141,7 +1191,7 @@ export function WorkspacePanel({
                       scaleTo={0.98}
                       onPress={() => setTranscriptAgent(agent)}
                       accessibilityRole="button"
-                      accessibilityLabel={`查看 ${agent.name} 的消息流`}
+                      accessibilityLabel={pick(`查看 ${agent.name} 的消息流`, `View ${agent.name}'s transcript`)}
                       style={({ pressed }) => [
                         styles.agentRow,
                         {
@@ -1178,6 +1228,7 @@ export function WorkspacePanel({
           visible
           animationType="fade"
           statusBarTranslucent
+          supportedOrientations={[...SUPPORTED_MODAL_ORIENTATIONS]}
           onRequestClose={() => setViewerFullscreen(false)}
         >
           <View
@@ -1187,6 +1238,8 @@ export function WorkspacePanel({
                 backgroundColor: t.card,
                 paddingTop: insets.top,
                 paddingBottom: insets.bottom,
+                paddingLeft: insets.left,
+                paddingRight: insets.right,
               },
             ]}
           >
@@ -1195,13 +1248,13 @@ export function WorkspacePanel({
                 {viewer.node.name}
               </Text>
               <Text style={[styles.viewerKind, { color: t.inkFaint }]}>
-                {KIND_LABEL[kindOf(viewer.node.name)]}
+                {kindLabel(kindOf(viewer.node.name))}
               </Text>
               <PressableScale
                 scaleTo={0.94}
                 onPress={() => setViewerFullscreen(false)}
                 accessibilityRole="button"
-                accessibilityLabel="退出全屏预览"
+                accessibilityLabel={pick("退出全屏预览", "Exit full-screen preview")}
                 hitSlop={6}
                 style={[
                   styles.viewerAction,
@@ -1240,6 +1293,7 @@ function SubagentTranscript({
   agentName: string;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const [rows, setRows] = useState<ChatRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null);
@@ -1248,7 +1302,12 @@ function SubagentTranscript({
     let alive = true;
     const client = currentKernelClient();
     if (!client) {
-      setError("内核还没就绪：先回首页打开一个会话。");
+      setError(
+        pick(
+          "内核还没就绪：先回首页打开一个会话。",
+          "Kernel isn't ready yet. Open a session on the home screen first.",
+        ),
+      );
       return;
     }
     const feed = new ConversationFeed(client);
@@ -1260,7 +1319,10 @@ function SubagentTranscript({
       .start(sessionId, { readOnly: true })
       .catch((cause: unknown) => {
         if (alive) {
-          setError(`读取子会话失败：${cause instanceof Error ? cause.message : String(cause)}`);
+          setError(
+            pick("读取子会话失败：", "Couldn't load subagent session: ") +
+              (cause instanceof Error ? cause.message : String(cause)),
+          );
         }
       });
     return () => {
@@ -1268,7 +1330,7 @@ function SubagentTranscript({
       off();
       void feed.stop();
     };
-  }, [sessionId]);
+  }, [sessionId, pick]);
 
   // process 折叠与工具组摊平：面板里不做折叠交互，按时间顺序直出。
   const flat = useMemo(() => {
@@ -1296,7 +1358,7 @@ function SubagentTranscript({
         <Text style={[styles.emptyText, { color: t.red }]}>{error}</Text>
       ) : flat.length === 0 ? (
         <Text style={[styles.emptyText, { color: t.inkFaint }]}>
-          {agentName} 还没有消息
+          {pick(`${agentName} 还没有消息`, `No messages from ${agentName} yet`)}
         </Text>
       ) : (
         flat.map((row) => {
@@ -1324,7 +1386,7 @@ function SubagentTranscript({
                 <Icon name="wrench" size={11} color={t.inkGhost} />
                 <Text numberOfLines={1} style={[styles.transcriptToolText, { color: t.inkFaint }]}>
                   {row.name}
-                  {row.status === "error" ? " · 失败" : ""}
+                  {row.status === "error" ? pick(" · 失败", " · failed") : ""}
                 </Text>
               </View>
             );
@@ -1334,7 +1396,7 @@ function SubagentTranscript({
               <View key={row.key} style={styles.transcriptTool}>
                 <AgentFace name={row.subagentType} status="completed" size={14} />
                 <Text numberOfLines={1} style={[styles.transcriptToolText, { color: t.inkFaint }]}>
-                  子智能体 · {row.subagentType}
+                  {pick("子智能体", "Subagent")} · {row.subagentType}
                 </Text>
               </View>
             );

@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components/Icon";
 import { PluginPanelView } from "../components/PluginView";
+import { useI18n } from "../i18n";
+import { useResponsiveBodyStyle } from "../layout/responsive";
 import { PressableScale } from "../motion/PressableScale";
 import { runPluginAction, toast } from "../plugins/actions";
 import { hostSlotData } from "../plugins/data";
@@ -20,7 +22,17 @@ import { radius, space, type as typeScale, useNibiTheme } from "../theme";
 
 export default function PluginPanelScreen() {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const headerStyle = useResponsiveBodyStyle({
+    paddingTop: insets.top + space(1),
+    paddingBottom: space(2),
+  });
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const params = useLocalSearchParams<{ pluginId?: string; panelId?: string }>();
   const plugins = usePlugins();
   const [tick, setTick] = useState(0);
@@ -54,12 +66,12 @@ export default function PluginPanelScreen() {
   };
 
   const header = (title: string, subtitle?: string) => (
-    <View style={[styles.header, { paddingTop: insets.top + space(1) }]}>
+    <View style={[styles.header, headerStyle]}>
       <PressableScale
         scaleTo={0.95}
         onPress={() => router.back()}
         accessibilityRole="button"
-        accessibilityLabel="返回"
+        accessibilityLabel={pick("返回", "Back")}
         style={({ pressed }) => [
           styles.back,
           { backgroundColor: pressed ? t.hover : t.card, borderColor: t.hairline },
@@ -83,10 +95,15 @@ export default function PluginPanelScreen() {
   if (!plugin || !panel) {
     return (
       <View style={[styles.root, { backgroundColor: t.bg }]}>
-        {header("面板不可用")}
-        <View style={styles.empty}>
+        {header(pick("面板不可用", "Panel unavailable"))}
+        <View style={[styles.empty, bodyStyle]}>
           <Text style={[styles.emptyText, { color: t.inkSub }]}>
-            {plugins.loading ? "正在读取插件…" : "插件不存在，或这个面板已被移除。"}
+            {plugins.loading
+              ? pick("正在读取插件…", "Loading plugins…")
+              : pick(
+                  "插件不存在，或这个面板已被移除。",
+                  "Plugin not found, or this panel has been removed.",
+                )}
           </Text>
         </View>
       </View>
@@ -94,25 +111,25 @@ export default function PluginPanelScreen() {
   }
 
   const disabledReason = !plugin.parsed.slotsAvailable
-    ? plugin.parsed.reason ?? "插件槽不可用"
+    ? plugin.parsed.reason ?? pick("插件槽不可用", "Plugin slot unavailable")
     : !plugin.enabled
-      ? "插件已停用，在插件中心启用后再打开。"
+      ? pick("插件已停用，在插件中心启用后再打开。", "Plugin is disabled. Enable it in Plugin Center first.")
       : plugin.parsed.status !== "ready"
-        ? plugin.parsed.reason ?? "插件清单不兼容"
+        ? plugin.parsed.reason ?? pick("插件清单不兼容", "Incompatible plugin manifest")
         : null;
   const degraded = plugin.parsed.degraded.includes(`panels:${panel.id}`);
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
       {header(panel.title, `${plugin.parsed.manifest.name} · v${plugin.parsed.manifest.version}`)}
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + space(6) }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={bodyStyle} showsVerticalScrollIndicator={false}>
         {degraded ? (
           <View style={[styles.banner, { backgroundColor: t.amberSoft }]}>
             <Text style={[styles.bannerText, { color: t.amber }]}>
-              这个面板用了当前版本不认识的组件，已按 v1 替身渲染。
+              {pick(
+                "这个面板用了当前版本不认识的组件，已按 v1 替身渲染。",
+                "This panel uses components not recognized by this version and is rendered with v1 fallbacks.",
+              )}
             </Text>
           </View>
         ) : null}
@@ -151,7 +168,10 @@ export default function PluginPanelScreen() {
           </View>
         )}
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          这是插件提供的面板（只读清单/信息 + 动作），不是设置页；插件代码不在 UI 进程执行。
+          {pick(
+            "这是插件提供的面板（只读清单/信息 + 动作），不是设置页；插件代码不在 UI 进程执行。",
+            "Plugin-provided panel (read-only manifest/info + actions), not settings. Plugin code does not run in the UI process.",
+          )}
         </Text>
       </ScrollView>
     </View>
@@ -164,8 +184,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space(3),
-    paddingHorizontal: space(4),
-    paddingBottom: space(2),
   },
   back: {
     width: 36,
@@ -178,7 +196,6 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, gap: 1 },
   title: { fontSize: typeScale.title, fontWeight: "700" },
   subtitle: { fontSize: typeScale.micro },
-  content: { paddingHorizontal: space(4), gap: space(3), paddingTop: space(2) },
   surface: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.card,
@@ -186,7 +203,7 @@ const styles = StyleSheet.create({
   },
   banner: { borderRadius: radius.control, padding: space(3) },
   bannerText: { fontSize: 12, lineHeight: 17 },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: space(6) },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center" },
   emptyText: { fontSize: typeScale.small, textAlign: "center" },
   footnote: { fontSize: 10.5, lineHeight: 15, paddingTop: space(2) },
 });

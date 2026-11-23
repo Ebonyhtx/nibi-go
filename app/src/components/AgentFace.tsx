@@ -101,12 +101,21 @@ interface EyeProps {
 
 /** 一只眼：闭眼画一条细线；dots 是圆点；focused/confused 是竖圆角矩形；其余折线实心。 */
 function Eye({ cx, closed, expression, eye }: EyeProps) {
+  const closedPath = useMemo(() => {
+    return Skia.PathBuilder.Make().moveTo(cx, 8).lineTo(cx + 4, 8).build();
+  }, [cx]);
+  const polyPath = useMemo(() => {
+    if (expression === "dots" || expression === "focused" || expression === "confused") {
+      return null;
+    }
+    const points = eyePoints(cx, expression);
+    let builder = Skia.PathBuilder.Make().moveTo(points[0]![0], points[0]![1]);
+    for (const [x, y] of points.slice(1)) builder = builder.lineTo(x, y);
+    return builder.close().build();
+  }, [cx, expression]);
+
   if (closed) {
-    const lid = Skia.PathBuilder.Make()
-      .moveTo(cx, 8)
-      .lineTo(cx + 4, 8)
-      .build();
-    return <Path path={lid} color={eye} style="fill" />;
+    return <Path path={closedPath} color={eye} style="fill" />;
   }
   if (expression === "dots") {
     return <Circle cx={cx + 2} cy={8} r={1.6} color={eye} />;
@@ -125,10 +134,7 @@ function Eye({ cx, closed, expression, eye }: EyeProps) {
       />
     );
   }
-  const points = eyePoints(cx, expression);
-  let builder = Skia.PathBuilder.Make().moveTo(points[0][0], points[0][1]);
-  for (const [x, y] of points.slice(1)) builder = builder.lineTo(x, y);
-  return <Path path={builder.close().build()} color={eye} style="fill" />;
+  return polyPath ? <Path path={polyPath} color={eye} style="fill" /> : null;
 }
 
 /** 状态徽标的填充色（语义色，与悬浮气泡 done/failed 同源）。 */
@@ -171,7 +177,10 @@ function StatusBadge({
   const cy = size * 0.8;
   const r = size * 0.21;
   const dot = status === "running" || status === "waiting";
-  const glyph = dot ? undefined : badgeGlyph(cx, cy, r, status);
+  const glyph = useMemo(
+    () => (dot ? undefined : badgeGlyph(cx, cy, r, status)),
+    [cx, cy, dot, r, status],
+  );
   return (
     <Group
       transform={
@@ -211,6 +220,7 @@ export const AgentFace = memo(function AgentFace({
   const [breath, setBreath] = useState(0);
   const running = status === "running";
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unblinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!running) {
       setBlink(false);
@@ -220,11 +230,13 @@ export const AgentFace = memo(function AgentFace({
     timer.current = setInterval(() => {
       // 一拍 = 眨一次眼 + 呼吸档位推进（1→1.04→1.08→1.04→1）。
       setBlink(true);
-      setTimeout(() => setBlink(false), 180);
+      if (unblinkTimer.current) clearTimeout(unblinkTimer.current);
+      unblinkTimer.current = setTimeout(() => setBlink(false), 180);
       setBreath((value) => (value + 1) % 4);
     }, 1_400);
     return () => {
       if (timer.current) clearInterval(timer.current);
+      if (unblinkTimer.current) clearTimeout(unblinkTimer.current);
     };
   }, [running]);
   const closed = blink || expression === "sleepy";

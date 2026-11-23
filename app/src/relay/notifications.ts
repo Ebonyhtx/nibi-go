@@ -5,6 +5,12 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+import {
+  getCurrentLocale,
+  pickText,
+  subscribeLanguagePreferences,
+  type Locale,
+} from "../i18n";
 import { getCachedDevicePreferences } from "../settings/devicePreferences";
 
 const CHANNEL_ID = "nibi-agent";
@@ -22,9 +28,17 @@ Notifications.setNotificationHandler({
 let setupPromise: Promise<boolean> | null = null;
 /** 渠道当前生效的提示音状态（Android 渠道创建后不可变，改声音必须删掉重建）。 */
 let channelSound: boolean | null = null;
+let channelLocale: Locale | null = null;
+let languageSubscribed = false;
 
 /** 初始化渠道 + 权限（幂等；登录/启动时调用一次）。 */
 export function ensureNotificationSetup(): Promise<boolean> {
+  if (!languageSubscribed && Platform.OS === "android") {
+    languageSubscribed = true;
+    subscribeLanguagePreferences(() => {
+      void syncNotificationChannel().catch(() => {});
+    });
+  }
   setupPromise ??= (async () => {
     try {
       if (Platform.OS === "android") {
@@ -46,8 +60,9 @@ export function ensureNotificationSetup(): Promise<boolean> {
 export async function syncNotificationChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   const sound = getCachedDevicePreferences().notificationSound;
-  if (channelSound === sound) return;
-  if (channelSound !== null) {
+  const locale = getCurrentLocale();
+  if (channelSound === sound && channelLocale === locale) return;
+  if (channelSound !== null && channelSound !== sound) {
     try {
       await Notifications.deleteNotificationChannelAsync(CHANNEL_ID);
     } catch {
@@ -55,12 +70,17 @@ export async function syncNotificationChannel(): Promise<void> {
     }
   }
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-    name: "AGENT 提醒",
-    description: "任务完成、待审批与提问提醒",
+    name: pickText("AGENT 提醒", "Agent Alerts", locale),
+    description: pickText(
+      "任务完成、待审批与提问提醒",
+      "Task completions, approvals, and questions",
+      locale,
+    ),
     importance: Notifications.AndroidImportance.DEFAULT,
     ...(sound ? { sound: "default" } : {}),
   });
   channelSound = sound;
+  channelLocale = locale;
 }
 
 export interface AgentNotification {

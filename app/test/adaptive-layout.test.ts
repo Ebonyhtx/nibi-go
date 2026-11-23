@@ -70,7 +70,20 @@ describe("resolveAdaptiveLayout", () => {
   it("正文限宽：宽窗不把内容拉满", () => {
     const wide = resolveAdaptiveLayout({ width: 1800, height: 1000 });
     expect(wide.bodyMaxWidth).toBe(METRICS.bodyMax);
+    expect(wide.isWide).toBe(true);
+    expect(wide.sheetMaxWidth).toBe(METRICS.sheetMax);
+    expect(wide.workspacePanelWidth).toBe(440);
     const narrow = resolveAdaptiveLayout({ width: 360, height: 800 });
     expect(narrow.bodyMaxWidth).toBe(360);
+    expect(narrow.isWide).toBe(false);
+    expect(narrow.sheetMaxWidth).toBe(360);
+  });
+
+  it("840-919dp 中宽平板走 rail + overlay 抽屉且面板适配加宽", () => {
+    const midTab = resolveAdaptiveLayout({ width: 880, height: 680 });
+    expect(midTab.left).toBe("rail");
+    expect(midTab.menuAction).toBe("overlay");
+    expect(midTab.drawerWidth).toBe(METRICS.sidebarWidth);
+    expect(midTab.workspacePanelWidth).toBe(Math.round(880 * 0.44));
   });
 });

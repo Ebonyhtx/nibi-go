@@ -6,6 +6,8 @@
 //   3. 纯技能/命令包（`skills/<id>/SKILL.md`、根目录 `SKILL.md` 或 `commands/*.md`）；
 // - 自动剥离 GitHub Releases / Source Archive 常见的单层顶层目录包装。
 
+import { pickText } from "../i18n";
+
 export const MANIFEST_FILE = "nibi-go.plugin.json";
 
 export const STANDARD_MANIFEST_PATHS = [
@@ -231,17 +233,42 @@ export function inspectPluginArchive(entries: Record<string, Uint8Array>): Archi
       continue;
     }
     if (!isSafeArchivePath(rawPath)) {
-      return { ok: false, reason: `包内路径不安全：${rawPath.slice(0, 80)}` };
+      return {
+        ok: false,
+        reason: pickText(
+          `包内路径不安全：${rawPath.slice(0, 80)}`,
+          `Unsafe archive path: ${rawPath.slice(0, 80)}`,
+        ),
+      };
     }
     if (bytes.byteLength > MAX_FILE_BYTES) {
-      return { ok: false, reason: `单个文件过大：${rawPath}` };
+      return {
+        ok: false,
+        reason: pickText(`单个文件过大：${rawPath}`, `File too large: ${rawPath}`),
+      };
     }
     if (isNativeBinary(rawPath, bytes)) {
-      return { ok: false, reason: `包内含原生二进制文件（${rawPath}），手机端不支持` };
+      return {
+        ok: false,
+        reason: pickText(
+          `包内含原生二进制文件（${rawPath}），手机端不支持`,
+          `Archive contains native binary (${rawPath}), which is not supported on mobile`,
+        ),
+      };
     }
     total += bytes.byteLength;
-    if (total > MAX_TOTAL_BYTES) return { ok: false, reason: "包解压后超过 32 MiB" };
-    if (files.length >= MAX_FILES) return { ok: false, reason: "包内文件数超过 500" };
+    if (total > MAX_TOTAL_BYTES) {
+      return {
+        ok: false,
+        reason: pickText("包解压后超过 32 MiB", "Extracted archive exceeds 32 MiB"),
+      };
+    }
+    if (files.length >= MAX_FILES) {
+      return {
+        ok: false,
+        reason: pickText("包内文件数超过 500", "Archive contains more than 500 files"),
+      };
+    }
     files.push({ path: rawPath, bytes });
   }
 
@@ -284,13 +311,23 @@ export function inspectPluginArchive(entries: Record<string, Uint8Array>): Archi
     try {
       rawStandard = JSON.parse(decoder.decode(standardManifest.bytes));
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       return {
         ok: false,
-        reason: `${standardManifest.path} 解析失败：${error instanceof Error ? error.message : String(error)}`,
+        reason: pickText(
+          `${standardManifest.path} 解析失败：${detail}`,
+          `Failed to parse ${standardManifest.path}: ${detail}`,
+        ),
       };
     }
     if (typeof rawStandard !== "object" || rawStandard === null || Array.isArray(rawStandard)) {
-      return { ok: false, reason: `${standardManifest.path} 必须是 JSON 对象` };
+      return {
+        ok: false,
+        reason: pickText(
+          `${standardManifest.path} 必须是 JSON 对象`,
+          `${standardManifest.path} must be a JSON object`,
+        ),
+      };
     }
     const skills = discoverSkills(files, decoder);
     const commands = discoverCommandNames(files);
@@ -384,7 +421,9 @@ export function inspectPluginArchive(entries: Record<string, Uint8Array>): Archi
 
   return {
     ok: false,
-    reason:
+    reason: pickText(
       "未在包内找到插件清单（支持 .nibi-plugin/.claude-plugin/.codex-plugin/plugin.json、skills/SKILL.md 或 nibi-go.plugin.json）",
+      "No plugin manifest found in archive (supports .nibi-plugin/.claude-plugin/.codex-plugin/plugin.json, skills/SKILL.md, or nibi-go.plugin.json)",
+    ),
   };
 }

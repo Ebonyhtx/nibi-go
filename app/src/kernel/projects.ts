@@ -12,6 +12,8 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useEffect, useState } from "react";
 
+import { pickText } from "../i18n";
+
 export interface ProjectEntry {
   /** 单段安全名（见 isSafeProjectId）：同时用作 workspace 目录名。 */
   id: string;
@@ -116,13 +118,22 @@ export async function updateProjects(
 
 export async function createProject(name: string, customId?: string): Promise<ProjectEntry> {
   const trimmed = name.trim().slice(0, 60);
-  if (!trimmed) throw new Error("项目名不能为空");
+  if (!trimmed) throw new Error(pickText("项目名不能为空", "Project name cannot be empty"));
   // 自定义文件夹名（FAB 新建流程）：校验安全字符与重名；缺省用自动 id。
   let id: string;
   if (customId !== undefined) {
-    if (!isSafeProjectId(customId)) throw new Error("文件夹名只能用小写字母、数字和连字符");
+    if (!isSafeProjectId(customId)) {
+      throw new Error(
+        pickText(
+          "文件夹名只能用小写字母、数字和连字符",
+          "Folder name can only use lowercase letters, digits, and hyphens",
+        ),
+      );
+    }
     if (getCachedProjects().projects.some((entry) => entry.id === customId)) {
-      throw new Error(`文件夹名 ${customId} 已被占用`);
+      throw new Error(
+        pickText(`文件夹名 ${customId} 已被占用`, `Folder name "${customId}" is already taken`),
+      );
     }
     id = customId;
   } else {
@@ -139,7 +150,7 @@ export async function createProject(name: string, customId?: string): Promise<Pr
 
 export async function renameProject(id: string, name: string): Promise<void> {
   const trimmed = name.trim().slice(0, 60);
-  if (!trimmed) throw new Error("项目名不能为空");
+  if (!trimmed) throw new Error(pickText("项目名不能为空", "Project name cannot be empty"));
   await updateProjects((current) => ({
     ...current,
     projects: current.projects.map((entry) => (entry.id === id ? { ...entry, name: trimmed } : entry)),

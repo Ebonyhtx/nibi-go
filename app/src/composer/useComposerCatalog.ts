@@ -14,6 +14,7 @@ import {
   startKernelHost,
 } from "nibi-kernel-host";
 
+import { useLocale } from "../i18n";
 import { loadPlugins, type LoadedPlugin } from "../plugins/store";
 import {
   buildComposerCatalog,
@@ -31,6 +32,7 @@ export function useComposerCatalog(): {
   plugins: LoadedPlugin[];
   loading: boolean;
 } {
+  const locale = useLocale();
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [skills, setSkills] = useState<readonly KernelSkillReference[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +83,7 @@ export function useComposerCatalog(): {
 
   const catalog = useMemo(
     () => buildComposerCatalog(plugins, mergeSkillCatalog(skills, plugins)),
-    [plugins, skills],
+    [locale, plugins, skills],
   );
 
   return { catalog, plugins, loading };

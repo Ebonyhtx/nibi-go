@@ -6,6 +6,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Icon, type IconName } from "./Icon";
+import { useI18n } from "../i18n";
 import type { ComposerToken } from "../plugins/tokens";
 import { radius, space, useNibiTheme, type NibiTheme } from "../theme";
 
@@ -43,6 +44,7 @@ export function ComposerTokens({
   onRemove: (id: string) => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   if (tokens.length === 0) return null;
   return (
     <ScrollView
@@ -67,7 +69,7 @@ export function ComposerTokens({
               onPress={() => onRemove(token.id)}
               hitSlop={10}
               accessibilityRole="button"
-              accessibilityLabel={`移除 ${token.label}`}
+              accessibilityLabel={pick(`移除 ${token.label}`, `Remove ${token.label}`)}
               style={({ pressed }) => [styles.remove, pressed ? { opacity: 0.5 } : null]}
             >
               <Icon name="x" size={9} color={color.fg} />

@@ -6,9 +6,11 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
+import { useI18n } from "../i18n";
 import { useReducedMotion } from "../motion/appear";
 import { easingExit } from "../motion/easing";
 import { haptic } from "../motion/haptics";
+import { SUPPORTED_MODAL_ORIENTATIONS } from "../layout/adaptive";
 import { PressableScale } from "../motion/PressableScale";
 import { motion, radius, space, text, useNibiTheme } from "../theme";
 
@@ -17,7 +19,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel,
-  cancelLabel = "取消",
+  cancelLabel,
   danger = false,
   onCancel,
   onConfirm,
@@ -32,6 +34,8 @@ export function ConfirmDialog({
   onConfirm: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
+  const resolvedCancelLabel = cancelLabel ?? pick("取消", "Cancel");
   const reduced = useReducedMotion();
   const progress = useRef(new Animated.Value(0)).current;
   const [rendered, setRendered] = useState(visible);
@@ -79,6 +83,7 @@ export function ConfirmDialog({
       transparent
       statusBarTranslucent
       navigationBarTranslucent
+      supportedOrientations={[...SUPPORTED_MODAL_ORIENTATIONS]}
       animationType="none"
       onRequestClose={onCancel}
     >
@@ -87,7 +92,11 @@ export function ConfirmDialog({
           pointerEvents={interactive ? "auto" : "none"}
           style={[styles.backdrop, { backgroundColor: t.backdropStrong, opacity: progress }]}
         >
-          <Pressable style={styles.backdropPress} onPress={onCancel} accessibilityLabel="取消" />
+          <Pressable
+            style={styles.backdropPress}
+            onPress={onCancel}
+            accessibilityLabel={pick("取消", "Cancel")}
+          />
         </Animated.View>
         <Animated.View
           pointerEvents={interactive ? "auto" : "none"}
@@ -122,7 +131,7 @@ export function ConfirmDialog({
               accessibilityRole="button"
               style={[styles.button, { backgroundColor: t.panel, borderColor: t.hairline }]}
             >
-              <Text style={[styles.cancelText, { color: t.inkSub }]}>{cancelLabel}</Text>
+              <Text style={[styles.cancelText, { color: t.inkSub }]}>{resolvedCancelLabel}</Text>
             </PressableScale>
             <PressableScale
               containerStyle={styles.buttonWrap}

@@ -19,6 +19,7 @@ import {
 } from "@nibi-go/market-index";
 import { readPluginManifest, type PluginManifest } from "@nibi-go/plugin-contract";
 
+import { pickText } from "../i18n";
 import { fetchBytesWithProgress } from "./fetchBytes";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
 import {
@@ -111,14 +112,21 @@ export async function installPluginArchiveBytes(
   } = {},
 ): Promise<InstallOutcome> {
   if (options.expectedSha256 && !verifyPackageDigest(bytes, options.expectedSha256)) {
-    return { ok: false, reason: "包摘要与索引不一致（已拒绝安装）" };
+    return {
+      ok: false,
+      reason: pickText(
+        "包摘要与索引不一致（已拒绝安装）",
+        "Package digest does not match index (installation rejected)",
+      ),
+    };
   }
 
   let entries: Record<string, Uint8Array>;
   try {
     entries = unzipSync(bytes);
   } catch (error) {
-    return { ok: false, reason: `解包失败：${error instanceof Error ? error.message : String(error)}` };
+    const detail = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason: pickText(`解包失败：${detail}`, `Failed to extract archive: ${detail}`) };
   }
   const inspection = inspectPluginArchive(entries);
   if (!inspection.ok) return { ok: false, reason: inspection.reason };
@@ -127,11 +135,18 @@ export async function installPluginArchiveBytes(
   try {
     const parsedJson: unknown = JSON.parse(inspection.manifestText);
     if (typeof parsedJson !== "object" || parsedJson === null || Array.isArray(parsedJson)) {
-      return { ok: false, reason: "插件清单不是合法 JSON 对象" };
+      return {
+        ok: false,
+        reason: pickText("插件清单不是合法 JSON 对象", "Plugin manifest is not a valid JSON object"),
+      };
     }
     rawManifest = parsedJson as Record<string, unknown>;
   } catch (error) {
-    return { ok: false, reason: `清单解析失败：${error instanceof Error ? error.message : String(error)}` };
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      reason: pickText(`清单解析失败：${detail}`, `Failed to parse manifest: ${detail}`),
+    };
   }
 
   // 标准包/纯技能包在按市场索引安装时，将宿主侧 id/version 与索引对齐（内核侧仍保留标准 plugin.json 中的 name）。
@@ -148,25 +163,44 @@ export async function installPluginArchiveBytes(
     options.expectedId ??
     (typeof effectiveManifestRaw.id === "string" ? effectiveManifestRaw.id.trim() : "");
   if (!candidateId || !/^[a-z0-9][a-z0-9._-]{1,63}$/i.test(candidateId)) {
-    return { ok: false, reason: "插件清单缺少合法的 id 字段" };
+    return {
+      ok: false,
+      reason: pickText("插件清单缺少合法的 id 字段", "Plugin manifest is missing a valid id field"),
+    };
   }
   if (BUNDLED_PLUGINS.some((plugin) => plugin.dir === candidateId)) {
-    return { ok: false, reason: "与内置插件目录冲突" };
+    return {
+      ok: false,
+      reason: pickText("与内置插件目录冲突", "Conflicts with a built-in plugin directory"),
+    };
   }
 
   const parsed = readPluginManifest(effectiveManifestRaw, hostProfile(), candidateId);
   if (parsed.status !== "ready") {
-    return { ok: false, reason: `清单不可用：${parsed.reason ?? "未知原因"}` };
+    const reason = parsed.reason ?? pickText("未知原因", "Unknown reason");
+    return { ok: false, reason: pickText(`清单不可用：${reason}`, `Invalid manifest: ${reason}`) };
   }
   if (options.expectedId && parsed.manifest.id !== options.expectedId) {
-    return { ok: false, reason: `清单 id（${parsed.manifest.id}）与索引不一致` };
+    return {
+      ok: false,
+      reason: pickText(
+        `清单 id（${parsed.manifest.id}）与索引不一致`,
+        `Manifest id (${parsed.manifest.id}) does not match index`,
+      ),
+    };
   }
   if (
     inspection.formatKind === "nibi-go" &&
     options.expectedVersion &&
     parsed.manifest.version !== options.expectedVersion
   ) {
-    return { ok: false, reason: `清单版本（${parsed.manifest.version}）与索引不一致` };
+    return {
+      ok: false,
+      reason: pickText(
+        `清单版本（${parsed.manifest.version}）与索引不一致`,
+        `Manifest version (${parsed.manifest.version}) does not match index`,
+      ),
+    };
   }
 
   const dir = parsed.manifest.id;
@@ -227,7 +261,8 @@ export async function installPluginArchiveBytes(
     safeDeleteDir(trash);
   } catch (error) {
     safeDeleteDir(staging);
-    return { ok: false, reason: `写入失败：${error instanceof Error ? error.message : String(error)}` };
+    const detail = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason: pickText(`写入失败：${detail}`, `Write failed: ${detail}`) };
   }
 
   await recordInstalledPlugin(dir, parsed.manifest.version, Boolean(options.paid)).catch(() => {
@@ -260,10 +295,18 @@ export async function installNpmPlugin(params: {
   const region = params.region ?? currentMarketRegion();
   const dir = params.expectedId ?? npmPluginIdFor(params.packageName);
   if (BUNDLED_PLUGINS.some((plugin) => plugin.dir === dir)) {
-    return { ok: false, reason: "与内置插件目录冲突" };
+    return {
+      ok: false,
+      reason: pickText("与内置插件目录冲突", "Conflicts with a built-in plugin directory"),
+    };
   }
 
-  params.onStatus?.(`正在读取 ${params.packageName} 元数据…`);
+  params.onStatus?.(
+    pickText(
+      `正在读取 ${params.packageName} 元数据…`,
+      `Fetching metadata for ${params.packageName}…`,
+    ),
+  );
   const metaResult = await fetchNpmPackageMetadata(params.packageName, params.version, region, {
     signal: params.signal,
   });
@@ -273,7 +316,10 @@ export async function installNpmPlugin(params: {
   if (params.expectedIntegrity && meta.dist?.integrity && meta.dist.integrity !== params.expectedIntegrity) {
     return {
       ok: false,
-      reason: `npm 包 integrity 与签名索引不一致（已拒绝安装）`,
+      reason: pickText(
+        "npm 包 integrity 与签名索引不一致（已拒绝安装）",
+        "npm package integrity does not match signed index (installation rejected)",
+      ),
     };
   }
 
@@ -297,7 +343,12 @@ export async function installNpmPlugin(params: {
     const stagingPath = stripFileScheme(staging.uri);
     const integrityToCheck = params.expectedIntegrity ?? meta.dist?.integrity;
 
-    params.onStatus?.(`正在通过内置 npm 安装 ${meta.name}@${meta.version}…`);
+    params.onStatus?.(
+      pickText(
+        `正在通过内置 npm 安装 ${meta.name}@${meta.version}…`,
+        `Installing ${meta.name}@${meta.version} via bundled npm…`,
+      ),
+    );
     const nativeOutcome = await installNpmPackageNative({
       packageName: meta.name,
       version: meta.version,
@@ -307,7 +358,11 @@ export async function installNpmPlugin(params: {
     });
     if (!nativeOutcome.ok) {
       safeDeleteDir(staging);
-      return { ok: false, reason: nativeOutcome.error ?? "内置 npm 安装失败" };
+      return {
+        ok: false,
+        reason:
+          nativeOutcome.error ?? pickText("内置 npm 安装失败", "Bundled npm installation failed"),
+      };
     }
 
     let installedPkgJson: Record<string, unknown> = meta as unknown as Record<string, unknown>;
@@ -338,7 +393,13 @@ export async function installNpmPlugin(params: {
     const entryFile = new File(staging, postcheck.pluginEntry);
     if (!entryFile.exists) {
       safeDeleteDir(staging);
-      return { ok: false, reason: `安装后缺少声明的入口脚本：${postcheck.pluginEntry}` };
+      return {
+        ok: false,
+        reason: pickText(
+          `安装后缺少声明的入口脚本：${postcheck.pluginEntry}`,
+          `Declared entry script missing after install: ${postcheck.pluginEntry}`,
+        ),
+      };
     }
 
     const displayName = (
@@ -373,7 +434,14 @@ export async function installNpmPlugin(params: {
     const parsed = readPluginManifest(hostManifest, hostProfile(), dir);
     if (parsed.status !== "ready") {
       safeDeleteDir(staging);
-      return { ok: false, reason: `生成的插件清单不可用：${parsed.reason ?? "未知原因"}` };
+      const reason = parsed.reason ?? pickText("未知原因", "Unknown reason");
+      return {
+        ok: false,
+        reason: pickText(
+          `生成的插件清单不可用：${reason}`,
+          `Generated plugin manifest is invalid: ${reason}`,
+        ),
+      };
     }
 
     const hostFile = new File(staging, MANIFEST_FILE);
@@ -407,12 +475,22 @@ export async function installNpmPlugin(params: {
     await recordInstalledPlugin(dir, parsed.manifest.version, Boolean(params.paid)).catch(() => {});
     const warnings = [...postcheck.warnings];
     if (resolvedEnv.length > 0) {
-      const names = resolvedEnv
+      const namesZh = resolvedEnv
         .map((item) => item.name)
         .slice(0, 2)
         .join("、");
-      const suffix = resolvedEnv.length > 2 ? ` 等 ${resolvedEnv.length} 项` : "";
-      warnings.unshift(`请在插件中心配置 ${names}${suffix}`);
+      const namesEn = resolvedEnv
+        .map((item) => item.name)
+        .slice(0, 2)
+        .join(", ");
+      const suffixZh = resolvedEnv.length > 2 ? ` 等 ${resolvedEnv.length} 项` : "";
+      const suffixEn = resolvedEnv.length > 2 ? ` and ${resolvedEnv.length - 2} more` : "";
+      warnings.unshift(
+        pickText(
+          `请在插件中心配置 ${namesZh}${suffixZh}`,
+          `Configure ${namesEn}${suffixEn} in Plugins`,
+        ),
+      );
     }
     return {
       ok: true,
@@ -422,9 +500,10 @@ export async function installNpmPlugin(params: {
     };
   } catch (error) {
     safeDeleteDir(staging);
+    const detail = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: `npm 安装异常：${error instanceof Error ? error.message : String(error)}`,
+      reason: pickText(`npm 安装异常：${detail}`, `npm install error: ${detail}`),
     };
   }
 }
@@ -441,11 +520,22 @@ export async function installMarketPlugin(
   if (entry.paid) {
     await ensureLicenseLoaded();
     const decision = pluginLicenseDecision(entry.id);
-    if (!decision.allowed) return { ok: false, reason: `尚未完成账号授权：${decision.reason}` };
+    if (!decision.allowed) {
+      return {
+        ok: false,
+        reason: pickText(
+          `尚未完成账号授权：${decision.reason}`,
+          `Account authorization required: ${decision.reason}`,
+        ),
+      };
+    }
   }
   const dir = pluginDirOf(entry);
   if (BUNDLED_PLUGINS.some((plugin) => plugin.dir === dir)) {
-    return { ok: false, reason: "与内置插件目录冲突" };
+    return {
+      ok: false,
+      reason: pickText("与内置插件目录冲突", "Conflicts with a built-in plugin directory"),
+    };
   }
 
   if (entry.package.format === "npm") {
@@ -485,14 +575,18 @@ export async function installMarketPlugin(
       });
       break;
     } catch (error) {
-      if (options.signal?.aborted) return { ok: false, reason: "已取消" };
+      if (options.signal?.aborted) return { ok: false, reason: pickText("已取消", "Cancelled") };
       lastError = error;
     }
   }
   if (!bytes) {
+    const detail =
+      lastError instanceof Error
+        ? lastError.message
+        : String(lastError ?? pickText("无可用源", "No available source"));
     return {
       ok: false,
-      reason: `下载失败：${lastError instanceof Error ? lastError.message : String(lastError ?? "无可用源")}`,
+      reason: pickText(`下载失败：${detail}`, `Download failed: ${detail}`),
     };
   }
 
@@ -525,14 +619,18 @@ export async function installPersonalUrlPlugin(
       });
       break;
     } catch (error) {
-      if (options.signal?.aborted) return { ok: false, reason: "已取消" };
+      if (options.signal?.aborted) return { ok: false, reason: pickText("已取消", "Cancelled") };
       lastError = error;
     }
   }
   if (!bytes) {
+    const detail =
+      lastError instanceof Error
+        ? lastError.message
+        : String(lastError ?? pickText("无可用地址", "No available URL"));
     return {
       ok: false,
-      reason: `下载失败：${lastError instanceof Error ? lastError.message : String(lastError ?? "无可用地址")}`,
+      reason: pickText(`下载失败：${detail}`, `Download failed: ${detail}`),
     };
   }
   return installPluginArchiveBytes(bytes, { origin: "personal" });

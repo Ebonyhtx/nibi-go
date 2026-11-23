@@ -1,34 +1,29 @@
 import { router } from "expo-router";
 import { useMemo } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { SessionSummary } from "@nibi-go/shared-extract";
 
 import { ScreenHeader } from "../components/ui/ScreenHeader";
+import { useI18n } from "../i18n";
+import { useResponsiveBodyStyle } from "../layout/responsive";
 import { PressableScale } from "../motion/PressableScale";
 import { useChat } from "../relay/useChat";
 import { useSession } from "../relay/useSession";
 import { radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
-const PHASE_TEXT: Record<string, string> = {
-  draft: "草稿",
-  prewarming: "准备中",
-  running: "运行中",
-  completedSuccess: "已完成",
-  completedInterrupted: "已中断",
-  error: "出错",
-};
-
-const OUTCOME_TEXT: Record<string, string> = {
-  completed: "完成",
-  error: "失败",
-  interrupted: "中断",
-};
-
 // A2 会话列表（sessions-index topic）：workspace 内全部会话，点击切换订阅。
 // 2.0：ScreenHeader + 主题 token 统一；会话排序/切换订阅逻辑不变。
 export default function SessionsScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
+  const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(3),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(2),
+  });
   const styles = useMemo(() => makeStyles(th), [th]);
   const { session } = useSession();
   const { chatSnapshot } = useChat(session);
@@ -36,19 +31,46 @@ export default function SessionsScreen() {
     (a, b) => b.lastActivityAt - a.lastActivityAt,
   );
 
+  const phaseText = useMemo<Record<string, string>>(
+    () => ({
+      draft: pick("草稿", "Draft"),
+      prewarming: pick("准备中", "Preparing"),
+      running: pick("运行中", "Running"),
+      completedSuccess: pick("已完成", "Completed"),
+      completedInterrupted: pick("已中断", "Interrupted"),
+      error: pick("出错", "Error"),
+    }),
+    [pick],
+  );
+
+  const outcomeText = useMemo<Record<string, string>>(
+    () => ({
+      completed: pick("完成", "Completed"),
+      error: pick("失败", "Failed"),
+      interrupted: pick("中断", "Interrupted"),
+    }),
+    [pick],
+  );
+
   return (
     <View style={styles.container}>
-      <ScreenHeader title="选择会话" onBack={() => router.back()} />
+      <ScreenHeader title={pick("选择会话", "Select Session")} onBack={() => router.back()} />
 
       <FlatList
         data={sessions}
         keyExtractor={(item) => item.sessionId}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={bodyStyle}
         ListEmptyComponent={
-          <Text style={styles.empty}>暂无会话。在桌面创建一个任务后再来。</Text>
+          <Text style={styles.empty}>
+            {pick(
+              "暂无会话。在桌面创建一个任务后再来。",
+              "No sessions yet. Create a task on desktop first.",
+            )}
+          </Text>
         }
         renderItem={({ item }) => {
           const active = item.sessionId === chatSnapshot.sessionId;
+          const sessionTitle = item.title?.trim() || pick("未命名会话", "Untitled session");
           return (
             <PressableScale
               scaleTo={0.985}
@@ -59,18 +81,18 @@ export default function SessionsScreen() {
                   .finally(() => router.replace("/chat"))
               }
               accessibilityRole="button"
-              accessibilityLabel={item.title?.trim() || "未命名会话"}
+              accessibilityLabel={sessionTitle}
             >
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
-                  {item.title?.trim() || "未命名会话"}
+                  {sessionTitle}
                 </Text>
                 <Text style={styles.rowSub}>
-                  {PHASE_TEXT[item.phase] ?? item.phase}
-                  {item.lastOutcome ? ` · ${OUTCOME_TEXT[item.lastOutcome] ?? item.lastOutcome}` : ""}
+                  {phaseText[item.phase] ?? item.phase}
+                  {item.lastOutcome ? ` · ${outcomeText[item.lastOutcome] ?? item.lastOutcome}` : ""}
                 </Text>
               </View>
-              {active && <Text style={styles.activeBadge}>当前</Text>}
+              {active && <Text style={styles.activeBadge}>{pick("当前", "Current")}</Text>}
             </PressableScale>
           );
         }}
@@ -82,7 +104,6 @@ export default function SessionsScreen() {
 const makeStyles = (th: NibiTheme) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: th.bg },
-    list: { padding: space(3), gap: space(2) },
     empty: {
       ...text("small"),
       color: th.inkFaint,

@@ -14,6 +14,8 @@ import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import type { ConversationPreferenceKey } from "../../conversation/preferences";
 import { useConversationPreferences } from "../../conversation/useConversationPreferences";
+import { useI18n } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { space, useNibiTheme } from "../../theme";
 
@@ -21,8 +23,10 @@ interface ToggleSpec {
   key: ConversationPreferenceKey;
   icon: IconName;
   tone: RowTone;
-  title: string;
-  detail: string;
+  titleZh: string;
+  titleEn: string;
+  detailZh: string;
+  detailEn: string;
 }
 
 const TOGGLES: readonly ToggleSpec[] = [
@@ -30,35 +34,49 @@ const TOGGLES: readonly ToggleSpec[] = [
     key: "showReasoning",
     icon: "sparkles",
     tone: "brand",
-    title: "显示思考过程",
-    detail: "在消息流里显示思考内容",
+    titleZh: "显示思考过程",
+    titleEn: "Show thinking",
+    detailZh: "在消息流里显示思考内容",
+    detailEn: "Display reasoning blocks in the conversation",
   },
   {
     key: "showTools",
     icon: "puzzle",
     tone: "steel",
-    title: "显示工具调用",
-    detail: "在消息流里显示工具调用摘要",
+    titleZh: "显示工具调用",
+    titleEn: "Show tool calls",
+    detailZh: "在消息流里显示工具调用摘要",
+    detailEn: "Display tool call summaries in the conversation",
   },
   {
     key: "autoCollapseReasoning",
     icon: "chevron-down",
     tone: "plain",
-    title: "思考自动折叠",
-    detail: "一轮结束后自动收起",
+    titleZh: "思考自动折叠",
+    titleEn: "Auto-collapse thinking",
+    detailZh: "一轮结束后自动收起",
+    detailEn: "Collapse automatically after each turn",
   },
   {
     key: "autoCollapseTools",
     icon: "chevron-down",
     tone: "plain",
-    title: "工具自动折叠",
-    detail: "一轮结束后自动收起",
+    titleZh: "工具自动折叠",
+    titleEn: "Auto-collapse tools",
+    detailZh: "一轮结束后自动收起",
+    detailEn: "Collapse automatically after each turn",
   },
 ];
 
 export default function ConversationSettingsScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(4),
+  });
   const { preferences, setPreference } = useConversationPreferences();
 
   return (
@@ -70,9 +88,9 @@ export default function ConversationSettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="会话显示" onBack={() => router.back()} />
+      <ScreenHeader title={pick("会话显示", "Conversation display")} onBack={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+      <ScrollView contentContainerStyle={bodyStyle}>
         {/* 2.0.1：删页顶说明段与页底免责段——开关名+副题已自明，「即时生效/只存本机」是实现默认。 */}
 
         <AppearIn delay={staggerDelay(1, 32, 240)}>
@@ -83,8 +101,8 @@ export default function ConversationSettingsScreen() {
                 <ToggleRow
                   icon={item.icon}
                   tone={item.tone}
-                  title={item.title}
-                  detail={item.detail}
+                  title={pick(item.titleZh, item.titleEn)}
+                  detail={pick(item.detailZh, item.detailEn)}
                   value={preferences[item.key]}
                   onChange={(checked) => setPreference(item.key, checked)}
                 />
@@ -99,5 +117,4 @@ export default function ConversationSettingsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  body: { paddingHorizontal: space(4), paddingTop: space(2), gap: space(4) },
 });

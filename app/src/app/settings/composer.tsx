@@ -36,6 +36,8 @@ import {
 } from "../../composer/preferences";
 import { useComposerCatalog } from "../../composer/useComposerCatalog";
 import { useComposerPreferences } from "../../composer/useComposerPreferences";
+import { useI18n } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { PressableScale } from "../../motion/PressableScale";
 import { size, space, text, useNibiTheme } from "../../theme";
@@ -85,12 +87,23 @@ function RowRight({
   canMoveDown: boolean;
 }) {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   return (
     <View style={styles.rowRight}>
       {checked ? (
         <>
-          <OrderKey up title={`上移 ${title}`} onPress={() => onMove(-1)} disabled={!canMoveUp} />
-          <OrderKey up={false} title={`下移 ${title}`} onPress={() => onMove(1)} disabled={!canMoveDown} />
+          <OrderKey
+            up
+            title={pick(`上移 ${title}`, `Move ${title} up`)}
+            onPress={() => onMove(-1)}
+            disabled={!canMoveUp}
+          />
+          <OrderKey
+            up={false}
+            title={pick(`下移 ${title}`, `Move ${title} down`)}
+            onPress={() => onMove(1)}
+            disabled={!canMoveDown}
+          />
         </>
       ) : null}
       <Switch
@@ -155,9 +168,35 @@ function GroupCard({
 
 export default function ComposerSettingsScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(4),
+  });
   const { catalog, loading } = useComposerCatalog();
   const preferences = useComposerPreferences(catalog);
+
+  const plusGroupTitle = (
+    group: (typeof PLUS_GROUPS)[number]["group"],
+    fallback: string,
+  ): string => {
+    switch (group) {
+      case "attachment":
+        return pick("添加附件", "Attachments");
+      case "native-command":
+        return pick("NIBI 命令", "NIBI commands");
+      case "plugin-command":
+        return pick("插件命令", "Plugin commands");
+      case "plugin":
+        return pick("插件", "Plugins");
+      case "skill":
+        return pick("技能", "Skills");
+      default:
+        return fallback;
+    }
+  };
 
   const update = (mutate: (draft: ComposerPreferences) => void) => {
     if (!preferences) return;
@@ -184,20 +223,22 @@ export default function ComposerSettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="快捷动作" onBack={() => router.back()} />
+      <ScreenHeader title={pick("快捷动作", "Quick actions")} onBack={() => router.back()} />
 
       {loading || !preferences ? (
         <View style={styles.loading}>
           <ActivityIndicator color={th.brand} />
-          <Text style={[styles.loadingText, { color: th.inkFaint }]}>正在读取目录…</Text>
+          <Text style={[styles.loadingText, { color: th.inkFaint }]}>
+            {pick("正在读取目录…", "Loading catalog…")}
+          </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+        <ScrollView contentContainerStyle={bodyStyle}>
           {/* 2.0.1：删掉页顶整段说明书——分组标题已经说明每个入口是什么。 */}
 
           <AppearIn delay={staggerDelay(1, 32, 240)}>
             <GroupCard
-              title="输入框上方"
+              title={pick("输入框上方", "Above composer")}
               items={capsules}
               ids={preferences.capsules}
               onToggle={(id, checked) =>
@@ -216,6 +257,7 @@ export default function ComposerSettingsScreen() {
           {PLUS_GROUPS.map(({ group, title }, groupIndex) => {
             const items = catalog.filter((item) => item.group === group);
             if (items.length === 0) return null;
+            const groupLabel = plusGroupTitle(group, title);
             const nibi = items.filter((item) => item.source === "nibi");
             const plugin = items.filter((item) => item.source === "plugin");
             const split = group === "plugin-command" || group === "plugin" || group === "skill";
@@ -225,7 +267,9 @@ export default function ComposerSettingsScreen() {
             return (
               <AppearIn key={group} delay={staggerDelay(groupIndex + 2, 32, 240)}>
                 <View style={styles.plusSection}>
-                  <Text style={[styles.sectionTitle, { color: th.ink }]}>加号菜单 · {title}</Text>
+                  <Text style={[styles.sectionTitle, { color: th.ink }]}>
+                    {pick(`加号菜单 · ${groupLabel}`, `+ menu · ${groupLabel}`)}
+                  </Text>
                   {split ? (
                     nibi.length > 0 ? (
                       <GroupCard
@@ -246,7 +290,7 @@ export default function ComposerSettingsScreen() {
                     ) : null
                   ) : (
                     <GroupCard
-                      title={title}
+                      title={groupLabel}
                       items={items}
                       ids={ids}
                       onToggle={(id, checked) =>
@@ -263,7 +307,7 @@ export default function ComposerSettingsScreen() {
                   )}
                   {split && plugin.length > 0 ? (
                     <GroupCard
-                      title="用户插件"
+                      title={pick("用户插件", "User plugins")}
                       items={plugin}
                       ids={pluginIds}
                       onToggle={(id, checked) =>
@@ -285,7 +329,7 @@ export default function ComposerSettingsScreen() {
 
           <AppearIn delay={staggerDelay(PLUS_GROUPS.length + 2, 32, 240)}>
             <GroupCard
-              title="长按消息菜单"
+              title={pick("长按消息菜单", "Message long-press menu")}
               items={messageItems}
               ids={preferences.messageActions}
               onToggle={(id, checked) =>

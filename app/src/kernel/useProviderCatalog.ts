@@ -14,6 +14,7 @@ import {
   startKernelHost,
 } from "nibi-kernel-host";
 
+import { pickText } from "../i18n";
 import {
   fetchProviderState,
   type ProviderState,
@@ -57,7 +58,7 @@ export function useProviderCatalog(): {
     setError(null);
     try {
       const client = await ensureClient();
-      if (!client) throw new Error("内核不可用");
+      if (!client) throw new Error(pickText("内核不可用", "Kernel unavailable"));
       const next = await fetchProviderState(client);
       if (!cancelledRef.current) setState(next);
     } catch (cause) {

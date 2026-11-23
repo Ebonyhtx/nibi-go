@@ -61,6 +61,8 @@ import {
   removeProviderKey,
   setProviderKey,
 } from "../../kernel/providerKeys";
+import { pickText, useI18n } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { PressableScale } from "../../motion/PressableScale";
 import { radius, size, space, text, useNibiTheme } from "../../theme";
@@ -92,7 +94,7 @@ function protocolLabel(protocol: ProviderProtocol | undefined): string {
     case "openai-chat-completions":
       return "OpenAI Chat";
     default:
-      return "未配置协议";
+      return pickText("未配置协议", "Protocol unset");
   }
 }
 
@@ -114,7 +116,13 @@ function StatusPill({ bg, color, label }: { bg: string; color: string; label: st
 
 export default function SettingsScreen() {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(8),
+    gap: space(3),
+  });
   const clientRef = useRef<KernelSessionClient | null>(null);
   const [state, setState] = useState<ProviderState>({ providers: [], presets: [] });
   const [loading, setLoading] = useState(true);
@@ -122,7 +130,7 @@ export default function SettingsScreen() {
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [presetQuery, setPresetQuery] = useState("");
   const [modelEditor, setModelEditor] = useState<{
@@ -132,7 +140,7 @@ export default function SettingsScreen() {
   } | null>(null);
 
   const client = useCallback((): KernelSessionClient => {
-    if (!clientRef.current) throw new Error("内核尚未就绪");
+    if (!clientRef.current) throw new Error(pickText("内核尚未就绪", "Kernel isn't ready yet"));
     return clientRef.current;
   }, []);
 
@@ -161,7 +169,7 @@ export default function SettingsScreen() {
         (await startKernelHost(startEnv, { useService: false }));
       if (!started && !kernelHostAvailable()) {
         if (!cancelled) {
-          setError("内核不可用");
+          setError(pick("内核不可用", "Kernel unavailable"));
           setLoading(false);
         }
         return;
@@ -241,7 +249,7 @@ export default function SettingsScreen() {
       enabled: editing.enabled,
     };
     if (!draft.name) {
-      setNote("请填 Provider 名称");
+      setNote({ text: pick("请填 Provider 名称", "Enter a provider name"), tone: "error" });
       return;
     }
     setBusy("save");
@@ -252,10 +260,13 @@ export default function SettingsScreen() {
       await pushProviderKeys(client());
       setEditing(null);
       setApiKey("");
-      setNote("已保存");
+      setNote({ text: pick("已保存", "Saved"), tone: "ok" });
       await reload();
     } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : String(cause));
+      setNote({
+        text: cause instanceof Error ? cause.message : String(cause),
+        tone: "error",
+      });
     } finally {
       setBusy(null);
     }
@@ -275,10 +286,13 @@ export default function SettingsScreen() {
         await removeProvider(client(), provider.id);
         await removeProviderKey(provider.id);
         await pushProviderKeys(client());
-        setNote("已删除");
+        setNote({ text: pick("已删除", "Deleted"), tone: "ok" });
         await reload();
       } catch (cause) {
-        setNote(cause instanceof Error ? cause.message : String(cause));
+        setNote({
+          text: cause instanceof Error ? cause.message : String(cause),
+          tone: "error",
+        });
       } finally {
         setBusy(null);
       }
@@ -300,14 +314,30 @@ export default function SettingsScreen() {
   const test = (provider: ProviderSummary) => {
     const selection = usableSelection(provider);
     if (!selection) {
-      setNote("这个服务还没有模型，先在编辑里填模型 ID");
+      setNote({
+        text: pick(
+          "这个服务还没有模型，先在编辑里填模型 ID",
+          "This provider has no models yet — add a model ID first",
+        ),
+        tone: "error",
+      });
       return;
     }
     setBusy(`test:${provider.id}`);
     setNote(null);
     void (async () => {
       const result = await testProvider(client(), selection);
-      setNote(result.success ? `连通性通过：${provider.name}` : `连通性失败：${result.error}`);
+      setNote(
+        result.success
+          ? {
+              text: pick(`连通性通过：${provider.name}`, `Connection OK: ${provider.name}`),
+              tone: "ok",
+            }
+          : {
+              text: pick(`连通性失败：${result.error}`, `Connection failed: ${result.error}`),
+              tone: "error",
+            },
+      );
       setBusy(null);
     })();
   };
@@ -315,17 +345,32 @@ export default function SettingsScreen() {
   const makeDefault = (provider: ProviderSummary) => {
     const selection = usableSelection(provider);
     if (!selection) {
-      setNote("这个服务还没有模型，不能设为默认");
+      setNote({
+        text: pick(
+          "这个服务还没有模型，不能设为默认",
+          "This provider has no models yet and cannot be set as default",
+        ),
+        tone: "error",
+      });
       return;
     }
     setBusy(`default:${provider.id}`);
     void (async () => {
       try {
         await setDefaultProvider(client(), selection);
-        setNote(`默认模型：${provider.name} / ${selection.modelId}（重启 App 后新会话生效）`);
+        setNote({
+          text: pick(
+            `默认模型：${provider.name} / ${selection.modelId}（重启 App 后新会话生效）`,
+            `Default model: ${provider.name} / ${selection.modelId} (applies to new sessions after restart)`,
+          ),
+          tone: "ok",
+        });
         await reload();
       } catch (cause) {
-        setNote(cause instanceof Error ? cause.message : String(cause));
+        setNote({
+          text: cause instanceof Error ? cause.message : String(cause),
+          tone: "error",
+        });
       } finally {
         setBusy(null);
       }
@@ -340,10 +385,19 @@ export default function SettingsScreen() {
     void (async () => {
       try {
         await setDefaultProvider(client(), selection);
-        setNote(`默认模型：${provider.name} / ${modelId}（重启 App 后新会话生效）`);
+        setNote({
+          text: pick(
+            `默认模型：${provider.name} / ${modelId}（重启 App 后新会话生效）`,
+            `Default model: ${provider.name} / ${modelId} (applies to new sessions after restart)`,
+          ),
+          tone: "ok",
+        });
         await reload();
       } catch (cause) {
-        setNote(cause instanceof Error ? cause.message : String(cause));
+        setNote({
+          text: cause instanceof Error ? cause.message : String(cause),
+          tone: "error",
+        });
       } finally {
         setBusy(null);
       }
@@ -378,20 +432,24 @@ export default function SettingsScreen() {
           <SectionCard>
             <View style={styles.formBody}>
               <Text style={[styles.formTitle, { color: t.ink }]}>
-                {editing.providerId ? "编辑供应商" : "添加模型服务"}
+                {editing.providerId
+                  ? pick("编辑供应商", "Edit provider")
+                  : pick("添加模型服务", "Add model provider")}
               </Text>
               {!editing.providerId && state.presets.length > 0 && (
                 <>
-                  <Text style={[styles.label, { color: t.inkSub }]}>从预设开始</Text>
+                  <Text style={[styles.label, { color: t.inkSub }]}>
+                    {pick("从预设开始", "Start from a preset")}
+                  </Text>
                   {state.presets.length > 6 && (
                     <TextInput
                       value={presetQuery}
                       onChangeText={setPresetQuery}
-                      placeholder="搜索预设"
+                      placeholder={pick("搜索预设", "Search presets")}
                       placeholderTextColor={t.inkFaint}
                       autoCapitalize="none"
                       autoCorrect={false}
-                      accessibilityLabel="搜索预设"
+                      accessibilityLabel={pick("搜索预设", "Search presets")}
                       style={[
                         styles.input,
                         styles.presetSearch,
@@ -400,7 +458,9 @@ export default function SettingsScreen() {
                     />
                   )}
                   {visiblePresets.length === 0 ? (
-                    <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>没有匹配的预设</Text>
+                    <Text style={[styles.presetEmpty, { color: t.inkFaint }]}>
+                      {pick("没有匹配的预设", "No matching presets")}
+                    </Text>
                   ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetRow}>
                       {/* 内容两端都给卡内边距：最后一张预设卡不再被卡片右缘硬裁（2.0.1 审查 P0）。 */}
@@ -412,7 +472,7 @@ export default function SettingsScreen() {
                             onPress={() => applyPreset(preset)}
                             scaleTo={0.96}
                             accessibilityRole="button"
-                            accessibilityLabel={`使用预设 ${preset.name}`}
+                            accessibilityLabel={pick(`使用预设 ${preset.name}`, `Use preset ${preset.name}`)}
                             style={[
                               styles.presetCard,
                               {
@@ -446,11 +506,11 @@ export default function SettingsScreen() {
                 </>
               )}
 
-              <Text style={[styles.label, { color: t.inkSub }]}>名称</Text>
+              <Text style={[styles.label, { color: t.inkSub }]}>{pick("名称", "Name")}</Text>
               <TextInput
                 value={editing.name}
                 onChangeText={(name) => setEditing({ ...editing, name })}
-                placeholder="我的模型服务"
+                placeholder={pick("我的模型服务", "My model provider")}
                 placeholderTextColor={t.inkFaint}
                 style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
               />
@@ -466,7 +526,7 @@ export default function SettingsScreen() {
                 style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
               />
 
-              <Text style={[styles.label, { color: t.inkSub }]}>协议</Text>
+              <Text style={[styles.label, { color: t.inkSub }]}>{pick("协议", "Protocol")}</Text>
               <View style={styles.chips}>
                 {PROVIDER_PROTOCOLS.map((protocol) => {
                   const active = editing.protocol === protocol.value;
@@ -476,7 +536,7 @@ export default function SettingsScreen() {
                       onPress={() => setEditing({ ...editing, protocol: protocol.value })}
                       scaleTo={0.95}
                       accessibilityRole="button"
-                      accessibilityLabel={`协议 ${protocol.label}`}
+                      accessibilityLabel={pick(`协议 ${protocol.label}`, `Protocol ${protocol.label}`)}
                       style={[
                         styles.chip,
                         {
@@ -493,7 +553,9 @@ export default function SettingsScreen() {
                 })}
               </View>
 
-              <Text style={[styles.label, { color: t.inkSub }]}>模型 ID（逗号分隔）</Text>
+              <Text style={[styles.label, { color: t.inkSub }]}>
+                {pick("模型 ID（逗号分隔）", "Model IDs (comma-separated)")}
+              </Text>
               <TextInput
                 value={editing.models}
                 onChangeText={(models) => setEditing({ ...editing, models })}
@@ -510,7 +572,10 @@ export default function SettingsScreen() {
               />
 
               <Text style={[styles.label, { color: t.inkSub }]}>
-                API Key{editing.providerId && keys[editing.providerId] ? "（已保存，留空不改）" : ""}
+                API Key
+                {editing.providerId && keys[editing.providerId]
+                  ? pick("（已保存，留空不改）", " (saved — leave blank to keep)")
+                  : ""}
               </Text>
               <TextInput
                 value={apiKey}
@@ -523,11 +588,13 @@ export default function SettingsScreen() {
                 style={[styles.input, { color: t.ink, borderColor: t.hairline, backgroundColor: t.surfaceSoft }]}
               />
               <Text style={[styles.hint, { color: t.inkFaint }]}>
-                Key 只保存在本机。
+                {pick("Key 只保存在本机。", "API keys are stored only on this device.")}
               </Text>
 
               <View style={styles.rowBetween}>
-                <Text style={[styles.switchLabel, { color: t.inkSub }]}>启用</Text>
+                <Text style={[styles.switchLabel, { color: t.inkSub }]}>
+                  {pick("启用", "Enabled")}
+                </Text>
                 <Switch
                   value={editing.enabled}
                   onValueChange={(enabled) => setEditing({ ...editing, enabled })}
@@ -539,7 +606,7 @@ export default function SettingsScreen() {
 
               <View style={styles.actions}>
                 <PillButton
-                  label="取消"
+                  label={pick("取消", "Cancel")}
                   variant="secondary"
                   onPress={() => {
                     setEditing(null);
@@ -548,7 +615,7 @@ export default function SettingsScreen() {
                   }}
                 />
                 <PillButton
-                  label={busy === "save" ? "保存中…" : "保存"}
+                  label={busy === "save" ? pick("保存中…", "Saving…") : pick("保存", "Save")}
                   variant="primary"
                   onPress={() => void save()}
                   disabled={busy === "save"}
@@ -564,7 +631,9 @@ export default function SettingsScreen() {
       <>
         {state.providers.length === 0 && !loading && (
           // 空态一句话 + 下方主 CTA（随容器垂直居中）；「Provider」改用户语言。
-          <Text style={[styles.empty, { color: t.inkSub }]}>还没有模型服务</Text>
+          <Text style={[styles.empty, { color: t.inkSub }]}>
+            {pick("还没有模型服务", "No model providers yet")}
+          </Text>
         )}
         {state.providers.map((provider, providerIndex) => {
           const isDefault =
@@ -583,17 +652,21 @@ export default function SettingsScreen() {
                   <View style={styles.titleColumn}>
                     <Text style={[styles.cardTitle, { color: t.ink }]}>{provider.name}</Text>
                     <Text style={[styles.sub, { color: t.inkSub }]} numberOfLines={1}>
-                      {protocolLabel(provider.protocol)} · {provider.baseUrl || "未配置端点"}
+                      {protocolLabel(provider.protocol)} · {provider.baseUrl || pick("未配置端点", "No endpoint")}
                     </Text>
                   </View>
                   <View style={styles.badges}>
-                    {isDefault && <StatusPill bg={t.brandSoft} color={t.brand} label="默认" />}
+                    {isDefault && (
+                      <StatusPill bg={t.brandSoft} color={t.brand} label={pick("默认", "Default")} />
+                    )}
                     <StatusPill
                       bg={provider.hasKey ? t.okSoft : t.amberSoft}
                       color={provider.hasKey ? t.ok : t.amber}
-                      label={provider.hasKey ? "Key 已保存" : "缺 Key"}
+                      label={provider.hasKey ? pick("Key 已保存", "Key saved") : pick("缺 Key", "No key")}
                     />
-                    {provider.account && <StatusPill bg={t.steelSoft} color={t.steel} label="账号" />}
+                    {provider.account && (
+                      <StatusPill bg={t.steelSoft} color={t.steel} label={pick("账号", "Account")} />
+                    )}
                   </View>
                 </View>
 
@@ -601,7 +674,9 @@ export default function SettingsScreen() {
 
                 <View style={styles.modelList}>
                   {provider.models.length === 0 ? (
-                    <Text style={[styles.emptyModels, { color: t.inkSub }]}>没有模型</Text>
+                    <Text style={[styles.emptyModels, { color: t.inkSub }]}>
+                      {pick("没有模型", "No models")}
+                    </Text>
                   ) : (
                     provider.models.map((modelId, modelIndex) => {
                       const config = provider.modelInfo?.find((model) => model.id === modelId)?.config;
@@ -634,7 +709,7 @@ export default function SettingsScreen() {
                                 </Text>
                               ) : null}
                               {input?.supportsImage ? (
-                                <StatusPill bg={t.steelSoft} color={t.steel} label="视觉" />
+                                <StatusPill bg={t.steelSoft} color={t.steel} label={pick("视觉", "Vision")} />
                               ) : null}
                               {input?.supportsPdf ? (
                                 <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="PDF" />
@@ -650,7 +725,9 @@ export default function SettingsScreen() {
                               ]}
                             >
                               <Icon name="check" size={9} color={t.brand} strokeWidth={2.6} />
-                              <Text style={[styles.modelDefaultText, { color: t.brand }]}>默认</Text>
+                              <Text style={[styles.modelDefaultText, { color: t.brand }]}>
+                                {pick("默认", "Default")}
+                              </Text>
                             </View>
                           ) : (
                             <PressableScale
@@ -658,14 +735,19 @@ export default function SettingsScreen() {
                               disabled={busy !== null}
                               hitSlop={6}
                               accessibilityRole="button"
-                              accessibilityLabel={`将 ${modelId} 设为默认模型`}
+                              accessibilityLabel={pick(
+                                `将 ${modelId} 设为默认模型`,
+                                `Set ${modelId} as default model`,
+                              )}
                               style={[
                                 styles.modelDefault,
                                 { borderColor: t.hairline, backgroundColor: t.surfaceSoft },
                               ]}
                             >
                               <Text style={[styles.modelDefaultTextIdle, { color: t.inkSub }]}>
-                                {busy === `default:${provider.id}:${modelId}` ? "设置中…" : "设为默认"}
+                                {busy === `default:${provider.id}:${modelId}`
+                                  ? pick("设置中…", "Setting…")
+                                  : pick("设为默认", "Set default")}
                               </Text>
                             </PressableScale>
                           )}
@@ -676,7 +758,7 @@ export default function SettingsScreen() {
                               }
                               hitSlop={6}
                               accessibilityRole="button"
-                              accessibilityLabel={`编辑模型 ${modelId}`}
+                              accessibilityLabel={pick(`编辑模型 ${modelId}`, `Edit model ${modelId}`)}
                               style={[styles.modelEdit, { backgroundColor: t.surfaceSoft }]}
                             >
                               <Icon name="pen" size={12} color={t.inkSub} />
@@ -690,11 +772,13 @@ export default function SettingsScreen() {
                     <PressableScale
                       onPress={() => setModelEditor({ provider })}
                       accessibilityRole="button"
-                      accessibilityLabel="添加模型"
+                      accessibilityLabel={pick("添加模型", "Add model")}
                       style={[styles.addModel, { borderColor: t.hairlineStrong }]}
                     >
                       <Icon name="plus" size={11} color={t.brand} />
-                      <Text style={[styles.addModelText, { color: t.brand }]}>添加模型</Text>
+                      <Text style={[styles.addModelText, { color: t.brand }]}>
+                        {pick("添加模型", "Add model")}
+                      </Text>
                     </PressableScale>
                   ) : null}
                 </View>
@@ -703,14 +787,18 @@ export default function SettingsScreen() {
 
                 <View style={styles.providerActions}>
                   <PillButton
-                    label={busy === `test:${provider.id}` ? "测试中…" : "测试"}
+                    label={busy === `test:${provider.id}` ? pick("测试中…", "Testing…") : pick("测试", "Test")}
                     variant="secondary"
                     buttonSize="sm"
                     onPress={() => test(provider)}
                     disabled={busy !== null}
                   />
                   <PillButton
-                    label={busy === `default:${provider.id}` ? "设置中…" : "设为默认"}
+                    label={
+                      busy === `default:${provider.id}`
+                        ? pick("设置中…", "Setting…")
+                        : pick("设为默认", "Set default")
+                    }
                     variant="secondary"
                     buttonSize="sm"
                     onPress={() => makeDefault(provider)}
@@ -719,14 +807,14 @@ export default function SettingsScreen() {
                   {provider.personal && (
                     <>
                       <PillButton
-                        label="编辑"
+                        label={pick("编辑", "Edit")}
                         variant="secondary"
                         buttonSize="sm"
                         onPress={() => beginEdit(provider)}
                         disabled={busy !== null}
                       />
                       <PillButton
-                        label="删除"
+                        label={pick("删除", "Delete")}
                         variant="danger"
                         buttonSize="sm"
                         onPress={() => remove(provider)}
@@ -742,7 +830,7 @@ export default function SettingsScreen() {
 
         <AppearIn delay={staggerDelay(state.providers.length, 32, 240)}>
           <PillButton
-            label="添加模型服务"
+            label={pick("添加模型服务", "Add model provider")}
             variant="primary"
             icon="plus"
             buttonSize="lg"
@@ -761,17 +849,16 @@ export default function SettingsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="模型设置" onBack={() => router.back()} />
+      <ScreenHeader title={pick("模型设置", "Models & providers")} onBack={() => router.back()} />
       <ScrollView
         contentContainerStyle={[
-          styles.content,
+          bodyStyle,
           // 没有任何供应商时内容垂直居中：空态不再堆在左上角、下半屏全空（2.0.1 审查）。
           state.providers.length === 0 && !loading && !editing ? styles.contentEmpty : null,
-          { paddingBottom: insets.bottom + space(8) },
         ]}
       >
         {state.providers.length > 0 ? (
-          <Text style={[styles.section, { color: t.inkSub }]}>供应商</Text>
+          <Text style={[styles.section, { color: t.inkSub }]}>{pick("供应商", "Providers")}</Text>
         ) : null}
         {loading && <ActivityIndicator style={styles.loading} />}
         {error && <Text style={[styles.noteText, { color: t.red }]}>{error}</Text>}
@@ -779,10 +866,10 @@ export default function SettingsScreen() {
           <Text
             style={[
               styles.noteText,
-              { color: note.includes("失败") || note.includes("请填") ? t.red : t.ok },
+              { color: note.tone === "error" ? t.red : t.ok },
             ]}
           >
-            {note}
+            {note.text}
           </Text>
         )}
         {body}
@@ -803,9 +890,12 @@ export default function SettingsScreen() {
 
       <ConfirmDialog
         visible={confirmRemove !== null}
-        title="删除模型服务？"
-        message={`将从本机移除「${confirmRemove?.name ?? ""}」及其保存的 API Key。`}
-        confirmLabel="删除"
+        title={pick("删除模型服务？", "Delete provider?")}
+        message={pick(
+          `将从本机移除「${confirmRemove?.name ?? ""}」及其保存的 API Key。`,
+          `Removes "${confirmRemove?.name ?? ""}" and its saved API key from this device.`,
+        )}
+        confirmLabel={pick("删除", "Delete")}
         danger
         onCancel={() => setConfirmRemove(null)}
         onConfirm={() => {

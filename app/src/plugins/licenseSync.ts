@@ -92,10 +92,14 @@ async function requestCheck(
   }
 }
 
+import { pickText } from "../i18n";
+
 export async function syncLicense(): Promise<LicenseSyncOutcome> {
   await ensureLicenseLoaded();
   const deviceId = currentDeviceId();
-  if (!deviceId) return { ok: false, kind: "network", detail: "设备标识不可用" };
+  if (!deviceId) {
+    return { ok: false, kind: "network", detail: pickText("设备标识不可用", "Device ID unavailable") };
+  }
 
   let authorization: string | null = null;
   try {
@@ -114,7 +118,13 @@ export async function syncLicense(): Promise<LicenseSyncOutcome> {
   const usedBearer = authorization !== null;
   if (authorization) headers.authorization = `Bearer ${authorization}`;
   else if (licenseToken) headers["x-nibi-license"] = licenseToken;
-  else return { ok: false, kind: "login-required", detail: "未登录 NIBI 账号" };
+  else {
+    return {
+      ok: false,
+      kind: "login-required",
+      detail: pickText("未登录 NIBI 账号", "Not signed in to NIBI"),
+    };
+  }
 
   let result = await requestCheck(headers, deviceId);
   if ("error" in result) {
@@ -137,7 +147,11 @@ export async function syncLicense(): Promise<LicenseSyncOutcome> {
 
   if (response.status === 401 && usedBearer) {
     // 登录令牌过期（且没有可回退的 license）≠ 会员被撤销：不写拒绝。
-    return { ok: false, kind: "login-required", detail: detail ?? "登录已过期" };
+    return {
+      ok: false,
+      kind: "login-required",
+      detail: detail ?? pickText("登录已过期", "Session expired"),
+    };
   }
 
   if (response.ok && body.authorized === true && body.license?.token) {

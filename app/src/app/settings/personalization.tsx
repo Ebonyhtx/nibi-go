@@ -20,6 +20,8 @@ import { Row } from "../../components/ui/Row";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { PillButton } from "../../components/ui/PillButton";
+import { useI18n } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn } from "../../motion/appear";
 import { radius, space, text, useNibiTheme } from "../../theme";
 
@@ -30,7 +32,13 @@ const LIMIT_BYTES = 100 * 1024;
 
 export default function PersonalizationScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const [initial, setInitial] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,11 +55,14 @@ export default function PersonalizationScreen() {
       setInitial(content);
       setDraft(content);
     } catch (error) {
-      setMessage(`读取失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("读取失败：", "Failed to load: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [pick]);
 
   useEffect(() => {
     void load();
@@ -71,9 +82,12 @@ export default function PersonalizationScreen() {
       const file = new File(Paths.document, DIRECTORY, FILE_NAME);
       await file.write(draft);
       setInitial(draft);
-      setMessage("已保存；对新开的会话生效。");
+      setMessage(pick("已保存；对新开的会话生效。", "Saved; applies to new sessions."));
     } catch (error) {
-      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("保存失败：", "Failed to save: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setBusy(false);
     }
@@ -87,19 +101,20 @@ export default function PersonalizationScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="个性化指令" onBack={() => router.back()} />
+      <ScreenHeader title={pick("个性化指令", "Custom instructions")} onBack={() => router.back()} />
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "android" ? undefined : "padding"}
       >
-        <ScrollView
-          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
-        >
+        <ScrollView contentContainerStyle={bodyStyle}>
           {/* 2.0.1 口径：说明压成一句，行为细节（何时生效）放保存后的反馈。 */}
           <AppearIn>
             <Text style={[styles.intro, { color: th.inkSub }]}>
-              写给所有会话的全局指令（AGENTS.md）。
+              {pick(
+                "写给所有会话的全局指令（AGENTS.md）。",
+                "Global instructions loaded by all new sessions (AGENTS.md).",
+              )}
             </Text>
           </AppearIn>
 
@@ -108,7 +123,10 @@ export default function PersonalizationScreen() {
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={"例如：\n- 回答用中文\n- 提交信息用英文\n- 优先复用既有工具，不要重复造轮子"}
+                placeholder={pick(
+                  "例如：\n- 回答用中文\n- 提交信息用英文\n- 优先复用既有工具，不要重复造轮子",
+                  "For example:\n- Keep answers concise\n- Write commit messages in English\n- Reuse existing utilities before adding new ones",
+                )}
                 placeholderTextColor={th.inkFaint}
                 multiline
                 textAlignVertical="top"
@@ -121,7 +139,9 @@ export default function PersonalizationScreen() {
                   {bytes} / {LIMIT_BYTES / 1024} KB
                 </Text>
                 {dirty ? (
-                  <Text style={[styles.meta, { color: th.amber }]}>未保存</Text>
+                  <Text style={[styles.meta, { color: th.amber }]}>
+                    {pick("未保存", "Unsaved")}
+                  </Text>
                 ) : null}
               </View>
             </SectionCard>
@@ -131,8 +151,8 @@ export default function PersonalizationScreen() {
             <Row
               icon="info"
               tone="plain"
-              title="何时生效"
-              detail="保存后对新开的会话生效"
+              title={pick("何时生效", "When it takes effect")}
+              detail={pick("保存后对新开的会话生效", "Applies to sessions created after saving")}
             />
           </AppearIn>
 
@@ -146,7 +166,7 @@ export default function PersonalizationScreen() {
 
           <View style={styles.actions}>
             <PillButton
-              label="撤销修改"
+              label={pick("撤销修改", "Discard")}
               variant="secondary"
               disabled={!dirty || busy || initial === null}
               onPress={() => {
@@ -155,7 +175,7 @@ export default function PersonalizationScreen() {
               }}
             />
             <PillButton
-              label={busy ? "保存中…" : "保存"}
+              label={busy ? pick("保存中…", "Saving…") : pick("保存", "Save")}
               variant="primary"
               disabled={busy || overLimit || !dirty}
               onPress={() => void save()}

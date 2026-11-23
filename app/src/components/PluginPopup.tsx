@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useI18n } from "../i18n";
+import { SUPPORTED_MODAL_ORIENTATIONS } from "../layout/adaptive";
 import { easingExit } from "../motion/easing";
 import { motion, radius, space, useNibiTheme } from "../theme";
 
@@ -40,6 +42,7 @@ export function PluginPopup({
   width?: number;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [height, setHeight] = useState(0);
@@ -113,6 +116,7 @@ export function PluginPopup({
       transparent
       statusBarTranslucent
       navigationBarTranslucent
+      supportedOrientations={[...SUPPORTED_MODAL_ORIENTATIONS]}
       animationType="none"
       onRequestClose={onClose}
     >
@@ -128,7 +132,7 @@ export function PluginPopup({
             style={StyleSheet.absoluteFill}
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="关闭插件菜单"
+            accessibilityLabel={pick("关闭插件菜单", "Close plugin menu")}
           />
         </Animated.View>
         <Animated.View

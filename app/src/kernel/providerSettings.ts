@@ -4,6 +4,8 @@
 // 由 `providerKeys.ts` 存 Keystore，再经 `provider/setKeys` 送进内核内存。
 import { Paths } from "expo-file-system";
 
+import { pickText } from "../i18n";
+
 export type ProviderProtocol =
   | "anthropic-messages"
   | "openai-chat-completions"
@@ -135,7 +137,9 @@ export async function saveProvider(client: KernelRpc, draft: ProviderDraft): Pro
     enabled: draft.enabled ?? true,
   });
   if (typeof result?.providerId !== "string" || !result.providerId) {
-    throw new Error("provider/save 没有返回 providerId");
+    throw new Error(
+      pickText("provider/save 没有返回 providerId", "provider/save did not return a providerId"),
+    );
   }
   return result.providerId;
 }

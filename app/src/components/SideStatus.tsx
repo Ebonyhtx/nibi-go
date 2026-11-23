@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Canvas, Circle, Path } from "@shopify/react-native-skia";
 
 import { Dot } from "./Icon";
+import { pickText, useI18n } from "../i18n";
 import { haptic } from "../motion/haptics";
 import { motion, radius, space, text, useNibiTheme, type NibiTheme } from "../theme";
 
@@ -59,27 +60,37 @@ export interface SessionToolState {
 export function subagentStatusLabel(status: AgentFaceStatus): string {
   switch (status) {
     case "running":
-      return "进行中";
+      return pickText("进行中", "Running");
     case "completed":
-      return "已完成";
+      return pickText("已完成", "Done");
     case "failed":
-      return "失败";
+      return pickText("失败", "Failed");
     case "cancelled":
-      return "已停止";
+      return pickText("已停止", "Stopped");
     case "waiting":
-      return "等待中";
+      return pickText("等待中", "Waiting");
   }
 }
 
 /** 内核分项来源 → 面板里的短名。未知来源不吞掉，按原字符串显示。 */
-const BREAKDOWN_LABELS: Record<string, string> = {
-  messages: "消息",
-  system_prompt: "系统提示词",
-  system_tool_schemas: "内置工具",
-  mcp_tool_schemas: "MCP 工具",
-  skills: "技能",
-  meta_user_context: "记忆/其它",
-};
+function breakdownLabel(source: string): string {
+  switch (source) {
+    case "messages":
+      return pickText("消息", "Messages");
+    case "system_prompt":
+      return pickText("系统提示词", "System");
+    case "system_tool_schemas":
+      return pickText("内置工具", "Built-in");
+    case "mcp_tool_schemas":
+      return pickText("MCP 工具", "MCP tools");
+    case "skills":
+      return pickText("技能", "Skills");
+    case "meta_user_context":
+      return pickText("记忆/其它", "Memory/Misc");
+    default:
+      return source;
+  }
+}
 
 function toneColor(t: NibiTheme, tone: ViewTone | undefined): string {
   switch (tone) {
@@ -200,6 +211,7 @@ function SideStatusImpl({
   paused?: boolean;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const strips = plugins.flatMap((plugin) =>
@@ -361,9 +373,16 @@ function SideStatusImpl({
     }
   };
 
+  const minBottom = insets.bottom + 72;
+  const maxBottom = Math.max(minBottom, screenHeight - insets.top - 96);
+  const clampedBottom = Math.max(minBottom, Math.min(maxBottom, bottom));
+
   return (
     <Animated.View
-      style={[styles.dock, { bottom, transform: [{ translateY: dragOffsetY }] }]}
+      style={[
+        styles.dock,
+        { bottom: clampedBottom, right: insets.right, transform: [{ translateY: dragOffsetY }] },
+      ]}
       pointerEvents="auto"
       {...pan.panHandlers}
     >
@@ -386,15 +405,19 @@ function SideStatusImpl({
         <Pressable
           onPress={() => setExpanded(false)}
           accessibilityRole="button"
-          accessibilityLabel="收起上下文用量"
+          accessibilityLabel={pick("收起上下文用量", "Collapse context usage")}
           style={styles.pillBody}
         >
           {session && session.subagents.length > 0 ? (
             <View style={styles.sessionBlockFirst}>
               <View style={styles.pillFoot}>
-                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>子智能体</Text>
+                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>
+                  {pick("子智能体", "Subagents")}
+                </Text>
                 <Text style={[styles.pillMeta, { color: runningCount > 0 ? t.amber : t.inkFaint }]}>
-                  {runningCount > 0 ? `${runningCount} 个运行中` : `共 ${session.subagents.length} 个`}
+                  {runningCount > 0
+                    ? pick(`${runningCount} 个运行中`, `${runningCount} running`)
+                    : pick(`共 ${session.subagents.length} 个`, `${session.subagents.length} total`)}
                 </Text>
               </View>
               {session.subagents.map((sub) => (
@@ -424,7 +447,9 @@ function SideStatusImpl({
               ]}
             >
               <View style={styles.pillFoot}>
-                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>待办</Text>
+                <Text style={[styles.pillMeta, { color: t.inkFaint }]}>
+                  {pick("待办", "Todos")}
+                </Text>
                 <Text style={[styles.cacheValue, { color: t.inkSub }]}>
                   {session.todos.done}/{session.todos.total}
                 </Text>
@@ -447,7 +472,7 @@ function SideStatusImpl({
           <View style={styles.pillHead}>
             <View style={styles.pillTitleRow}>
               <View style={[styles.statusDot, { backgroundColor: meterColor }]} />
-              <Text style={[styles.pillTitle, { color: t.ink }]}>上下文</Text>
+              <Text style={[styles.pillTitle, { color: t.ink }]}>{pick("上下文", "Context")}</Text>
             </View>
             <Text style={[styles.pillValue, { color: t.inkSub }]}>
               {usage ? `${formatTokens(usage.usedTokens)} / ${formatTokens(usage.maxTokens)}` : "—"}
@@ -462,18 +487,20 @@ function SideStatusImpl({
             />
           </View>
           <View style={styles.pillFoot}>
-            <Text style={[styles.pillMeta, { color: t.inkFaint }]}>缓存命中率</Text>
+            <Text style={[styles.pillMeta, { color: t.inkFaint }]}>
+              {pick("缓存命中率", "Cache hit")}
+            </Text>
             <Text style={[styles.cacheValue, { color: t.steel }]}>{cache}</Text>
           </View>
           <View style={styles.pillFoot}>
-            <Text style={[styles.pillMeta, { color: t.inkFaint }]}>记忆</Text>
+            <Text style={[styles.pillMeta, { color: t.inkFaint }]}>{pick("记忆", "Memory")}</Text>
             <Text
               style={[
                 styles.pillMeta,
                 { color: memoryPreferences.enabled ? t.ok : t.inkFaint },
               ]}
             >
-              {memoryPreferences.enabled ? "开" : "关"}
+              {memoryPreferences.enabled ? pick("开", "On") : pick("关", "Off")}
             </Text>
           </View>
           {breakdown.length > 0 ? (
@@ -481,7 +508,7 @@ function SideStatusImpl({
               {breakdown.map((item) => (
                 <View key={item.source} style={styles.breakdownRow}>
                   <Text style={[styles.breakdownLabel, { color: t.inkFaint }]} numberOfLines={1}>
-                    {BREAKDOWN_LABELS[item.source] ?? item.source}
+                    {breakdownLabel(item.source)}
                   </Text>
                   <View style={[styles.breakdownTrack, { backgroundColor: t.surfaceSoft }]}>
                     <View
@@ -497,7 +524,9 @@ function SideStatusImpl({
                 </View>
               ))}
               {/* 本地估算与计费口径的差异压成三个字——整句免责占一行不值得（2.0.1 审查）。 */}
-              <Text style={[styles.breakdownNote, { color: t.inkGhost }]}>估算值</Text>
+              <Text style={[styles.breakdownNote, { color: t.inkGhost }]}>
+                {pick("估算值", "Estimated")}
+              </Text>
             </View>
           ) : null}
           {pluginText ? (
@@ -521,7 +550,10 @@ function SideStatusImpl({
             }}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel={`子智能体 ${runningSubagent.name} 运行中，点按查看会话状态`}
+            accessibilityLabel={pick(
+              `子智能体 ${runningSubagent.name} 运行中，点按查看会话状态`,
+              `Subagent ${runningSubagent.name} running, tap for session status`,
+            )}
             style={styles.faceButton}
           >
             <AgentFace name={runningSubagent.name} status="running" size={24} badge />
@@ -536,8 +568,11 @@ function SideStatusImpl({
           accessibilityRole="button"
           accessibilityLabel={
             expanded
-              ? "收起会话状态，可上下拖动"
-              : `上下文已用 ${Math.round(ratio * 100)}%，${runningSubagent ? "有子智能体运行中，" : ""}点按查看会话状态，可上下拖动`
+              ? pick("收起会话状态，可上下拖动", "Collapse session status, drag vertically")
+              : pick(
+                  `上下文已用 ${Math.round(ratio * 100)}%，${runningSubagent ? "有子智能体运行中，" : ""}点按查看会话状态，可上下拖动`,
+                  `Context ${Math.round(ratio * 100)}% used${runningSubagent ? ", subagent running" : ""}, tap for session status, drag vertically`,
+                )
           }
           style={styles.dotButton}
         >

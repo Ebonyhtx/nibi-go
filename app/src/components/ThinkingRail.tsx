@@ -16,6 +16,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 
+import { pickText, useI18n } from "../i18n";
 import { useReducedMotion } from "../motion/appear";
 import { haptic } from "../motion/haptics";
 import { radius, size, space, text, useNibiTheme } from "../theme";
@@ -25,28 +26,37 @@ export interface ThinkingLevel {
   label: string;
 }
 
-const LEVEL_LABELS: Record<string, string> = {
-  disabled: "关闭",
-  off: "关闭",
-  none: "关闭",
-  nothink: "关闭",
-  minimal: "极低",
-  low: "低",
-  medium: "中",
-  high: "高",
-  "extra-high": "极高",
-  extra_high: "极高",
-  xhigh: "极高",
-  max: "最高",
-  ultra: "极致",
-  enable: "开启",
-  enabled: "开启",
-  on: "开启",
-  true: "开启",
-};
-
 export function thinkingLevelLabel(value: string): string {
-  return LEVEL_LABELS[value] ?? value;
+  switch (value) {
+    case "disabled":
+    case "off":
+    case "none":
+    case "nothink":
+      return pickText("关闭", "Off");
+    case "minimal":
+      return pickText("极低", "Minimal");
+    case "low":
+      return pickText("低", "Low");
+    case "medium":
+      return pickText("中", "Medium");
+    case "high":
+      return pickText("高", "High");
+    case "extra-high":
+    case "extra_high":
+    case "xhigh":
+      return pickText("极高", "Extra high");
+    case "max":
+      return pickText("最高", "Max");
+    case "ultra":
+      return pickText("极致", "Ultra");
+    case "enable":
+    case "enabled":
+    case "on":
+    case "true":
+      return pickText("开启", "On");
+    default:
+      return value;
+  }
 }
 
 const LEAF_COLORS = ["#e88238", "#756df3", "#68a071", "#587ba8", "#c57a45", "#948cff"];
@@ -128,6 +138,7 @@ export function ThinkingRail({
   onChange: (value: string) => void;
 }) {
   const t = useNibiTheme();
+  const { pick: pickLabel } = useI18n();
   const reduced = useReducedMotion();
   const [width, setWidth] = useState(0);
   const sheen = useRef(new Animated.Value(0)).current;
@@ -200,7 +211,9 @@ export function ThinkingRail({
   return (
     <View style={styles.root}>
       <View style={styles.caption}>
-        <Text style={[styles.captionLabel, { color: t.inkSub }]}>思考强度</Text>
+        <Text style={[styles.captionLabel, { color: t.inkSub }]}>
+          {pickLabel("思考强度", "Thinking effort")}
+        </Text>
         <View
           style={[
             styles.captionBadge,

@@ -18,6 +18,7 @@ import {
 } from "@nibi-go/plugin-contract";
 import type { KernelMcpServer } from "@nibi-go/kernel-session";
 
+import { pickText } from "../i18n";
 import { BUNDLED_PLUGINS, MANIFEST_FILE, RETIRED_SAMPLE_DIRS } from "./samples";
 import { ensureLicenseLoaded, pluginLicenseDecision } from "./license";
 import { scanNpmPackageEnvSpecs } from "./npmEnvScan";
@@ -460,7 +461,11 @@ export async function setPluginEnvVar(
   const validated = validatePluginEnvName(rawName);
   if (!validated.ok) throw new Error(validated.reason);
   const trimmed = rawValue.trim();
-  if (trimmed.includes("\0")) throw new Error("环境变量值包含非法字符");
+  if (trimmed.includes("\0")) {
+    throw new Error(
+      pickText("环境变量值包含非法字符", "Environment variable value contains invalid characters"),
+    );
+  }
   const plugins = await readCustomEnvs();
   const nextForPlugin = { ...(plugins[id] ?? {}) };
   if (trimmed.length === 0) {

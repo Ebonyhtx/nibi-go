@@ -6,6 +6,7 @@
 // 3. 拼出 https://nibistudio.cn/membership/?embedded=app&handoff=<code> 交由应用内 WebView 打开；
 //    普通外部浏览器直接访问无 handoff / 无 ticket 会被网关拦截（403 / 登录门禁），只有客户端内嵌 WebView 可用。
 
+import { pickText } from "../i18n";
 import { NibiAuthProvider } from "../relay/auth";
 import { ENDPOINT_ORIGIN } from "../relay/config";
 
@@ -36,7 +37,10 @@ export async function createNibiCheckoutUrl(): Promise<CheckoutUrlOutcome> {
     return {
       ok: false,
       code: "auth_required",
-      message: "请先在 NIBI-GO 登录账号后再继续。",
+      message: pickText(
+        "请先在 NIBI-GO 登录账号后再继续。",
+        "Sign in to your NIBI account in NIBI-GO first to continue.",
+      ),
     };
   }
 
@@ -66,21 +70,34 @@ export async function createNibiCheckoutUrl(): Promise<CheckoutUrlOutcome> {
       return {
         ok: false,
         code: "auth_required",
-        message: "登录状态已过期，请重新登录 NIBI 账号。",
+        message: pickText(
+          "登录状态已过期，请重新登录 NIBI 账号。",
+          "Your sign-in session expired. Please sign in to NIBI again.",
+        ),
       };
     }
     if (response.status === 403 && payload?.error === "account_banned") {
       return {
         ok: false,
         code: "account_banned",
-        message: payload.message ?? "当前账号已被限制访问，请联系 contact@nibistudio.cn。",
+        message:
+          payload.message ??
+          pickText(
+            "当前账号已被限制访问，请联系 contact@nibistudio.cn。",
+            "Access for this account is restricted. Contact contact@nibistudio.cn.",
+          ),
       };
     }
     if (!response.ok) {
       return {
         ok: false,
         code: "network_error",
-        message: payload?.message ?? `连接账号中心失败（HTTP ${response.status}）`,
+        message:
+          payload?.message ??
+          pickText(
+            `连接账号中心失败（HTTP ${response.status}）`,
+            `Failed to reach account center (HTTP ${response.status})`,
+          ),
       };
     }
 
@@ -94,7 +111,10 @@ export async function createNibiCheckoutUrl(): Promise<CheckoutUrlOutcome> {
       return {
         ok: false,
         code: "network_error",
-        message: "未获取到有效的内嵌会话凭证，请稍后重试。",
+        message: pickText(
+          "未获取到有效的内嵌会话凭证，请稍后重试。",
+          "Couldn't obtain an embedded session ticket. Please try again.",
+        ),
       };
     }
 
@@ -109,7 +129,10 @@ export async function createNibiCheckoutUrl(): Promise<CheckoutUrlOutcome> {
     return {
       ok: false,
       code: "network_error",
-      message: error instanceof Error ? error.message : "网络连接异常，请检查网络后重试。",
+      message:
+        error instanceof Error
+          ? error.message
+          : pickText("网络连接异常，请检查网络后重试。", "Network error — check your connection and try again."),
     };
   } finally {
     clearTimeout(timer);

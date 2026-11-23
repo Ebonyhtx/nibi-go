@@ -21,6 +21,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 
+import { useI18n } from "../i18n";
 import { haptic } from "../motion/haptics";
 import { rubberBandProgress, SIDE_SPRING_CONFIG } from "../motion/sidePhysics";
 import { useNibiTheme } from "../theme";
@@ -54,6 +55,7 @@ export function SideBackdrop({
   blurTarget?: RefObject<ComponentRef<typeof View> | null>;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const scheme = useColorScheme();
   const dimStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, Math.abs(progress.value)),
@@ -204,7 +206,7 @@ export function SideBackdrop({
           pointerEvents={open ? "auto" : "none"}
           accessible
           accessibilityRole="button"
-          accessibilityLabel="关闭侧栏"
+          accessibilityLabel={pick("关闭侧栏", "Close sidebar")}
         />
       </GestureDetector>
     </Animated.View>

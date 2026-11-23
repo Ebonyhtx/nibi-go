@@ -12,6 +12,8 @@ import { Row } from "../../components/ui/Row";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { PillButton } from "../../components/ui/PillButton";
+import { useI18n } from "../../i18n";
+import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import {
   createProject,
@@ -26,7 +28,13 @@ import { radius, space, text, useNibiTheme } from "../../theme";
 
 export default function ProjectsScreen() {
   const th = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
   const { projects, activeProjectId } = useProjects();
   const [busy, setBusy] = useState(false);
   // 编辑态：null=没有输入行；creating=新建；{ id, name }=重命名既有项目。
@@ -39,7 +47,10 @@ export default function ProjectsScreen() {
     setBusy(true);
     void action()
       .catch((error: unknown) => {
-        Alert.alert("操作失败", error instanceof Error ? error.message : String(error));
+        Alert.alert(
+          pick("操作失败", "Action failed"),
+          error instanceof Error ? error.message : String(error),
+        );
       })
       .finally(() => setBusy(false));
   }
@@ -57,12 +68,15 @@ export default function ProjectsScreen() {
 
   function confirmDelete(project: ProjectEntry): void {
     Alert.alert(
-      `删除项目「${project.name}」？`,
-      "只删除项目本身；项目目录里的文件与会话都保留，之后在抽屉里归入「独立会话」。",
+      pick(`删除项目「${project.name}」？`, `Delete project "${project.name}"?`),
+      pick(
+        "只删除项目本身；项目目录里的文件与会话都保留，之后在抽屉里归入「独立会话」。",
+        "Only removes the project entry; files and chats are kept and moved to Standalone.",
+      ),
       [
-        { text: "取消", style: "cancel" },
+        { text: pick("取消", "Cancel"), style: "cancel" },
         {
-          text: "删除",
+          text: pick("删除", "Delete"),
           style: "destructive",
           onPress: () => run(() => deleteProject(project.id)),
         },
@@ -78,12 +92,15 @@ export default function ProjectsScreen() {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <ScreenHeader title="项目" onBack={() => router.back()} />
+      <ScreenHeader title={pick("项目", "Projects")} onBack={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}>
+      <ScrollView contentContainerStyle={bodyStyle}>
         <AppearIn delay={staggerDelay(0, 32, 240)}>
           <Text style={[styles.intro, { color: th.inkSub }]}>
-            项目是共享的工作区：同项目的会话共用文件，记忆也按项目分开。
+            {pick(
+              "项目是共享的工作区：同项目的会话共用文件，记忆也按项目分开。",
+              "Projects are shared workspaces: chats in a project share files and keep separate memories.",
+            )}
           </Text>
         </AppearIn>
 
@@ -108,12 +125,12 @@ export default function ProjectsScreen() {
                     />
                     <View style={styles.actions}>
                       <PillButton
-                        label="取消"
+                        label={pick("取消", "Cancel")}
                         variant="secondary"
                         onPress={() => setEditing(null)}
                       />
                       <PillButton
-                        label={busy ? "保存中…" : "保存"}
+                        label={busy ? pick("保存中…", "Saving…") : pick("保存", "Save")}
                         variant="primary"
                         disabled={busy || !editing.name.trim()}
                         onPress={submitName}
@@ -132,26 +149,32 @@ export default function ProjectsScreen() {
                       )}
                       right={
                         active ? (
-                          <Text style={[styles.activeBadge, { color: th.brand }]}>当前</Text>
+                          <Text style={[styles.activeBadge, { color: th.brand }]}>
+                            {pick("当前", "Active")}
+                          </Text>
                         ) : undefined
                       }
                     />
                     <Divider />
                     <View style={styles.actions}>
                       <PillButton
-                        label={active ? "取消当前" : "设为当前"}
+                        label={
+                          active
+                            ? pick("取消当前", "Unset active")
+                            : pick("设为当前", "Set active")
+                        }
                         variant="secondary"
                         disabled={busy}
                         onPress={() => run(() => setActiveProject(active ? null : project.id))}
                       />
                       <PillButton
-                        label="重命名"
+                        label={pick("重命名", "Rename")}
                         variant="secondary"
                         disabled={busy}
                         onPress={() => setEditing({ kind: "rename", id: project.id, name: project.name })}
                       />
                       <PillButton
-                        label="删除"
+                        label={pick("删除", "Delete")}
                         variant="danger"
                         disabled={busy}
                         onPress={() => confirmDelete(project)}
@@ -173,7 +196,7 @@ export default function ProjectsScreen() {
                   onChangeText={(name) =>
                     setEditing(editing.kind === "create" ? { ...editing, name } : editing)
                   }
-                  placeholder="项目名称"
+                  placeholder={pick("项目名称", "Project name")}
                   placeholderTextColor={th.inkFaint}
                   autoFocus
                   style={[
@@ -182,9 +205,13 @@ export default function ProjectsScreen() {
                   ]}
                 />
                 <View style={styles.actions}>
-                  <PillButton label="取消" variant="secondary" onPress={() => setEditing(null)} />
                   <PillButton
-                    label={busy ? "创建中…" : "创建"}
+                    label={pick("取消", "Cancel")}
+                    variant="secondary"
+                    onPress={() => setEditing(null)}
+                  />
+                  <PillButton
+                    label={busy ? pick("创建中…", "Creating…") : pick("创建", "Create")}
                     variant="primary"
                     disabled={busy || !editing.name.trim()}
                     onPress={submitName}
@@ -197,8 +224,8 @@ export default function ProjectsScreen() {
           <AppearIn delay={staggerDelay(projects.length + 1, 32, 240)}>
             <Row
               icon="plus"
-              title="新建项目"
-              detail="给一组会话一个共享的工作区"
+              title={pick("新建项目", "New project")}
+              detail={pick("给一组会话一个共享的工作区", "Create a shared workspace for related chats")}
               onPress={() => setEditing({ kind: "create", name: "" })}
             />
           </AppearIn>
@@ -207,7 +234,10 @@ export default function ProjectsScreen() {
         {projects.length === 0 && editing === null ? (
           <AppearIn delay={staggerDelay(projects.length + 2, 32, 240)}>
             <Text style={[styles.empty, { color: th.inkFaint }]}>
-              还没有项目；新建对话默认用独立目录。
+              {pick(
+                "还没有项目；新建对话默认用独立目录。",
+                "No projects yet — new chats use standalone folders by default.",
+              )}
             </Text>
           </AppearIn>
         ) : null}

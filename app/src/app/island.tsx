@@ -10,6 +10,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
 import { Icon } from "../components/Icon";
+import { useI18n } from "../i18n";
+import { useResponsiveBodyStyle } from "../layout/responsive";
 import { PressableScale } from "../motion/PressableScale";
 import { usePlugins } from "../plugins/usePlugins";
 import { radius, space, type as typeScale, useNibiTheme } from "../theme";
@@ -18,7 +20,17 @@ const LOAD_TIMEOUT_MS = 8_000;
 
 export default function WebIslandScreen() {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const headerStyle = useResponsiveBodyStyle({
+    paddingTop: insets.top + space(1),
+    paddingBottom: space(2),
+  });
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(3),
+    gap: space(2),
+  });
   const params = useLocalSearchParams<{ pluginId?: string; islandId?: string }>();
   const plugins = usePlugins();
   const [loaded, setLoaded] = useState(false);
@@ -47,12 +59,12 @@ export default function WebIslandScreen() {
   };
 
   const header = (title: string, subtitle?: string) => (
-    <View style={[styles.header, { paddingTop: insets.top + space(1) }]}>
+    <View style={[styles.header, headerStyle]}>
       <PressableScale
         scaleTo={0.95}
         onPress={() => router.back()}
         accessibilityRole="button"
-        accessibilityLabel="返回"
+        accessibilityLabel={pick("返回", "Back")}
         style={({ pressed }) => [
           styles.back,
           { backgroundColor: pressed ? t.hover : t.card, borderColor: t.hairline },
@@ -76,10 +88,15 @@ export default function WebIslandScreen() {
   if (!plugin || !island) {
     return (
       <View style={[styles.root, { backgroundColor: t.bg }]}>
-        {header("网页面板不可用")}
-        <View style={styles.empty}>
+        {header(pick("网页面板不可用", "Web island unavailable"))}
+        <View style={[styles.empty, bodyStyle]}>
           <Text style={[styles.emptyText, { color: t.inkSub }]}>
-            {plugins.loading ? "正在读取插件…" : "插件不存在，或这个网页面板已被移除。"}
+            {plugins.loading
+              ? pick("正在读取插件…", "Loading plugins…")
+              : pick(
+                  "插件不存在，或这个网页面板已被移除。",
+                  "Plugin not found, or this web island has been removed.",
+                )}
           </Text>
         </View>
       </View>
@@ -87,11 +104,11 @@ export default function WebIslandScreen() {
   }
 
   const disabledReason = !plugin.parsed.slotsAvailable
-    ? plugin.parsed.reason ?? "插件槽不可用"
+    ? plugin.parsed.reason ?? pick("插件槽不可用", "Plugin slot unavailable")
     : !plugin.enabled
-      ? "插件已停用，在插件中心启用后再打开。"
+      ? pick("插件已停用，在插件中心启用后再打开。", "Plugin is disabled. Enable it in Plugin Center first.")
       : plugin.parsed.status !== "ready"
-        ? plugin.parsed.reason ?? "插件清单不兼容"
+        ? plugin.parsed.reason ?? pick("插件清单不兼容", "Incompatible plugin manifest")
         : null;
 
   const allowedOrigin = island.url ? safeOrigin(island.url) : null;
@@ -102,12 +119,14 @@ export default function WebIslandScreen() {
   };
 
   const source = island.html ? { html: island.html } : { uri: island.url as string };
-  const fallback = timedOut ? "网页面板加载超时" : "网页面板加载失败";
+  const fallback = timedOut
+    ? pick("网页面板加载超时", "Web island timed out")
+    : pick("网页面板加载失败", "Failed to load web island");
 
   return (
     <View style={[styles.root, { backgroundColor: t.bg }]}>
       {header(island.title, `${plugin.parsed.manifest.name} · Web Island`)}
-      <View style={[styles.content, { paddingBottom: insets.bottom + space(3) }]}>
+      <View style={[styles.content, bodyStyle]}>
         {disabledReason ? (
           <View style={[styles.banner, { backgroundColor: t.panel }]}>
             <Text style={[styles.bannerText, { color: t.inkSub }]}>{disabledReason}</Text>
@@ -116,19 +135,24 @@ export default function WebIslandScreen() {
           <View style={[styles.fallback, { backgroundColor: t.card, borderColor: t.hairline }]}>
             <Text style={[styles.fallbackTitle, { color: t.ink }]}>{fallback}</Text>
             <Text style={[styles.fallbackText, { color: t.inkFaint }]}>
-              WebView 没有在预期时间内完成；可以重试，或返回插件中心。
+              {pick(
+                "WebView 没有在预期时间内完成；可以重试，或返回插件中心。",
+                "WebView did not finish in time. Retry or go back to Plugin Center.",
+              )}
             </Text>
             <PressableScale
               scaleTo={0.95}
               onPress={retry}
               accessibilityRole="button"
-              accessibilityLabel="重试"
+              accessibilityLabel={pick("重试", "Retry")}
               style={({ pressed }) => [
                 styles.retry,
                 { backgroundColor: t.brand, opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <Text style={[styles.retryText, { color: t.brandFg }]}>重试</Text>
+              <Text style={[styles.retryText, { color: t.brandFg }]}>
+                {pick("重试", "Retry")}
+              </Text>
             </PressableScale>
           </View>
         ) : (
@@ -159,7 +183,10 @@ export default function WebIslandScreen() {
           </View>
         )}
         <Text style={[styles.footnote, { color: t.inkGhost }]}>
-          网页面板由插件声明；宿主只允许当前页面/同源 https 导航，加载失败会降级。
+          {pick(
+            "网页面板由插件声明；宿主只允许当前页面/同源 https 导航，加载失败会降级。",
+            "Declared by the plugin. Host allows only same-origin HTTPS navigation and falls back on failure.",
+          )}
         </Text>
       </View>
     </View>
@@ -180,8 +207,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space(3),
-    paddingHorizontal: space(4),
-    paddingBottom: space(2),
   },
   back: {
     width: 36,
@@ -194,7 +219,7 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, gap: 1 },
   title: { fontSize: typeScale.title, fontWeight: "700" },
   subtitle: { fontSize: typeScale.micro },
-  content: { flex: 1, paddingHorizontal: space(4), paddingTop: space(2), gap: space(2) },
+  content: { flex: 1 },
   webContainer: {
     flex: 1,
     borderWidth: StyleSheet.hairlineWidth,
@@ -221,7 +246,7 @@ const styles = StyleSheet.create({
     paddingVertical: space(2),
   },
   retryText: { fontSize: 13, fontWeight: "700" },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: space(6) },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center" },
   emptyText: { fontSize: typeScale.small, textAlign: "center" },
   footnote: { fontSize: 10.5, lineHeight: 15, paddingTop: space(1) },
 });

@@ -8,6 +8,7 @@ import * as WebBrowser from "expo-web-browser";
 
 import { WebRemoteControlV2ConnectionError } from "@nibi-go/shared-extract";
 
+import { pickText } from "../i18n";
 import {
   AUTHORIZE_URL,
   ENDPOINT_ORIGIN,
@@ -87,7 +88,10 @@ export class NibiAuthProvider {
   async login(forceLogin = false): Promise<StoredTokenSet> {
     if (!OIDC_CLIENT_ID) {
       throw new Error(
-        "NIBI-GO 尚未配置 OIDC client id：需在账号中心注册 native app（回调 nibigo://login）后设置 EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID",
+        pickText(
+          "NIBI-GO 尚未配置 OIDC client id：需在账号中心注册 native app（回调 nibigo://login）后设置 EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID",
+          "OIDC client id is not configured for NIBI-GO: register a native app (redirect nibigo://login) and set EXPO_PUBLIC_NIBI_GO_OIDC_CLIENT_ID",
+        ),
       );
     }
     const verifierBytes = new Uint8Array(VERIFIER_BYTES);
@@ -120,7 +124,14 @@ export class NibiAuthProvider {
     // 经 /remote-gate 桥写成 Domain=nibistudio.cn 的 Cookie 再跳 OIDC authorize。
     // 普通浏览器没有 ticket，登录页仍然 403（公安备案口径）。
     const ticket = await fetchWebviewTicket();
-    if (!ticket) throw new Error("无法获取登录门禁凭证（ticket），请检查网络后重试");
+    if (!ticket) {
+      throw new Error(
+        pickText(
+          "无法获取登录门禁凭证（ticket），请检查网络后重试",
+          "Failed to obtain login gate ticket. Check your network and try again.",
+        ),
+      );
+    }
     const authorizeUrl = `${AUTHORIZE_URL}?${query.toString()}`;
     const gateUrl =
       `${ENDPOINT_ORIGIN}/remote-gate#ticket=${encodeURIComponent(ticket)}` +
@@ -132,11 +143,13 @@ export class NibiAuthProvider {
     }
     const callback = new URL(result.url);
     const returnedState = callback.searchParams.get("state");
-    if (returnedState !== state) throw new Error("OAuth 回调 state 不匹配");
+    if (returnedState !== state) {
+      throw new Error(pickText("OAuth 回调 state 不匹配", "OAuth callback state mismatch"));
+    }
     const error = callback.searchParams.get("error");
-    if (error) throw new Error(`登录失败: ${error}`);
+    if (error) throw new Error(pickText(`登录失败: ${error}`, `Sign-in failed: ${error}`));
     const code = callback.searchParams.get("code");
-    if (!code) throw new Error("OAuth 回调缺少 code");
+    if (!code) throw new Error(pickText("OAuth 回调缺少 code", "OAuth callback missing code"));
 
     const tokens = await this.exchange({
       code,
@@ -168,7 +181,7 @@ export class NibiAuthProvider {
         client_id: OIDC_CLIENT_ID,
       }),
     });
-    return this.parseEnvelope(response, "登录交换失败");
+    return this.parseEnvelope(response, pickText("登录交换失败", "Sign-in token exchange failed"));
   }
 
   /** refresh_token 换新令牌（同一代理；refresh token 可能轮换，成功后覆盖存储）。 */
@@ -184,7 +197,7 @@ export class NibiAuthProvider {
         client_id: OIDC_CLIENT_ID,
       }),
       });
-      const tokens = await this.parseEnvelope(response, "令牌续期失败");
+      const tokens = await this.parseEnvelope(response, pickText("令牌续期失败", "Token refresh failed"));
       this.cached = tokens;
       return tokens.accessToken;
     } catch (error) {

@@ -6,12 +6,13 @@
 
 import type { ComponentRef } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Animated, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { Icon, type IconName } from "./Icon";
 import { MenuRow } from "./ui/MenuRow";
 import { PluginPopup, type PopupAnchor } from "./PluginPopup";
 import type { ComposerCatalogItem } from "../composer/catalog";
+import { useI18n } from "../i18n";
 import { haptic } from "../motion/haptics";
 import { PressableScale } from "../motion/PressableScale";
 import { useDevicePreferences } from "../settings/devicePreferences";
@@ -29,6 +30,8 @@ export function CapsuleStack({
   onItem: (item: ComposerCatalogItem) => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
+  const { height: windowHeight } = useWindowDimensions();
   const { motionEnabled } = useDevicePreferences();
   const buttonRef = useRef<ComponentRef<typeof PressableScale> | null>(null);
   const [anchor, setAnchor] = useState<PopupAnchor | null>(null);
@@ -68,7 +71,7 @@ export function CapsuleStack({
         scaleTo={0.95}
         onPress={open}
         accessibilityRole="button"
-        accessibilityLabel="快捷动作"
+        accessibilityLabel={pick("快捷动作", "Quick actions")}
         style={styles.stack}
       >
         <View
@@ -97,7 +100,7 @@ export function CapsuleStack({
           ]}
         >
           <Icon name="sparkles" size={13} color={t.brand} />
-          <Text style={[styles.count, { color: t.ink }]}>快捷</Text>
+          <Text style={[styles.count, { color: t.ink }]}>{pick("快捷", "Quick")}</Text>
           <Animated.View style={[styles.chevronWrap, { transform: [{ rotate }] }]}>
             <Icon name="chevron-down" size={11} color={t.inkSub} />
           </Animated.View>
@@ -110,8 +113,11 @@ export function CapsuleStack({
         onClose={() => setAnchor(null)}
         width={280}
       >
-        <Text style={[styles.title, { color: t.ink }]}>快捷动作</Text>
-        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.title, { color: t.ink }]}>{pick("快捷动作", "Quick actions")}</Text>
+        <ScrollView
+          style={{ maxHeight: Math.min(330, Math.max(160, Math.round(windowHeight * 0.56))) }}
+          showsVerticalScrollIndicator={false}
+        >
           {items.map((item) => (
             <MenuRow
               key={item.id}

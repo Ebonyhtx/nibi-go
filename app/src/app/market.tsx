@@ -39,8 +39,11 @@ import { ScreenHeader } from "../components/ui/ScreenHeader";
 import { Divider, SectionCard } from "../components/ui/SectionCard";
 import { SegmentedControl, type SegmentedOption } from "../components/ui/SegmentedControl";
 import { Sheet } from "../components/ui/Sheet";
+import { pickText, useI18n } from "../i18n";
+import { useResponsiveBodyStyle } from "../layout/responsive";
 import { AppearIn, staggerDelay } from "../motion/appear";
 import { PressableScale } from "../motion/PressableScale";
+import { pluginDisplayDescription, pluginDisplayName } from "../plugins/builtinI18n";
 import {
   installMarketPlugin,
   installPersonalNpmPlugin,
@@ -83,18 +86,14 @@ import { radius, size, space, text, useNibiTheme } from "../theme";
 
 type MarketTab = "nibi" | "public" | "personal";
 
-const MARKET_TABS: readonly SegmentedOption<MarketTab>[] = [
-  { value: "nibi", label: "NIBI" },
-  { value: "public", label: "公开" },
-  { value: "personal", label: "个人" },
-];
-
 interface CuratedPublicPlugin {
   id: string;
   name: string;
+  nameEn: string;
   version: string;
   publisher: string;
   description: string;
+  descriptionEn: string;
   files: Record<string, string>;
 }
 
@@ -106,9 +105,11 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
   {
     id: "open.git-workflow",
     name: "Git 变更与提交审阅",
+    nameEn: "Git Diff & Commit Review",
     version: "1.0.0",
     publisher: "Open Community",
     description: "梳理工作区 Git 变更差异、按 Conventional Commits 规范生成提交说明并排查潜在冲突。",
+    descriptionEn: "Review workspace Git diffs, draft Conventional Commits messages, and spot merge risks.",
     files: {
       "nibi-go.plugin.json": JSON.stringify(
         {
@@ -149,9 +150,11 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
   {
     id: "open.api-inspector",
     name: "HTTP 接口联调助手",
+    nameEn: "HTTP API Inspector",
     version: "1.0.0",
     publisher: "Open Community",
     description: "快速构造 REST / GraphQL 请求参数、解析响应结构并生成接口联调诊断报告。",
+    descriptionEn: "Build REST/GraphQL requests, inspect response payloads, and diagnose integration errors.",
     files: {
       "nibi-go.plugin.json": JSON.stringify(
         {
@@ -192,9 +195,11 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
   {
     id: "open.sql-helper",
     name: "SQL 建模与查询优化",
+    nameEn: "SQL Modeling & Tuning",
     version: "1.0.0",
     publisher: "Open Community",
     description: "辅助设计数据库表结构、编写复杂聚合查询并分析索引与慢查询瓶颈。",
+    descriptionEn: "Design database schemas, craft complex aggregations, and optimize indexes & slow queries.",
     files: {
       "nibi-go.plugin.json": JSON.stringify(
         {
@@ -235,9 +240,11 @@ const CURATED_PUBLIC_PLUGINS: readonly CuratedPublicPlugin[] = [
   {
     id: "open.test-architect",
     name: "单元测试与边界用例生成",
+    nameEn: "Unit Test & Edge-Case Architect",
     version: "1.0.0",
     publisher: "Open Community",
     description: "针对核心业务函数自动推导正常路径、边界条件与异常分支测试，提升代码覆盖率。",
+    descriptionEn: "Derive happy-path, boundary, and error-branch unit tests for core business logic.",
     files: {
       "nibi-go.plugin.json": JSON.stringify(
         {
@@ -281,10 +288,15 @@ interface FeaturedNpmMcp {
   id: string;
   packageName: string;
   name: string;
+  nameEn: string;
   publisher: string;
   category: string;
+  categoryEn: string;
   envHint: string;
+  envHintEn: string;
+  needsKey: boolean;
   description: string;
+  descriptionEn: string;
   keywords: readonly string[];
   homepage?: string;
 }
@@ -298,10 +310,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("@modelcontextprotocol/server-sequential-thinking"),
     packageName: "@modelcontextprotocol/server-sequential-thinking",
     name: "顺序思考（Sequential Thinking）",
+    nameEn: "Sequential Thinking",
     publisher: "Model Context Protocol",
     category: "推理规划",
+    categoryEn: "Reasoning",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "官方纯 JS 分步推理 MCP 服务器，辅助复杂问题的多步拆解、修订与分支验证。",
+    descriptionEn: "Official pure-JS step-by-step reasoning MCP server for breaking down and verifying complex tasks.",
     keywords: ["mcp", "thinking", "reasoning", "official"],
     homepage: "https://github.com/modelcontextprotocol/servers",
   },
@@ -309,10 +326,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("@modelcontextprotocol/server-memory"),
     packageName: "@modelcontextprotocol/server-memory",
     name: "知识图谱记忆（Memory）",
+    nameEn: "Knowledge Graph Memory",
     publisher: "Model Context Protocol",
     category: "知识记忆",
+    categoryEn: "Memory",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "官方纯 JS 实体与关系知识图谱 MCP，支持在本地持久记录与检索结构化记忆。",
+    descriptionEn: "Official pure-JS entity-relation knowledge graph MCP for persistent structured memory.",
     keywords: ["mcp", "memory", "knowledge-graph", "official"],
     homepage: "https://github.com/modelcontextprotocol/servers",
   },
@@ -320,10 +342,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("amap-mcp-server"),
     packageName: "amap-mcp-server",
     name: "高德地图 MCP",
-    publisher: "AMap 社区",
+    nameEn: "AMap Maps MCP",
+    publisher: "AMap Community",
     category: "地图出行",
+    categoryEn: "Maps",
     envHint: "需配置 AMAP_KEY",
+    envHintEn: "Requires AMAP_KEY",
+    needsKey: true,
     description: "提供路径规划、地理编码、POI 搜索、周边检索、实时天气与路线导航能力。",
+    descriptionEn: "Routing, geocoding, POI & nearby search, live weather, and navigation powered by AMap.",
     keywords: ["mcp", "amap", "map", "weather", "navigation"],
     homepage: "https://www.npmjs.com/package/amap-mcp-server",
   },
@@ -331,10 +358,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("bing-cn-mcp"),
     packageName: "bing-cn-mcp",
     name: "必应中文搜索",
+    nameEn: "Bing CN Search",
     publisher: "Open Community",
     category: "联网搜索",
+    categoryEn: "Search",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "必应中文实时网页搜索 MCP 服务器，支持快速检索中文资讯与网页摘要。",
+    descriptionEn: "Live Bing web search MCP server with fast Chinese & web snippets.",
     keywords: ["mcp", "bing", "search", "web"],
     homepage: "https://www.npmjs.com/package/bing-cn-mcp",
   },
@@ -342,10 +374,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("mcp-fetch-server"),
     packageName: "mcp-fetch-server",
     name: "网页抓取（Fetch）",
+    nameEn: "Web Fetch",
     publisher: "Open Community",
     category: "网页工具",
+    categoryEn: "Web",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "将任意公开网页抓取并转换为干净的 Markdown / 纯文本，便于交给助手阅读总结。",
+    descriptionEn: "Fetch any public web page as clean Markdown or plain text for reading and summarization.",
     keywords: ["mcp", "fetch", "web", "markdown"],
     homepage: "https://www.npmjs.com/package/mcp-fetch-server",
   },
@@ -353,10 +390,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("open-meteo-mcp-server"),
     packageName: "open-meteo-mcp-server",
     name: "全球天气预报（Open-Meteo）",
+    nameEn: "Global Weather (Open-Meteo)",
     publisher: "Open Community",
     category: "天气生活",
+    categoryEn: "Weather",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "基于 Open-Meteo 免费气象接口查询全球城市实时天气、逐小时预报与空气质量。",
+    descriptionEn: "Global real-time weather, hourly forecasts, and air quality via free Open-Meteo APIs.",
     keywords: ["mcp", "weather", "open-meteo", "forecast"],
     homepage: "https://www.npmjs.com/package/open-meteo-mcp-server",
   },
@@ -364,10 +406,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("@upstash/context7-mcp"),
     packageName: "@upstash/context7-mcp",
     name: "Context7 开发文档",
+    nameEn: "Context7 Library Docs",
     publisher: "Upstash",
     category: "开发文档",
+    categoryEn: "Docs",
     envHint: "免密钥即可使用（支持可选 Key）",
+    envHintEn: "No key needed (optional key)",
+    needsKey: false,
     description: "实时拉取最新版主流框架与开源库的官方文档及代码示例，减少模型过时 API 幻觉。",
+    descriptionEn: "Fetch up-to-date official docs and code examples for popular libraries to avoid stale APIs.",
     keywords: ["mcp", "docs", "context7", "developer"],
     homepage: "https://github.com/upstash/context7",
   },
@@ -375,10 +422,15 @@ const FEATURED_NPM_MCPS: readonly FeaturedNpmMcp[] = [
     id: npmPluginIdFor("howtocook-mcp"),
     packageName: "howtocook-mcp",
     name: "今日吃什么 · 菜谱大全",
+    nameEn: "HowToCook Recipes",
     publisher: "Open Community",
     category: "生活实用",
+    categoryEn: "Lifestyle",
     envHint: "免密钥 · 装完即用",
+    envHintEn: "No key needed",
+    needsKey: false,
     description: "内置丰富家常菜谱，支持按食材、口味或人数推荐三餐搭配并给出详细步骤。",
+    descriptionEn: "Curated home-cooking recipes with meal recommendations by ingredients, taste, or servings.",
     keywords: ["mcp", "recipe", "cooking", "life"],
     homepage: "https://www.npmjs.com/package/howtocook-mcp",
   },
@@ -439,13 +491,16 @@ function mergeUniqueNpmHits(
 function describeFailure(kind: string, detail: string): string {
   switch (kind) {
     case "fetch":
-      return `拉取失败：${detail}`;
+      return pickText(`拉取失败：${detail}`, `Fetch failed: ${detail}`);
     case "verify":
-      return `验签失败（${detail}）——已拒绝这份索引`;
+      return pickText(
+        `验签失败（${detail}）——已拒绝这份索引`,
+        `Signature check failed (${detail}) — index rejected`,
+      );
     case "rollback":
-      return `已拒绝回滚：${detail}`;
+      return pickText(`已拒绝回滚：${detail}`, `Rollback rejected: ${detail}`);
     case "pins":
-      return `插件版本不变量冲突：${detail}`;
+      return pickText(`插件版本不变量冲突：${detail}`, `Version pin conflict: ${detail}`);
     default:
       return detail;
   }
@@ -490,15 +545,21 @@ function MarketRow({
   onPressDetail?: () => void;
 }) {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const hasUpdate =
     installedVersion !== null && comparePluginVersions(entry.version, installedVersion) > 0;
-  const action = installedVersion === null ? "安装" : hasUpdate ? "更新" : "重新安装";
+  const action =
+    installedVersion === null
+      ? pick("安装", "Install")
+      : hasUpdate
+        ? pick("更新", "Update")
+        : pick("重新安装", "Reinstall");
   const formatTag =
     entry.package.format === "npm"
       ? "npm MCP"
       : entry.kind === "skill"
-        ? "技能包"
-        : "标准 ZIP";
+        ? pick("技能包", "Skill pack")
+        : pick("标准 ZIP", "ZIP");
   const sourceDetail =
     entry.package.format === "npm"
       ? `${entry.package.name} · v${entry.version}`
@@ -516,11 +577,15 @@ function MarketRow({
           </Text>
         </View>
         {installedVersion === null ? (
-          <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label="未安装" />
+          <StatusPill bg={t.surfaceSoft} color={t.inkFaint} label={pick("未安装", "Not installed")} />
         ) : hasUpdate ? (
-          <StatusPill bg={t.amberSoft} color={t.amber} label="可更新" />
+          <StatusPill bg={t.amberSoft} color={t.amber} label={pick("可更新", "Update")} />
         ) : (
-          <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVersion}`} />
+          <StatusPill
+            bg={t.okSoft}
+            color={t.ok}
+            label={pick(`已安装 v${installedVersion}`, `Installed v${installedVersion}`)}
+          />
         )}
       </View>
 
@@ -537,7 +602,7 @@ function MarketRow({
         <Pressable
           onPress={onPressDetail}
           accessibilityRole="button"
-          accessibilityLabel={`查看 ${entry.name} 详情`}
+          accessibilityLabel={pick(`查看 ${entry.name} 详情`, `View details for ${entry.name}`)}
           style={({ pressed }) => [styles.cardBodyTap, pressed ? { opacity: 0.78 } : null]}
         >
           {body}
@@ -557,19 +622,19 @@ function MarketRow({
         />
         {busy ? (
           <PillButton
-            label="取消"
+            label={pick("取消", "Cancel")}
             variant="secondary"
             onPress={onCancel}
-            accessibilityLabel={`取消安装 ${entry.name}`}
+            accessibilityLabel={pick(`取消安装 ${entry.name}`, `Cancel installing ${entry.name}`)}
           />
         ) : null}
         {installedVersion !== null && !busy ? (
           <PillButton
-            label="卸载"
+            label={pick("卸载", "Uninstall")}
             variant="danger"
             disabled={busy}
             onPress={onUninstall}
-            accessibilityLabel={`卸载 ${entry.name}`}
+            accessibilityLabel={pick(`卸载 ${entry.name}`, `Uninstall ${entry.name}`)}
           />
         ) : null}
       </View>
@@ -579,7 +644,21 @@ function MarketRow({
 
 export default function MarketScreen() {
   const t = useNibiTheme();
+  const { pick } = useI18n();
   const insets = useSafeAreaInsets();
+  const bodyStyle = useResponsiveBodyStyle({
+    paddingTop: space(2),
+    paddingBottom: insets.bottom + space(6),
+    gap: space(3),
+  });
+  const marketTabs = useMemo<readonly SegmentedOption<MarketTab>[]>(
+    () => [
+      { value: "nibi", label: "NIBI" },
+      { value: "public", label: pick("公开", "Public") },
+      { value: "personal", label: pick("个人", "Personal") },
+    ],
+    [pick],
+  );
   const plugins = usePlugins();
   const { session, snapshot: sessionSnapshot } = useSession();
 
@@ -698,14 +777,28 @@ export default function MarketScreen() {
         refreshInstalledVersions(fresh.index.plugins);
         setMessage(
           result.kind === "unchanged"
-            ? `已同步（${marketRegionLabel(activeRegion)}，最新索引）`
-            : `已从${marketRegionLabel(activeRegion)}更新索引`,
+            ? pick(
+                `已同步（${marketRegionLabel(activeRegion)}，最新索引）`,
+                `Synced (${marketRegionLabel(activeRegion)}, up to date)`,
+              )
+            : pick(
+                `已从${marketRegionLabel(activeRegion)}更新索引`,
+                `Updated index from ${marketRegionLabel(activeRegion)}`,
+              ),
         );
       } else {
-        setMessage(`已同步（${marketRegionLabel(activeRegion)}，已是最新）`);
+        setMessage(
+          pick(
+            `已同步（${marketRegionLabel(activeRegion)}，已是最新）`,
+            `Synced (${marketRegionLabel(activeRegion)}, up to date)`,
+          ),
+        );
       }
     } catch (error) {
-      setMessage(`刷新失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("刷新失败：", "Refresh failed: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setRefreshing(false);
     }
@@ -717,8 +810,14 @@ export default function MarketScreen() {
     await saveMarketRegion(nextRegion);
     setMessage(
       nextRegion === "cn"
-        ? "已切换为国内源（优先 jsDelivr / npmmirror 镜像）"
-        : "已切换为国外源（优先 GitHub Raw / npmjs 官方源）",
+        ? pick(
+            "已切换为国内源（优先 jsDelivr / npmmirror 镜像）",
+            "Switched to CN Mirror (jsDelivr / npmmirror first)",
+          )
+        : pick(
+            "已切换为国外源（优先 GitHub Raw / npmjs 官方源）",
+            "Switched to Global (GitHub Raw / npmjs first)",
+          ),
     );
     void doRefresh(true, nextRegion);
   }
@@ -730,11 +829,19 @@ export default function MarketScreen() {
     setBusyId(entry.id);
     if (entry.package.format === "zip") {
       setProgress({ loaded: 0, total: entry.package.size });
-      setMessage(`正在通过${marketRegionLabel(region)}下载并校验 ${entry.name} v${entry.version}…`);
+      setMessage(
+        pick(
+          `正在通过${marketRegionLabel(region)}下载并校验 ${entry.name} v${entry.version}…`,
+          `Downloading & verifying ${entry.name} v${entry.version} via ${marketRegionLabel(region)}…`,
+        ),
+      );
     } else {
       setProgress(null);
       setMessage(
-        `正在通过${marketRegionLabel(region)}内置 npm 安装 ${entry.package.name}@${entry.version}…`,
+        pick(
+          `正在通过${marketRegionLabel(region)}内置 npm 安装 ${entry.package.name}@${entry.version}…`,
+          `Installing ${entry.package.name}@${entry.version} via built-in npm (${marketRegionLabel(region)})…`,
+        ),
       );
     }
     try {
@@ -749,14 +856,26 @@ export default function MarketScreen() {
         onStatus: (statusText) => setMessage(statusText),
       });
       if (!outcome.ok) {
+        const wasCancelled =
+          controller.signal.aborted ||
+          outcome.reason === "已取消" ||
+          outcome.reason === "Cancelled";
         setMessage(
-          `${entry.name} 安装失败：${outcome.reason}${outcome.reason === "已取消" ? "" : "（可重试）"}`,
+          pick(
+            `${entry.name} 安装失败：${outcome.reason}${wasCancelled ? "" : "（可重试）"}`,
+            `Failed to install ${entry.name}: ${outcome.reason}${wasCancelled ? "" : " (retryable)"}`,
+          ),
         );
         return;
       }
       setVersions((current) => ({ ...current, [entry.id]: outcome.manifest.version }));
       await plugins.reload();
-      setMessage(`${entry.name} v${outcome.manifest.version} 已安装并启用`);
+      setMessage(
+        pick(
+          `${entry.name} v${outcome.manifest.version} 已安装并启用`,
+          `${entry.name} v${outcome.manifest.version} installed & enabled`,
+        ),
+      );
     } finally {
       abortRef.current = null;
       setBusyId(null);
@@ -786,7 +905,7 @@ export default function MarketScreen() {
     await ensureLicenseLoaded();
     let decision = pluginLicenseDecision(entry.id);
     if (!decision.allowed) {
-      setMessage("正在核验账号授权状态…");
+      setMessage(pick("正在核验账号授权状态…", "Verifying account license…"));
       await syncLicense().catch(() => null);
       decision = pluginLicenseDecision(entry.id);
     }
@@ -807,7 +926,7 @@ export default function MarketScreen() {
       await session.login();
       const current = session.getSnapshot();
       if (!current.loggedIn) {
-        setMessage(current.error?.message ?? "登录未完成，请重试");
+        setMessage(current.error?.message ?? pick("登录未完成，请重试", "Sign-in incomplete; please retry"));
         return;
       }
       await syncLicense().catch(() => null);
@@ -818,7 +937,10 @@ export default function MarketScreen() {
         setMembershipEntry(targetEntry);
       }
     } catch (error) {
-      setMessage(`登录失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("登录失败：", "Sign-in failed: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     }
   }
 
@@ -830,12 +952,17 @@ export default function MarketScreen() {
     const removed = await uninstallMarketPlugin(id);
     setVersions((current) => ({ ...current, [id]: null }));
     await plugins.reload();
-    setMessage(removed ? `已卸载 ${name}` : `${name} 未安装`);
+    setMessage(
+      removed
+        ? pick(`已卸载 ${name}`, `Uninstalled ${name}`)
+        : pick(`${name} 未安装`, `${name} is not installed`),
+    );
   }
 
   async function installCuratedPublic(item: CuratedPublicPlugin) {
     if (busyId) return;
     setBusyId(item.id);
+    const displayName = pick(item.name, item.nameEn);
     try {
       const archiveInput: Record<string, Uint8Array> = {};
       for (const [relPath, content] of Object.entries(item.files)) {
@@ -847,12 +974,19 @@ export default function MarketScreen() {
         expectedVersion: item.version,
       });
       if (!outcome.ok) {
-        setMessage(`${item.name} 安装失败：${outcome.reason}`);
+        setMessage(
+          pick(`${displayName} 安装失败：${outcome.reason}`, `Failed to install ${displayName}: ${outcome.reason}`),
+        );
         return;
       }
       setVersions((current) => ({ ...current, [item.id]: outcome.manifest.version }));
       await plugins.reload();
-      setMessage(`${item.name} v${outcome.manifest.version} 已安装并启用`);
+      setMessage(
+        pick(
+          `${displayName} v${outcome.manifest.version} 已安装并启用`,
+          `${displayName} v${outcome.manifest.version} installed & enabled`,
+        ),
+      );
     } finally {
       setBusyId(null);
     }
@@ -1039,7 +1173,12 @@ export default function MarketScreen() {
     const id = npmPluginIdFor(target.packageName);
     const spec = target.version ? `${target.packageName}@${target.version}` : target.packageName;
     setBusyId(id);
-    setMessage(`正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`);
+    setMessage(
+      pick(
+        `正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`,
+        `Installing ${spec} via built-in npm (${marketRegionLabel(region)})…`,
+      ),
+    );
     try {
       const outcome = await installPersonalNpmPlugin(spec, {
         displayName: target.displayName,
@@ -1049,14 +1188,26 @@ export default function MarketScreen() {
         onStatus: (statusText) => setMessage(statusText),
       });
       if (!outcome.ok) {
-        setMessage(`${target.displayName} 安装失败：${outcome.reason}`);
+        setMessage(
+          pick(
+            `${target.displayName} 安装失败：${outcome.reason}`,
+            `Failed to install ${target.displayName}: ${outcome.reason}`,
+          ),
+        );
         return;
       }
       setVersions((current) => ({ ...current, [outcome.dir]: outcome.manifest.version }));
       await plugins.reload();
       const warnSuffix =
-        outcome.warnings && outcome.warnings.length > 0 ? `（${outcome.warnings[0]}）` : "";
-      setMessage(`${outcome.manifest.name} v${outcome.manifest.version} 已安装并启用${warnSuffix}`);
+        outcome.warnings && outcome.warnings.length > 0
+          ? pick(`（${outcome.warnings[0]}）`, ` (${outcome.warnings[0]})`)
+          : "";
+      setMessage(
+        pick(
+          `${outcome.manifest.name} v${outcome.manifest.version} 已安装并启用${warnSuffix}`,
+          `${outcome.manifest.name} v${outcome.manifest.version} installed & enabled${warnSuffix}`,
+        ),
+      );
     } finally {
       setBusyId(null);
     }
@@ -1067,7 +1218,12 @@ export default function MarketScreen() {
     if (!spec || !personalNpmRiskAccepted || addingNpm) return;
     Keyboard.dismiss();
     setAddingNpm(true);
-    setMessage(`正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`);
+    setMessage(
+      pick(
+        `正在通过${marketRegionLabel(region)}内置 npm 安装 ${spec}…`,
+        `Installing ${spec} via built-in npm (${marketRegionLabel(region)})…`,
+      ),
+    );
     try {
       const outcome = await installPersonalNpmPlugin(spec, {
         displayName: personalNpmNameInput.trim() || undefined,
@@ -1076,7 +1232,7 @@ export default function MarketScreen() {
         onStatus: (statusText) => setMessage(statusText),
       });
       if (!outcome.ok) {
-        setMessage(`npm 安装失败：${outcome.reason}`);
+        setMessage(pick(`npm 安装失败：${outcome.reason}`, `npm install failed: ${outcome.reason}`));
         return;
       }
       const sourceUrl = `npm:${spec}`;
@@ -1102,7 +1258,12 @@ export default function MarketScreen() {
       setPersonalNpmNameInput("");
       setPersonalNpmSpecInput("");
       setPersonalNpmRiskAccepted(false);
-      setMessage(`已通过 npm 安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+      setMessage(
+        pick(
+          `已通过 npm 安装 ${outcome.manifest.name} v${outcome.manifest.version}`,
+          `Installed ${outcome.manifest.name} v${outcome.manifest.version} from npm`,
+        ),
+      );
     } finally {
       setAddingNpm(false);
     }
@@ -1112,15 +1273,25 @@ export default function MarketScreen() {
     const url = personalUrlInput.trim();
     if (!url || !personalRiskAccepted || addingPersonal) return;
     if (!/^https?:\/\//i.test(url)) {
-      setMessage("请输入以 https:// 或 http:// 开头的插件包 (.zip) 地址");
+      setMessage(
+        pick(
+          "请输入以 https:// 或 http:// 开头的插件包 (.zip) 地址",
+          "Enter a plugin archive (.zip) URL starting with https:// or http://",
+        ),
+      );
       return;
     }
     setAddingPersonal(true);
-    setMessage(`正在通过${marketRegionLabel(region)}拉取个人插件包…`);
+    setMessage(
+      pick(
+        `正在通过${marketRegionLabel(region)}拉取个人插件包…`,
+        `Fetching personal plugin archive via ${marketRegionLabel(region)}…`,
+      ),
+    );
     try {
       const outcome = await installPersonalUrlPlugin(url, { region });
       if (!outcome.ok) {
-        setMessage(`添加失败：${outcome.reason}`);
+        setMessage(pick(`添加失败：${outcome.reason}`, `Add failed: ${outcome.reason}`));
         return;
       }
       const sourceEntry: PersonalPluginSource = {
@@ -1144,7 +1315,12 @@ export default function MarketScreen() {
       setPersonalNameInput("");
       setPersonalUrlInput("");
       setPersonalRiskAccepted(false);
-      setMessage(`已从个人源安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+      setMessage(
+        pick(
+          `已从个人源安装 ${outcome.manifest.name} v${outcome.manifest.version}`,
+          `Installed ${outcome.manifest.name} v${outcome.manifest.version} from custom URL`,
+        ),
+      );
     } finally {
       setAddingPersonal(false);
     }
@@ -1160,19 +1336,31 @@ export default function MarketScreen() {
       if (picked.canceled || !picked.assets?.length) return;
       const asset = picked.assets[0];
       setBusyId("local-zip");
-      setMessage(`正在校验本地插件包 ${asset.name}…`);
+      setMessage(
+        pick(`正在校验本地插件包 ${asset.name}…`, `Verifying local plugin archive ${asset.name}…`),
+      );
       const file = new File(asset.uri);
       const bytes = await file.bytes();
       const outcome = await installPluginArchiveBytes(bytes);
       if (!outcome.ok) {
-        setMessage(`本地插件包导入失败：${outcome.reason}`);
+        setMessage(
+          pick(`本地插件包导入失败：${outcome.reason}`, `Local import failed: ${outcome.reason}`),
+        );
         return;
       }
       setVersions((current) => ({ ...current, [outcome.manifest.id]: outcome.manifest.version }));
       await plugins.reload();
-      setMessage(`已导入并安装 ${outcome.manifest.name} v${outcome.manifest.version}`);
+      setMessage(
+        pick(
+          `已导入并安装 ${outcome.manifest.name} v${outcome.manifest.version}`,
+          `Imported & installed ${outcome.manifest.name} v${outcome.manifest.version}`,
+        ),
+      );
     } catch (error) {
-      setMessage(`读取本地插件包失败：${error instanceof Error ? error.message : String(error)}`);
+      setMessage(
+        pick("读取本地插件包失败：", "Failed to read local archive: ") +
+          (error instanceof Error ? error.message : String(error)),
+      );
     } finally {
       setBusyId(null);
     }
@@ -1187,7 +1375,9 @@ export default function MarketScreen() {
       setVersions((current) => ({ ...current, [source.installedPluginId!]: null }));
       await plugins.reload();
     }
-    setMessage(`已移除个人插件源「${source.name}」`);
+    setMessage(
+      pick(`已移除个人插件源「${source.name}」`, `Removed custom source "${source.name}"`),
+    );
   }
 
   const allRemoteEntries = useMemo(() => visibleMarketEntries(snapshot), [snapshot]);
@@ -1238,7 +1428,7 @@ export default function MarketScreen() {
         <Pressable
           onPress={() => setPublicDetail({ kind: "npm", hit })}
           accessibilityRole="button"
-          accessibilityLabel={`查看 ${hit.name} 详情`}
+          accessibilityLabel={pick(`查看 ${hit.name} 详情`, `View details for ${hit.name}`)}
           style={({ pressed }) => [styles.cardBodyTap, pressed ? { opacity: 0.78 } : null]}
         >
           <View style={styles.cardHead}>
@@ -1251,15 +1441,19 @@ export default function MarketScreen() {
                   <StatusPill bg={t.brandSoft} color={t.brand} label="MCP" />
                 ) : null}
                 {isDesktopOnly ? (
-                  <StatusPill bg={t.amberSoft} color={t.amber} label="需桌面环境" />
+                  <StatusPill bg={t.amberSoft} color={t.amber} label={pick("需桌面环境", "Desktop only")} />
                 ) : null}
               </View>
               <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
-                v{hit.version} · {hit.author} · 社区未审
+                v{hit.version} · {hit.author} · {pick("社区未审", "Unverified")}
               </Text>
             </View>
             {installedVer ? (
-              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+              <StatusPill
+                bg={t.okSoft}
+                color={t.ok}
+                label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
+              />
             ) : (
               <Icon name="chevron-right" size={14} color={t.inkGhost} />
             )}
@@ -1277,7 +1471,13 @@ export default function MarketScreen() {
         </Pressable>
         <View style={styles.actions}>
           <PillButton
-            label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+            label={
+              isBusy
+                ? pick("安装中…", "Installing…")
+                : installedVer === null
+                  ? pick("安装", "Install")
+                  : pick("重新安装", "Reinstall")
+            }
             variant="primary"
             buttonSize="sm"
             disabled={isBusy || busyId !== null}
@@ -1293,7 +1493,7 @@ export default function MarketScreen() {
           />
           {installedVer !== null && !isBusy ? (
             <PillButton
-              label="卸载"
+              label={pick("卸载", "Uninstall")}
               variant="danger"
               buttonSize="sm"
               onPress={() => void uninstall(pluginId, hit.name)}
@@ -1323,17 +1523,25 @@ export default function MarketScreen() {
             {hit.looksLikeMcp ? <StatusPill bg={t.brandSoft} color={t.brand} label="npm MCP" /> : null}
             <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={`v${hit.version}`} />
             {hit.suitability === "desktop-only" ? (
-              <StatusPill bg={t.amberSoft} color={t.amber} label="需桌面环境" />
+              <StatusPill bg={t.amberSoft} color={t.amber} label={pick("需桌面环境", "Desktop only")} />
             ) : null}
             {installedVer ? (
-              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+              <StatusPill
+                bg={t.okSoft}
+                color={t.ok}
+                label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
+              />
             ) : null}
           </View>
           <Text style={[styles.meta, { color: t.inkFaint }]}>
-            包名：{hit.name} · 作者：{hit.author}
+            {pick(`包名：${hit.name} · 作者：${hit.author}`, `Package: ${hit.name} · Author: ${hit.author}`)}
           </Text>
           <Text style={[styles.detailDesc, { color: t.ink }]}>
-            {hit.description || "该开源包未提供简介，可先查看项目主页再决定是否安装。"}
+            {hit.description ||
+              pick(
+                "该开源包未提供简介，可先查看项目主页再决定是否安装。",
+                "No description provided. Check the homepage before installing.",
+              )}
           </Text>
           <View
             style={[
@@ -1351,8 +1559,14 @@ export default function MarketScreen() {
               ]}
             >
               {hit.mobileHint
-                ? `${hit.mobileHint}。该包来自 npm 公共社区，安装器会自动跳过脚本并拦截原生二进制。`
-                : "来自 npm 公共社区（未经官方审核），安装时强制 --ignore-scripts 拦截原生二进制，并自动探测所需 API Key / 环境变量。"}
+                ? pick(
+                    `${hit.mobileHint}。该包来自 npm 公共社区，安装器会自动跳过脚本并拦截原生二进制。`,
+                    `${hit.mobileHint}. From the public npm registry; the installer runs with --ignore-scripts and blocks native binaries.`,
+                  )
+                : pick(
+                    "来自 npm 公共社区（未经官方审核），安装时强制 --ignore-scripts 拦截原生二进制，并自动探测所需 API Key / 环境变量。",
+                    "From the public npm registry (unverified). Installed with --ignore-scripts, blocking native binaries and auto-detecting required env vars.",
+                  )}
             </Text>
           </View>
           {hit.keywords.length > 0 ? (
@@ -1374,7 +1588,7 @@ export default function MarketScreen() {
             <PressableScale
               onPress={() => void Linking.openURL(linkUrl)}
               accessibilityRole="link"
-              accessibilityLabel={`打开 ${hit.name} 主页`}
+              accessibilityLabel={pick(`打开 ${hit.name} 主页`, `Open ${hit.name} homepage`)}
               style={[
                 styles.detailLinkRow,
                 { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
@@ -1390,7 +1604,7 @@ export default function MarketScreen() {
           <View style={styles.sheetActions}>
             {installedVer ? (
               <PillButton
-                label="插件中心配置"
+                label={pick("插件中心配置", "Configure in Plugins")}
                 variant="secondary"
                 onPress={() => {
                   setPublicDetail(null);
@@ -1399,7 +1613,13 @@ export default function MarketScreen() {
               />
             ) : null}
             <PillButton
-              label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+              label={
+                isBusy
+                  ? pick("安装中…", "Installing…")
+                  : installedVer === null
+                    ? pick("安装", "Install")
+                    : pick("重新安装", "Reinstall")
+              }
               variant="primary"
               disabled={isBusy || busyId !== null}
               onPress={() => {
@@ -1420,28 +1640,37 @@ export default function MarketScreen() {
 
     if (publicDetail.kind === "featured") {
       const { item } = publicDetail;
+      const itemName = pick(item.name, item.nameEn);
+      const itemDesc = pick(item.description, item.descriptionEn);
       const installedVer = versions[item.id] ?? null;
       const isBusy = busyId === item.id;
       const linkUrl = safeExternalHttpsUrl(item.homepage);
-      const needsKey = item.envHint.includes("需配置");
+      const needsKey = item.needsKey;
       return (
         <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
           <View style={styles.titleBadgeRow}>
-            <StatusPill bg={t.brandSoft} color={t.brand} label="精选 npm MCP" />
-            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={item.category} />
+            <StatusPill bg={t.brandSoft} color={t.brand} label={pick("精选 npm MCP", "Featured MCP")} />
+            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={pick(item.category, item.categoryEn)} />
             <StatusPill
               bg={needsKey ? t.amberSoft : t.okSoft}
               color={needsKey ? t.amber : t.ok}
-              label={item.envHint}
+              label={pick(item.envHint, item.envHintEn)}
             />
             {installedVer ? (
-              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+              <StatusPill
+                bg={t.okSoft}
+                color={t.ok}
+                label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
+              />
             ) : null}
           </View>
           <Text style={[styles.meta, { color: t.inkFaint }]}>
-            包名：{item.packageName} · 提供方：{item.publisher}
+            {pick(
+              `包名：${item.packageName} · 提供方：${item.publisher}`,
+              `Package: ${item.packageName} · Publisher: ${item.publisher}`,
+            )}
           </Text>
-          <Text style={[styles.detailDesc, { color: t.ink }]}>{item.description}</Text>
+          <Text style={[styles.detailDesc, { color: t.ink }]}>{itemDesc}</Text>
           <View
             style={[
               styles.detailNotice,
@@ -1450,8 +1679,14 @@ export default function MarketScreen() {
           >
             <Text style={[styles.hint, { color: t.inkSub }]}>
               {needsKey
-                ? "已验证纯 JS 手机可运行。安装后前往「插件中心」填入对应 API Key，新开会话即可使用。"
-                : "已验证纯 JS 手机可运行，免配置外部密钥；安装后新开会话即可由助手直接调用。"}
+                ? pick(
+                    "已验证纯 JS 手机可运行。安装后前往「插件中心」填入对应 API Key，新开会话即可使用。",
+                    "Verified pure-JS mobile MCP. After installing, add the API key in Plugins and start a new chat.",
+                  )
+                : pick(
+                    "已验证纯 JS 手机可运行，免配置外部密钥；安装后新开会话即可由助手直接调用。",
+                    "Verified pure-JS mobile MCP with no API key required. Ready in new chats right after install.",
+                  )}
             </Text>
           </View>
           {item.keywords.length > 0 ? (
@@ -1473,7 +1708,7 @@ export default function MarketScreen() {
             <PressableScale
               onPress={() => void Linking.openURL(linkUrl)}
               accessibilityRole="link"
-              accessibilityLabel={`打开 ${item.name} 主页`}
+              accessibilityLabel={pick(`打开 ${itemName} 主页`, `Open ${itemName} homepage`)}
               style={[
                 styles.detailLinkRow,
                 { backgroundColor: t.surfaceSoft, borderColor: t.hairline },
@@ -1489,7 +1724,7 @@ export default function MarketScreen() {
           <View style={styles.sheetActions}>
             {installedVer ? (
               <PillButton
-                label="插件中心配置"
+                label={pick("插件中心配置", "Configure in Plugins")}
                 variant="secondary"
                 onPress={() => {
                   setPublicDetail(null);
@@ -1498,15 +1733,21 @@ export default function MarketScreen() {
               />
             ) : null}
             <PillButton
-              label={isBusy ? "安装中…" : installedVer === null ? "安装" : "重新安装"}
+              label={
+                isBusy
+                  ? pick("安装中…", "Installing…")
+                  : installedVer === null
+                    ? pick("安装", "Install")
+                    : pick("重新安装", "Reinstall")
+              }
               variant="primary"
               disabled={isBusy || busyId !== null}
               onPress={() => {
                 setPublicDetail(null);
                 void executeNpmCommunityInstall({
                   packageName: item.packageName,
-                  displayName: item.name,
-                  description: item.description,
+                  displayName: itemName,
+                  description: itemDesc,
                   origin: "npm-search",
                 });
               }}
@@ -1518,34 +1759,41 @@ export default function MarketScreen() {
 
     if (publicDetail.kind === "curated") {
       const { item } = publicDetail;
+      const itemName = pick(item.name, item.nameEn);
       const installedVer = versions[item.id] ?? null;
       const isBusy = busyId === item.id;
       return (
         <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
           <View style={styles.titleBadgeRow}>
-            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="开源技能包" />
-            <StatusPill bg={t.okSoft} color={t.ok} label="离线可用 · 免密钥" />
+            <StatusPill bg={t.surfaceSoft} color={t.inkSub} label={pick("开源技能包", "Open skill pack")} />
+            <StatusPill bg={t.okSoft} color={t.ok} label={pick("离线可用 · 免密钥", "Offline · No key")} />
             {installedVer ? (
-              <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+              <StatusPill
+                bg={t.okSoft}
+                color={t.ok}
+                label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
+              />
             ) : null}
           </View>
           <Text style={[styles.meta, { color: t.inkFaint }]}>
             v{item.version} · {item.publisher}
           </Text>
-          <Text style={[styles.detailDesc, { color: t.ink }]}>{item.description}</Text>
+          <Text style={[styles.detailDesc, { color: t.ink }]}>
+            {pick(item.description, item.descriptionEn)}
+          </Text>
           <View style={styles.sheetActions}>
             {installedVer ? (
               <PillButton
-                label="卸载"
+                label={pick("卸载", "Uninstall")}
                 variant="danger"
                 onPress={() => {
                   setPublicDetail(null);
-                  void uninstall(item.id, item.name);
+                  void uninstall(item.id, itemName);
                 }}
               />
             ) : null}
             <PillButton
-              label={installedVer === null ? "安装" : "重新安装"}
+              label={installedVer === null ? pick("安装", "Install") : pick("重新安装", "Reinstall")}
               variant="primary"
               disabled={isBusy || busyId !== null}
               onPress={() => {
@@ -1564,7 +1812,7 @@ export default function MarketScreen() {
     return (
       <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailBody}>
         <View style={styles.titleBadgeRow}>
-          <StatusPill bg={t.brandSoft} color={t.brand} label="nibi-go-market 验签" />
+          <StatusPill bg={t.brandSoft} color={t.brand} label={pick("nibi-go-market 验签", "Signed index")} />
           <StatusPill
             bg={t.surfaceSoft}
             color={t.inkSub}
@@ -1572,12 +1820,16 @@ export default function MarketScreen() {
               entry.package.format === "npm"
                 ? "npm MCP"
                 : entry.kind === "skill"
-                  ? "技能包"
-                  : "标准 ZIP"
+                  ? pick("技能包", "Skill pack")
+                  : pick("标准 ZIP", "ZIP")
             }
           />
           {installedVer ? (
-            <StatusPill bg={t.okSoft} color={t.ok} label={`已安装 v${installedVer}`} />
+            <StatusPill
+              bg={t.okSoft}
+              color={t.ok}
+              label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
+            />
           ) : null}
         </View>
         <Text style={[styles.meta, { color: t.inkFaint }]}>
@@ -1586,12 +1838,16 @@ export default function MarketScreen() {
           {entry.license ? ` · ${entry.license}` : ""}
         </Text>
         <Text style={[styles.detailDesc, { color: t.ink }]}>
-          {entry.description || "已通过 nibi-go-market 签名校验的公开插件。"}
+          {entry.description ||
+            pick(
+              "已通过 nibi-go-market 签名校验的公开插件。",
+              "Public plugin verified via nibi-go-market signature.",
+            )}
         </Text>
         <View style={styles.sheetActions}>
           {installedVer ? (
             <PillButton
-              label="卸载"
+              label={pick("卸载", "Uninstall")}
               variant="danger"
               onPress={() => {
                 setPublicDetail(null);
@@ -1600,7 +1856,7 @@ export default function MarketScreen() {
             />
           ) : null}
           <PillButton
-            label={installedVer === null ? "安装" : "重新安装"}
+            label={installedVer === null ? pick("安装", "Install") : pick("重新安装", "Reinstall")}
             variant="primary"
             disabled={isBusy || busyId !== null}
             onPress={() => {
@@ -1620,7 +1876,7 @@ export default function MarketScreen() {
         ? publicDetail.hit.name
         : publicDetail.kind === "market"
           ? publicDetail.entry.name
-          : publicDetail.item.name;
+          : pick(publicDetail.item.name, publicDetail.item.nameEn);
 
   return (
     <View style={styles.root}>
@@ -1631,7 +1887,7 @@ export default function MarketScreen() {
         pointerEvents="none"
       />
       <ScreenHeader
-        title="插件市场"
+        title={pick("插件市场", "Marketplace")}
         onBack={() => router.back()}
         right={
           <View style={styles.headerRightRow}>
@@ -1639,7 +1895,10 @@ export default function MarketScreen() {
               onPress={() => void toggleRegion()}
               disabled={refreshing}
               accessibilityRole="button"
-              accessibilityLabel={`切换镜像源，当前为${marketRegionLabel(region)}`}
+              accessibilityLabel={pick(
+                `切换镜像源，当前为${marketRegionLabel(region)}`,
+                `Switch mirror source (currently ${marketRegionLabel(region)})`,
+              )}
               hitSlop={6}
               style={[
                 styles.regionButton,
@@ -1649,7 +1908,7 @@ export default function MarketScreen() {
             >
               <Icon name="globe" size={14} color={t.brand} />
               <Text style={[styles.regionButtonText, { color: t.ink }]}>
-                {marketRegionLabel(region)}
+                {region === "cn" ? pick("国内源", "CN") : pick("国外源", "Global")}
               </Text>
             </PressableScale>
 
@@ -1657,7 +1916,7 @@ export default function MarketScreen() {
               onPress={() => void doRefresh()}
               disabled={refreshing}
               accessibilityRole="button"
-              accessibilityLabel="刷新市场索引"
+              accessibilityLabel={pick("刷新市场索引", "Refresh marketplace index")}
               hitSlop={8}
               style={[
                 styles.headButton,
@@ -1677,11 +1936,11 @@ export default function MarketScreen() {
 
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space(6) }]}
+        contentContainerStyle={bodyStyle}
       >
         <AppearIn delay={staggerDelay(0, 28, 200)}>
           <SegmentedControl
-            options={MARKET_TABS}
+            options={marketTabs}
             value={tab}
             onChange={setTab}
           />
@@ -1691,16 +1950,22 @@ export default function MarketScreen() {
           <View style={[styles.mirrorBanner, { backgroundColor: t.card, borderColor: t.hairline }]}>
             <View style={styles.mirrorBannerTextWrap}>
               <Text style={[styles.mirrorBannerTitle, { color: t.ink }]}>
-                NIBI-GO 独立市场 · {marketRegionLabel(region)}
+                {pick("NIBI-GO 独立市场", "NIBI-GO Marketplace")} · {marketRegionLabel(region)}
               </Text>
               <Text style={[styles.mirrorBannerSub, { color: t.inkFaint }]}>
                 {region === "cn"
-                  ? "目录源：nibi-go-market（jsDelivr / Fastly 验签）· npm 源：npmmirror"
-                  : "目录源：nibi-go-market（GitHub Raw 验签）· npm 源：registry.npmjs.org"}
+                  ? pick(
+                      "目录源：nibi-go-market（jsDelivr / Fastly 验签）· npm 源：npmmirror",
+                      "Index: nibi-go-market (jsDelivr/Fastly signed) · npm: npmmirror",
+                    )
+                  : pick(
+                      "目录源：nibi-go-market（GitHub Raw 验签）· npm 源：registry.npmjs.org",
+                      "Index: nibi-go-market (GitHub Raw signed) · npm: registry.npmjs.org",
+                    )}
               </Text>
             </View>
             <PillButton
-              label={region === "cn" ? "切国外源" : "切国内源"}
+              label={region === "cn" ? pick("切国外源", "Global") : pick("切国内源", "CN Mirror")}
               variant="secondary"
               buttonSize="sm"
               onPress={() => void toggleRegion()}
@@ -1711,7 +1976,10 @@ export default function MarketScreen() {
         {corruptSnapshot ? (
           <View style={[styles.message, { backgroundColor: t.amberSoft, borderColor: t.hairline }]}>
             <Text style={[styles.messageText, { color: t.amber }]}>
-              本地市场快照损坏，已忽略；刷新会重新建立快照。
+              {pick(
+                "本地市场快照损坏，已忽略；刷新会重新建立快照。",
+                "Local marketplace snapshot was corrupted and ignored; refresh to rebuild it.",
+              )}
             </Text>
           </View>
         ) : null}
@@ -1747,7 +2015,12 @@ export default function MarketScreen() {
         {tab === "nibi" ? (
           <>
             <AppearIn delay={staggerDelay(2, 28, 200)}>
-              <SectionCard label="随包内置（手机轻量专属 · 开箱即用）">
+              <SectionCard
+                label={pick(
+                  "随包内置（手机轻量专属 · 开箱即用）",
+                  "Bundled with NIBI-GO (mobile-ready)",
+                )}
+              >
                 {BUNDLED_PLUGINS.map((bundled, idx) => {
                   const installed = plugins.plugins.find((item) => item.dir === bundled.dir);
                   const manifest = installed?.parsed.manifest;
@@ -1758,11 +2031,18 @@ export default function MarketScreen() {
                       <Row
                         icon="sparkles"
                         tone="brand"
-                        title={manifest?.name ?? bundled.dir}
-                        detail={
+                        title={pluginDisplayName(
+                          manifest?.id ?? bundled.dir,
+                          manifest?.name ?? bundled.dir,
+                        )}
+                        detail={pluginDisplayDescription(
+                          manifest?.id ?? bundled.dir,
                           manifest?.description ??
-                          "NIBI-GO 手机端轻量内置套件，支持本地 MCP 工具与快捷技能"
-                        }
+                            pick(
+                              "NIBI-GO 手机端轻量内置套件，支持本地 MCP 工具与快捷技能",
+                              "Built-in lightweight NIBI-GO mobile suite with local MCP tools & skills",
+                            ),
+                        )}
                         right={
                           <Switch
                             value={enabled}
@@ -1782,7 +2062,7 @@ export default function MarketScreen() {
               <AppearIn delay={staggerDelay(3, 28, 200)}>
                 <View style={styles.sectionStack}>
                   <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                    NIBI 手机市场官方扩展
+                    {pick("NIBI 手机市场官方扩展", "Official NIBI mobile extensions")}
                   </Text>
                   {nibiRemoteEntries.map((entry) => (
                     <MarketRow
@@ -1818,7 +2098,10 @@ export default function MarketScreen() {
                       value={npmQuery}
                       onChangeText={setNpmQuery}
                       onSubmitEditing={() => void handleSearchNpm()}
-                      placeholder={`搜 ${region === "cn" ? "npmmirror" : "npmjs"} MCP 包名或关键词`}
+                      placeholder={pick(
+                        `搜 ${region === "cn" ? "npmmirror" : "npmjs"} MCP 包名或关键词`,
+                        `Search ${region === "cn" ? "npmmirror" : "npmjs"} MCP packages or keywords`,
+                      )}
                       placeholderTextColor={t.inkGhost}
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -1830,14 +2113,14 @@ export default function MarketScreen() {
                         onPress={clearNpmSearch}
                         hitSlop={8}
                         accessibilityRole="button"
-                        accessibilityLabel="清空搜索词"
+                        accessibilityLabel={pick("清空搜索词", "Clear search")}
                       >
                         <Icon name="x" size={14} color={t.inkFaint} />
                       </PressableScale>
                     ) : null}
                   </View>
                   <PillButton
-                    label={npmSearching ? "搜索中…" : "搜索"}
+                    label={npmSearching ? pick("搜索中…", "Searching…") : pick("搜索", "Search")}
                     variant="primary"
                     buttonSize="sm"
                     disabled={npmSearching || !npmQuery.trim()}
@@ -1854,6 +2137,7 @@ export default function MarketScreen() {
                     >
                       {PUBLIC_BROWSE_CHANNELS.map((ch) => {
                         const active = ch.id === browseChannel;
+                        const chLabel = pick(ch.label, ch.labelEn);
                         return (
                           <PressableScale
                             key={ch.id}
@@ -1861,7 +2145,7 @@ export default function MarketScreen() {
                             onPress={() => setBrowseChannel(ch.id)}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: active }}
-                            accessibilityLabel={`浏览频道 ${ch.label}`}
+                            accessibilityLabel={pick(`浏览频道 ${chLabel}`, `Browse ${chLabel}`)}
                             style={[
                               styles.channelChip,
                               {
@@ -1876,7 +2160,7 @@ export default function MarketScreen() {
                                 { color: active ? "#FFFFFF" : t.inkSub },
                               ]}
                             >
-                              {ch.label}
+                              {chLabel}
                             </Text>
                           </PressableScale>
                         );
@@ -1885,9 +2169,12 @@ export default function MarketScreen() {
 
                     <View style={styles.channelMetaRow}>
                       <Text style={[styles.channelSub, { color: t.inkFaint }]} numberOfLines={1}>
-                        {activeBrowseChannel.subtitle}
+                        {pick(activeBrowseChannel.subtitle, activeBrowseChannel.subtitleEn)}
                         {activeBrowseChannel.query && currentBrowseFeed.total > 0
-                          ? ` · ${currentBrowseFeed.total.toLocaleString()} 个包`
+                          ? pick(
+                              ` · ${currentBrowseFeed.total.toLocaleString()} 个包`,
+                              ` · ${currentBrowseFeed.total.toLocaleString()} packages`,
+                            )
                           : ""}
                       </Text>
                       {activeBrowseChannel.query ? (
@@ -1898,12 +2185,15 @@ export default function MarketScreen() {
                           disabled={currentBrowseFeed.loading}
                           hitSlop={8}
                           accessibilityRole="button"
-                          accessibilityLabel={`刷新${activeBrowseChannel.label}`}
+                          accessibilityLabel={pick(
+                            `刷新${activeBrowseChannel.label}`,
+                            `Refresh ${activeBrowseChannel.labelEn}`,
+                          )}
                           style={styles.channelRefreshBtn}
                         >
                           <Icon name="refresh" size={12} color={t.inkFaint} />
                           <Text style={[styles.channelRefreshText, { color: t.inkFaint }]}>
-                            刷新
+                            {pick("刷新", "Refresh")}
                           </Text>
                         </PressableScale>
                       ) : null}
@@ -1917,21 +2207,26 @@ export default function MarketScreen() {
               <View style={styles.sectionStack}>
                 <View style={styles.channelMetaRow}>
                   <Text style={[styles.sectionHeading, { color: t.inkFaint, flex: 1 }]} numberOfLines={1}>
-                    搜索「{npmQuery.trim()}」
+                    {pick(`搜索「${npmQuery.trim()}」`, `Search "${npmQuery.trim()}"`)}
                     {npmHits.length > 0
-                      ? ` · 已展示 ${npmHits.length}${npmTotal > npmHits.length ? ` / ${npmTotal}` : ""}（${npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"}）`
+                      ? pick(
+                          ` · 已展示 ${npmHits.length}${npmTotal > npmHits.length ? ` / ${npmTotal}` : ""}（${npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"}）`,
+                          ` · ${npmHits.length}${npmTotal > npmHits.length ? ` / ${npmTotal}` : ""} (${npmSearchRegistry?.replace(/^https:\/\//u, "") ?? "npm"})`,
+                        )
                       : ""}
                   </Text>
                   <PressableScale
                     onPress={clearNpmSearch}
                     accessibilityRole="button"
-                    accessibilityLabel="返回频道浏览"
+                    accessibilityLabel={pick("返回频道浏览", "Back to channels")}
                     style={[
                       styles.backBrowseChip,
                       { backgroundColor: t.card, borderColor: t.hairline },
                     ]}
                   >
-                    <Text style={[styles.backBrowseText, { color: t.inkSub }]}>返回浏览</Text>
+                    <Text style={[styles.backBrowseText, { color: t.inkSub }]}>
+                      {pick("返回浏览", "Browse")}
+                    </Text>
                   </PressableScale>
                 </View>
 
@@ -1939,7 +2234,10 @@ export default function MarketScreen() {
                   <View style={styles.loading}>
                     <ActivityIndicator color={t.brand} />
                     <Text style={[styles.hint, { color: t.inkFaint }]}>
-                      正在检索 {region === "cn" ? "npmmirror" : "npmjs.org"}…
+                      {pick(
+                        `正在检索 ${region === "cn" ? "npmmirror" : "npmjs.org"}…`,
+                        `Searching ${region === "cn" ? "npmmirror" : "npmjs.org"}…`,
+                      )}
                     </Text>
                   </View>
                 ) : npmSearchError ? (
@@ -1947,7 +2245,7 @@ export default function MarketScreen() {
                     <Text style={[styles.hint, { color: t.red }]}>{npmSearchError}</Text>
                     <View style={styles.actions}>
                       <PillButton
-                        label="重试"
+                        label={pick("重试", "Retry")}
                         variant="secondary"
                         buttonSize="sm"
                         onPress={() => void handleSearchNpm()}
@@ -1956,9 +2254,14 @@ export default function MarketScreen() {
                   </View>
                 ) : npmHits.length === 0 ? (
                   <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
-                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>未找到匹配的 npm 包</Text>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>
+                      {pick("未找到匹配的 npm 包", "No matching npm packages")}
+                    </Text>
                     <Text style={[styles.hint, { color: t.inkFaint }]}>
-                      可以换个英文关键词，点「返回浏览」按分类逛，或去「个人」页直接输入完整包名安装。
+                      {pick(
+                        "可以换个英文关键词，点「返回浏览」按分类逛，或去「个人」页直接输入完整包名安装。",
+                        "Try another keyword, tap Browse to explore categories, or install by exact package name under Personal.",
+                      )}
                     </Text>
                   </View>
                 ) : (
@@ -1967,7 +2270,7 @@ export default function MarketScreen() {
                     {npmHasMore ? (
                       <View style={styles.loadMoreWrap}>
                         <PillButton
-                          label={npmLoadingMore ? "加载中…" : "加载更多结果"}
+                          label={npmLoadingMore ? pick("加载中…", "Loading…") : pick("加载更多结果", "Load more")}
                           variant="secondary"
                           disabled={npmLoadingMore}
                           onPress={() => void handleLoadMoreSearch()}
@@ -1981,14 +2284,19 @@ export default function MarketScreen() {
               loading ? (
                 <View style={styles.loading}>
                   <ActivityIndicator color={t.brand} />
-                  <Text style={[styles.hint, { color: t.inkFaint }]}>读取公开市场目录…</Text>
+                  <Text style={[styles.hint, { color: t.inkFaint }]}>
+                    {pick("读取公开市场目录…", "Loading public marketplace…")}
+                  </Text>
                 </View>
               ) : (
                 <View style={styles.sectionStack}>
                   {publicRemoteEntries.length > 0 ? (
                     <>
                       <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                        已审核公开市场（nibi-go-market 验签收录）
+                        {pick(
+                          "已审核公开市场（nibi-go-market 验签收录）",
+                          "Verified public catalog (signed index)",
+                        )}
                       </Text>
                       {publicRemoteEntries.map((entry, idx) => (
                         <AppearIn key={entry.id} delay={staggerDelay(idx + 3, 28, 200)}>
@@ -2009,12 +2317,17 @@ export default function MarketScreen() {
                   {visibleFeaturedNpmMcps.length > 0 ? (
                     <>
                       <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                        手机实测精选 MCP（纯 JS · 点击卡片看详情）
+                        {pick(
+                          "手机实测精选 MCP（纯 JS · 点击卡片看详情）",
+                          "Mobile-tested featured MCPs (pure JS · tap for details)",
+                        )}
                       </Text>
                       {visibleFeaturedNpmMcps.map((item, idx) => {
+                        const itemName = pick(item.name, item.nameEn);
+                        const itemDesc = pick(item.description, item.descriptionEn);
                         const installedVer = versions[item.id] ?? null;
                         const isBusy = busyId === item.id;
-                        const needsKey = item.envHint.includes("需配置");
+                        const needsKey = item.needsKey;
                         return (
                           <AppearIn key={item.id} delay={staggerDelay(idx + 3, 24, 180)}>
                             <View
@@ -2026,7 +2339,7 @@ export default function MarketScreen() {
                               <Pressable
                                 onPress={() => setPublicDetail({ kind: "featured", item })}
                                 accessibilityRole="button"
-                                accessibilityLabel={`查看 ${item.name} 详情`}
+                                accessibilityLabel={pick(`查看 ${itemName} 详情`, `View details for ${itemName}`)}
                                 style={({ pressed }) => [
                                   styles.cardBodyTap,
                                   pressed ? { opacity: 0.78 } : null,
@@ -2035,12 +2348,16 @@ export default function MarketScreen() {
                                 <View style={styles.cardHead}>
                                   <View style={styles.cardTitleWrap}>
                                     <View style={styles.titleBadgeRow}>
-                                      <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
-                                      <StatusPill bg={t.brandSoft} color={t.brand} label={item.category} />
+                                      <Text style={[styles.name, { color: t.ink }]}>{itemName}</Text>
+                                      <StatusPill
+                                        bg={t.brandSoft}
+                                        color={t.brand}
+                                        label={pick(item.category, item.categoryEn)}
+                                      />
                                       <StatusPill
                                         bg={needsKey ? t.amberSoft : t.okSoft}
                                         color={needsKey ? t.amber : t.ok}
-                                        label={item.envHint}
+                                        label={pick(item.envHint, item.envHintEn)}
                                       />
                                     </View>
                                     <Text style={[styles.meta, { color: t.inkFaint }]} numberOfLines={1}>
@@ -2053,7 +2370,7 @@ export default function MarketScreen() {
                                     <StatusPill
                                       bg={t.okSoft}
                                       color={t.ok}
-                                      label={`已安装 v${installedVer}`}
+                                      label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
                                     />
                                   )}
                                 </View>
@@ -2061,17 +2378,17 @@ export default function MarketScreen() {
                                   style={[styles.description, { color: t.inkSub }]}
                                   numberOfLines={2}
                                 >
-                                  {item.description}
+                                  {itemDesc}
                                 </Text>
                               </Pressable>
                               <View style={styles.actions}>
                                 <PillButton
                                   label={
                                     isBusy
-                                      ? "安装中…"
+                                      ? pick("安装中…", "Installing…")
                                       : installedVer === null
-                                        ? "安装"
-                                        : "重新安装"
+                                        ? pick("安装", "Install")
+                                        : pick("重新安装", "Reinstall")
                                   }
                                   variant="primary"
                                   buttonSize="sm"
@@ -2079,8 +2396,8 @@ export default function MarketScreen() {
                                   onPress={() =>
                                     void executeNpmCommunityInstall({
                                       packageName: item.packageName,
-                                      displayName: item.name,
-                                      description: item.description,
+                                      displayName: itemName,
+                                      description: itemDesc,
                                       origin: "npm-search",
                                     })
                                   }
@@ -2088,10 +2405,10 @@ export default function MarketScreen() {
                                 />
                                 {installedVer !== null && !isBusy ? (
                                   <PillButton
-                                    label="卸载"
+                                    label={pick("卸载", "Uninstall")}
                                     variant="danger"
                                     buttonSize="sm"
-                                    onPress={() => void uninstall(item.id, item.name)}
+                                    onPress={() => void uninstall(item.id, itemName)}
                                   />
                                 ) : null}
                               </View>
@@ -2103,9 +2420,10 @@ export default function MarketScreen() {
                   ) : null}
 
                   <Text style={[styles.sectionHeading, { color: t.inkFaint }]}>
-                    精选开源技能包（离线可用）
+                    {pick("精选开源技能包（离线可用）", "Curated open-source skill packs (offline-ready)")}
                   </Text>
                   {CURATED_PUBLIC_PLUGINS.map((item, idx) => {
+                    const itemName = pick(item.name, item.nameEn);
                     const installedVer = versions[item.id] ?? null;
                     const isBusy = busyId === item.id;
                     return (
@@ -2116,7 +2434,7 @@ export default function MarketScreen() {
                           <Pressable
                             onPress={() => setPublicDetail({ kind: "curated", item })}
                             accessibilityRole="button"
-                            accessibilityLabel={`查看 ${item.name} 详情`}
+                            accessibilityLabel={pick(`查看 ${itemName} 详情`, `View details for ${itemName}`)}
                             style={({ pressed }) => [
                               styles.cardBodyTap,
                               pressed ? { opacity: 0.78 } : null,
@@ -2125,8 +2443,12 @@ export default function MarketScreen() {
                             <View style={styles.cardHead}>
                               <View style={styles.cardTitleWrap}>
                                 <View style={styles.titleBadgeRow}>
-                                  <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
-                                  <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="技能包" />
+                                  <Text style={[styles.name, { color: t.ink }]}>{itemName}</Text>
+                                  <StatusPill
+                                    bg={t.surfaceSoft}
+                                    color={t.inkSub}
+                                    label={pick("技能包", "Skill pack")}
+                                  />
                                 </View>
                                 <Text style={[styles.meta, { color: t.inkFaint }]}>
                                   v{item.version} · {item.publisher}
@@ -2138,17 +2460,21 @@ export default function MarketScreen() {
                                 <StatusPill
                                   bg={t.okSoft}
                                   color={t.ok}
-                                  label={`已安装 v${installedVer}`}
+                                  label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
                                 />
                               )}
                             </View>
                             <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={2}>
-                              {item.description}
+                              {pick(item.description, item.descriptionEn)}
                             </Text>
                           </Pressable>
                           <View style={styles.actions}>
                             <PillButton
-                              label={installedVer === null ? "安装" : "重新安装"}
+                              label={
+                                installedVer === null
+                                  ? pick("安装", "Install")
+                                  : pick("重新安装", "Reinstall")
+                              }
                               variant="primary"
                               buttonSize="sm"
                               disabled={isBusy || busyId !== null}
@@ -2157,10 +2483,10 @@ export default function MarketScreen() {
                             />
                             {installedVer !== null && !isBusy ? (
                               <PillButton
-                                label="卸载"
+                                label={pick("卸载", "Uninstall")}
                                 variant="danger"
                                 buttonSize="sm"
-                                onPress={() => void uninstall(item.id, item.name)}
+                                onPress={() => void uninstall(item.id, itemName)}
                               />
                             ) : null}
                           </View>
@@ -2177,14 +2503,17 @@ export default function MarketScreen() {
                   >
                     <View style={styles.mirrorBannerTextWrap}>
                       <Text style={[styles.mirrorBannerTitle, { color: t.ink }]}>
-                        逛逛实时开源 MCP 生态
+                        {pick("逛逛实时开源 MCP 生态", "Explore live open-source MCPs")}
                       </Text>
                       <Text style={[styles.mirrorBannerSub, { color: t.inkFaint }]}>
-                        切换「热门 MCP / 搜索抓取 / 地图出行 / 开发数据」频道，支持无限翻页探索
+                        {pick(
+                          "切换「热门 MCP / 搜索抓取 / 地图出行 / 开发数据」频道，支持无限翻页探索",
+                          "Switch channels like Popular MCP, Search & Web, Maps, or Dev & Data to browse with pagination",
+                        )}
                       </Text>
                     </View>
                     <PillButton
-                      label="去逛热门"
+                      label={pick("去逛热门", "Explore")}
                       variant="secondary"
                       buttonSize="sm"
                       onPress={() => setBrowseChannel("popular")}
@@ -2209,6 +2538,7 @@ export default function MarketScreen() {
                     />
                   ))}
                 {CURATED_PUBLIC_PLUGINS.map((item) => {
+                  const itemName = pick(item.name, item.nameEn);
                   const installedVer = versions[item.id] ?? null;
                   const isBusy = busyId === item.id;
                   return (
@@ -2219,7 +2549,7 @@ export default function MarketScreen() {
                       <Pressable
                         onPress={() => setPublicDetail({ kind: "curated", item })}
                         accessibilityRole="button"
-                        accessibilityLabel={`查看 ${item.name} 详情`}
+                        accessibilityLabel={pick(`查看 ${itemName} 详情`, `View details for ${itemName}`)}
                         style={({ pressed }) => [
                           styles.cardBodyTap,
                           pressed ? { opacity: 0.78 } : null,
@@ -2228,8 +2558,12 @@ export default function MarketScreen() {
                         <View style={styles.cardHead}>
                           <View style={styles.cardTitleWrap}>
                             <View style={styles.titleBadgeRow}>
-                              <Text style={[styles.name, { color: t.ink }]}>{item.name}</Text>
-                              <StatusPill bg={t.surfaceSoft} color={t.inkSub} label="技能包" />
+                              <Text style={[styles.name, { color: t.ink }]}>{itemName}</Text>
+                              <StatusPill
+                                bg={t.surfaceSoft}
+                                color={t.inkSub}
+                                label={pick("技能包", "Skill pack")}
+                              />
                             </View>
                             <Text style={[styles.meta, { color: t.inkFaint }]}>
                               v{item.version} · {item.publisher}
@@ -2241,17 +2575,21 @@ export default function MarketScreen() {
                             <StatusPill
                               bg={t.okSoft}
                               color={t.ok}
-                              label={`已安装 v${installedVer}`}
+                              label={pick(`已安装 v${installedVer}`, `Installed v${installedVer}`)}
                             />
                           )}
                         </View>
                         <Text style={[styles.description, { color: t.inkSub }]} numberOfLines={2}>
-                          {item.description}
+                          {pick(item.description, item.descriptionEn)}
                         </Text>
                       </Pressable>
                       <View style={styles.actions}>
                         <PillButton
-                          label={installedVer === null ? "安装" : "重新安装"}
+                          label={
+                            installedVer === null
+                              ? pick("安装", "Install")
+                              : pick("重新安装", "Reinstall")
+                          }
                           variant="primary"
                           buttonSize="sm"
                           disabled={isBusy || busyId !== null}
@@ -2260,10 +2598,10 @@ export default function MarketScreen() {
                         />
                         {installedVer !== null && !isBusy ? (
                           <PillButton
-                            label="卸载"
+                            label={pick("卸载", "Uninstall")}
                             variant="danger"
                             buttonSize="sm"
-                            onPress={() => void uninstall(item.id, item.name)}
+                            onPress={() => void uninstall(item.id, itemName)}
                           />
                         ) : null}
                       </View>
@@ -2278,16 +2616,21 @@ export default function MarketScreen() {
                   <View style={styles.loading}>
                     <ActivityIndicator color={t.brand} />
                     <Text style={[styles.hint, { color: t.inkFaint }]}>
-                      正在从 {region === "cn" ? "npmmirror" : "npmjs.org"} 拉取「{activeBrowseChannel.label}」…
+                      {pick(
+                        `正在从 ${region === "cn" ? "npmmirror" : "npmjs.org"} 拉取「${activeBrowseChannel.label}」…`,
+                        `Loading "${activeBrowseChannel.labelEn}" from ${region === "cn" ? "npmmirror" : "npmjs.org"}…`,
+                      )}
                     </Text>
                   </View>
                 ) : currentBrowseFeed.error && currentBrowseFeed.hits.length === 0 ? (
                   <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
-                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>加载频道失败</Text>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>
+                      {pick("加载频道失败", "Failed to load channel")}
+                    </Text>
                     <Text style={[styles.hint, { color: t.red }]}>{currentBrowseFeed.error}</Text>
                     <View style={styles.actions}>
                       <PillButton
-                        label="重新加载"
+                        label={pick("重新加载", "Reload")}
                         variant="secondary"
                         buttonSize="sm"
                         onPress={() =>
@@ -2298,9 +2641,14 @@ export default function MarketScreen() {
                   </View>
                 ) : currentBrowseFeed.hits.length === 0 ? (
                   <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
-                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>该频道暂无条目</Text>
+                    <Text style={[styles.emptyTitle, { color: t.inkSub }]}>
+                      {pick("该频道暂无条目", "No packages in this channel")}
+                    </Text>
                     <Text style={[styles.hint, { color: t.inkFaint }]}>
-                      可以切换上方镜像源或直接在搜索框输入关键词查找。
+                      {pick(
+                        "可以切换上方镜像源或直接在搜索框输入关键词查找。",
+                        "Try switching mirror sources above or searching by keyword.",
+                      )}
                     </Text>
                   </View>
                 ) : (
@@ -2314,8 +2662,11 @@ export default function MarketScreen() {
                         <PillButton
                           label={
                             currentBrowseFeed.loadingMore
-                              ? "加载更多中…"
-                              : `加载更多（已显示 ${currentBrowseFeed.hits.length} 个）`
+                              ? pick("加载更多中…", "Loading more…")
+                              : pick(
+                                  `加载更多（已显示 ${currentBrowseFeed.hits.length} 个）`,
+                                  `Load more (${currentBrowseFeed.hits.length} shown)`,
+                                )
                           }
                           variant="secondary"
                           disabled={currentBrowseFeed.loadingMore}
@@ -2326,7 +2677,10 @@ export default function MarketScreen() {
                       </View>
                     ) : (
                       <Text style={[styles.loadMoreEnd, { color: t.inkGhost }]}>
-                        已展示本频道全部可浏览条目（源：{currentBrowseFeed.registry?.replace(/^https:\/\//u, "") ?? "npm"}）
+                        {pick(
+                          `已展示本频道全部可浏览条目（源：${currentBrowseFeed.registry?.replace(/^https:\/\//u, "") ?? "npm"}）`,
+                          `End of channel (${currentBrowseFeed.registry?.replace(/^https:\/\//u, "") ?? "npm"})`,
+                        )}
                       </Text>
                     )}
                   </>
@@ -2339,34 +2693,43 @@ export default function MarketScreen() {
         {tab === "personal" ? (
           <AppearIn delay={staggerDelay(2, 28, 200)}>
             <View style={styles.sectionStack}>
-              <SectionCard label="添加个人插件">
+              <SectionCard label={pick("添加个人插件", "Add custom plugin")}>
                 <Row
                   icon="terminal"
                   tone="brand"
-                  title="从 npm 安装纯 JS MCP 包"
-                  detail="输入包名（如 @modelcontextprotocol/server-sequential-thinking），强制禁脚本并拦截原生二进制"
+                  title={pick("从 npm 安装纯 JS MCP 包", "Install pure-JS MCP from npm")}
+                  detail={pick(
+                    "输入包名（如 @modelcontextprotocol/server-sequential-thinking），强制禁脚本并拦截原生二进制",
+                    "Enter a package name (e.g. @modelcontextprotocol/server-sequential-thinking); runs with --ignore-scripts and blocks native binaries",
+                  )}
                   onPress={() => setAddNpmOpen(true)}
                 />
                 <Divider />
                 <Row
                   icon="globe"
                   tone="steel"
-                  title="从链接安装标准插件包 (.zip)"
-                  detail="支持 GitHub Releases / Raw / jsDelivr 上的 .nibi-plugin、.claude-plugin、.codex-plugin 或纯 skills 包"
+                  title={pick("从链接安装标准插件包 (.zip)", "Install standard archive from URL (.zip)")}
+                  detail={pick(
+                    "支持 GitHub Releases / Raw / jsDelivr 上的 .nibi-plugin、.claude-plugin、.codex-plugin 或纯 skills 包",
+                    "Supports .nibi-plugin, .claude-plugin, .codex-plugin, or skills archives on GitHub Releases / Raw / jsDelivr",
+                  )}
                   onPress={() => setAddPersonalOpen(true)}
                 />
                 <Divider />
                 <Row
                   icon="folder"
                   tone="plain"
-                  title="从手机本地导入插件包 (.zip)"
-                  detail="支持标准 .nibi-plugin/.claude-plugin/.codex-plugin、skills/SKILL.md 或 nibi-go.plugin.json 压缩包"
+                  title={pick("从手机本地导入插件包 (.zip)", "Import local archive (.zip)")}
+                  detail={pick(
+                    "支持标准 .nibi-plugin/.claude-plugin/.codex-plugin、skills/SKILL.md 或 nibi-go.plugin.json 压缩包",
+                    "Supports .nibi-plugin/.claude-plugin/.codex-plugin, skills/SKILL.md, or nibi-go.plugin.json zips",
+                  )}
                   onPress={() => void handleImportLocalZip()}
                 />
               </SectionCard>
 
               {personalSources.length > 0 ? (
-                <SectionCard label="已添加的个人源">
+                <SectionCard label={pick("已添加的个人源", "Saved custom sources")}>
                   {personalSources.map((src, idx) => {
                     const installedVer = src.installedPluginId
                       ? (versions[src.installedPluginId] ??
@@ -2391,7 +2754,7 @@ export default function MarketScreen() {
                                 />
                               ) : null}
                               <PillButton
-                                label="移除"
+                                label={pick("移除", "Remove")}
                                 variant="danger"
                                 buttonSize="sm"
                                 onPress={() => void handleRemovePersonalSource(src)}
@@ -2406,7 +2769,7 @@ export default function MarketScreen() {
               ) : null}
 
               {localPersonalPlugins.length > 0 ? (
-                <SectionCard label="本机个人插件">
+                <SectionCard label={pick("本机个人插件", "Installed custom plugins")}>
                   {localPersonalPlugins.map((plugin, idx) => (
                     <Fragment key={plugin.dir}>
                       {idx > 0 ? <Divider /> : null}
@@ -2417,9 +2780,9 @@ export default function MarketScreen() {
                         detail={`${plugin.parsed.manifest.id} · v${plugin.parsed.manifest.version}`}
                         right={
                           <View style={styles.rowRight}>
-                            <StatusPill bg={t.okSoft} color={t.ok} label="已安装" />
+                            <StatusPill bg={t.okSoft} color={t.ok} label={pick("已安装", "Installed")} />
                             <PillButton
-                              label="卸载"
+                              label={pick("卸载", "Uninstall")}
                               variant="danger"
                               buttonSize="sm"
                               onPress={() =>
@@ -2435,10 +2798,13 @@ export default function MarketScreen() {
               ) : (
                 <View style={[styles.empty, { borderColor: t.hairline, backgroundColor: t.card }]}>
                   <Text style={[styles.emptyTitle, { color: t.inkSub }]}>
-                    还没有添加个人插件
+                    {pick("还没有添加个人插件", "No custom plugins added yet")}
                   </Text>
                   <Text style={[styles.hint, { color: t.inkFaint }]}>
-                    你可以直接输入 npm 包名安装纯 JS MCP，粘贴 GitHub Releases / jsDelivr 上的标准插件包直链，或从手机本地导入 .zip 插件包。
+                    {pick(
+                      "你可以直接输入 npm 包名安装纯 JS MCP，粘贴 GitHub Releases / jsDelivr 上的标准插件包直链，或从手机本地导入 .zip 插件包。",
+                      "Install a pure-JS MCP by npm package name, paste a direct archive URL from GitHub Releases / jsDelivr, or import a local .zip file.",
+                    )}
                   </Text>
                 </View>
               )}
@@ -2448,7 +2814,8 @@ export default function MarketScreen() {
 
         {snapshot ? (
           <Text style={[styles.footnote, { color: t.inkGhost }]}>
-            索引同步于 {formatFetchedAt(snapshot.fetchedAt)} · {marketRegionLabel(region)}
+            {pick("索引同步于 ", "Index synced ")}
+            {formatFetchedAt(snapshot.fetchedAt)} · {marketRegionLabel(region)}
           </Text>
         ) : null}
       </ScrollView>
@@ -2457,16 +2824,19 @@ export default function MarketScreen() {
       <Sheet
         visible={addNpmOpen}
         onClose={() => setAddNpmOpen(false)}
-        title="从 npm 安装纯 JS MCP 包"
+        title={pick("从 npm 安装纯 JS MCP 包", "Install pure-JS MCP from npm")}
       >
         <View style={styles.sheetForm}>
           <Text style={[styles.hint, { color: t.inkSub }]}>
-            支持输入 npm 包名、精确版本（如 @scope/pkg@1.0.0）或 npmjs.com 链接，将按当前所选「{marketRegionLabel(region)}」（{region === "cn" ? "npmmirror" : "npmjs.org"}）通过随包内置 npm 以 --ignore-scripts 模式隔离安装。
+            {pick(
+              `支持输入 npm 包名、精确版本（如 @scope/pkg@1.0.0）或 npmjs.com 链接，将按当前所选「${marketRegionLabel(region)}」（${region === "cn" ? "npmmirror" : "npmjs.org"}）通过随包内置 npm 以 --ignore-scripts 模式隔离安装。`,
+              `Enter an npm package name, exact version (e.g. @scope/pkg@1.0.0), or npmjs.com URL. Installed via built-in npm using ${marketRegionLabel(region)} (${region === "cn" ? "npmmirror" : "npmjs.org"}) with --ignore-scripts.`,
+            )}
           </Text>
           <TextInput
             value={personalNpmNameInput}
             onChangeText={setPersonalNpmNameInput}
-            placeholder="显示名称（可选，留空自动取 npm 包名）"
+            placeholder={pick("显示名称（可选，留空自动取 npm 包名）", "Display name (optional)")}
             placeholderTextColor={t.inkGhost}
             style={[
               styles.input,
@@ -2503,17 +2873,20 @@ export default function MarketScreen() {
               {personalNpmRiskAccepted ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
             </View>
             <Text style={[styles.checkboxLabel, { color: t.inkSub }]}>
-              我了解该 npm 包来自公共社区且未经 NIBI 官方审核，并确认在手机端禁用安装脚本的沙箱中运行。
+              {pick(
+                "我了解该 npm 包来自公共社区且未经 NIBI 官方审核，并确认在手机端禁用安装脚本的沙箱中运行。",
+                "I understand this package is from the public npm community (unverified by NIBI) and will run sandboxed with install scripts disabled.",
+              )}
             </Text>
           </PressableScale>
           <View style={styles.sheetActions}>
             <PillButton
-              label="取消"
+              label={pick("取消", "Cancel")}
               variant="secondary"
               onPress={() => setAddNpmOpen(false)}
             />
             <PillButton
-              label={addingNpm ? "正在安装…" : "校验并安装"}
+              label={addingNpm ? pick("正在安装…", "Installing…") : pick("校验并安装", "Verify & install")}
               variant="primary"
               disabled={!personalNpmSpecInput.trim() || !personalNpmRiskAccepted || addingNpm}
               onPress={() => void handleAddPersonalNpm()}
@@ -2534,14 +2907,17 @@ export default function MarketScreen() {
       {/* 社区实时搜索 npm 包安装前安全确认 */}
       <ConfirmDialog
         visible={pendingNpmConfirm !== null}
-        title="安装 npm 公共社区包"
+        title={pick("安装 npm 公共社区包", "Install community npm package")}
         message={
           pendingNpmConfirm
-            ? `「${pendingNpmConfirm.packageName}${pendingNpmConfirm.version ? `@${pendingNpmConfirm.version}` : ""}」来自 npm 公共源，未经 NIBI 官方审核。\n\n安装器将强制跳过所有安装脚本（--ignore-scripts）并拦截原生二进制文件。确认继续安装？`
+            ? pick(
+                `「${pendingNpmConfirm.packageName}${pendingNpmConfirm.version ? `@${pendingNpmConfirm.version}` : ""}」来自 npm 公共源，未经 NIBI 官方审核。\n\n安装器将强制跳过所有安装脚本（--ignore-scripts）并拦截原生二进制文件。确认继续安装？`,
+                `"${pendingNpmConfirm.packageName}${pendingNpmConfirm.version ? `@${pendingNpmConfirm.version}` : ""}" comes from the public npm registry and is not verified by NIBI.\n\nInstall scripts will be skipped (--ignore-scripts) and native binaries blocked. Continue?`,
+              )
             : ""
         }
-        confirmLabel="确认安装"
-        cancelLabel="取消"
+        confirmLabel={pick("确认安装", "Install")}
+        cancelLabel={pick("取消", "Cancel")}
         onConfirm={() => {
           const target = pendingNpmConfirm;
           setPendingNpmConfirm(null);
@@ -2554,16 +2930,19 @@ export default function MarketScreen() {
       <Sheet
         visible={addPersonalOpen}
         onClose={() => setAddPersonalOpen(false)}
-        title="添加标准插件包地址 (.zip)"
+        title={pick("添加标准插件包地址 (.zip)", "Add plugin archive URL (.zip)")}
       >
         <View style={styles.sheetForm}>
           <Text style={[styles.hint, { color: t.inkSub }]}>
-            支持填写 GitHub Releases / Raw、jsDelivr 或个人服务器上的标准插件包（.nibi-plugin / .claude-plugin / .codex-plugin / skills / nibi-go.plugin.json）HTTPS 地址，下载时自动按当前「{marketRegionLabel(region)}」加速。
+            {pick(
+              `支持填写 GitHub Releases / Raw、jsDelivr 或个人服务器上的标准插件包（.nibi-plugin / .claude-plugin / .codex-plugin / skills / nibi-go.plugin.json）HTTPS 地址，下载时自动按当前「${marketRegionLabel(region)}」加速。`,
+              `Enter an HTTPS URL to a standard plugin archive (.nibi-plugin / .claude-plugin / .codex-plugin / skills / nibi-go.plugin.json) on GitHub Releases, Raw, jsDelivr, or your server. Accelerated via ${marketRegionLabel(region)}.`,
+            )}
           </Text>
           <TextInput
             value={personalNameInput}
             onChangeText={setPersonalNameInput}
-            placeholder="备注名称（可选，留空自动取插件清单名）"
+            placeholder={pick("备注名称（可选，留空自动取插件清单名）", "Label (optional — defaults to manifest name)")}
             placeholderTextColor={t.inkGhost}
             style={[
               styles.input,
@@ -2601,17 +2980,20 @@ export default function MarketScreen() {
               {personalRiskAccepted ? <Icon name="check" size={12} color="#FFFFFF" /> : null}
             </View>
             <Text style={[styles.checkboxLabel, { color: t.inkSub }]}>
-              我信任该插件来源，并知晓自定义插件将在本机沙箱环境中运行。
+              {pick(
+                "我信任该插件来源，并知晓自定义插件将在本机沙箱环境中运行。",
+                "I trust this source and understand custom plugins run in the local sandbox.",
+              )}
             </Text>
           </PressableScale>
           <View style={styles.sheetActions}>
             <PillButton
-              label="取消"
+              label={pick("取消", "Cancel")}
               variant="secondary"
               onPress={() => setAddPersonalOpen(false)}
             />
             <PillButton
-              label={addingPersonal ? "正在安装…" : "下载并安装"}
+              label={addingPersonal ? pick("正在安装…", "Installing…") : pick("下载并安装", "Download & install")}
               variant="primary"
               disabled={!personalUrlInput.trim() || !personalRiskAccepted || addingPersonal}
               onPress={() => void handleAddPersonalUrl()}
@@ -2623,14 +3005,17 @@ export default function MarketScreen() {
       {/* 按需登录确认框：仅在点击需账号授权插件的「安装」且未登录时弹出 */}
       <ConfirmDialog
         visible={loginPromptEntry !== null}
-        title="需要登录 NIBI 账号"
+        title={pick("需要登录 NIBI 账号", "Sign in to NIBI required")}
         message={
           loginPromptEntry
-            ? `安装「${loginPromptEntry.name}」需要先登录你的 NIBI 账号以核验可用权限。`
+            ? pick(
+                `安装「${loginPromptEntry.name}」需要先登录你的 NIBI 账号以核验可用权限。`,
+                `Sign in to your NIBI account to verify access before installing "${loginPromptEntry.name}".`,
+              )
             : ""
         }
-        confirmLabel="立即登录"
-        cancelLabel="取消"
+        confirmLabel={pick("立即登录", "Sign in")}
+        cancelLabel={pick("取消", "Cancel")}
         onConfirm={() => void handleConfirmLoginAndInstall()}
         onCancel={() => setLoginPromptEntry(null)}
       />
