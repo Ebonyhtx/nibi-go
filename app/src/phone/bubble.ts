@@ -11,6 +11,7 @@ import { getCachedDevicePreferences } from "../settings/devicePreferences";
 
 export type PhoneBubbleState =
   | "hidden"
+  | "idle"
   | "thinking"
   | "working"
   | "carrying"

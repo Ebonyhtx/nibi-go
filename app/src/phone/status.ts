@@ -5,8 +5,10 @@
 
 import {
   canShowPhoneApproval as canShowOverlay,
+  installPhoneShellManager as installShellManager,
   openPhoneAccessibilitySettings as openA11ySettings,
   openPhoneAppSettings as openAppSettings,
+  openPhoneInstallPermissionSettings as openInstallPermissionSettings,
   openPhoneOverlaySettings as openOverlaySettings,
   openPhoneShellManager as openShellManager,
   phoneMcpGeneration as readMcpGeneration,
@@ -15,6 +17,7 @@ import {
   requestPhoneShellPermission as requestShellPermission,
   setPhoneA11yEnabled as applyA11yEnabled,
   setPhoneShellEnabled as applyShellEnabled,
+  type ShellInstallResult,
 } from "nibi-phone";
 
 import {
@@ -96,13 +99,24 @@ export function openPhoneAccessibilitySettings(): void {
   openA11ySettings();
 }
 
-export function requestPhoneShellPermission(): void {
-  requestShellPermission();
+export function requestPhoneShellPermission(): boolean {
+  return requestShellPermission();
 }
 
-export function openPhoneShellManager(): void {
-  openShellManager();
+export function openPhoneShellManager(): boolean {
+  return openShellManager();
 }
+
+/** 随包内置 Shizuku 的一键安装；permission_required 时调用方引导去系统授权页。 */
+export function installPhoneShellManager(): Promise<ShellInstallResult> {
+  return installShellManager();
+}
+
+export function openPhoneInstallPermissionSettings(): void {
+  openInstallPermissionSettings();
+}
+
+export type { ShellInstallResult };
 
 /** 悬浮审批权限（系统「显示在其他应用上层」）。 */
 export function canShowPhoneApproval(): boolean {

@@ -8,7 +8,9 @@ import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.nibiphone.shell.ShizukuInstaller
 import expo.modules.nibiphone.shell.ShizukuShell
+import expo.modules.nibiphone.sound.NotificationSound
 
 /** Expo 模块 `NibiPhone`：状态、两个开关、系统设置引导、悬浮审批与 loopback MCP 配置。 */
 class PhoneModule : Module() {
@@ -83,6 +85,32 @@ class PhoneModule : Module() {
       } catch (error: Throwable) {
         false
       }
+    }
+
+    /** 随包内置的 Shizuku 安装包：一键离线安装（返回 started/permission_required/unavailable/corrupt/failed）。 */
+    AsyncFunction("installShellManager") {
+      val ctx = context() ?: return@AsyncFunction mapOf("status" to "unavailable")
+      try {
+        val result = ShizukuInstaller.install(ctx)
+        mapOf(
+          "status" to result.status,
+          "message" to (result.message ?: ""),
+        )
+      } catch (error: Throwable) {
+        mapOf("status" to "failed", "message" to error.javaClass.simpleName)
+      }
+    }
+
+    /** 引导到「安装未知应用」授权页。 */
+    Function("openInstallPermissionSettings") {
+      val ctx = context() ?: return@Function false
+      ShizukuInstaller.openInstallPermissionSettings(ctx)
+    }
+
+    /** 前台提示音（NIBI 三音色）：音量跟随系统通知流，静音/勿扰不响。 */
+    Function("playNotificationSound") { kind: String ->
+      val ctx = context() ?: return@Function false
+      NotificationSound.play(ctx, kind)
     }
 
     Function("mcpServer") {

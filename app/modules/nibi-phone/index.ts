@@ -39,8 +39,13 @@ interface NativePhoneModule {
   setA11yEnabled(enabled: boolean): PhoneStatus;
   setShellEnabled(enabled: boolean): PhoneStatus;
   openAccessibilitySettings(): void;
-  requestShellPermission(): void;
-  openShellManager(): void;
+  /** false = Shizuku 未运行/未安装，调用方据此给引导。 */
+  requestShellPermission(): boolean;
+  /** false = Shizuku 未安装或没有启动入口。 */
+  openShellManager(): boolean;
+  installShellManager(): Promise<{ status: string; message?: string }>;
+  openInstallPermissionSettings(): boolean;
+  playNotificationSound(kind: string): boolean;
   mcpServer(): PhoneMcpServerConfig | null;
   mcpGeneration(): number;
   showApproval(request: PhoneApprovalRequest): Promise<boolean>;
@@ -133,12 +138,51 @@ export function openPhoneAccessibilitySettings(): void {
   call((module) => module.openAccessibilitySettings(), undefined);
 }
 
-export function requestPhoneShellPermission(): void {
-  call((module) => module.requestShellPermission(), undefined);
+/** 发起授权请求；false = Shizuku 未运行（调用方应提示先启动服务）。 */
+export function requestPhoneShellPermission(): boolean {
+  return call((module) => module.requestShellPermission(), false);
 }
 
-export function openPhoneShellManager(): void {
-  call((module) => module.openShellManager(), undefined);
+/** 打开 Shizuku 管理器；false = 未安装或没有入口。 */
+export function openPhoneShellManager(): boolean {
+  return call((module) => module.openShellManager(), false);
+}
+
+export interface ShellInstallResult {
+  status: "started" | "permission_required" | "unavailable" | "corrupt" | "failed";
+  message?: string;
+}
+
+/** 随包内置的 Shizuku：一键离线安装（模块不可用时返回 unavailable）。 */
+export async function installPhoneShellManager(): Promise<ShellInstallResult> {
+  if (!native) return { status: "unavailable" };
+  try {
+    const result = await native.installShellManager();
+    const status = result?.status;
+    if (
+      status === "started" ||
+      status === "permission_required" ||
+      status === "unavailable" ||
+      status === "corrupt" ||
+      status === "failed"
+    ) {
+      return { status, ...(result.message ? { message: result.message } : {}) };
+    }
+    return { status: "failed" };
+  } catch (error) {
+    console.warn("[nibigo] Shizuku 安装请求失败", error);
+    return { status: "failed" };
+  }
+}
+
+/** 引导用户允许「安装未知应用」。 */
+export function openPhoneInstallPermissionSettings(): void {
+  call((module) => module.openInstallPermissionSettings(), false);
+}
+
+/** NIBI 提示音（complete/approval/error）；模块不可用时静默降级。 */
+export function playPhoneNotificationSound(kind: string): boolean {
+  return call((module) => module.playNotificationSound(kind), false);
 }
 
 export function phoneMcpServer(): PhoneMcpServerConfig | null {

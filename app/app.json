@@ -2,7 +2,7 @@
   "expo": {
     "name": "NIBI-GO",
     "slug": "nibi-go",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "scheme": "nibigo",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -22,7 +22,7 @@
         "android.permission.CAMERA"
       ],
       "package": "top.nibistudio.nibigo",
-      "versionCode": 8
+      "versionCode": 9
     },
     "plugins": [
       "expo-router",

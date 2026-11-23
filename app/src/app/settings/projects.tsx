@@ -123,15 +123,17 @@ export default function ProjectsScreen() {
                         { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
                       ]}
                     />
-                    <View style={styles.actions}>
+                    <View style={styles.formActions}>
                       <PillButton
                         label={pick("取消", "Cancel")}
                         variant="secondary"
+                        buttonSize="sm"
                         onPress={() => setEditing(null)}
                       />
                       <PillButton
                         label={busy ? pick("保存中…", "Saving…") : pick("保存", "Save")}
                         variant="primary"
+                        buttonSize="sm"
                         disabled={busy || !editing.name.trim()}
                         onPress={submitName}
                       />
@@ -156,7 +158,7 @@ export default function ProjectsScreen() {
                       }
                     />
                     <Divider />
-                    <View style={styles.actions}>
+                    <View style={styles.cardActions}>
                       <PillButton
                         label={
                           active
@@ -164,18 +166,21 @@ export default function ProjectsScreen() {
                             : pick("设为当前", "Set active")
                         }
                         variant="secondary"
+                        buttonSize="sm"
                         disabled={busy}
                         onPress={() => run(() => setActiveProject(active ? null : project.id))}
                       />
                       <PillButton
                         label={pick("重命名", "Rename")}
                         variant="secondary"
+                        buttonSize="sm"
                         disabled={busy}
                         onPress={() => setEditing({ kind: "rename", id: project.id, name: project.name })}
                       />
                       <PillButton
                         label={pick("删除", "Delete")}
                         variant="danger"
+                        buttonSize="sm"
                         disabled={busy}
                         onPress={() => confirmDelete(project)}
                       />
@@ -204,15 +209,17 @@ export default function ProjectsScreen() {
                     { color: th.ink, borderColor: th.hairline, backgroundColor: th.surfaceSoft },
                   ]}
                 />
-                <View style={styles.actions}>
+                <View style={styles.formActions}>
                   <PillButton
                     label={pick("取消", "Cancel")}
                     variant="secondary"
+                    buttonSize="sm"
                     onPress={() => setEditing(null)}
                   />
                   <PillButton
                     label={busy ? pick("创建中…", "Creating…") : pick("创建", "Create")}
                     variant="primary"
+                    buttonSize="sm"
                     disabled={busy || !editing.name.trim()}
                     onPress={submitName}
                   />
@@ -259,6 +266,16 @@ const styles = StyleSheet.create({
     ...text("body"),
   },
   activeBadge: { ...text("micro"), fontWeight: "700" },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: space(2) },
+  // 项目卡：三个动作按钮在卡片内必须留出与 Row 一致的左右/上下呼吸位，
+  // 否则 md 高度按钮会顶到卡片圆角和发丝线（真机 360dp 宽下曾溢出边框）。
+  cardActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space(2),
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(2.5),
+  },
+  // 表单已有 nameForm 的内边距，动作行不再重复加。
+  formActions: { flexDirection: "row", flexWrap: "wrap", gap: space(2) },
   empty: { ...text("small") },
 });

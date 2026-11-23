@@ -77,7 +77,7 @@ class StatusBubble(private val context: Context) {
 
   /**
    * RN 驱动的状态入口：
-   * hidden / thinking / working / running / tools / carrying / waiting / done / error。
+   * hidden / idle / thinking / working / running / tools / carrying / waiting / done / error。
    * scheme: "light" | "dark" | "system"（可选，默认随系统深浅色）。
    */
   fun setState(state: String, scheme: String? = null) {
@@ -90,6 +90,8 @@ class StatusBubble(private val context: Context) {
   }
 
   private fun mapPetState(raw: String): String? = when (raw) {
+    // 切出应用、无事可做时的常态：栖在桌面上的小鸟（点击切回 App）。
+    "idle" -> "idle"
     "thinking" -> "thinking"
     "working", "running", "tools" -> "working"
     "carrying" -> "carrying"

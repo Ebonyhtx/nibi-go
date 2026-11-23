@@ -42,6 +42,8 @@ import {
 import { getCachedMemoryPreferences, loadMemoryPreferences } from "../memory/preferences";
 import { extractPetRowSignals, isDeliveryToolName } from "../components/petMachine";
 import { pickText, useLocale, type Locale } from "../i18n";
+import { notifyAgent } from "../relay/notifications";
+import { completionAlert, turnFinishedState } from "./completionAlert";
 import { getCachedDevicePreferences, subscribeDevicePreferences } from "../settings/devicePreferences";
 import { loadArchivedSessionIds, saveArchivedSessionIds } from "./archiveStore";
 import { registerKernelClient, unregisterKernelClient } from "./kernelRegistry";
@@ -293,6 +295,9 @@ export interface KernelConversation {
     usedTokens: number;
     maxTokens: number;
     cacheHitRate: number | null;
+    /** 会话累计缓存读/写；两项都为 0 时表示 Provider 未回传缓存数据。 */
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
     breakdown: readonly { source: string; chars: number }[];
   } | null;
   ready: boolean;
@@ -386,6 +391,9 @@ export function useKernelConversation(): KernelConversation {
     usedTokens: number;
     maxTokens: number;
     cacheHitRate: number | null;
+    /** 会话累计缓存读/写；两项都为 0 时表示 Provider 未回传缓存数据。 */
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
     breakdown: readonly { source: string; chars: number }[];
   } | null>(null);
   const [ready, setReady] = useState(false);
@@ -547,6 +555,10 @@ export function useKernelConversation(): KernelConversation {
       usedTokens: usage.usedTokens,
       maxTokens: usage.maxTokens,
       cacheHitRate: usage.cache?.hitRate ?? fallbackHitRate,
+      // 有的 Provider 不回传缓存读写（两项都是 0）：这时 0% 是“没有数据”而不是“没命中”，
+      // 面板要分开显示（SideStatus 判这两项）。
+      cacheReadTokens: usage.cache?.cacheReadTokens ?? cumulative?.cacheReadTokens ?? 0,
+      cacheWriteTokens: usage.cache?.cacheWriteTokens ?? cumulative?.cacheWriteTokens ?? 0,
       breakdown,
     };
     // 流式增量每帧都会重算用量；数值没变就不要换对象引用——右侧悬浮环的弧线
@@ -557,6 +569,8 @@ export function useKernelConversation(): KernelConversation {
         prev.usedTokens === next.usedTokens &&
         prev.maxTokens === next.maxTokens &&
         prev.cacheHitRate === next.cacheHitRate &&
+        prev.cacheReadTokens === next.cacheReadTokens &&
+        prev.cacheWriteTokens === next.cacheWriteTokens &&
         prev.breakdown.length === next.breakdown.length &&
         prev.breakdown.every(
           (item, index) =>
@@ -747,9 +761,9 @@ export function useKernelConversation(): KernelConversation {
           next = "working";
         } else {
           const outcome = bubbleOutcomeRef.current;
-          if (outcome && Date.now() < outcome.until) {
-            next = outcome.kind;
-          }
+          // 切出应用且没有正在进行的事情时也要有“栖在桌面上”的常态小鸟；
+          // 之前这里留 hidden，用户开了开关离开 App 却什么都看不到。
+          next = outcome && Date.now() < outcome.until ? outcome.kind : "idle";
         }
       }
     }
@@ -777,7 +791,11 @@ export function useKernelConversation(): KernelConversation {
         }
       }
       const outcomeKind =
-        lastTurnState === "failed" ? "error" : lastTurnState === "completed" ? "done" : null;
+        turnFinishedState(lastTurnState) === "error"
+          ? "error"
+          : turnFinishedState(lastTurnState) === "complete"
+            ? "done"
+            : null;
       if (outcomeKind) {
         const stayMs = outcomeKind === "done" ? 2_400 : 3_200;
         bubbleOutcomeRef.current = { kind: outcomeKind, until: Date.now() + stayMs };
@@ -802,6 +820,107 @@ export function useKernelConversation(): KernelConversation {
       if (bubbleAutoHideTimerRef.current) clearTimeout(bubbleAutoHideTimerRef.current);
     };
   }, []);
+
+  // ── 本机对话提醒（任务完成 / 待审批 / 提问 / 出错）──────────────────────
+  // 与桌面 PulseTracker 同一口径：一次性事件按 id 去重；首次投影只建基线，
+  // 恢复历史会话时不会把已在等待的卡片补响一遍。前台由 notifyAgent 直接播
+  // NIBI 三音色，后台走系统通知（渠道声音同源）。
+  //
+  // 回合完成不能只看 `turn` 的 running→idle 边沿：内核的 control.phase 可能先变 idle、
+  // 最后一条 turn 行才落成 completed，这一帧错过就永远不会再响（真机上表现为“完成没声音”）。
+  // 这里同时跟踪“最后一条 turn 行”的 rowId：见过它 running 后变成 completed/failed 就响，
+  // 且每个 rowId 只响一次。
+  const notifySessionRef = useRef<string | null>(null);
+  const notifyPrevTurnRef = useRef<TurnState>("idle");
+  const notifySeenRef = useRef<Set<string>>(new Set());
+  const notifyBaselineRef = useRef(false);
+  const notifyArmedRowRef = useRef<string | null>(null);
+  const notifyDoneRowRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // 切会话：下一帧只重建基线，不把历史交互/旧回合当新事件提示。
+    if (notifySessionRef.current !== activeSessionId) {
+      notifySessionRef.current = activeSessionId;
+      notifyBaselineRef.current = false;
+      notifySeenRef.current = new Set();
+      notifyPrevTurnRef.current = turn;
+      notifyArmedRowRef.current = null;
+      notifyDoneRowRef.current = null;
+      return;
+    }
+    const previousTurn = notifyPrevTurnRef.current;
+    notifyPrevTurnRef.current = turn;
+    if (!ready) {
+      notifyBaselineRef.current = false;
+      notifySeenRef.current = new Set();
+      notifyArmedRowRef.current = null;
+      notifyDoneRowRef.current = null;
+      return;
+    }
+    const current = new Set<string>();
+    for (const row of rows) {
+      if (row.kind === "approval" || row.kind === "question") current.add(row.interactionId);
+    }
+    if (!notifyBaselineRef.current) {
+      notifySeenRef.current = current;
+      notifyBaselineRef.current = true;
+      return;
+    }
+    const fresh = [...current].filter((id) => !notifySeenRef.current.has(id));
+    notifySeenRef.current = current;
+    if (fresh.length > 0) {
+      // 审批与提问共用 approval 音（桌面 D21：permission_request / elicitation_request
+      // 都是同一双音风铃）。
+      const isApproval = rows.some(
+        (row) => row.kind === "approval" && fresh.includes(row.interactionId),
+      );
+      void notifyAgent({
+        kind: "approval",
+        title: isApproval
+          ? pickText("需要审批", "Approval needed")
+          : pickText("有一个问题", "Question"),
+        body: isApproval
+          ? pickText("AGENT 在等你批准一项操作", "The agent is waiting for your approval")
+          : pickText("AGENT 在等你回答", "The agent is waiting for your reply"),
+      });
+      return;
+    }
+    let lastTurn: { key: string; rowId?: number; state: string } | null = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i]!;
+      if (row.kind === "turn") {
+        lastTurn = {
+          key: String(row.rowId ?? row.key),
+          ...(typeof row.rowId === "number" ? { rowId: row.rowId } : {}),
+          state: row.state,
+        };
+        break;
+      }
+    }
+    const rowKey = lastTurn?.key ?? null;
+    if (lastTurn?.state === "running" && rowKey) {
+      notifyArmedRowRef.current = rowKey;
+    }
+    const alert = completionAlert({
+      previousTurn,
+      turn,
+      lastTurn,
+      armedRow: notifyArmedRowRef.current,
+      doneRow: notifyDoneRowRef.current,
+    });
+    if (alert) {
+      notifyDoneRowRef.current = alert.rowKey;
+      notifyArmedRowRef.current = null;
+      const failed = alert.kind === "error";
+      void notifyAgent({
+        kind: alert.kind,
+        title: failed
+          ? pickText("任务失败", "Task failed")
+          : pickText("任务完成", "Task completed"),
+        body: pickText("点按查看会话详情", "Tap to view the conversation"),
+      });
+    }
+  }, [activeSessionId, ready, turn, rows]);
 
   // 回前台立即收起（手机工具在途时保留 tools）。
   useEffect(() => {
@@ -1419,6 +1538,10 @@ export function useKernelConversation(): KernelConversation {
       activeSessionIdRef.current = sessionId;
       setActiveSessionId(sessionId);
       await refreshSessions(client);
+      // 首装未配 Provider 时 bootstrap 会停在 setup_required（ready=false）；用户配好服务
+      // 回到首页再新建会话，会话已经真正建出来了，必须把 ready 一起拉回来——只改状态码
+      // 会让输入框 editable 与发送键永久卡死在 false（0.1.7 真机复现）。
+      setReady(true);
       setStatusState({ code: "ready" });
     } catch (error) {
       if (isSetupRequiredError(error)) {
@@ -1443,6 +1566,8 @@ export function useKernelConversation(): KernelConversation {
         await attach(client, sessionId);
         activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
+        // 与 newSession 同一条纪律：会话真的打开了就把 ready 置回真值。
+        setReady(true);
         setStatusState({ code: "ready" });
       } catch (error) {
         setStatusState({
@@ -1601,7 +1726,7 @@ export function useKernelConversation(): KernelConversation {
       statusState.code === "kernel_unavailable",
     [statusState.code],
   );
-  /** 状态横幅的「重试」：发送失败原样重发；初始化/重连失败统一走 reconnect（内部会先拉起宿主）。 */
+  /** 状态横幅的「重试」：发送失败原样重发；初始化/重连/配置缺失统一走 reconnect（内部会先拉起宿主）。 */
   const retryStatus = useCallback(async () => {
     if (statusState.code === "send_failed") {
       const last = lastSendRef.current;
@@ -1609,6 +1734,7 @@ export function useKernelConversation(): KernelConversation {
       return;
     }
     if (
+      statusState.code === "setup_required" ||
       statusState.code === "reconnect_failed" ||
       statusState.code === "init_failed" ||
       statusState.code === "kernel_unavailable"

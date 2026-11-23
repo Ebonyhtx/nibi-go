@@ -9,6 +9,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
+  Alert,
   AppState,
   ScrollView,
   StyleSheet,
@@ -28,8 +29,10 @@ import { pickText, useI18n } from "../../i18n";
 import { useResponsiveBodyStyle } from "../../layout/responsive";
 import {
   canShowPhoneApproval,
+  installPhoneShellManager,
   openPhoneAccessibilitySettings,
   openPhoneAppSettings,
+  openPhoneInstallPermissionSettings,
   openPhoneOverlaySettings,
   openPhoneShellManager,
   phoneStatus,
@@ -112,17 +115,21 @@ function StatusRow({ title, view }: { title: string; view: StatusView }) {
   );
 }
 
-/** 动作按钮统一 PillButton（secondary）；disabled 态由 primitive 处理。 */
+/** 动作按钮统一 PillButton；disabled 态由 primitive 处理。 */
 function ActionButton({
   label,
   onPress,
   disabled,
+  variant = "secondary",
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  variant?: "primary" | "secondary";
 }) {
-  return <PillButton label={label} variant="secondary" onPress={onPress} disabled={disabled} />;
+  return (
+    <PillButton label={label} variant={variant} buttonSize="sm" onPress={onPress} disabled={disabled} />
+  );
 }
 
 export default function PhoneSettingsScreen() {
@@ -136,6 +143,7 @@ export default function PhoneSettingsScreen() {
   });
   const [status, setStatus] = useState<PhoneStatus>(() => phoneStatus());
   const [confirmShell, setConfirmShell] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -194,14 +202,99 @@ export default function PhoneSettingsScreen() {
     setStatus(setPhoneShellEnabled(true));
   }, []);
 
+  const startPolling = useCallback(
+    (durationMs = 20_000) => {
+      stopPolling();
+      pollRef.current = setInterval(refresh, 1000);
+      pollStopRef.current = setTimeout(stopPolling, durationMs);
+    },
+    [refresh, stopPolling],
+  );
+
   const requestShellPermission = useCallback(() => {
-    requestPhoneShellPermission();
+    const requested = requestPhoneShellPermission();
     refresh();
-    stopPolling();
-    // Shizuku 的授权结果是异步的：每秒看一次状态，约 15 秒后停止。
-    pollRef.current = setInterval(refresh, 1000);
-    pollStopRef.current = setTimeout(stopPolling, 15_000);
-  }, [refresh, stopPolling]);
+    if (!requested) {
+      Alert.alert(
+        pickText("Shizuku 未运行", "Shizuku is not running"),
+        pickText(
+          "先在 Shizuku 应用里启动服务（可用无线调试配对），再回到本页请求授权。",
+          "Start the service in the Shizuku app (pair via Wireless debugging), then return here to request access.",
+        ),
+        [
+          { text: pickText("知道了", "OK"), style: "cancel" },
+          {
+            text: pickText("打开 Shizuku", "Open Shizuku"),
+            onPress: () => openPhoneShellManager(),
+          },
+        ],
+      );
+      return;
+    }
+    // Shizuku 的授权结果是异步的：每秒看一次状态，约 20 秒后停止。
+    startPolling();
+  }, [refresh, startPolling]);
+
+  /**
+   * 随包内置安装包的一键安装。未安装时这是主入口，不再像 0.1.7 那样点按钮
+   * 毫无反馈；系统安装器会自己接管确认界面，回到本页后状态自动刷新。
+   */
+  const installShell = useCallback(() => {
+    if (installing) return;
+    setInstalling(true);
+    void installPhoneShellManager()
+      .then((result) => {
+        if (result.status === "started") {
+          Alert.alert(
+            pickText("安装器已打开", "Installer opened"),
+            pickText(
+              "按系统提示完成安装；装好后回到本页，Shizuku 状态会自动刷新。",
+              "Finish the installation, then come back — the Shizuku status refreshes automatically.",
+            ),
+          );
+          startPolling(30_000);
+          return;
+        }
+        if (result.status === "permission_required") {
+          Alert.alert(
+            pickText("需要允许安装应用", "Allow app installs"),
+            pickText(
+              "系统要求先允许 NIBI-GO 安装应用。点「去授权」打开设置，允许后回来再点一次安装。",
+              "Android requires you to allow NIBI-GO to install apps. Open the setting, allow it, then tap Install again.",
+            ),
+            [
+              { text: pickText("取消", "Cancel"), style: "cancel" },
+              {
+                text: pickText("去授权", "Open settings"),
+                onPress: openPhoneInstallPermissionSettings,
+              },
+            ],
+          );
+          return;
+        }
+        Alert.alert(
+          pickText("安装未开始", "Install did not start"),
+          result.message ||
+            pickText(
+              "随包安装包当前不可用；请稍后重试或到 Shizuku 官网下载。",
+              "The bundled installer is unavailable right now. Retry later or download Shizuku from its official site.",
+            ),
+        );
+      })
+      .finally(() => setInstalling(false));
+  }, [installing, startPolling]);
+
+  const openShell = useCallback(() => {
+    if (!openPhoneShellManager()) {
+      Alert.alert(
+        pickText("未安装 Shizuku", "Shizuku is not installed"),
+        pickText(
+          "先点「安装 Shizuku」完成随包安装，再打开它启动服务。",
+          "Tap Install Shizuku first, then open it to start the service.",
+        ),
+      );
+    }
+  }, []);
 
   const a11yView = a11yStatusView(status);
   const shellView = shellStatusView(status);
@@ -327,15 +420,20 @@ export default function PhoneSettingsScreen() {
               )}
               value={status.shell.enabled}
               onChange={toggleShell}
-              disabled={!status.available}
+              disabled={!status.available || (!status.shell.installed && !status.shell.enabled)}
             />
             <Divider />
             <View style={styles.cardBody}>
               <Text style={[styles.copy, { color: t.inkSub }]}>
-                {pick(
-                  "需要先安装并运行 Shizuku；权限不等同于 root。",
-                  "Requires Shizuku to be installed and running; runs as shell uid, not root.",
-                )}
+                {status.shell.installed
+                  ? pick(
+                      "需要先安装并运行 Shizuku；权限等同 shell uid，不是 root。",
+                      "Requires Shizuku to be installed and running; runs as shell uid, not root.",
+                    )
+                  : pick(
+                      "Shizuku 安装包已内置在 NIBI-GO 里，点下方一键安装（约 2.5 MB，无需联网）。装好后在 Shizuku 里用无线调试启动服务。",
+                      "Shizuku is bundled inside NIBI-GO. Tap Install below (about 2.5 MB, no network needed), then start its service via Wireless debugging.",
+                    )}
               </Text>
               <StatusRow title="Shizuku" view={shellView} />
               <StatusRow
@@ -347,28 +445,53 @@ export default function PhoneSettingsScreen() {
                   tone: status.shell.wirelessDebugging ? "ok" : "muted",
                 }}
               />
-              <View style={styles.actions}>
-                <ActionButton
-                  label={pick("请求 Shizuku 授权", "Request Shizuku access")}
-                  onPress={requestShellPermission}
-                  disabled={!status.available}
-                />
-                <ActionButton
-                  label={pick("打开 Shizuku", "Open Shizuku")}
-                  onPress={openPhoneShellManager}
-                  disabled={!status.available}
-                />
-              </View>
+              {!status.shell.installed ? (
+                <View style={styles.actions}>
+                  <ActionButton
+                    variant="primary"
+                    label={
+                      installing
+                        ? pick("正在准备安装…", "Preparing installer…")
+                        : pick("安装 Shizuku（随包内置）", "Install Shizuku (bundled)")
+                    }
+                    onPress={installShell}
+                    disabled={!status.available || installing}
+                  />
+                </View>
+              ) : (
+                <View style={styles.actions}>
+                  <ActionButton
+                    label={pick("请求 Shizuku 授权", "Request Shizuku access")}
+                    onPress={requestShellPermission}
+                    disabled={!status.available}
+                  />
+                  <ActionButton
+                    label={pick("打开 Shizuku", "Open Shizuku")}
+                    onPress={openShell}
+                    disabled={!status.available}
+                  />
+                </View>
+              )}
               <Text style={[styles.hint, { color: t.inkFaint }]}>
-                {status.shell.wirelessDebugging
+                {!status.shell.installed
                   ? pick(
-                      "在 Shizuku 里启动服务并授权后回到本页。",
-                      "Start the service in Shizuku and grant permission, then return here.",
+                      "点安装后按系统提示完成；回到本页会自动刷新状态。",
+                      "Finish the system install prompt; this page refreshes when you come back.",
                     )
-                  : pick(
-                      "安装并启动 Shizuku（可用无线调试配对）后回到本页授权。",
-                      "Install and start Shizuku (pair via Wireless debugging), then return here to authorize.",
-                    )}
+                  : !status.shell.running
+                    ? pick(
+                        "打开 Shizuku 并启动服务（可用无线调试配对），再回到本页请求授权。",
+                        "Open Shizuku and start its service (pair via Wireless debugging), then return here to authorize.",
+                      )
+                    : status.shell.wirelessDebugging
+                      ? pick(
+                          "在 Shizuku 里启动服务并授权后回到本页。",
+                          "Start the service in Shizuku and grant permission, then return here.",
+                        )
+                      : pick(
+                          "先开启系统「无线调试」，在 Shizuku 里配对并启动服务。",
+                          "Turn on Wireless debugging first, then pair and start the service in Shizuku.",
+                        )}
               </Text>
             </View>
           </SectionCard>

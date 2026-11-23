@@ -110,3 +110,23 @@ Node/Python 均由 NDK 从官方源码交叉编译（不是 Termux 预编译包�
 commit `ff1c5f4f`），其自身的第三方组件声明见 nibi-client 仓库的
 `THIRD-PARTY-NOTICES.md`。上游沿革（ZCode v3.16.2，Apache-2.0）同样记录在
 该仓库的 NOTICE 文件中。
+
+## 随包第三方 APK（Shizuku）
+
+| 组件 | 版本 | 许可 | 来源与完整性 |
+|---|---|---|---|
+| Shizuku（`moe.shizuku.privileged.api`） | v13.6.0（r1086，2025-05-25） | Apache-2.0 | 官方 GitHub Release `RikkaApps/Shizuku` 资产 `shizuku-v13.6.0.r1086.2650830c-release.apk`（2,571,773 字节） |
+
+- 原样内置在 `app/modules/nibi-phone/android/src/main/assets/shizuku/`，安装前在
+  `ShizukuInstaller.kt` 里校验 SHA-256，不匹配即拒绝安装。
+- SHA-256：`6e273ab0e991c4e79bc8b1bbb9b9dd739ccac1a8712a541a214078886b7b790f`
+- 上游项目主页：https://github.com/RikkaApps/Shizuku ；许可全文见该仓库 `LICENSE`。
+- 只用于「高级手机操控」的 shell uid 通道；用户仍需在系统里允许 NIBI-GO 安装应用，
+  并在 Shizuku 内通过无线调试启动服务与授权。
+
+## 通知提示音
+
+完成/审批/出错三段音效为 NIBI 自研素材（随 nibi-client 桌面客户端，Apache-2.0），
+放在 `app/modules/nibi-phone/android/src/main/res/raw/`：
+`nibi_task_complete.mp3`（7,523 字节）、`nibi_task_approval.mp3`（14,210 字节）、
+`nibi_task_error.mp3`（10,031 字节）。

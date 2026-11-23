@@ -158,6 +158,10 @@ export function Sheet({
         if (finished) runOnJS(finishCloseIfStillHidden)();
       },
     );
+    // 关闭动画被系统打断（finish=false）时不会回调，透明 Modal 会残留并吃光触摸。
+    // 兜底与动画时长错开，保证任何情况下 rendered 都会落回 false。
+    const fallback = setTimeout(finishCloseIfStillHidden, 360);
+    return () => clearTimeout(fallback);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, rendered, reduced]);
 

@@ -11,6 +11,9 @@
     <!-- 开关 2：Shizuku 的 shell uid 通道。 -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
+    <!-- 随包内置的 Shizuku 官方安装包：用户点一次即可离线安装（系统仍会要求授权）。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
@@ -37,5 +40,10 @@
             android:enabled="true"
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+        <!-- PackageInstaller 会话回调：系统要求应用在 STATUS_PENDING_USER_ACTION 时打开确认界面。 -->
+        <receiver
+            android:name="expo.modules.nibiphone.shell.ShizukuInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

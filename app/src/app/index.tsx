@@ -77,6 +77,7 @@ import { AppearIn } from "../motion/appear";
 import { useKeyboardFollow } from "../motion/keyboard";
 import { useConversationPreferences } from "../conversation/useConversationPreferences";
 import { useKernelConversation } from "../kernel/useKernelConversation";
+import { turnFinishedState } from "../kernel/completionAlert";
 import { useProviderCatalog } from "../kernel/useProviderCatalog";
 import { resolveAdaptiveLayout } from "../layout/adaptive";
 import { runPluginAction, toast, type PluginActionContext } from "../plugins/actions";
@@ -1036,6 +1037,20 @@ export default function GoHomeScreen() {
 
   // 面板动作里的“插入草稿”跨页带回首页；同时维护屏焦点，离焦时暂停宠物动画省电。
   const [screenFocused, setScreenFocused] = useState(true);
+  // 首装未配 Provider 时首页会停在 setup_required；用户去设置配好后返回首页，
+  // 需要自动重连一次把内核拉回可发送状态（否则新建会话后输入框仍然点不动）。
+  // 放在 ref 里避免把 focus effect 绑到每次状态变化（focus 回调只跑一次/次聚焦）。
+  const setupRetryRef = useRef<() => void>(() => undefined);
+  const setupRetryAtRef = useRef(0);
+  useEffect(() => {
+    setupRetryRef.current = () => {
+      if (!conversation.setupIssue) return;
+      const now = Date.now();
+      if (now - setupRetryAtRef.current < 1_500) return;
+      setupRetryAtRef.current = now;
+      void conversation.retryStatus();
+    };
+  }, [conversation.setupIssue, conversation.retryStatus]);
   useFocusEffect(
     useCallback(() => {
       setScreenFocused(true);
@@ -1043,6 +1058,7 @@ export default function GoHomeScreen() {
       if (text) {
         setDraft((current) => (current.length > 0 ? `${current}\n${text}` : text));
       }
+      setupRetryRef.current();
       return () => setScreenFocused(false);
     }, []),
   );
@@ -1163,8 +1179,9 @@ export default function GoHomeScreen() {
     }
     if (!wasRunning) return;
     const state = lastTurnStateRef.current;
+    const finished = turnFinishedState(state);
     const nextOutcome: RecentTurnOutcome =
-      state === "completed" ? "completed" : state === "failed" ? "failed" : null;
+      finished === "error" ? "failed" : finished === "complete" ? "completed" : null;
     if (!nextOutcome) return;
     setRecentTurnOutcome(nextOutcome);
     if (outcomeTimerRef.current) clearTimeout(outcomeTimerRef.current);
@@ -1687,7 +1704,12 @@ export default function GoHomeScreen() {
               左组（身份/导航）= ≡ + 会话 chip；右组（操作）= 模型 chip + 工作区面板。
               顶栏用不透明 card：Android 上半透明 glass + elevation 会在圆键外圈打出浑浊灰框。
             */}
-            <View style={[styles.topbar, { paddingTop: insets.top + space(1.5) }]}>
+            <View
+              style={[styles.topbar, { paddingTop: insets.top + space(1.5) }]}
+              // 点顶栏空白（不是某个控件）也退出输入焦点：Android 只 Keyboard.dismiss()
+              // 不会让 EditText 失焦，光标会继续闪。
+              onTouchEnd={blurComposer}
+            >
               <View style={styles.topLeft}>
                 {!hasRail ? (
                   <PressableScale
@@ -1862,6 +1884,9 @@ export default function GoHomeScreen() {
                 conversation.rows.length > 0 && styles.stageList,
                 layout.landscapeCompact && styles.stageLandscape,
               ]}
+              // 点消息流/空态舞台的任意空白（或非输入控件）就退出输入焦点。
+              // 指到气泡里的插件按钮等子控件时同样冒泡到这里——点它们时收起键盘是预期行为。
+              onTouchEnd={blurComposer}
             >
               {conversation.rows.length > 0 ? (
                 <ConversationList
@@ -1987,7 +2012,8 @@ export default function GoHomeScreen() {
                   styles.bottomFade,
                   {
                     height: petDockHeight + space(2),
-                    transform: [{ translateY: keyboardLift }],
+                    // 键盘弹起时不再把这层“屏幕底部专用”的渐变压到输入框附近：
+                    // 它只在原位淡出，避免渐变块上移后与页面中部底色形成割裂。
                     opacity: keyboard.offset.interpolate({
                       inputRange: [0, 120],
                       outputRange: [1, 0],
@@ -2135,7 +2161,14 @@ export default function GoHomeScreen() {
                 {
                   height: insets.bottom + space(2) + 34,
                   backgroundColor: th.bgGradient[1],
-                  transform: [{ translateY: keyboardLift }],
+                  // 纯色裙边只服务于“键盘收起时封住屏幕底部”。键盘弹起后它若跟着上移，
+                  // 会在输入框下方露出一条与中部渐变色不同的横条（割裂色块），因此这里
+                  // 让它原位快速淡出，而不是随键盘平移。
+                  opacity: keyboard.offset.interpolate({
+                    inputRange: [0, 40],
+                    outputRange: [1, 0],
+                    extrapolate: "clamp",
+                  }),
                 },
               ]}
             />
@@ -2417,6 +2450,7 @@ export default function GoHomeScreen() {
         session={sessionTools}
         bottom={statusBottom}
         paused={drawerOpen || workspacePanelOpen}
+        onPluginAction={stablePluginAction}
       />
 
       <PluginPopup

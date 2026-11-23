@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { loadAppearancePreferences } from "../appearance/preferences";
 import { loadLanguagePreferences } from "../i18n";
+import { loadProjects } from "../kernel/projects";
 import { loadDevicePreferences } from "../settings/devicePreferences";
 import { useNibiScheme } from "../theme";
 import { ensureNotificationSetup, subscribeNotificationTap } from "../relay/notifications";
@@ -22,11 +23,14 @@ export default function RootLayout() {
   useEffect(() => {
     const unsubscribe = subscribeNotificationTap((route) => router.push(route as never));
     let alive = true;
-    // 外观 + 语言 + 设备偏好（通知/唤醒/动效）都先读再挂载：让持久化值直接进首帧。
+    // 外观 + 语言 + 设备偏好（通知/唤醒/动效）+ 项目列表都先读再挂载：让持久化值直接进首帧。
+    // 项目列表此前没有启动加载（只有写入口），重启后内存缓存是空的，新装后新建的项目
+    // 会在下一次写入时被空列表覆盖——必须在任何页面读取 useProjects 之前 load 一次。
     void Promise.all([
       loadAppearancePreferences(),
       loadLanguagePreferences(),
       loadDevicePreferences(),
+      loadProjects(),
     ]).finally(() => {
       void ensureNotificationSetup();
       if (alive) setAppearanceReady(true);

@@ -7,8 +7,9 @@
 import { useMemoryPreferences } from "../memory/useMemoryPreferences";
 import { hostSlotData } from "../plugins/data";
 import type { LoadedPlugin } from "../plugins/store";
-import { resolveText, type ViewTone } from "@nibi-go/plugin-contract";
+import { resolveText, resolveView, type ViewTone } from "@nibi-go/plugin-contract";
 import { AgentFace, type AgentFaceStatus } from "./AgentFace";
+import { PluginPanelView, type PluginActionHandler } from "./PluginView";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -31,6 +32,9 @@ export interface ContextUsage {
   usedTokens: number;
   maxTokens: number;
   cacheHitRate: number | null;
+  /** 会话累计缓存读/写；两项都为 0 时表示 Provider 未回传缓存数据（不是 0% 命中）。 */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   /** 内核 /context 分析器的分项（source + chars）；回答“上下文由什么组成”。 */
   breakdown?: readonly { source: string; chars: number }[];
 }
@@ -199,6 +203,7 @@ function SideStatusImpl({
   slotData,
   session,
   paused = false,
+  onPluginAction,
 }: {
   plugins: readonly LoadedPlugin[];
   usage: ContextUsage | null;
@@ -209,6 +214,8 @@ function SideStatusImpl({
   session?: SessionToolState;
   /** 侧栏展开时暂停环的呼吸/轮播：它在遮罩后面看不见，却会让模糊层每帧重算。 */
   paused?: boolean;
+  /** 上下文面板里插件的按钮动作（与消息流共用同一套 effects 执行器）。 */
+  onPluginAction?: PluginActionHandler;
 }) {
   const t = useNibiTheme();
   const { pick } = useI18n();
@@ -216,6 +223,10 @@ function SideStatusImpl({
   const { height: screenHeight } = useWindowDimensions();
   const strips = plugins.flatMap((plugin) =>
     plugin.parsed.manifest.contributes.strips.map((strip) => ({ plugin, strip })),
+  );
+  // 上下文用量面板里的插件内容（`contributes["context.window"]`，每插件 ≤2）。
+  const contextSlots = plugins.flatMap((plugin) =>
+    plugin.parsed.manifest.contributes.contextWindow.map((item) => ({ plugin, item })),
   );
   const [expanded, setExpanded] = useState(false);
   const [index, setIndex] = useState(0);
@@ -312,10 +323,16 @@ function SideStatusImpl({
   const ratio =
     usage && usage.maxTokens > 0 ? Math.min(1, usage.usedTokens / usage.maxTokens) : 0;
   const meterColor = ratio >= 0.95 ? t.red : ratio >= 0.8 ? t.amber : t.brand;
+  // 缓存口径：命中率是“会话累计”（缓存读 ÷ 总输入，含首轮写入）。有的 Provider 完全不回传
+  // 缓存读写 token，此时 hitRate 是 0 但其实是“没有数据”，不能显示成 0% 让人误判。
+  const cacheReadTokens = usage?.cacheReadTokens ?? 0;
+  const cacheWriteTokens = usage?.cacheWriteTokens ?? 0;
   const cache =
     usage?.cacheHitRate === null || usage?.cacheHitRate === undefined
       ? "—"
-      : `${Math.round(usage.cacheHitRate * 100)}%`;
+      : cacheReadTokens === 0 && cacheWriteTokens === 0
+        ? pick("无缓存数据", "No cache data")
+        : `${Math.round(usage.cacheHitRate * 100)}%`;
   // 分项按字符占比排序，只列前 5 项：面板宽度有限，长尾不值得挤进去。
   const breakdown = useMemo(() => {
     const items = usage?.breakdown ?? [];
@@ -488,7 +505,9 @@ function SideStatusImpl({
           </View>
           <View style={styles.pillFoot}>
             <Text style={[styles.pillMeta, { color: t.inkFaint }]}>
-              {pick("缓存命中率", "Cache hit")}
+              {/* 口径说明：这是本会话到目前的累计命中率（缓存读 ÷ 总输入，含写入缓存的首轮），
+                  不是最近一轮的稳态值。压缩/重启后的首轮会把累计值往下拉一截。 */}
+              {pick("缓存命中（累计）", "Cache hit (total)")}
             </Text>
             <Text style={[styles.cacheValue, { color: t.steel }]}>{cache}</Text>
           </View>
@@ -535,6 +554,43 @@ function SideStatusImpl({
               <Text style={[styles.pluginText, { color: t.inkFaint }]} numberOfLines={1}>
                 {pluginText}
               </Text>
+            </View>
+          ) : null}
+          {contextSlots.length > 0 ? (
+            <View style={[styles.contextSlots, { borderTopColor: t.hairline }]}>
+              {contextSlots.map(({ plugin, item }) => {
+                const meta = {
+                  id: plugin.parsed.manifest.id,
+                  name: plugin.parsed.manifest.name,
+                  version: plugin.parsed.manifest.version,
+                };
+                const host = hostSlotData({
+                  enabledPlugins: plugins.length,
+                  plugin: meta,
+                  settings: plugin.settings,
+                });
+                const data = {
+                  data: { ...(item.data ?? {}), ...host.data, plugin: item.data ?? {} },
+                };
+                return (
+                  <View key={`${plugin.dir}:${item.id}`} style={styles.contextSlot}>
+                    {item.title ? (
+                      <Text
+                        style={[styles.contextSlotTitle, { color: t.inkFaint }]}
+                        numberOfLines={1}
+                      >
+                        {item.title}
+                      </Text>
+                    ) : null}
+                    <PluginPanelView
+                      plugin={plugin}
+                      node={resolveView(item.view, data)}
+                      actions={item.actions}
+                      onAction={onPluginAction ?? (() => undefined)}
+                    />
+                  </View>
+                );
+              })}
             </View>
           ) : null}
         </Pressable>
@@ -694,4 +750,12 @@ const styles = StyleSheet.create({
     paddingTop: space(1),
   },
   pluginText: { fontSize: 9.5, flexShrink: 1 },
+  contextSlots: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: space(2),
+    paddingTop: space(2),
+    gap: space(2.5),
+  },
+  contextSlot: { gap: space(1) },
+  contextSlotTitle: { ...text("micro"), fontWeight: "700" },
 });

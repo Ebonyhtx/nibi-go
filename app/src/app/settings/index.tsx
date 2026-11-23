@@ -21,6 +21,7 @@ import {
   type AppearanceMode,
 } from "../../appearance/preferences";
 import { Row, ToggleRow } from "../../components/ui/Row";
+import { PillButton } from "../../components/ui/PillButton";
 import { Divider, SectionCard } from "../../components/ui/SectionCard";
 import { ScreenHeader } from "../../components/ui/ScreenHeader";
 import { SegmentedControl, type SegmentedOption } from "../../components/ui/SegmentedControl";
@@ -29,7 +30,7 @@ import { setLanguageMode, useI18n, type LanguageMode } from "../../i18n";
 import { useResponsiveBodyStyle } from "../../layout/responsive";
 import { AppearIn, staggerDelay } from "../../motion/appear";
 import { useSession } from "../../relay/useSession";
-import { syncNotificationChannel } from "../../relay/notifications";
+import { previewAgentSound, syncNotificationChannel } from "../../relay/notifications";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -253,14 +254,38 @@ export default function SettingsHomeScreen() {
               icon="bell"
               tone="brand"
               title={pick("通知声音", "Notification sound")}
-              detail={pick("提醒时播放提示音", "Play alert sound for notifications")}
+              detail={pick(
+                "提醒时播放 NIBI 提示音（完成/审批/出错三种音色）",
+                "Play NIBI alert sounds (completion, approval, failure)",
+              )}
               value={device.notificationSound}
               onChange={(value) => {
                 void updateDevicePreferences({ notificationSound: value });
                 void syncNotificationChannel();
+                // 打开时立刻试听一声完成鸟鸣：让用户确认系统通知流没有静音。
+                if (value) previewAgentSound("complete");
               }}
               disabled={!device.taskNotifications}
             />
+            {device.notificationSound && device.taskNotifications ? (
+              <View style={styles.soundPreview}>
+                {(
+                  [
+                    ["complete", pick("试听·完成", "Test: done")],
+                    ["approval", pick("试听·审批", "Test: approval")],
+                    ["error", pick("试听·出错", "Test: failure")],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <PillButton
+                    key={kind}
+                    label={label}
+                    variant="secondary"
+                    buttonSize="sm"
+                    onPress={() => previewAgentSound(kind)}
+                  />
+                ))}
+              </View>
+            ) : null}
             <Divider />
             <ToggleRow
               icon="sparkles"
@@ -452,6 +477,14 @@ export default function SettingsHomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // 三音色试听：只在声音开启时出现在开关下面，与行内文字共用左内边距。
+  soundPreview: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space(2),
+    paddingHorizontal: space(3.5),
+    paddingBottom: space(2.5),
+  },
   accountMessage: {
     flexDirection: "row",
     alignItems: "center",

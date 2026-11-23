@@ -79,6 +79,7 @@ export class ChatSession {
   private seenQuestions = new Set<string>();
   private lastPhase?: string;
   /** 前台时通知交给 in-app UI（后台才弹系统通知）。 */
+  /** 前台判断（保留给宿主投影）；通知的前后台分派已收口到 notifyAgent。 */
   private isForeground: () => boolean;
 
   constructor(
@@ -295,13 +296,13 @@ export class ChatSession {
     else if (phase === "error") this.pulse.taskFinished(this.active?.sessionId ?? "task", "failed");
   }
 
-  /** PulseTracker 下游：前台交给 in-app UI；后台弹系统通知（点击直达 chat）。 */
+  /** PulseTracker 下游：前台也在 App 内播 NIBI 提示音；后台弹系统通知（点击直达 chat）。 */
   private onPulse(pulse: { kind: "sustained"; state: AgentSustainedState } | AgentPulseEvent): void {
     if (pulse.kind === "sustained") return; // 持续态由 UI/桌宠消费（A4 通知不发）
-    if (this.isForeground()) return;
     switch (pulse.kind) {
       case "approval-requested":
         void notifyAgent({
+          kind: "approval",
           title: pickText("需要审批", "Approval needed"),
           body: pickText(
             "桌面 AGENT 正在等待你的审批",
@@ -312,6 +313,7 @@ export class ChatSession {
         return;
       case "question-asked":
         void notifyAgent({
+          kind: "approval",
           title: pickText("有一个问题", "Question"),
           body: pickText("桌面 AGENT 在等你回答", "Desktop agent is waiting for your reply"),
           route: "/chat",
@@ -319,6 +321,7 @@ export class ChatSession {
         return;
       case "task-finished":
         void notifyAgent({
+          kind: pulse.outcome === "failed" ? "error" : "complete",
           title:
             pulse.outcome === "success"
               ? pickText("任务完成", "Task completed")
