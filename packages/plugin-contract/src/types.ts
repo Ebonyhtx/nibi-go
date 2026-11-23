@@ -65,13 +65,15 @@ export interface ViewBudget {
   depth: number;
 }
 
-export type ViewKind = "toolCard" | "panel" | "strip";
+export type ViewKind = "toolCard" | "panel" | "strip" | "contextWindow";
 
 /** 各 slot 的预算；与 docs/design/android-native-runtime.md §7 一致。 */
 export const VIEW_BUDGETS: Record<ViewKind, ViewBudget> = {
   toolCard: { bytes: 8 * 1024, nodes: 40, depth: 6 },
   panel: { bytes: 32 * 1024, nodes: 120, depth: 8 },
   strip: { bytes: 2 * 1024, nodes: 8, depth: 3 },
+  // 上下文用量面板里的一小块（悬浮卡展开后的右下面板）：比 panel 小、比 strip 大。
+  contextWindow: { bytes: 8 * 1024, nodes: 40, depth: 6 },
 };
 
 /** 单个 slot 每插件的条数上限（设计文档 §7 的表格）。 */
@@ -85,6 +87,7 @@ export const SLOT_LIMITS = {
   "session.actions": 2,
   "turn.note": 1,
   webIslands: 2,
+  "context.window": 2,
 } as const;
 
 export type SlotName = keyof typeof SLOT_LIMITS;
@@ -204,6 +207,22 @@ export interface PanelContribution {
   actions: PanelAction[];
 }
 
+/**
+ * 上下文用量面板（悬浮卡展开后的「上下文」块）里的一块插件内容，每插件 ≤2。
+ * 用途：把插件自己的指标（例如检索命中、缓存策略、工具预算）放到用户看上下文的位置；
+ * 它不是第二个设置页，也不允许借这里绕过 effects 白名单。
+ */
+export interface ContextWindowContribution {
+  id: string;
+  /** 可选小标题（≤16 字）；缺省时只渲染 view。 */
+  title?: string;
+  icon?: string;
+  /** 静态数据，和宿主的 `host` 数据合并后供 view 绑定。 */
+  data?: Record<string, unknown>;
+  view: ViewNode;
+  actions: PanelAction[];
+}
+
 export interface StripContribution {
   id: string;
   text: ViewText;
@@ -283,6 +302,7 @@ export interface PluginManifest {
     strips: StripContribution[];
     turnNotes: TurnNoteContribution[];
     webIslands: WebIslandContribution[];
+    contextWindow: ContextWindowContribution[];
   };
 }
 

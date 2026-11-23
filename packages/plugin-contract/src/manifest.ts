@@ -13,6 +13,7 @@ import type {
   ComposerActionContribution,
   ComposerTokenContribution,
   ComposerToolContribution,
+  ContextWindowContribution,
   Effect,
   HostProfile,
   MessageActionContribution,
@@ -577,6 +578,66 @@ function readPanels(raw: unknown, issues: ContractIssue[], degraded: string[]): 
   return panels;
 }
 
+/**
+ * `contributes["context.window"]`：上下文用量面板里的一块插件内容（每插件 ≤2）。
+ * 与 panel 共用 ViewNode/动作语法，但标题可选、视图预算更小（8 KiB / 40 / 6）。
+ */
+function readContextWindow(
+  raw: unknown,
+  issues: ContractIssue[],
+  degraded: string[],
+): ContextWindowContribution[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    issues.push({ path: "/contributes/context.window", message: "context.window 必须是数组" });
+    return [];
+  }
+  const limit = SLOT_LIMITS["context.window"];
+  if (raw.length > limit) {
+    issues.push({
+      path: "/contributes/context.window",
+      message: `context.window 最多 ${limit} 个，已丢弃多出的 ${raw.length - limit} 个`,
+    });
+  }
+  const items: ContextWindowContribution[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.slice(0, limit).entries()) {
+    const path = `/contributes/context.window/${index}`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      issues.push({ path, message: "context.window 项必须是对象" });
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const id = typeof value.id === "string" && ID_RE.test(value.id) ? value.id : "";
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    if (!id || seen.has(id) || (title.length > 0 && textLength(title) > 16)) {
+      issues.push({ path, message: "context.window 需要唯一 id 与 ≤16 字的 title（可选）" });
+      continue;
+    }
+    const view = readView(value.view, "contextWindow");
+    issues.push(...view.issues.map((issue) => ({ ...issue, path: `${path}/view${issue.path}` })));
+    if (!view.view) continue;
+    const actions = readActions(value.actions, `${path}/actions`);
+    issues.push(...actions.issues);
+    const data = value.data === undefined ? undefined : dataSchema.safeParse(value.data);
+    if (data && !data.success) {
+      issues.push({ path: `${path}/data`, message: "data 必须是对象" });
+    }
+    const icon = typeof value.icon === "string" ? value.icon.slice(0, 32) : undefined;
+    seen.add(id);
+    if (view.degraded) degraded.push(`context.window:${id}`);
+    items.push({
+      id,
+      ...(title ? { title } : {}),
+      ...(icon ? { icon } : {}),
+      ...(data?.success ? { data: data.data } : {}),
+      view: view.view,
+      actions: actions.actions,
+    });
+  }
+  return items;
+}
+
 function readStrips(raw: unknown, issues: ContractIssue[]): StripContribution[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
@@ -820,6 +881,7 @@ function emptyManifest(id: string, name: string, version: string): PluginManifes
       strips: [],
       turnNotes: [],
       webIslands: [],
+      contextWindow: [],
     },
   };
 }
@@ -880,6 +942,7 @@ export function readPluginManifest(
   const strips = readStrips(contributesRaw["composer.strip"], issues);
   const turnNotes = readTurnNotes(contributesRaw["turn.note"], issues);
   const webIslands = readWebIslands(contributesRaw.webIslands, issues);
+  const contextWindow = readContextWindow(contributesRaw["context.window"], issues, degraded);
   const settings = readSettings(raw.settings, issues);
 
   const manifest: PluginManifest = {
@@ -906,6 +969,7 @@ export function readPluginManifest(
       strips,
       turnNotes,
       webIslands,
+      contextWindow,
     },
   };
 

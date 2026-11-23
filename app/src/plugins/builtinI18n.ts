@@ -84,6 +84,33 @@ const BUILTIN_COPY: Record<string, BuiltinPluginCopy> = {
       },
     },
   },
+  "nibigo-guide": {
+    nameEn: "NIBI-GO Guide",
+    descriptionEn:
+      "Built-in handbook and plugin development guide: app feature map, all 10 UI slots, MCP/skills/commands authoring, and publishing.",
+    skills: {
+      "nibi-go-usage": {
+        nameEn: "NIBI-GO Usage & Feature Map",
+        descriptionEn:
+          "Use when the user asks how NIBI-GO works, where a feature lives, or reports input/notification/phone-control issues.",
+      },
+      "nibi-go-plugins": {
+        nameEn: "GO Plugin System & UI Slots",
+        descriptionEn:
+          "Use when authoring plugins, choosing UI slots, or configuring ViewNode/effects/settings/runtime.",
+      },
+      "nibi-go-mcp-skills": {
+        nameEn: "MCP, Skills & Commands",
+        descriptionEn:
+          "Use when adding MCP servers, writing skills or commands, or clarifying how the three load.",
+      },
+      "nibi-go-plugin-dev": {
+        nameEn: "Building & Shipping GO Plugins",
+        descriptionEn:
+          "Use when developing a plugin from scratch, debugging via local ZIP, or preparing a market submission.",
+      },
+    },
+  },
   "open.git-workflow": {
     nameEn: "Git Diff & Commit Review",
     descriptionEn:

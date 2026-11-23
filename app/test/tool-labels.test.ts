@@ -63,7 +63,7 @@ describe("toolLabels 用户口径中文化", () => {
 });
 
 describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
-  it("包含文档四件套（Word/Excel/PPT/PDF）+ 可视化且清单零告警", () => {
+  it("包含文档四件套（Word/Excel/PPT/PDF）+ 可视化 + 指南且清单零告警", () => {
     const ids = BUNDLED_PLUGINS.map((item) => item.dir);
     expect(ids).toEqual([
       "nibigo-documents",
@@ -71,6 +71,7 @@ describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
       "nibigo-presentations",
       "nibigo-pdf",
       "nibigo-visualize",
+      "nibigo-guide",
     ]);
     expect(RETIRED_SAMPLE_DIRS).toContain("nibigo-assistant");
 
@@ -88,5 +89,47 @@ describe("BUNDLED_PLUGINS 内置插件套件校验", () => {
       expect(parsed.issues).toEqual([]);
       expect(parsed.degraded).toEqual([]);
     }
+  });
+});
+
+describe("context.window 插件槽", () => {
+  it("解析视图/动作，并按每插件 2 条上限截断", () => {
+    const parsed = readPluginManifest(
+      {
+        schemaVersion: 1,
+        id: "ctx-demo",
+        name: "上下文示例",
+        version: "1.0.0",
+        contributes: {
+          "context.window": [
+            { id: "one", title: "缓存", view: { type: "text", text: "命中 98%" } },
+            {
+              id: "two",
+              view: {
+                type: "column",
+                children: [{ type: "text", text: "工具预算" }],
+              },
+              actions: [
+                {
+                  id: "open",
+                  label: "打开",
+                  effects: [{ kind: "open", panel: "handbook" }],
+                },
+              ],
+            },
+            { id: "three", view: { type: "text", text: "超出上限" } },
+          ],
+        },
+      },
+      { host: "local", appVersion: "0.1.8", caps: APP_CAPABILITIES },
+      "ctx-demo",
+    );
+
+    expect(parsed.status).toBe("ready");
+    expect(parsed.manifest.contributes.contextWindow).toHaveLength(2);
+    expect(parsed.manifest.contributes.contextWindow[0]?.title).toBe("缓存");
+    expect(parsed.manifest.contributes.contextWindow[1]?.actions[0]?.id).toBe("open");
+    expect(parsed.issues.some((issue) => issue.path === "/contributes/context.window")).toBe(true);
+    expect(parsed.degraded).toEqual([]);
   });
 });

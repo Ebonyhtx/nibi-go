@@ -4,8 +4,11 @@
 //   3. PPT 演示 (nibigo-presentations)：16:9 .pptx 幻灯片生成与大纲提取
 //   4. PDF 工具箱 (nibigo-pdf)：.pdf 文档排版生成与页数/文本解析
 //   5. 图表与可视化 (nibigo-visualize)：响应式 SVG/HTML 数据图表与架构流程图
+//   6. NIBI-GO 指南 (nibigo-guide)：App 使用手册与插件开发指南（技能 + 静态面板，无 MCP）
 //
 // 所有 MCP 服务器均运行在本机 Node 24 子进程（stdio JSON-RPC），并在消息流中渲染原生 NIBI-GO 工具卡片。
+
+import { GUIDE_MANIFEST } from "./guidePlugin";
 
 export interface BundledPlugin {
   /** 插件目录名（稳定，不随 manifest 的 id 改动）。 */
@@ -1441,6 +1444,7 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
   { dir: "nibigo-presentations", manifest: PRESENTATIONS_MANIFEST, files: { "server.mjs": PRESENTATIONS_SERVER } },
   { dir: "nibigo-pdf", manifest: PDF_MANIFEST, files: { "server.mjs": PDF_SERVER } },
   { dir: "nibigo-visualize", manifest: VISUALIZE_MANIFEST, files: {} },
+  { dir: "nibigo-guide", manifest: GUIDE_MANIFEST, files: {} },
 ];
 
 export const MANIFEST_FILE = "nibi-go.plugin.json";

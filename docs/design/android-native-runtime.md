@@ -236,6 +236,7 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
 | `composer.tools` | 加号面板 | 4 | 命令 token，与附件磁贴同网格 |
 | `session.actions` | 右侧栏「信息」操作行 | 2 | 带 sessionId |
 | `turn.note` | 回合脚注末尾 | 1 | 只读文字 |
+| `context.window` | 上下文用量悬浮面板（展开后） | 2 | 插件自己的指标/快捷入口；`title` 可选，视图 8KiB/40/6 |
 | Web Island | 网页插件的面板 | 按预算 | WebView + 路由守卫 + 降级 |
 
 约束：
@@ -255,10 +256,10 @@ app uid，能读 App 可读的其他路径。要硬隔离只能限制 shell/解�
   `nibi-go.plugin.json`：`schemaVersion:1`、`id/name/version`、`minApp`、`caps`、
   可选 `runtime:{type:"mcp",serverName,entry,alwaysLoad?,timeoutMs?}`、`contributes`。
   当前渲染 `toolCards` / `composer.actions` / `composer.strip` / `composer.tools` /
-  `message.actions` / `session.actions` / `panels` / `turn.note` / Web Island。
+  `message.actions` / `session.actions` / `panels` / `turn.note` / `context.window` / Web Island。
 - **视图 v1**：文字/行/列/卡/徽标/分隔/进度/列表/按钮/间距；数据绑定
   `{ "$": "data.x" }` 与 `{{data.x}}` 插值。预算：工具卡 8KiB/40 节点/6 层、面板
-  32KiB/120/8、状态条 2KiB/8/3；超出整条不渲染。`tabs`/`gallery`/未知组件换成 v1
+  32KiB/120/8、状态条 2KiB/8/3、上下文面板 8KiB/40/6；超出整条不渲染。`tabs`/`gallery`/未知组件换成 v1
   替身并标记“已降级”，单条过坏只丢该条。
 - **效果**：`insert/toast/copy/open/link/command/refresh`，每次 ≤4；`insert` 只改草稿、
   永不自动发送；`link` 只收无凭据 https；`command` 不能叫 permission；3 秒点按窗口由
