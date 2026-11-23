@@ -117,6 +117,9 @@ update.json 的 Ed25519 签名
 6. 未配置 CDN 时打印警告，只发布 GitHub；客户端自动回退 GitHub 检查。
 7. 如果 GitHub 已发布但 CDN 上传失败，修复环境后运行
    `node scripts/release.mjs <version> --cdn-only` 补发 APK + 签名清单，不重新构建。
+8. 版本号已经单独提交时用 `--no-bump`（不再修改 app.json）。
+9. Windows Git Bash 下运行需设 `MSYS2_ENV_CONV_EXCL='*' MSYS2_ARG_CONV_EXCL='*'`，
+   否则 `/tmp`、`/srv` 等远程 POSIX 路径会被改写成 `C:/...`；`NIBI_KEYSTORE_FILE` 用 Windows 路径。
 
 CDN 发布环境变量（不写进仓库）：
 
@@ -164,15 +167,21 @@ NIBI_RELEASE_MIN_VERSION_CODE # 可选，强制升级下限
 
 ## 12. 真机验收（2026-11-24）
 
-用 0.1.8/9 测试构建（清单指向测试 CDN）与 0.1.9/10 候选构建在 PHK110 上验收：
+用 0.1.8/9 测试构建（清单指向测试 CDN）与 0.1.9/10 构建在 PHK110 上验收（v0.1.9 已于 2026-11-24 发布）：
 
 - 启动自动检查 5 秒后拉到签名清单，弹出“需要更新 NIBI-GO”强制更新提示；
 - 设置页显示“有新版本 0.1.9”红点；检查更新弹窗显示 110 MB、来源“国内源”、不可取消；
 - 下载走原生断点续传，完成后 SHA-256 校验通过并调起系统 PackageInstaller；
 - 系统安装确认需要设备锁屏密码；用 `adb install -r` 完成安装后，版本变为 0.1.9/10，原有会话与项目保留；
-- 更新后设置页不再残留“有新版本”红点；手动检查走生产清单 404 → GitHub 兜底，显示“已是最新版本（0.1.9）”；
+- 更新后设置页不再残留“有新版本”红点；手动检查显示“已是最新版本（0.1.9）”（验收时生产清单尚未发布，走 GitHub 兜底；发布后走 dl 签名清单）；
 - 自动检查开关可关闭/开启；
 - 市场页刷新到 revision 10，NIBI 页显示官方签名目录 + 6 个随包内置，`hello` demo 不再出现。
+
+发布产物：
+
+- GitHub：https://github.com/Ebonyhtx/nibi-go/releases/tag/v0.1.9
+- 签名清单：https://dl.nibistudio.cn/nibi-go-app/update.json
+- APK SHA-256：`41411a20b6a9a0aa6c9c204f48135b4d00f4e625a24d4923867b730a04d6cd52`
 
 ## 13. 实现注意
 
